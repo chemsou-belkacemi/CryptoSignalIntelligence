@@ -165,6 +165,7 @@ Tests et qualité :
 .\.venv\Scripts\python.exe -m pytest
 .\.venv\Scripts\ruff.exe check src tests
 .\.venv\Scripts\mypy.exe
+.\.venv\Scripts\pyright.exe            # imports et noms introuvables (types : mypy)
 ```
 
 Les fixtures de test sont **synthétiques** : elles vérifient le code, jamais une performance de marché.

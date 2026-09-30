@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.4", "ruff>=0.12", "mypy>=1.17"]
+dev = ["pytest>=8.4", "ruff>=0.12", "mypy>=1.17", "pyright>=1.1.400"]
 # Groupes des lots suivants, ajoutés à leur étape : research (vectorbt, optuna),
 # ml (scikit-learn, puis un seul de lightgbm/xgboost), agents, streaming, reports.
 
@@ -55,3 +55,15 @@ python_version = "3.12"
 files = ["src/crypto_signal_intelligence"]
 plugins = ["pydantic.mypy"]
 ignore_missing_imports = true
+
+[tool.pyright]
+# Serveur de langage (éditeur, plugin pyright-lsp) : navigation, imports introuvables, syntaxe.
+# Le contrôle de types reste mypy : en mode « basic », pyright signale ~300 faux positifs dus aux
+# stubs pandas / pyarrow / pydantic-settings (relevé du 2026-09-30), qui noieraient les vrais.
+include = ["src", "tests"]
+pythonVersion = "3.14"
+venvPath = "."
+venv = ".venv"
+typeCheckingMode = "off"
+reportMissingImports = "error"
+reportUndefinedVariable = "error"

@@ -44,6 +44,7 @@ The venv is a **Windows** venv (`.venv/Scripts/python.exe`) and the owner uses P
 ./.venv/Scripts/python.exe -m pytest -m "not network"                  # skip tests that need Internet
 ./.venv/Scripts/ruff.exe check src tests
 ./.venv/Scripts/mypy.exe                                               # configured in pyproject to check src/
+./.venv/Scripts/pyright.exe                                            # language server checks only (imports, undefined names)
 ./.venv/Scripts/python.exe -m crypto_signal_intelligence <command>     # CLI (also exposed as `csi`)
 ```
 
