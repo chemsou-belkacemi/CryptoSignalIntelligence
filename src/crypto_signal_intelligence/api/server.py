@@ -8,6 +8,7 @@ demande de clé Binance. Routes (JSON, UTF-8) :
     GET  /sources              bilan de chaque groupe Telegram contre le taux de base
     GET  /signals/recent?limit=N   dernières évaluations de signaux externes
     GET  /execution-report     signaux publiés : backtest, prospectif et Demo séparés
+    GET  /signals/generated?limit=N  derniers signaux trouvés par les stratégies de CSI (shadow)
     GET  /universe             paires configurées et paires ajoutées par le propriétaire (état)
     POST /evaluate             {"text": "...", "source": "groupe", "record": true, "user_validated": false}
                                → verdict expliqué ; user_validated = signal soumis à la main par le
@@ -157,6 +158,47 @@ class CsiApi:
         from ..feedback.reconcile import execution_report
         return {"rows": _jsonable(execution_report(self.settings))}
 
+    def generated(self, limit: int) -> dict:
+        """Derniers signaux trouvés par les stratégies de CSI (dossier shadow), du plus récent au plus ancien.
+
+        `bsm_text` : le même signal au format texte que BinanceSpotManager lit déjà (PAIR / ENTRY / T / SL),
+        pour un test manuel en Demo. Aucune stratégie n'étant validée, chaque signal porte son statut de
+        validation et le verdict du dernier walk-forward de sa stratégie.
+        """
+        from ..signals.outbox import SignalRegistry
+        from ..signals.txt import parse
+        if not self.settings.signals_db.exists():
+            return {"signals": [], "note": "aucun signal trouvé pour l'instant"}
+        verdicts = {s["strategy"]: s for s in self.strategies()["strategies"]}
+        registry = SignalRegistry(self.settings.signals_db, self.settings.publication_dir(), root=self.settings.root)
+        now = self.now()
+        out = []
+        for row in reversed(registry.rows()[-max(1, min(limit, 100)):]):
+            try:
+                signal = parse(row["payload"])
+            except Exception:  # noqa: BLE001 - un enregistrement illisible n'empêche pas les autres
+                continue
+            quote = "USDC" if signal.symbol.endswith("USDC") else "USDT"
+            pair = f"{signal.symbol[: -len(quote)]}/{quote}"
+            targets = [str(t) for t in signal.targets]
+            bsm_text = "\n".join([f"PAIR: {pair}", f"ENTRY 1: {signal.entry_1}",
+                                  *(f"T{i}: {t}" for i, t in enumerate(targets, 1)),
+                                  f"SL: {signal.stop_loss}", "PLATFORM: Binance"])
+            walk_forward = verdicts.get(signal.strategy, {})
+            out.append({
+                "signal_id": signal.signal_id, "symbol": signal.symbol, "strategy": signal.strategy,
+                "created_at": signal.created_at.isoformat(), "entry_expires_at": signal.entry_expires_at.isoformat(),
+                "expired": signal.entry_expires_at <= now, "entry": str(signal.entry_1),
+                "stop_loss": str(signal.stop_loss), "targets": targets, "rr_tp1_gross": str(signal.rr_tp1_gross),
+                "trend_regime": _text(signal.trend_regime), "volatility_regime": _text(signal.volatility_regime),
+                "validation_status": _text(signal.validation_status),
+                "strategy_verdict": walk_forward.get("verdict"), "strategy_expectancy_r": walk_forward.get("expectancy_r"),
+                "bsm_text": bsm_text,
+            })
+        return {"signals": out,
+                "note": "stratégies non validées (walk-forward) : signaux à observer ou à tester à la main en Demo, "
+                        "jamais une promesse de gain"}
+
     def universe(self) -> dict:
         from ..external.universe import UserUniverse
         return {"configured": list(self.settings.data.symbols),
@@ -192,12 +234,18 @@ class CsiApi:
                 "/health": self.health, "/strategies": self.strategies, "/sources": self.sources,
                 "/execution-report": self.execution_report, "/universe": self.universe,
                 "/signals/recent": lambda: self.recent(_int(query.get("limit", ["20"])[0])),
+                "/signals/generated": lambda: self.generated(_int(query.get("limit", ["20"])[0])),
             }
             if path in routes:
                 return routes[path]()
         elif method == "POST" and path == "/evaluate":
             return self.evaluate(body or {})
         raise ApiError(HTTPStatus.NOT_FOUND, f"route inconnue : {method} {path}")
+
+
+def _text(value: Any) -> str:
+    """Valeur d'énumération ou chaîne, en texte."""
+    return str(getattr(value, "value", value))
 
 
 def _int(value: str) -> int:
@@ -233,6 +281,17 @@ def make_handler(api: CsiApi, token: str | None) -> type[BaseHTTPRequestHandler]
 
         def _handle(self, method: str) -> None:
             try:
+                raw = b""
+                length = 0
+                if method == "POST":
+                    # Corps lu AVANT toute réponse (bornée à 1 Mo) : répondre sans l'avoir lu fait couper la
+                    # connexion par le système (Windows), et le client ne reçoit jamais le code d'erreur.
+                    try:
+                        length = max(0, int(self.headers.get("Content-Length") or 0))
+                    except ValueError:
+                        raise ApiError(HTTPStatus.BAD_REQUEST, "Content-Length invalide") from None
+                    raw = self.rfile.read(min(length, 1 << 20)) if length else b""
+                    self.close_connection = length > len(raw)
                 if not self._authorized():
                     raise ApiError(HTTPStatus.UNAUTHORIZED, "jeton absent ou invalide")
                 url = urlparse(self.path)
@@ -240,12 +299,11 @@ def make_handler(api: CsiApi, token: str | None) -> type[BaseHTTPRequestHandler]
                 if method == "POST":
                     if "application/json" not in (self.headers.get("Content-Type") or ""):
                         raise ApiError(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, "Content-Type application/json requis")
-                    length = int(self.headers.get("Content-Length") or 0)
                     if length <= 0 or length > MAX_BODY_BYTES:
                         raise ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE if length > 0 else HTTPStatus.BAD_REQUEST,
                                        f"corps JSON requis, {MAX_BODY_BYTES} octets au plus")
                     try:
-                        body = json.loads(self.rfile.read(length).decode("utf-8"))
+                        body = json.loads(raw.decode("utf-8"))
                     except (UnicodeDecodeError, json.JSONDecodeError):
                         raise ApiError(HTTPStatus.BAD_REQUEST, "JSON invalide") from None
                     if not isinstance(body, dict):

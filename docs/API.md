@@ -20,6 +20,8 @@ demande de clé Binance. Code : `src/crypto_signal_intelligence/api/server.py`.
 | `GET /strategies` | dernier walk-forward de chaque stratégie : verdict, E[R] et IC95 hors échantillon |
 | `GET /sources` | bilan de chaque groupe Telegram contre le taux de base (aucune conclusion avant 20 signaux résolus sur 10 jours) |
 | `GET /signals/recent?limit=20` | dernières évaluations de signaux externes et leur issue |
+| `GET /signals/generated?limit=20` | derniers signaux trouvés par les stratégies de CSI (shadow), avec leur statut de validation et `bsm_text` pour un test manuel en Demo |
+| `GET /universe` | paires configurées et paires ajoutées par le propriétaire, avec leur état |
 | `GET /execution-report` | signaux publiés : backtest, prospectif et Demo, séparés |
 | `POST /evaluate` | évalue un signal Telegram (voir ci-dessous) |
 

@@ -68,6 +68,22 @@ def test_owner_submitted_signal_adds_its_pair_and_universe_lists_it(api, monkeyp
     assert api.dispatch("GET", "/signals/recent", {}, None)["signals"] == []
 
 
+def test_generated_signals_are_listed_with_their_strategy_status_and_a_bsm_text(api, settings):
+    from crypto_signal_intelligence.signals.outbox import SignalRegistry
+    from tests.test_signals import one_tp_signal
+    assert api.dispatch("GET", "/signals/generated", {}, None)["signals"] == []
+    signal = one_tp_signal()
+    SignalRegistry(settings.signals_db, settings.publication_dir(), root=settings.root).publish(signal, signal.created_at)
+    listed = api.dispatch("GET", "/signals/generated", {"limit": ["5"]}, None)
+    row = listed["signals"][0]
+    assert row["signal_id"] == signal.signal_id and row["symbol"] == signal.symbol and row["expired"] is True
+    assert row["validation_status"] == str(getattr(signal.validation_status, "value", signal.validation_status))
+    assert "promesse" in listed["note"]
+    base = signal.symbol[:-4]
+    assert row["bsm_text"] == (f"PAIR: {base}/USDT\nENTRY 1: {signal.entry_1}\nT1: {signal.tp_1}\n"
+                               f"SL: {signal.stop_loss}\nPLATFORM: Binance")
+
+
 def test_explanation_defines_every_number():
     text = explain({"verdict": "INDETERMINE", "checks": [], "source": "g",
                     "base_rate": {"samples": 412, "tp_first": 0.37, "expectancy_r": -0.08,
