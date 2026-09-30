@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crypto-signal-intelligence"
+version = "0.1.0"
+description = "Données → recherche → analyse → validation → signaux TXT. Aucune exécution d'ordre."
+readme = "README.md"
+requires-python = ">=3.12"
+# Versions minimales vérifiées par installation réelle sous Python 3.14.7 (Windows, 2026-09-30).
+# Les versions exactes installées sont figées dans pylock.toml.
+dependencies = [
+    "numpy>=2.3",
+    "pandas>=2.3",
+    "pyarrow>=21",
+    "httpx>=0.28,<1",
+    "pydantic>=2.11,<3",
+    "pydantic-settings>=2.10,<3",
+    "typer>=0.16",
+    "rich>=14",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.4", "ruff>=0.12", "mypy>=1.17"]
+# Groupes des lots suivants, ajoutés à leur étape : research (vectorbt, optuna),
+# ml (scikit-learn, puis un seul de lightgbm/xgboost), agents, streaming, reports.
+
+[project.scripts]
+csi = "crypto_signal_intelligence.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-p no:cacheprovider"
+markers = ["network: nécessite un accès Internet (exclus par défaut : -m 'not network')"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# typer.Option dans les valeurs par défaut est l'idiome documenté de typer.
+"src/crypto_signal_intelligence/cli.py" = ["B008"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src/crypto_signal_intelligence"]
+plugins = ["pydantic.mypy"]
+ignore_missing_imports = true

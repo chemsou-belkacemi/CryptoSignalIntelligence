@@ -1,0 +1,73 @@
+# CryptoSignalIntelligence : surveillance shadow sur un seul hôte (PC, VPS ou NAS x86-64/arm64).
+#
+# - Un seul réplica : un verrou d'instance empêche deux publications simultanées.
+# - Volume nommé local (pas de partage réseau : SQLite et les verrous de fichiers exigent un seul noyau).
+# - Arrêt propre : SIGTERM → le cycle en cours se termine, puis sortie.
+# - Aucune clé, aucun port exposé, aucune route vers les ordres Binance.
+
+name: crypto-signal-intelligence
+
+x-app: &app
+  build: .
+  image: crypto-signal-intelligence:latest
+  init: true
+  volumes:
+    - csi-state:/srv/csi
+  restart: unless-stopped
+  # Limites : la surveillance tient dans ~500 Mo ; les travaux lourds passent par `tools`.
+  mem_limit: 1g
+  cpus: 1.0
+
+services:
+  monitor:
+    <<: *app
+    command: ["python", "-m", "crypto_signal_intelligence", "run", "--mode", "shadow"]
+    # Plafond (pas une réservation) : un cycle ne dure que quelques secondes toutes les 15 min ;
+    # 4 CPU laissent les 4 rafraîchissements parallèles de bougies tourner sans se gêner.
+    cpus: 4.0
+    # Un cycle peut attendre des bougies jusqu'à 90 s : laisser le temps de finir.
+    stop_grace_period: 180s
+
+  # Tableau de bord : http://127.0.0.1:8502/dashboard.html (ce PC uniquement, lecture seule).
+  dashboard:
+    image: crypto-signal-intelligence:latest
+    init: true
+    restart: unless-stopped
+    depends_on:
+      - monitor
+    volumes:
+      - csi-state:/srv/csi:ro
+    command: ["python", "-m", "http.server", "8502", "--bind", "0.0.0.0", "--directory", "/srv/csi/state"]
+    ports:
+      - "127.0.0.1:${CSI_DASHBOARD_PORT:-8502}:8502"
+    # Sa santé = le serveur répond (la santé de la surveillance est celle du service monitor).
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8502/', timeout=5)"]
+      interval: 60s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
+    mem_limit: 128m
+    cpus: 0.25
+
+  # Outils ponctuels (même volume) : téléchargement initial, sauvegarde, walk-forward…
+  #   docker compose run --rm tools download
+  #   docker compose run --rm tools backup
+  tools:
+    <<: *app
+    profiles: ["tools"]
+    restart: "no"
+    mem_limit: 2g
+    entrypoint: ["python", "-m", "crypto_signal_intelligence"]
+    command: ["doctor"]
+
+  # Intégration Demo (DÉSACTIVÉE) : ne rien monter du volume de BinanceSpotManager tant que
+  # `integration_verified` est false (docs/SIGNAL_FORMAT.md). Le jour venu, et seulement après
+  # fusion de la branche BSM par son propriétaire :
+  #   volumes:
+  #     - binance-spot-manager_bsm-data:/srv/bsm-data
+  #   environment:
+  #     CSI_PUBLICATION__OUTBOX_DIR: /srv/bsm-data/signal_drop/incoming
+
+volumes:
+  csi-state:
