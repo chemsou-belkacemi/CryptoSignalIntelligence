@@ -34,6 +34,20 @@ Code, comments, docs and CLI output are in **French**. Keep new code and docs in
   jamais de rentabilité annoncée ; les verdicts viennent du protocole (`docs/PROTOCOL.md`).
 - Rien n'est fusionné ni poussé sans le propriétaire ; commit seulement sur demande, hors `main`.
 
+## Automatisations Claude Code (`.claude/`, `.github/`)
+
+- **Hook** : après chaque modification d'un `.py`, `ruff check --fix` sur ce fichier
+  (`.claude/hooks/ruff_on_edit.py`) ; les erreurs restantes reviennent à Claude.
+- **Confirmation demandée** avant de modifier `research/protocol.py`, `backtest/exits.py`,
+  `config/exit_policies.json` et `data/http.py` ; lecture de `.env` / `.env.*` interdite.
+- **Sous-agents** : `leak-auditor` (look-ahead, overfitting, mesure : à lancer après toute
+  modification de features/, backtest/, research/, external/) et `contract-guard` (contrat TXT V3,
+  empreintes des politiques, retour d'exécution, test de contrat BSM).
+- **Commandes** : `/walk-forward` (propriétaire seulement : un travail lourd à la fois, comparaison au
+  run précédent) et `/evaluer` (signal Telegram → verdict expliqué).
+- **CI GitHub Actions** : tests sans réseau, ruff, mypy sous Linux ; `tests/test_secrets.py` et
+  `tests/test_repository.py` (aucun secret, aucun fichier source masqué par le .gitignore).
+
 ## Commands
 
 The venv is a **Windows** venv (`.venv/Scripts/python.exe`) and the owner uses PowerShell. From WSL, call the same executable through interop (it works, and there is no need to activate the venv):
