@@ -16,6 +16,30 @@
       "PowerShell(Get-Content .env*)",
       "PowerShell(cat .env*)",
       "PowerShell(type .env*)"
+    ],
+    "ask": [
+      "Edit(**/research/protocol.py)",
+      "Write(**/research/protocol.py)",
+      "Edit(**/config/exit_policies.json)",
+      "Write(**/config/exit_policies.json)",
+      "Edit(**/backtest/exits.py)",
+      "Write(**/backtest/exits.py)",
+      "Edit(**/data/http.py)",
+      "Write(**/data/http.py)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.venv/Scripts/python.exe\" \"$CLAUDE_PROJECT_DIR/.claude/hooks/ruff_on_edit.py\"",
+            "timeout": 30
+          }
+        ]
+      }
     ]
   }
 }
