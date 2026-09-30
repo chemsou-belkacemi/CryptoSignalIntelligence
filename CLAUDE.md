@@ -12,6 +12,28 @@ Code, comments, docs and CLI output are in **French**. Keep new code and docs in
 - What is tested, unverified, blocked or not yet built: `docs/DELIVERY_STATUS.md`. Update it when a deliverable changes state.
 - Work is organised in numbered "lots": 0–2 are delivered, 3–4 are in progress, 5 (ML) and 6 (LLM agents) come later.
 
+## Règles du propriétaire (prioritaires)
+
+- **Réponses en français**, informelles et concrètes.
+- **Aucun secret en dur** : ni clé API, ni jeton Telegram, ni mot de passe dans le code, la
+  configuration ou les scripts. CSI n'en a besoin d'aucun ; `tests/test_secrets.py` doit rester vert.
+  Ne jamais lire `.env` ni `.env.*` (refusé par `.claude/settings.json`).
+- **Pas de mode de trading dans CSI** : CSI ne passe, ne modifie ni n'annule aucun ordre, en aucun
+  mode. L'exécution appartient à BinanceSpotManager, verrouillé sur **Binance Demo** ; aucun passage
+  en réel sans demande explicite du propriétaire, et jamais depuis CSI.
+- **Validation walk-forward uniquement** : aucun paramètre choisi sur toute la période, aucun regard
+  sur le test final sans `--i-understand-final-test`. Tout nouvel essai compte dans `program_trials`.
+- **Pas de biais de look-ahead** : jointures et coupures sur `available_at`, décision à la clôture,
+  remplissage au plus tôt à la bougie suivante ; le contrôle de causalité et son test de mutation
+  doivent rester verts.
+- **Filtres Binance** : prix arrondis au `tickSize` (niveaux d'entrée, stop, TP) dans CSI ; la
+  quantité (`stepSize`) et le `minNotional` sont appliqués par BSM, qui dimensionne les ordres.
+- **Tests pytest obligatoires** pour tout calcul de niveau d'entrée, de stop, de TP, de R, de coût
+  ou de remplissage simulé. Une correction de calcul arrive avec le test qui l'aurait détectée.
+- **Honnêteté des chiffres** : jamais un nombre présenté comme une probabilité sans sa définition,
+  jamais de rentabilité annoncée ; les verdicts viennent du protocole (`docs/PROTOCOL.md`).
+- Rien n'est fusionné ni poussé sans le propriétaire ; commit seulement sur demande, hors `main`.
+
 ## Commands
 
 The venv is a **Windows** venv (`.venv/Scripts/python.exe`) and the owner uses PowerShell. From WSL, call the same executable through interop (it works, and there is no need to activate the venv):
