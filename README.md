@@ -74,6 +74,25 @@ indépendants (pas un portefeuille) :
 - Biais de survie : l'univers est choisi aujourd'hui parmi des paires encore cotées ; il flatte
   plutôt les résultats, ce qui renforce le rejet.
 
+### Après l'audit look-ahead et overfitting (2026-09-30, protocole durci)
+
+Mêmes 16 paires, code corrigé (R au risque prévu, IC par blocs de 10 jours, une bougie de retard en
+coûts défavorables, gap à l'entrée à deux coûts, stop remonté pessimiste, causalité coupée sur
+`available_at` ; détail dans [docs/PROTOCOL.md](docs/PROTOCOL.md)) :
+
+| Stratégie | E[R] central, IC95 | Avant l'audit | Défavorables | Profil BSM | Sans filtre 1h | Verdict | Rapport |
+|---|---|---|---|---|---|---|---|
+| A | −0,11 R [−0,19 ; −0,04] | −0,11 R [−0,18 ; −0,05] | −0,13 R | −0,11 R | −0,13 R | REJECTED | `WF-20260930T143103Z-4b0da8` |
+| B | −0,16 R [−0,22 ; −0,10] | −0,17 R [−0,22 ; −0,10] | −0,18 R | −0,16 R | −0,14 R | REJECTED | `WF-20260930T150703Z-5eccae` |
+| C | −0,19 R [−0,27 ; −0,12] | −0,21 R [−0,31 ; −0,12] | −0,27 R | −0,19 R | −0,19 R | REJECTED | `WF-20260930T153623Z-7dd6cc` |
+
+- Verdicts inchangés : aucun biais n'avait fabriqué ces résultats. Le contrôle de causalité renforcé
+  passe sur les données réelles des trois stratégies (critère 1).
+- Le scénario « stress » s'améliore nettement (A : −0,32 → −0,15 R) : l'ancien calcul divisait par
+  le risque RÉALISÉ, ce qui gonflait les pertes quand l'entrée retardée se remplissait sous la limite.
+- Moins de trades en coûts défavorables (A : 1 381 → 1 164) : la bougie de retard fait expirer des entrées.
+- Programme de recherche : 24 exécutions sur DEVELOPMENT, 251 essais cumulés (`program_trials`).
+
 ### Pourquoi elles perdent, et criblage des familles suivantes
 
 Avant frais, A, B et C n'ont pratiquement aucun avantage (≈ +0,01 R, −0,06 R, +0,03 R) : les coûts

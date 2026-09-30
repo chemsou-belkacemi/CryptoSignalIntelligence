@@ -20,7 +20,7 @@ stratégies actuelles sont **REJECTED** hors échantillon (README). Vérificatio
 | Stratégies A, B, C (règles calculables, fiches complètes point 10) | TESTÉ | tests unitaires ; walk-forward réel → REJECTED (BTC+ETH), univers 16 paires en cours |
 | Simulateur : fills LIMIT stricts, gaps, TP/SL même bougie ambigus, pas de plus haut pré-entrée crédité (point 14) | TESTÉ | `test_simulator`, `test_exits` ; non-régression sur 246 trades réels |
 | Frais sur quantités remplies, spread compté une fois (point 14) | TESTÉ | frais par remplissage pondéré (`pnl_per_unit`) ; glissement + demi-spread appliqués une fois à l'entrée au marché et à chaque sortie au marché |
-| Walk-forward purgé, verdict automatique, registre d'expériences | TESTÉ | `test_walk_forward` ; 14 walk-forwards réels (21 exécutions DEVELOPMENT en tout) ; protocole durci après l'audit du 2026-09-30 (docs/PROTOCOL.md) |
+| Walk-forward purgé, verdict automatique, registre d'expériences | TESTÉ | `test_walk_forward` ; 17 walk-forwards réels (24 exécutions DEVELOPMENT, 251 essais) ; protocole durci après l'audit du 2026-09-30 (docs/PROTOCOL.md), A/B/C relancées ensuite : toujours REJECTED |
 | Criblage brut des familles D à I (dérive retirée, seuil de coûts, IC par blocs de jours, essais comptés) | TESTÉ | `test_screen` (causalité, entrée à l'ouverture suivante, IC encadrant la moyenne) ; exécution réelle 16 paires : aucune famille ne passe ([SCREENING.md](SCREENING.md)) |
 | Contrat TXT V3 (point 11), deux expirations (point 12) | TESTÉ | `test_signals` (34 cas dont 27 refus) ; texte V3 produit sur un vrai setup ETH |
 | Politique de sortie partagée et hachée (point 13) | TESTÉ | `test_exits` : empreintes figées, fichier `config/exit_policies.json` identique au code |
