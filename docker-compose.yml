@@ -104,6 +104,9 @@ volumes:
 
 networks:
   default: {}
-  # Nom fixe : un autre projet Compose (BinanceSpotManager) le déclare `external: true` pour joindre l'API.
+  # Réseau partagé avec BinanceSpotManager, créé une fois (`docker network create csi-bridge`,
+  # fait par scripts/docker-init.ps1 et par `make network` côté BSM) : aucun des deux projets ne
+  # le possède ni ne le supprime, chacun peut démarrer ou s'arrêter sans casser l'autre.
   csi-bridge:
     name: csi-bridge
+    external: true

@@ -42,8 +42,13 @@ if ([int]$existing -gt 0 -and -not $Force) {
     }
 }
 
-Invoke-Checked "démarrage" { docker compose up -d monitor dashboard }
+docker network inspect csi-bridge *> $null
+if ($LASTEXITCODE -ne 0) {
+    Invoke-Checked "création du réseau partagé csi-bridge" { docker network create csi-bridge | Out-Null }
+}
+Invoke-Checked "démarrage" { docker compose up -d monitor dashboard api }
 docker compose ps
 Write-Host ""
 Write-Host "Tableau de bord : http://127.0.0.1:8502/dashboard.html"
+Write-Host "API locale (avis pour BinanceSpotManager) : http://127.0.0.1:8503/health"
 Write-Host "Santé : 'healthy' après le premier cycle (au plus ~16 minutes)."
