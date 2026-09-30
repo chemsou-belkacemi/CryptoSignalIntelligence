@@ -71,6 +71,7 @@ stratégies actuelles sont **REJECTED** hors échantillon (README). Vérificatio
 | Sauvegarde cohérente, restauration vérifiée, suspension de publication jusqu'à réconciliation (point 20) | TESTÉ | `test_backup` (archive altérée refusée, restauration refusée pendant `run`, publication bloquée puis reprise) ; sauvegarde réelle le 2026-09-30 : 7 fichiers, 329 Ko |
 | Mesures de durée (données, analyse, délai de publication), état de santé JSON (point 21) | TESTÉ | `state/run_status.json` ; données passées de 45 s à 11 s (connexion HTTP réutilisée, 4 séries en parallèle) |
 | Interface utile (point 21) | TESTÉ | `state/dashboard.html` (Docker : http://127.0.0.1:8502/dashboard.html) : santé, dernière analyse, rejets, verdicts, signaux, fraîcheur par paire, sources de news (INCONNU si collecteur arrêté), groupes Telegram, légende, heure de Paris, bandeau « tableau figé » après 20 min ; texte externe échappé |
+| API locale lecture et évaluation pour l'interface de BSM | TESTÉ | `tests/test_api.py` (routes, validation, jeton, taille, type, méthodes) ; service Docker `api` démarré le 2026-09-30 (127.0.0.1:8503, réseau `csi-bridge`), évaluation réelle d'un signal ETH par HTTP ; côté BSM : NON IMPLÉMENTÉ (docs/API.md) |
 
 Tests de résilience demandés au point 22 : doublons, données périmées, bougies absentes, contexte
 manquant, redémarrage et reprise de publication après crash sont couverts. Coupure réseau réelle,

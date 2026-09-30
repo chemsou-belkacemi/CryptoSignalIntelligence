@@ -3,7 +3,8 @@
 # - Un seul réplica : un verrou d'instance empêche deux publications simultanées.
 # - Volume nommé local (pas de partage réseau : SQLite et les verrous de fichiers exigent un seul noyau).
 # - Arrêt propre : SIGTERM → le cycle en cours se termine, puis sortie.
-# - Aucune clé, aucun port exposé, aucune route vers les ordres Binance.
+# - Aucune clé, aucune route vers les ordres Binance ; ports publiés sur 127.0.0.1 seulement
+#   (tableau de bord 8502, API de lecture et d'évaluation 8503).
 
 name: crypto-signal-intelligence
 
@@ -50,6 +51,35 @@ services:
     mem_limit: 128m
     cpus: 0.25
 
+  # API locale (lecture et évaluation seulement) : http://127.0.0.1:8503/health
+  # Pour l'interface de BinanceSpotManager : réseau Docker « csi-bridge », adresse http://csi-api:8503.
+  # Jeton facultatif : CSI_API_TOKEN dans l'environnement (fichier .env à côté de ce fichier, jamais versionné).
+  api:
+    image: crypto-signal-intelligence:latest
+    init: true
+    restart: unless-stopped
+    depends_on:
+      - monitor
+    volumes:
+      - csi-state:/srv/csi          # écriture : les évaluations sont enregistrées puis résolues par monitor
+    environment:
+      CSI_API_TOKEN: ${CSI_API_TOKEN:-}
+    command: ["python", "-m", "crypto_signal_intelligence.api", "--host", "0.0.0.0", "--port", "8503"]
+    ports:
+      - "127.0.0.1:${CSI_API_PORT:-8503}:8503"
+    networks:
+      default: {}
+      csi-bridge:
+        aliases: ["csi-api"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, urllib.request as u; r = u.Request('http://127.0.0.1:8503/health'); t = os.environ.get('CSI_API_TOKEN'); t and r.add_header('Authorization', 'Bearer ' + t); u.urlopen(r, timeout=5)"]
+      interval: 60s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
+    mem_limit: 768m
+    cpus: 1.0
+
   # Outils ponctuels (même volume) : téléchargement initial, sauvegarde, walk-forward…
   #   docker compose run --rm tools download
   #   docker compose run --rm tools backup
@@ -71,3 +101,9 @@ services:
 
 volumes:
   csi-state:
+
+networks:
+  default: {}
+  # Nom fixe : un autre projet Compose (BinanceSpotManager) le déclare `external: true` pour joindre l'API.
+  csi-bridge:
+    name: csi-bridge

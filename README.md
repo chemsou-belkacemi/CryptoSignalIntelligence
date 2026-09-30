@@ -110,6 +110,9 @@ Détails (état séparé du dossier local, démarrage automatique, arrêt) : [do
 Évaluer un signal Telegram dans l'état Docker (résolu ensuite automatiquement, bilan par groupe au
 tableau de bord) : `.\scripts\evaluer-signal.ps1 -Source "Nom du groupe" -Fichier signal.txt`.
 
+API locale (lecture et évaluation seulement, 127.0.0.1:8503) pour l'interface de BinanceSpotManager :
+routes, sécurité et intégration prévue dans [docs/API.md](docs/API.md).
+
 ## Installation (Windows PowerShell)
 
 Python 3.12+ requis (testé avec 3.14.7). Pas besoin d'activer le venv : on appelle son python.
