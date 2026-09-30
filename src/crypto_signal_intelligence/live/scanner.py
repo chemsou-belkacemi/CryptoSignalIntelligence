@@ -84,6 +84,12 @@ def scan_cycle(settings: Settings, *, now: datetime, decision_close: datetime | 
                symbols: list[str] | None = None, strategies: list[str] | None = None,
                downloader: Downloader = download, clock: Callable[[], datetime] = lambda: datetime.now(UTC),
                sleep: Callable[[float], None] = time.sleep, refresh: bool = True) -> CycleReport:
+    # Paires ajoutées par le propriétaire (prêtes) : rafraîchies à chaque cycle pour l'évaluation et la
+    # résolution des signaux externes, mais ni attendues ni analysées par les stratégies.
+    passengers: list[str] = []
+    if symbols is None:
+        from ..external.universe import UserUniverse
+        passengers = [s for s in UserUniverse(settings.external_db).ready_symbols() if s not in settings.data.symbols]
     symbols = symbols or list(settings.data.symbols)
     strategies = strategies or list(registry.STRATEGIES)
     setup_tf, context_tf = settings.data.setup_timeframe, settings.data.context_timeframe
@@ -101,7 +107,7 @@ def scan_cycle(settings: Settings, *, now: datetime, decision_close: datetime | 
     # 1. Données : seulement les bougies manquantes, attente bornée des clôtures attendues.
     #    Une connexion HTTP réutilisée (pas de poignée TLS par série) et quelques fils en parallèle.
     started = time.perf_counter()
-    todo = sorted(expected)
+    todo = sorted(expected) + [(s, tf) for s in passengers for tf in (setup_tf, context_tf)]
     deadline = clock() + timedelta(seconds=settings.live.candle_wait_seconds)
     client = PublicHttpClient.rest(settings.data.rest_base_url) if refresh and downloader is download else None
 

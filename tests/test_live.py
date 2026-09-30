@@ -262,6 +262,28 @@ def test_monitor_resolves_external_signals_after_each_cycle_and_survives_errors(
     assert "base verrouillée" in status["last_external_resolution"]["error"]
 
 
+def test_cycle_refreshes_ready_owner_pairs_without_analysing_them(settings):
+    """Une paire ajoutée et prête est rafraîchie à chaque cycle (sinon son avis passe « données périmées »)."""
+    from decimal import Decimal
+
+    from crypto_signal_intelligence.external.universe import UserUniverse
+
+    store_candles(settings)
+    universe = UserUniverse(settings.external_db)
+    universe.request("QTUMUSDT", Decimal("0.001"), reason="test", now=DECISION)
+    universe.mark_ready("QTUMUSDT", now=DECISION)
+    fetched = []
+
+    def downloader(settings_, symbol, timeframe, *, now, **kwargs):
+        fetched.append((symbol, timeframe, kwargs.get("rest_only")))
+
+    report = scan_cycle(settings, now=DECISION + timedelta(seconds=20), decision_close=DECISION,
+                        downloader=downloader, sleep=lambda s: None)
+    assert ("QTUMUSDT", "15m", True) in fetched and ("QTUMUSDT", "1h", True) in fetched
+    assert all(o.symbol != "QTUMUSDT" for o in report.outcomes)          # aucune stratégie sur cette paire
+    assert not any("QTUMUSDT" in m for m in report.missing_after_wait)   # jamais attendue
+
+
 def test_monitor_downloads_owner_added_pairs_between_cycles(settings):
     """Une paire ajoutée par le propriétaire est téléchargée après le cycle (archives), puis READY."""
     from decimal import Decimal
