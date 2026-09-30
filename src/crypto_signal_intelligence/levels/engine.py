@@ -19,8 +19,11 @@ class LevelError(ValueError):
 
 
 def round_to_tick(price: float | Decimal, tick: Decimal, direction: str) -> Decimal:
+    """Arrondi au tickSize : « up » pour l'entrée (jamais meilleure que prévu), « down » pour le stop."""
     if tick <= 0:
         raise LevelError("tickSize doit être positif")
+    if direction not in ("up", "down"):
+        raise LevelError(f"sens d'arrondi inconnu : {direction!r} (up | down)")
     steps = (Decimal(str(price)) / tick).to_integral_value(rounding=ROUND_CEILING if direction == "up" else ROUND_FLOOR)
     return (steps * tick).quantize(tick)
 
