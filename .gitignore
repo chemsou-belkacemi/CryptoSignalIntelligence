@@ -8,17 +8,19 @@ __pycache__/
 .env
 .env.*
 !.env.example
-logs/
-data/
-reports/
-experiments/
-models/
+# Dossiers d'exécution À LA RACINE seulement (sans « / », « data/ » et « news/ » masquaient
+# aussi les paquets src/crypto_signal_intelligence/data et /news, jamais versionnés avant le 2026-09-30).
+/logs/
+/data/
+/reports/
+/experiments/
+/models/
 signals/shadow/
 signals/outbox/
 signals/*.sqlite3*
-news/
-state/
-backups/
+/news/
+/state/
+/backups/
 
 # Réglages Claude Code propres à la machine
 .claude/settings.local.json
