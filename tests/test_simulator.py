@@ -112,13 +112,23 @@ def test_gap_through_stop_fills_at_open_not_at_stop():
     assert trade.r_multiple < -2
 
 
+def test_open_at_or_below_the_stop_exits_at_once_even_if_slippage_lifts_the_fill_above_it():
+    """Ouverture 97,95 ≤ stop 98 < remplissage 98,05 : le stop-market part aussitôt, à l'ouverture
+    moins le coût, jamais « au prix du stop » (deux traversées du spread)."""
+    costs = CostScenario(fee_bps=0, slippage_bps=10, half_spread_bps=0)
+    trade = run([FLAT, (97.95, 99, 97.5, 98.5)], costs=costs).trades[0]
+    assert trade.entry_price == pytest.approx(97.95 * 1.001) and trade.entry_price > trade.stop
+    assert trade.exit_reason == "SL_GAP" and trade.exit_price == pytest.approx(97.95 * 0.999)
+
+
 def test_fees_and_slippage_are_charged_on_both_fills():
     costs = CostScenario(fee_bps=10, slippage_bps=5, half_spread_bps=0)
     result = run([FLAT, (99, 100, 99, 99.5), (99.5, 104.5, 99.2, 104)], costs=costs, deviation_bps=0)
     trade = result.trades[0]
     assert trade.entry_price == pytest.approx(99 * 1.0005)
     expected_pnl = 104 * 0.999 - trade.entry_price * 1.001
-    assert trade.r_multiple == pytest.approx(expected_pnl / (trade.entry_price - 98))
+    # R rapporté au risque PRÉVU (limite − stop), pas au risque réalisé depuis un remplissage plus bas.
+    assert trade.r_multiple == pytest.approx(expected_pnl / (trade.entry_limit - trade.stop))
 
 
 def test_timeout_and_censoring():
@@ -142,3 +152,20 @@ def test_period_end_truncates_future_prices():
     end = frame["decision_time"].iloc[2]
     result = simulate(frame, "TESTUSDT", OneShot({0}), rules(), end=end)
     assert result.trades[0].exit_reason == "CENSORED"  # le TP de la bougie 3 est hors période
+
+
+def test_confidence_interval_uses_day_blocks_and_brackets_the_mean():
+    """Trades d'un même jour fortement corrélés : l'IC par blocs de jours est plus large qu'en les
+    supposant indépendants, et il encadre la moyenne affichée."""
+    import numpy as np
+
+    from crypto_signal_intelligence.backtest.metrics import day_block_ci95
+    rng = np.random.default_rng(2)
+    days = pd.date_range("2023-01-01", periods=300, freq="D", tz="UTC")
+    shocks = rng.normal(0, 1, len(days))
+    times = days.repeat(8)
+    values = np.repeat(shocks, 8) + rng.normal(0, 0.1, len(times))
+    (low, high), blocks = day_block_ci95(values, times.to_numpy(), block_days=10, samples=2000, seed=1)
+    assert blocks == 30 and low < values.mean() < high
+    naive = 1.96 * values.std() / np.sqrt(len(values))
+    assert (high - low) / 2 > 2 * naive

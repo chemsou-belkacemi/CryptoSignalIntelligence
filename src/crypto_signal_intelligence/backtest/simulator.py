@@ -13,6 +13,8 @@ Sorties : politique de sortie du signal (exits.py), ou politique imposée par le
 (comparaison profil théorique / profil consommateur). Les cas ambigus sont comptés et une
 borne optimiste est conservée. Fin des données : position CENSORED, valorisée au dernier
 close, exclue des statistiques de trades clos.
+R : PnL net rapporté au risque PRÉVU (limite − stop), comme le signal publié, le taux de base
+et le retour d'exécution : un remplissage sous la limite ne gonfle pas le R.
 Chaque signal est simulé indépendamment ; un seul setup actif par paire et par stratégie.
 Ce n'est PAS une simulation de portefeuille.
 """
@@ -127,7 +129,7 @@ def simulate(frame: pd.DataFrame, symbol: str, strategy: Strategy, rules: Simula
         trade, state, entry_bar = position
         if censor_price is not None:
             state.censor(censor_price)
-        entry, risk, exit_price = trade.entry_price, state.risk, state.exit_price
+        entry, risk, exit_price = trade.entry_price, trade.entry_limit - trade.stop, state.exit_price
         assert entry is not None and exit_price is not None
         trade.exit_time, trade.exit_price, trade.exit_reason = times[k], exit_price, state.exit_reason
         trade.bars_held = k - entry_bar + 1
@@ -146,13 +148,13 @@ def simulate(frame: pd.DataFrame, symbol: str, strategy: Strategy, rules: Simula
         position = None
 
     def stopped_at_fill(trade: Trade, k: int) -> None:
-        """Ouverture en gap sous le stop : achat puis stop-market aussitôt, au marché.
+        """Ouverture au niveau du stop ou dessous : achat au marché puis stop-market aussitôt, au marché.
 
-        R rapporté au risque PRÉVU (limite − stop), le risque réalisé n'ayant pas de sens ici.
+        Deux traversées du spread : achat à open × (1 + coût), vente à open × (1 − coût).
         """
         entry = trade.entry_price
         assert entry is not None
-        exit_price = entry * (1 - market_cost)
+        exit_price = opens[k] * (1 - market_cost)
         risk = trade.entry_limit - trade.stop
         trade.exit_time, trade.exit_price, trade.exit_reason, trade.bars_held = times[k], exit_price, "SL_GAP", 1
         trade.fills = [{"reason": "SL_GAP", "price": exit_price, "weight": 1.0, "target": None}]
@@ -189,8 +191,8 @@ def simulate(frame: pd.DataFrame, symbol: str, strategy: Strategy, rules: Simula
                     result.trades.append(trade)
                     pending = None
                     result.bars_in_position += 1
-                    if fill[1] <= trade.stop:
-                        stopped_at_fill(trade, k)   # rempli sous le stop (gap) : stop-market immédiat
+                    if fill[0] == "FILLED_OPEN" and opens[k] <= trade.stop:
+                        stopped_at_fill(trade, k)   # ouverture sous le stop (gap) : stop-market immédiat
                         continue
                     state = OpenPosition(entry=fill[1], initial_stop=trade.stop, targets=trade.targets,
                                          weights=trade.target_weights,

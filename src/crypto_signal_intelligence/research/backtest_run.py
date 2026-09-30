@@ -57,7 +57,7 @@ class UniverseRun:
         protocol = settings.protocol
         return summarize(self.trades, evaluated_bars=self.evaluated_bars, bars_in_position=self.bars_in_position,
                          candidates=self.candidates, no_trade=self.no_trade,
-                         bootstrap_block=protocol.bootstrap_block_size, bootstrap_samples=protocol.bootstrap_samples,
+                         bootstrap_block_days=protocol.bootstrap_block_days, bootstrap_samples=protocol.bootstrap_samples,
                          seed=protocol.seed, months=self.months)
 
     def extend(self, other: UniverseRun) -> None:

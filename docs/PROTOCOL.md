@@ -10,7 +10,12 @@
 La consultation du test final exige `--i-understand-final-test` et est enregistrée
 (`experiments/experiments.sqlite3`, table `final_test_consultations`). Après la
 première consultation, cette période devient une validation : réserver une
-nouvelle période future pour tout test ultérieur.
+nouvelle période future pour tout test ultérieur. Le compteur est **global** : dès qu'une
+stratégie a consulté le test final, ce qu'on y a vu peut orienter les suivantes.
+
+Les bornes sont figées dans le code (`research/protocol.py`, `FROZEN_DEVELOPMENT_END`) : un
+`development_end` plus tardif (fichier de configuration ou `CSI_PROTOCOL__DEVELOPMENT_END`) est
+refusé au lieu de lire en silence le test final ; plus tôt reste permis.
 
 Les trades ouverts près de la fin d'une période ne voient pas les prix suivants :
 ils sont marqués CENSORED.
@@ -51,7 +56,7 @@ du walk-forward, TOUS les points suivants sont vrais :
 5. aucune paire ni aucune année ne représente plus de 60 % du PnL total en R ;
 6. drawdown en R sur trades clos inférieur à 15 R ;
 7. la version avec ses filtres ne fait pas moins bien que la même règle sans filtre
-   (sinon le filtre est retiré, pas la conclusion embellie).
+   (sinon le critère échoue, et la conclusion n'est pas embellie).
 
 Sinon : **INCONCLUSIVE** (échantillon insuffisant, IC contenant 0) ou **REJECTED**
 (E[R] ≤ 0 en coûts centraux). Aucune règle « N trades = validé » : ces seuils sont
@@ -63,6 +68,40 @@ finie, bougie ouverte) sur DEVELOPMENT, et test de causalité vert sur données 
 trois coupures. Les trous de l'historique Binance sont comptés dans le rapport ; ils ne
 sont pas « non expliqués » car toute décision est bloquée pendant `gap_block_bars`
 bougies après un trou (veto DATA_GAP).
+
+## Révisions après l'audit look-ahead et overfitting (2026-09-30)
+
+Faites APRÈS les premiers résultats (A, B, C rejetées) ; chacune rend le protocole plus prudent
+et aucune n'a été choisie pour changer un verdict.
+
+- **Critère 7** : un filtre dont le retrait améliore l'E[R] hors échantillon fait échouer le
+  critère. Le retirer puis relancer sur les mêmes fenêtres reviendrait à choisir la règle après
+  avoir vu le hors-échantillon : la version sans filtre est une **nouvelle hypothèse**, à juger
+  sur une période non vue.
+- **IC95 des backtests** : bootstrap par blocs de 10 **jours** consécutifs (date d'entrée), comme
+  le criblage et le taux de base externe, au lieu de blocs de 10 trades (les trades d'un même jour
+  sur des paires corrélées ne sont pas indépendants ; l'ancien IC était trop étroit).
+- **R** : toujours rapporté au risque **prévu** (limite − stop), comme le signal publié, le taux
+  de base et le retour d'exécution ; auparavant, le simulateur divisait par le risque réalisé, ce
+  qui gonflait |R| quand l'ouverture remplissait sous la limite.
+- **Coûts défavorables** : une bougie de retard à l'entrée (`extra_entry_delay_bars = 1`) ; en
+  direct, le signal part ≈ 40 s après la clôture. Le scénario central garde 0.
+- **Exécution simulée** : ouverture au niveau du stop ou dessous à l'entrée → deux traversées du
+  spread (achat puis stop-market) ; stop remonté touché dans la bougie même du TP → sortie
+  pessimiste au nouveau stop, cas compté ambigu.
+- **Nombre d'essais du programme** : chaque walk-forward et criblage enregistre
+  `program_trials`, la somme des essais faits sur DEVELOPMENT par tout le programme (grilles,
+  conditions × horizons, variantes de backtest). Plus ce nombre grandit, plus un résultat isolé
+  risque d'être un hasard ; à titre indicatif, un seuil de Bonferroni serait 0,05 / ce nombre.
+  Au 2026-09-30, le registre compte 21 exécutions sur DEVELOPMENT (5 backtests, 14 walk-forwards,
+  2 criblages), soit 215 essais au sens de `program_trials`. Ces 21 exécutions portent
+  `NO_GIT_COMMIT` : elles précèdent le premier commit du dépôt.
+- **Test de causalité** : coupure sur la disponibilité (`available_at`) de chaque unité de temps,
+  tous les volumes falsifiés ; un test de mutation vérifie qu'une jointure sur `open_time` (bougie
+  1h en formation) est détectée.
+- **Biais de survivance (non corrigé, déclaré)** : l'univers a été choisi en 2026 parmi les paires
+  encore cotées et liquides. Effet estimé : quelques centièmes de R par trade en faveur du
+  backtest ; sans effet sur des stratégies rejetées, décisif pour un résultat limite.
 
 ## Traçabilité
 

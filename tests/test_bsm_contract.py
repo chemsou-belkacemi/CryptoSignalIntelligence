@@ -180,3 +180,23 @@ def test_bsm_ignores_prose_after_the_analysis_marker(bsm):
 
 def test_bsm_never_treats_the_specification_example_as_executable(bsm):
     assert bsm.parse_csi_signal(SPEC_EXAMPLE).errors, "SCHEMA_EXAMPLE_ONLY doit bloquer l'exécution"
+
+
+TELEGRAM_FIXTURES = ["BICO", "ABK", "SIMPLE", "GALA"]
+
+
+@pytest.mark.parametrize("name", TELEGRAM_FIXTURES)
+def test_csi_and_bsm_read_the_same_telegram_signal(bsm_any, name):
+    """Différentiel : l'avis de CSI doit porter sur le trade que BSM exécuterait (mêmes prix lus)."""
+    import tests.test_external as fixtures
+    from crypto_signal_intelligence.external.parser import parse as csi_parse
+    if not hasattr(fixtures, name):
+        pytest.skip(f"fixture {name} absente")
+    text = getattr(fixtures, name)
+    csi, bsm_parsed = csi_parse(text), bsm_any.parse_signal(text)
+    assert csi.ok == (not bsm_parsed.errors), (name, csi.errors, bsm_parsed.errors)
+    if csi.ok:
+        assert csi.symbol == bsm_parsed.symbol.replace("/", "")
+        assert csi.entries == pytest.approx(list(bsm_parsed.entries))
+        assert csi.targets == pytest.approx(list(bsm_parsed.targets))
+        assert csi.stop == pytest.approx(bsm_parsed.stop)

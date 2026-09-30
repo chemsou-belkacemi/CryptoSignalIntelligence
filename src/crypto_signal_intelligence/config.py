@@ -80,6 +80,7 @@ class RegimeSection(BaseModel):
     volatility_low_quantile: float = 0.2
     volatility_high_quantile: float = 0.8
     liquidity_window_bars: int = 720
+    liquidity_min_bars: int = 240
     liquidity_low_ratio: float = 0.3
     liquidity_min_quote_volume_24h: float = 5_000_000
     transition_lookback_bars: int = 6
@@ -88,7 +89,7 @@ class RegimeSection(BaseModel):
 class ProtocolSection(BaseModel):
     development_end: datetime = datetime(2025, 6, 30, 23, 59, 59, tzinfo=UTC)
     final_test_start: datetime = datetime(2025, 7, 1, tzinfo=UTC)
-    bootstrap_block_size: int = 10
+    bootstrap_block_days: int = 10   # IC des backtests : blocs de jours consécutifs
     bootstrap_samples: int = 2000
     seed: int = 20260929
 

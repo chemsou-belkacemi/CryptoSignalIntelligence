@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import MappingProxyType
 
 from .enums import (
@@ -15,6 +15,9 @@ from .enums import (
     TrendRegime,
     VolatilityRegime,
 )
+
+# Une bougie de contexte (paire ou BTC, 1h) doit dater d'au plus deux intervalles de contexte.
+MAX_CONTEXT_AGE = timedelta(hours=2)
 
 
 @dataclass(frozen=True)

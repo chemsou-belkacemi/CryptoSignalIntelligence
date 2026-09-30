@@ -55,8 +55,8 @@ def replay(bars: pd.DataFrame, *, entry: float, stop: float, target: float, entr
     risk = entry - stop
     outcome: str | None = None
     exit_price: float | None = None
-    if price <= stop:  # rempli sous le stop : le stop-market part aussitôt, au marché
-        outcome, exit_price = "SL_FIRST", price * (1 - market_cost)
+    if not touched and opens[start] <= stop:  # ouverture sous le stop : stop-market aussitôt, au marché
+        outcome, exit_price = "SL_FIRST", opens[start] * (1 - market_cost)
     last = min(start + max_hold, len(bars))
     for k in range(start, last if outcome is None else start):
         first = k == start

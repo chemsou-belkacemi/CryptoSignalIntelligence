@@ -38,7 +38,7 @@ def classify(ctx: pd.DataFrame, cfg: RegimeSection) -> pd.DataFrame:
         VolatilityRegime.NORMAL.value)
 
     past_liq = ctx["quote_volume_24h"].shift(1).rolling(cfg.liquidity_window_bars,
-                                                        min_periods=cfg.volatility_min_bars).median()
+                                                        min_periods=cfg.liquidity_min_bars).median()
     liq_known = past_liq.notna() & ctx["quote_volume_24h"].notna()
     low_liq = (ctx["quote_volume_24h"] < cfg.liquidity_low_ratio * past_liq) | (
         ctx["quote_volume_24h"] < cfg.liquidity_min_quote_volume_24h)

@@ -6,11 +6,12 @@ idée n'a pas d'avantage brut ici, une stratégie complète (stops, cibles, walk
 
 Règles (toutes causales) :
 - événement évalué à la clôture de la bougie t ; entrée à l'OUVERTURE de t+1 ; sortie à la clôture
-  de t+h. Aucun stop, aucune cible : c'est un criblage, pas une simulation de trading ;
+  de t+h (15m comme 1h). Aucun stop, aucune cible : c'est un criblage, pas une simulation de trading ;
 - excès = rendement − moyenne inconditionnelle de la même paire au même horizon (dérive retirée) ;
 - incertitude : moyennes quotidiennes (UTC) des excès, bootstrap par blocs de jours consécutifs
   (événements d'un même jour et de paires corrélées non traités comme indépendants) ;
-- période DEVELOPMENT uniquement : le test final réservé n'est jamais lu ;
+- période DEVELOPMENT uniquement : le test final réservé n'est jamais lu, BTC de contexte compris ;
+- les classements G et I ne portent que sur l'univers demandé : BTC n'y entre que s'il en fait partie ;
 - le nombre d'essais (conditions × horizons) est enregistré : plus on crible, plus un résultat
   isolé risque d'être un hasard.
 """
@@ -27,6 +28,7 @@ import pandas as pd
 from ..config import Settings
 from ..features.loader import load_candles
 from .experiments import ExperimentRegistry, dependency_versions, git_state, new_run_id
+from .protocol import clip_to_development, development_end
 
 HORIZONS_HOURS = (1, 4, 24)
 CONDITIONS = {
@@ -64,6 +66,7 @@ class ScreenResult:
     period_end: str
     cost_hurdle_pct: float
     n_trials: int
+    program_trials: int = 0
     rows: list[ScreenRow] = field(default_factory=list)
 
 
@@ -139,17 +142,20 @@ def _collect(events: np.ndarray, fwd: np.ndarray, times: pd.Series, symbol: str)
 
 
 # --- conditions transversales (bougies 1h, toutes les 4 h) --------------------------------------
-def _cross_sectional(closes: pd.DataFrame, kind: str) -> pd.DataFrame:
-    """Booléens (horodatage × paire) : paires retenues parmi les 3 meilleures du score."""
+def _cross_sectional(closes: pd.DataFrame, kind: str, btc_close: pd.Series) -> pd.DataFrame:
+    """Booléens (horodatage × paire de `closes`) : paires retenues parmi les 3 meilleures du score.
+    `btc_close` sert de facteur à I ; il n'est candidat que s'il figure dans `closes` (et jamais pour I)."""
     rets = np.log(closes).diff()
     ret_7d = np.log(closes / closes.shift(168))
     if kind == "G":
         score = ret_7d / (rets.rolling(168).std() * np.sqrt(168))
     else:
-        btc = rets["BTCUSDT"]
+        btc_close = btc_close.reindex(closes.index)
+        btc = np.log(btc_close).diff()
+        btc_7d = np.log(btc_close / btc_close.shift(168))
         beta = rets.rolling(720).cov(btc).div(btc.rolling(720).var(), axis=0)
-        score = ret_7d - beta.mul(ret_7d["BTCUSDT"], axis=0)
-        score = score.drop(columns=["BTCUSDT"])
+        score = ret_7d - beta.mul(btc_7d, axis=0)
+        score = score.drop(columns=["BTCUSDT"], errors="ignore")
     ranks = score.rank(axis=1, ascending=False)
     chosen = (ranks <= 3) & score.notna()
     on_grid = chosen.index.hour % 4 == 0
@@ -190,13 +196,14 @@ def _row(condition: str, horizon: int, frame: pd.DataFrame, hurdle_pct: float, s
 def run(settings: Settings, *, now: datetime, symbols: list[str] | None = None,
         progress: Callable[[str], None] | None = None) -> ScreenResult:
     symbols = symbols or list(settings.data.symbols)
-    end = pd.Timestamp(settings.protocol.development_end)
+    end = pd.Timestamp(development_end(settings))
     costs = settings.costs["central"]
     hurdle_pct = (2 * costs.fee_bps + 2 * (costs.slippage_bps + costs.half_spread_bps)) / 100
     result = ScreenResult(new_run_id("SCREEN"), end.isoformat(), round(hurdle_pct, 4),
                           n_trials=len(CONDITIONS) * len(HORIZONS_HOURS))
     collected: dict[tuple[str, int], list[pd.DataFrame]] = {(c, h): [] for c in CONDITIONS for h in HORIZONS_HOURS}
     closes_1h: dict[str, pd.Series] = {}
+    opens_1h: dict[str, pd.Series] = {}
     for symbol in symbols:
         if progress:
             progress(symbol)
@@ -207,17 +214,17 @@ def run(settings: Settings, *, now: datetime, symbols: list[str] | None = None,
             events = condition(df)
             for h in HORIZONS_HOURS:
                 collected[(name, h)].append(_collect(events, fwd[h], df["open_time"], symbol))
-        hourly = load_candles(settings, symbol, "1h")
-        hourly = hourly[hourly["open_time"] <= end]
-        closes_1h[symbol] = hourly.set_index("open_time")["close"]
+        hourly = clip_to_development(load_candles(settings, symbol, "1h"), settings).set_index("open_time")
+        closes_1h[symbol], opens_1h[symbol] = hourly["close"], hourly["open"]
         del df
     closes = pd.DataFrame(closes_1h).sort_index()
-    if "BTCUSDT" not in closes:
-        closes["BTCUSDT"] = load_candles(settings, "BTCUSDT", "1h").set_index("open_time")["close"]
+    opens = pd.DataFrame(opens_1h).sort_index()
+    btc_close = closes["BTCUSDT"] if "BTCUSDT" in closes else clip_to_development(
+        load_candles(settings, "BTCUSDT", "1h"), settings).set_index("open_time")["close"]
     for kind, name in (("G", "G_RELATIVE_STRENGTH_TOP3"), ("I", "I_RESIDUAL_MOMENTUM_TOP3")):
-        chosen = _cross_sectional(closes, kind)
+        chosen = _cross_sectional(closes, kind, btc_close)
         for h in HORIZONS_HOURS:
-            fwd = closes.shift(-h) / closes - 1       # entrée ≈ clôture courante (ouverture suivante)
+            fwd = closes.shift(-h) / opens.shift(-1) - 1      # entrée à l'ouverture t+1, sortie clôture t+h
             drift = fwd.mean()
             for symbol in chosen.columns:
                 mask = chosen[symbol].to_numpy() & fwd[symbol].notna().to_numpy()
@@ -230,6 +237,7 @@ def run(settings: Settings, *, now: datetime, symbols: list[str] | None = None,
         if not frame.empty:
             frame["time"] = pd.to_datetime(frame["time"], utc=True)
         result.rows.append(_row(name, h, frame, hurdle_pct, settings))
+    result.program_trials = ExperimentRegistry(settings.experiments_db).program_trials() + result.n_trials
     _record(settings, result, now=now, symbols=symbols)
     return result
 
@@ -249,5 +257,6 @@ def _record(settings: Settings, result: ScreenResult, *, now: datetime, symbols:
         data_hashes={}, git_commit=git_state(settings.root), dependencies=dependency_versions(),
         seed=settings.protocol.seed, cost_scenario="central (seuil aller-retour)",
         simulation_rules={"entry": "ouverture t+1", "exit": "clôture t+h", "stops": "aucun"},
-        metrics={"n_trials": result.n_trials, "cost_hurdle_pct": result.cost_hurdle_pct,
+        metrics={"n_trials": result.n_trials, "program_trials": result.program_trials,
+                 "cost_hurdle_pct": result.cost_hurdle_pct,
                  "rows": [asdict(r) for r in result.rows]}, status="COMPLETED", report_dir=str(report_dir))

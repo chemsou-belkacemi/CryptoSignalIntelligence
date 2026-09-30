@@ -115,7 +115,8 @@ def test_admission_validates_only_when_every_criterion_holds():
 def test_admission_flags_useless_filters_and_concentration():
     result, criteria = verdict(ablations={"sans_filtre_volume": {"expectancy_r": 0.4}})
     assert result == ValidationVerdict.INCONCLUSIVE
-    assert not criteria[6].passed and "à retirer : sans_filtre_volume" in criteria[6].detail
+    assert not criteria[6].passed and "sans apport démontré : sans_filtre_volume" in criteria[6].detail
+    assert "nouvelle hypothèse" in criteria[6].detail   # jamais « à retirer » sur les mêmes fenêtres
     concentrated = pd.concat([closed(35, symbols=("BTCUSDT",)), closed(5, symbols=("ETHUSDT",), r=0.2)])
     result, criteria = verdict(trades=concentrated)
     assert result == ValidationVerdict.INCONCLUSIVE and not criteria[4].passed
@@ -154,3 +155,35 @@ def test_walk_forward_end_to_end_on_synthetic_data(settings):
     assert (result.report_dir / "report.md").read_text(encoding="utf-8").startswith("# Walk-forward RANGE_REENTRY")
     recorded = ExperimentRegistry(settings.experiments_db).get(result.run_id)
     assert recorded["kind"] == "WALK_FORWARD" and recorded["metrics"]["n_trials"] == 6
+    assert payload["program_trials"] == 6 and recorded["metrics"]["program_trials"] == 6
+
+
+def test_development_end_cannot_be_moved_into_the_final_test(settings):
+    """CSI_PROTOCOL__DEVELOPMENT_END repoussée : refus au lieu d'une lecture silencieuse du test final."""
+    from crypto_signal_intelligence.research.protocol import FROZEN_DEVELOPMENT_END, FinalTestLocked, period
+    later = settings.model_copy(update={"protocol": settings.protocol.model_copy(update={
+        "development_end": datetime(2026, 1, 1, tzinfo=UTC), "final_test_start": datetime(2026, 1, 2, tzinfo=UTC)})})
+    with pytest.raises(FinalTestLocked):
+        period(later, "development", now=datetime(2026, 9, 1, tzinfo=UTC))
+    earlier = settings.model_copy(update={"protocol": settings.protocol.model_copy(update={
+        "development_end": datetime(2024, 12, 31, tzinfo=UTC)})})
+    assert period(earlier, "development", now=datetime(2026, 9, 1, tzinfo=UTC)).end < FROZEN_DEVELOPMENT_END
+    with pytest.raises(FinalTestLocked):
+        period(settings, "final-test", now=datetime(2026, 9, 1, tzinfo=UTC))
+
+
+def test_final_test_consultations_and_trials_are_counted_program_wide(settings):
+    registry = ExperimentRegistry(settings.experiments_db)
+    assert registry.consult_final_test("BT-1", "A") == 1
+    assert registry.consult_final_test("BT-2", "B") == 2        # B a déjà pu voir ce que A y a vu
+    common = dict(created_at="2026-01-01", hypothesis="h", strategy_version=1, variant="v", params={},
+                  period_start="2020-01-01", period_end="2025-06-30", universe=[], data_hashes={},
+                  git_commit="x", dependencies={}, seed=1, cost_scenario="central", simulation_rules={},
+                  status="COMPLETED")
+    registry.record(run_id="WF-1", kind="WALK_FORWARD", strategy="A", period_label="DEVELOPMENT",
+                    metrics={"n_trials": 18}, **common)
+    registry.record(run_id="BT-3", kind="BACKTEST_REFERENCE", strategy="B", period_label="DEVELOPMENT",
+                    metrics={}, **common)
+    registry.record(run_id="BT-4", kind="BACKTEST_REFERENCE", strategy="B", period_label="FINAL_TEST",
+                    metrics={}, **common)
+    assert registry.program_trials() == 19

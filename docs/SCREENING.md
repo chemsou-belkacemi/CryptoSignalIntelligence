@@ -13,9 +13,14 @@ la dérive de la paire et le seuil des coûts.
 
 ## Protocole
 
-- 16 paires, période DEVELOPMENT seulement (jusqu'au 2025-06-30) : le test final réservé n'est pas lu.
+- 16 paires, période DEVELOPMENT seulement (jusqu'au 2025-06-30) : le test final réservé n'est pas lu,
+  BTC de contexte compris (avant l'audit du 2026-09-30, BTC hors univers était lu en entier ; sans
+  effet sur les deux criblages faits, BTC étant dans l'univers).
 - Événement évalué à la clôture ; entrée à l'ouverture suivante ; sortie à la clôture après 1 h, 4 h
-  ou 24 h. Aucun stop, aucune cible.
+  ou 24 h. Aucun stop, aucune cible. Pour G et I (1h), l'entrée se faisait à la clôture de la bougie
+  de classement jusqu'au 2026-09-30 ; elle se fait depuis à l'ouverture suivante, comme D, E, F, H.
+- Les classements G et I ne portent que sur l'univers demandé ; BTC sert de facteur à I sans être
+  candidat.
 - Excès = rendement − moyenne inconditionnelle de la même paire au même horizon.
 - IC95 de la moyenne pondérée par événement, par tirage de blocs de 10 jours consécutifs.
 - « Passe » = rendement brut moyen > seuil de coûts aller-retour (0,26 % en coûts centraux) ET borne

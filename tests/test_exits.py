@@ -27,17 +27,31 @@ def test_partial_targets_fill_in_order_and_close_on_the_last():
     assert gap.closed and [f.price for f in gap.fills] == [102.0, 104.0]  # au prix du TP, jamais mieux
 
 
-def test_raised_stop_applies_from_the_next_bar_only():
-    pos = bar(position("BREAK_EVEN_AFTER_TP1_V1"), 100, 103, 99.9, 102.5, first=True)
-    assert not pos.closed and pos.stop == 98.0 and pos.pending_stop == 100.0   # pas de stop rétroactif
+def test_raised_stop_after_an_intrabar_tp_waits_for_the_next_bar_if_the_low_stays_above():
+    pos = bar(position("BREAK_EVEN_AFTER_TP1_V1"), 100, 100.5, 99.5, 100, first=True)
+    bar(pos, 101, 103, 100.5, 102.5)                                       # TP1 en cours de bougie, plus bas > 100
+    assert not pos.closed and pos.stop == 98.0 and pos.pending_stop == 100.0 and not pos.ambiguous
     bar(pos, 102, 102.5, 99.9, 100)
     assert pos.closed and pos.exit_reason == "SL" and pos.fills[-1].price == 100.0 and pos.stop == 100.0
     assert pnl_per_unit(pos.fills, 100.0, 0.0) == pytest.approx(1.0)      # 0,5 × 2 + 0,5 × 0
+
+
+def test_raised_stop_reached_in_the_tp_bar_exits_there_pessimistically():
+    """Ordre du plus haut et du plus bas inconnu : le retour sous le nouveau stop a pu suivre le TP."""
+    pos = bar(position("BREAK_EVEN_AFTER_TP1_V1"), 100, 100.5, 99.5, 100, first=True)
+    bar(pos, 101, 103, 99.9, 102.5)
+    assert pos.closed and pos.ambiguous and pos.exit_reason == "SL" and pos.fills[-1].price == 100.0
+    assert [(f.reason, f.price) for f in pos.optimistic_fills] == [("TP", 102.0), ("TIMEOUT", 102.5)]
+    fixed = bar(position("FIXED_SL_FOUR_TP_V1"), 100, 100.5, 99.5, 100, first=True)
+    bar(fixed, 101, 103, 99.9, 102.5)                                      # stop fixe : rien ne change
+    assert not fixed.closed and not fixed.ambiguous
+
+
+def test_tp_taken_at_the_open_raises_the_stop_at_once():
     trail = position("TRAIL_PREVIOUS_TP_V1", targets=(102.0, 104.0, 106.0), weights=(1 / 3, 1 / 3, 1 / 3))
-    bar(trail, 100, 104.5, 99.5, 104, first=True)                          # TP1 et TP2 dans la même bougie
-    assert trail.next_target == 2 and trail.pending_stop == 102.0
-    bar(trail, 104, 104.5, 101.5, 102)
-    assert trail.closed and trail.fills[-1].reason == "SL" and trail.fills[-1].price == 102.0
+    bar(trail, 100, 100.5, 99.5, 100, first=True)
+    bar(trail, 104.2, 104.5, 101.5, 102)                                   # TP1 et TP2 à l'ouverture, puis repli
+    assert trail.closed and not trail.ambiguous and trail.fills[-1].reason == "SL" and trail.fills[-1].price == 102.0
 
 
 def test_same_bar_stop_and_target_is_pessimistic_with_optimistic_bound():

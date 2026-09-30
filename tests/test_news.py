@@ -112,7 +112,10 @@ def test_failing_source_is_down_never_silent(settings):
     collect(s, now=NOW + timedelta(minutes=10), fetcher=fetcher)
     states = source_states(s, now=NOW + timedelta(minutes=10))
     assert states == {"good": "OPERATIONAL", "bad": "DOWN"}
-    assert source_states(s, now=NOW + timedelta(hours=5))["good"] == "DOWN"    # muette trop longtemps
+    # Plus aucun essai depuis 5 h : collecteur arrêté → état INCONNU, pas une panne des sites.
+    assert set(source_states(s, now=NOW + timedelta(hours=5)).values()) == {"UNKNOWN"}
+    collect(s, now=NOW + timedelta(hours=5), fetcher=lambda src: fetcher(src) if src.source_id == "bad" else parse_feed(ATOM))
+    assert source_states(s, now=NOW + timedelta(hours=5)) == {"good": "OPERATIONAL", "bad": "DOWN"}
 
 
 def test_fetch_refuses_non_https_redirects_and_oversized_answers():

@@ -231,7 +231,8 @@ def test_dashboard_is_readable_and_escapes_untrusted_text(settings):
         source_id="coindesk", category="CRYPTO_MEDIA", now=DECISION, window=timedelta(hours=48), similarity=0.5,
         item=RawItem("g", "https://x.test/a", "<script>alert(1)</script> Bitcoin", "", DECISION, None), assets=["BTC"])
     page = write_dashboard(settings, now=DECISION + timedelta(minutes=1)).read_text(encoding="utf-8")
-    assert "<script>" not in page and "&lt;script&gt;" in page
+    assert "<script>alert(1)" not in page and "&lt;script&gt;alert(1)" in page   # texte externe échappé
+    assert '<div id="stale" hidden>' in page and "(Paris)" in page and "1 R = perte au stop" in page
     assert "PAS PRÊT" in page and "NON vérifiée" in page and "jamais « aucune mauvaise nouvelle »" in page
 
 

@@ -411,18 +411,21 @@ def resolve_signals(refresh: bool = typer.Option(True, help="Met à jour les don
 @app.command()
 def sources(recent: int = typer.Option(10, help="Nombre de derniers signaux affichés")):
     """Bilan par source des signaux externes : avis donnés, issues résolues, réalisé contre taux de base."""
+    from .external.record import MIN_RESOLVED, source_records
     from .external.registry import ExternalSignalRegistry
     settings = _settings()
     registry = ExternalSignalRegistry(settings.external_db)
-    table = Table("source", "évalués", "F / I / D / R", "résolus", "TP1 réalisé", "TP1 base", "R réalisé", "R base",
-                  "attente", "non remplis", title="Sources (F favorable, I indéterminé, D défavorable, R refusé)")
+    table = Table("source", "évalués", "doublons", "refusés", "attente", "non remplis", "résolus", "TP1 réalisé / base",
+                  "R réalisé / base", "écart (IC95)", "conclusion",
+                  title=f"Bilan par source : réalisé contre taux de base, mêmes règles ; conclusion à partir de "
+                        f"{MIN_RESOLVED} signaux résolus")
     pct = lambda v: f"{v:.0%}" if v is not None else "–"  # noqa: E731
     num = lambda v: f"{v:+.3f}" if v is not None else "–"  # noqa: E731
-    for s in registry.source_stats():
-        table.add_row(s["source"], str(s["evaluated"]),
-                      f"{s['favorable']} / {s['indetermine']} / {s['defavorable']} / {s['refuse']}", str(s["resolved"]),
-                      pct(s["realized_tp1_rate"]), pct(s["base_tp1_rate"]), num(s["realized_r"]),
-                      num(s["base_expectancy_r"]), str(s["pending"]), str(s["unfilled"]))
+    for s in source_records(registry, seed=settings.protocol.seed):
+        ci = f" [{s.edge_ci95[0]:+.2f} ; {s.edge_ci95[1]:+.2f}]" if s.edge_ci95 else ""
+        table.add_row(s.source, str(s.evaluated), str(s.duplicates), str(s.refused), str(s.pending), str(s.unfilled),
+                      str(s.resolved), f"{pct(s.tp1_real)} / {pct(s.tp1_base)}", f"{num(s.r_real)} / {num(s.r_base)}",
+                      num(s.edge_r) + ci, s.conclusion)
     console.print(table)
     latest = Table("id", "reçu", "source", "paire", "entrée", "stop", "TP1", "avis", "TP1 base", "issue", "R")
     for row in registry.recent(recent):

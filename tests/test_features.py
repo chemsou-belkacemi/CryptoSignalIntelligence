@@ -81,6 +81,28 @@ def test_decisions_and_features_do_not_change_when_future_changes(settings):
     assert all(r.rows_compared == 400 for r in results)
 
 
+def test_causality_check_catches_a_join_on_open_time(settings, monkeypatch):
+    """Mutation : joindre le contexte 1h sur open_time (bougie 1h encore en formation à la décision)
+    est une fuite ; le contrôle de causalité doit la voir."""
+    from crypto_signal_intelligence.features import builder
+
+    def leaky_join(setup, context, prefix):
+        right = context[["open_time", "available_at", *builder.CONTEXT_COLUMNS]].rename(
+            columns={c: f"{prefix}{c}" for c in ["available_at", *builder.CONTEXT_COLUMNS]})
+        right[f"{prefix}open_time"] = right["open_time"]
+        joined = pd.merge_asof(setup.sort_values("open_time"), right, on="open_time", direction="backward")
+        return joined.reset_index(drop=True)
+
+    monkeypatch.setattr(builder, "join_past", leaky_join)
+    inputs = {"setup": canonical(4000, seed=1), "context": canonical(1000, "1h", seed=2),
+              "btc": canonical(1000, "1h", seed=3, symbol="BTCUSDT")}
+    strategy = registry.build("DONCHIAN_VOLUME_BREAKOUT", settings.strategies)
+    cuts = [inputs["setup"]["open_time"].iloc[i] for i in (1501, 2602)]   # décisions au milieu d'une heure
+    results = check(settings, strategy, inputs, "ETHUSDT", cuts)
+    assert not any(r.ok for r in results)
+    assert all(any(c.startswith("ctx_") for c in r.feature_mismatches) for r in results)
+
+
 def test_gap_blocks_decisions_downstream(settings):
     setup = canonical(600).drop(index=range(300, 305)).reset_index(drop=True)
     frame = build_decision_frame(setup, canonical(200, "1h"), canonical(200, "1h", symbol="BTCUSDT"),
@@ -89,3 +111,18 @@ def test_gap_blocks_decisions_downstream(settings):
     flags = frame["data_gap_recent"].to_numpy()
     assert not flags[:300].any() and flags[300:350].all() and not flags[360:].any()
     assert datetime(2024, 1, 1, tzinfo=UTC) <= frame["decision_time"].iloc[0].to_pydatetime()
+
+
+def test_stale_btc_context_is_unavailable_not_reused():
+    """Données BTC arrêtées : au-delà de deux heures, le contexte BTC devient NaN (indisponible)."""
+    import math
+    from datetime import timedelta
+
+    from crypto_signal_intelligence.features.context import iter_contexts
+
+    from .test_simulator import FLAT, frame_from
+    frame = frame_from([FLAT] * 12)
+    frame["btc_available_at"] = frame["available_at"].iloc[0] - timedelta(minutes=30)
+    values = [math.isnan(ctx.btc["ret_24h"]) for _, ctx in iter_contexts(frame, "ETHUSDT", "15m", ())]
+    # âge à la bougie i : 30 min + 15 min × i ; > 2 h à partir de i = 7
+    assert values == [False] * 7 + [True] * 5

@@ -84,11 +84,21 @@ class ExperimentRegistry:
             return db.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
 
     def consult_final_test(self, run_id: str, strategy: str) -> int:
+        """Enregistre une consultation et renvoie le total TOUTES stratégies confondues : dès qu'une
+        stratégie a regardé le test final, ce qu'on y a vu peut orienter les suivantes."""
         with self.connect() as db:
             db.execute("INSERT INTO final_test_consultations VALUES (?, ?, ?)",
                        (datetime.now(UTC).isoformat(), run_id, strategy))
-            return db.execute("SELECT COUNT(*) FROM final_test_consultations WHERE strategy=?",
-                              (strategy,)).fetchone()[0]
+            return db.execute("SELECT COUNT(*) FROM final_test_consultations").fetchone()[0]
+
+    def program_trials(self, period_label: str = "DEVELOPMENT") -> int:
+        """Nombre d'essais déjà faits sur la période par TOUT le programme de recherche : somme des
+        `n_trials` enregistrés (combinaisons de grille, conditions × horizons), 1 pour une exécution
+        sans ce champ (chaque variante de backtest est un regard de plus sur les mêmes données)."""
+        with self.connect() as db:
+            row = db.execute("""SELECT COALESCE(SUM(COALESCE(json_extract(metrics, '$.n_trials'), 1)), 0)
+                                FROM runs WHERE period_label=?""", (period_label,)).fetchone()
+        return int(row[0])
 
     def get(self, run_id: str) -> dict | None:
         with self.connect() as db:

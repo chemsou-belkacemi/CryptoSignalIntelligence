@@ -172,3 +172,48 @@ def test_prospective_replay_follows_the_signal_policy():
     assert replay_signal(bars, consumer, costs, timedelta(minutes=15)).outcome == "OPEN"
     never = bars.assign(open=2600.0, high=2610.0, low=2590.0, close=2600.0)
     assert replay_signal(never, theoretical, costs, timedelta(minutes=15)).outcome == "UNFILLED"
+
+
+def test_prospective_entry_window_matches_the_simulator_bar_count():
+    """Décision 12:00, ENTRY_EXPIRES_AT 12:30:02 : deux bougies d'entrée (12:00 et 12:15), comme le
+    simulateur (`expires_after_bars` = 2) ; la bougie 12:30, qui clôture après l'expiration, n'en est pas."""
+    from datetime import timedelta
+
+    import pandas as pd
+
+    from crypto_signal_intelligence.config import CostScenario
+    from crypto_signal_intelligence.feedback.reconcile import replay_signal
+    from tests.test_signals import one_tp_signal
+    costs = CostScenario(fee_bps=0, slippage_bps=0, half_spread_bps=0, extra_entry_delay_bars=0)
+    decision = datetime(2026, 9, 29, 12, 0, tzinfo=UTC)
+    signal = one_tp_signal(decision_at=decision, data_as_of=decision,
+                           entry_expires_at=decision + timedelta(minutes=30, seconds=2))
+    start = pd.Timestamp(decision)
+    above = {"open": 2600.0, "high": 2610.0, "low": 2590.0, "close": 2600.0}
+    rows = [above, above, {"open": 2600.0, "high": 2600.0, "low": 2490.0, "close": 2495.0}] + [above] * 3
+    bars = pd.DataFrame([{"open_time": start + pd.Timedelta(minutes=15 * i), **r} for i, r in enumerate(rows)])
+    assert replay_signal(bars, signal, costs, timedelta(minutes=15)).outcome == "UNFILLED"
+    assert replay_signal(bars.iloc[:2], signal, costs, timedelta(minutes=15)).outcome == "UNFILLED"
+    assert replay_signal(bars.iloc[:1], signal, costs, timedelta(minutes=15)).outcome == "PENDING"
+    touched = bars.copy()
+    touched.loc[1, ["low", "close"]] = [2490.0, 2495.0]
+    assert replay_signal(touched, signal, costs, timedelta(minutes=15)).fill_price == 2500.10
+
+
+def test_prospective_fill_opening_below_the_stop_pays_two_crossings():
+    """Ouverture sous le stop : achat à open × (1 + coût), stop-market aussitôt à open × (1 − coût)."""
+    from datetime import timedelta
+
+    import pandas as pd
+
+    from crypto_signal_intelligence.config import CostScenario
+    from crypto_signal_intelligence.feedback.reconcile import replay_signal
+    from tests.test_signals import one_tp_signal
+    costs = CostScenario(fee_bps=0, slippage_bps=10, half_spread_bps=0, extra_entry_delay_bars=0)
+    signal = one_tp_signal()
+    start = pd.Timestamp(signal.decision_at)
+    bars = pd.DataFrame([{"open_time": start, "open": 2460.0, "high": 2470.0, "low": 2450.0, "close": 2465.0}])
+    result = replay_signal(bars, signal, costs, timedelta(minutes=15))
+    fill, exit_ = 2460.0 * 1.001, 2460.0 * 0.999
+    assert result.outcome == "SL_GAP" and result.fill_price == pytest.approx(fill)
+    assert result.r == pytest.approx(round((exit_ - fill) / (2500.10 - 2462.60), 4))

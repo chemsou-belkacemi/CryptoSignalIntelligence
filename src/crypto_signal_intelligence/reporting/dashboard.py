@@ -11,8 +11,13 @@ import json
 from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from ..config import Settings
+from ..data.schema import interval
+from ..data.store import CandleStore
+from ..external.record import MIN_RESOLVED, source_records
+from ..external.registry import ExternalSignalRegistry
 from ..feedback.reconcile import execution_report
 from ..live.backup import publication_suspended
 from ..live.health import check
@@ -35,6 +40,7 @@ vertical-align:top}th{color:var(--muted);font-weight:600}
 .ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}.muted{color:var(--muted)}
 .pill{display:inline-block;padding:1px 8px;border-radius:10px;border:1px solid currentColor;font-size:12px}
 .wide{grid-column:1/-1}
+#stale{background:var(--bad);color:#fff;padding:10px 14px;border-radius:8px;margin-bottom:12px;font-weight:600}
 """
 
 
@@ -96,8 +102,33 @@ def render(settings: Settings, *, now: datetime) -> str:
                   _e("; ".join(r.deviations) or "–")] for r in reversed(report[-30:])]
 
     states = source_states(settings, now=now)
-    source_rows = [[_e(sid), f'<span class="{"ok" if st == "OPERATIONAL" else "bad"}">{_e(st)}</span>']
-                   for sid, st in states.items()]
+    color = {"OPERATIONAL": "ok", "UNKNOWN": "warn", "UNVERIFIED": "warn"}
+    source_rows = [[_e(sid), f'<span class="{color.get(st, "bad")}">{_e(st)}</span>'] for sid, st in states.items()]
+    last_news = status.get("last_news_collection")
+    news_note = ("Collecteur : " + ("jamais lancé par la surveillance" if last_news is None else _e(last_news))
+                 + ". UNKNOWN = aucune source interrogée récemment (collecteur arrêté), pas une panne.")
+
+    # Fraîcheur des données par paire (dernière bougie 15m stockée).
+    store = CandleStore(settings.data_dir)
+    step = interval(settings.data.setup_timeframe)
+    fresh_rows = []
+    for symbol in settings.data.symbols:
+        last = store.last_open_time(symbol, settings.data.setup_timeframe)
+        if last is None:
+            fresh_rows.append([_e(symbol), "–", '<span class="bad">aucune donnée</span>'])
+            continue
+        age = (now - (last + step).to_pydatetime()).total_seconds() / 60
+        cls = "ok" if age <= 2 * step.total_seconds() / 60 else "bad"
+        fresh_rows.append([_e(symbol), _e(f"{(last + step):%Y-%m-%d %H:%M}"), f'<span class="{cls}">{age:.0f} min</span>'])
+
+    # Groupes Telegram : réalisé contre taux de base, mêmes règles.
+    group_rows = []
+    for rec in source_records(ExternalSignalRegistry(settings.external_db), seed=settings.protocol.seed):
+        ci = f" [{rec.edge_ci95[0]:+.2f} ; {rec.edge_ci95[1]:+.2f}]" if rec.edge_ci95 else ""
+        pct = lambda v: "–" if v is None else f"{v:.0%}"  # noqa: E731
+        group_rows.append([_e(rec.source), str(rec.evaluated), str(rec.resolved), str(rec.pending), str(rec.unfilled),
+                           _e(f"{pct(rec.tp1_real)} / {pct(rec.tp1_base)}"),
+                           _e(f"{_num(rec.r_real)} / {_num(rec.r_base)}"), _e(_num(rec.edge_r) + ci), _e(rec.conclusion)])
     news_rows: list[list[str]] = []
     seen: set[str] = set()
     for item in NewsStore(settings.news_db).recent(now - timedelta(hours=24), limit=400):
@@ -116,9 +147,19 @@ def render(settings: Settings, *, now: datetime) -> str:
         ("Dernière analyse", cycle_html, ""),
         ("Stratégies (dernier walk-forward)", _table(["stratégie", "verdict", "date", "exécution"], verdict_rows,
                                                      "Aucun walk-forward."), ""),
+        ("Fraîcheur des données (dernière bougie 15m)", _table(["paire", "clôture (UTC)", "âge"], fresh_rows,
+                                                                "Aucune paire."), ""),
         ("Sources d'actualités (mode " + _e(settings.news.mode) + ", aucune influence)",
          _table(["source", "état"], source_rows, "Aucune source.")
-         + '<p class="muted">Une source en panne ne signifie jamais « aucune mauvaise nouvelle ».</p>', ""),
+         + f'<p class="muted">{news_note} Une source en panne ne signifie jamais « aucune mauvaise nouvelle ».</p>',
+         ""),
+        ("Groupes Telegram : réalisé contre taux de base (mêmes règles)",
+         _table(["source", "évalués", "résolus", "en attente", "non remplis", "TP1 réalisé / base", "R réalisé / base",
+                 "écart R (IC95)", "conclusion"], group_rows,
+                "Aucun signal Telegram évalué dans cet état (evaluate-signal).")
+         + f'<p class="muted">Aucune conclusion avant {MIN_RESOLVED} signaux résolus. L\'écart mesure l\'apport de '
+           "sélection du groupe par rapport au même ordre placé sans sélection ; ce n'est pas une probabilité.</p>",
+         "wide"),
         ("Signaux publiés : backtest, prospectif et Demo séparés",
          _table(["signal", "paire", "stratégie", "canal", "E[R] backtest", "prospectif", "R prosp.", "Demo", "R Demo",
                  "écarts"], perf_rows, "Aucun signal publié."), "wide"),
@@ -126,13 +167,26 @@ def render(settings: Settings, *, now: datetime) -> str:
          _table(["date", "source", "actifs", "titre", "sources"], news_rows, "Aucune actualité."), "wide"),
     ]
     body = "".join(f'<section class="{cls}"><h2>{title}</h2>{content}</section>' for title, content, cls in sections)
+    legend = ("<p class='muted'>R : résultat rapporté au risque prévu (1 R = perte au stop). E[R] backtest : espérance "
+              "hors échantillon du dernier walk-forward. Prospectif : le signal rejoué sur les bougies après sa "
+              "publication. Demo : exécution réelle rapportée par BinanceSpotManager. Ces trois mesures ne "
+              "s'additionnent jamais.</p>")
+    paris = now.astimezone(ZoneInfo("Europe/Paris"))
+    # Bandeau affiché par le navigateur si la page n'a pas été régénérée depuis 20 min (surveillance figée).
+    stale_script = ('<script>(function(){var g=Date.parse("' + now.strftime("%Y-%m-%dT%H:%M:%SZ") + '");'
+                    'function c(){var m=Math.round((Date.now()-g)/60000);var e=document.getElementById("stale");'
+                    'if(m>20){e.hidden=false;e.textContent="Tableau figé depuis "+m+" min : la surveillance ne le met '
+                    'plus à jour. Les informations ci-dessous sont anciennes.";}}c();setInterval(c,30000);})();'
+                    '</script>')
     return (f'<!doctype html><html lang="fr"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="60">'
             f"<title>CSI — surveillance</title><style>{CSS}</style></head><body><main>"
+            f'<div id="stale" hidden></div>'
             f"<h1>CryptoSignalIntelligence — surveillance</h1>"
-            f'<div class="sub">Généré le {_e(now.strftime("%Y-%m-%d %H:%M:%S"))} UTC. Aucun ordre n\'est exécuté '
-            f"par ce programme ; aucune performance n'est promise.</div>"
-            f'<div class="grid">{body}</div></main></body></html>')
+            f'<div class="sub">Généré le {_e(paris.strftime("%d/%m/%Y %H:%M"))} (Paris), '
+            f'{_e(now.strftime("%H:%M"))} UTC. Aucun ordre n\'est exécuté par ce programme ; aucune performance '
+            f"n'est promise.</div>{legend}"
+            f'<div class="grid">{body}</div></main>{stale_script}</body></html>')
 
 
 def write_dashboard(settings: Settings, *, now: datetime) -> Path:

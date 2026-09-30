@@ -12,6 +12,13 @@ Get-Content signal.txt | .\.venv\Scripts\python.exe -m crypto_signal_intelligenc
 .\.venv\Scripts\python.exe -m crypto_signal_intelligence sources             # bilan par groupe
 ```
 
+Avec Docker (recommandé, l'évaluation est résolue automatiquement par la surveillance) :
+
+```powershell
+.\scripts\evaluer-signal.ps1 -Source "Suhaib" -Fichier signal.txt
+Get-Clipboard | .\scripts\evaluer-signal.ps1 -Source "Cleo"     # texte copié
+```
+
 Formats lus : les mêmes que BinanceSpotManager (PAIR / ENTRY n / Tn / SL ; Coin / Entry Zone /
 Target → ; #PAIRE/USDT / Entryn / TPn / Stop ; BUY / ENTRY / TP / SL). Tout texte ambigu est
 refusé : aucun prix deviné, pas de short, pas de levier, une seule paire explicite.
@@ -69,9 +76,25 @@ décision. `resolve-signals` rejoue ensuite chaque signal sur les bougies 15m cl
   ouverture sous le stop exécutée à l'ouverture ; TIMEOUT au close après `max_hold_bars` ;
 - R = PnL net (frais, glissement) rapporté au risque prévu (entrée − stop du signal).
 
-`sources` compare, par groupe, le réalisé au taux de base des mêmes signaux. Tant qu'un groupe
-a peu de signaux résolus, l'écart n'est pas significatif : l'outil affiche les comptes, il ne
-déclare pas un groupe « bon » ou « mauvais ».
+- suivi à partir de la première bougie qui s'ouvre **après la réception** : la bougie en cours
+  au moment de l'avis a commencé avant, ses extrêmes n'étaient pas atteignables (règle prudente :
+  un remplissage réel pendant cette bougie peut être manqué, faute de données à la minute) ;
+- résolution **automatique** après chaque cycle de la surveillance (`run`, Docker) ; `resolve-signals`
+  reste disponible à la main ;
+- un même texte recollé pour le même groupe dans les 7 jours est gardé mais **jamais compté deux
+  fois** ; reçu d'un autre groupe, il compte pour ce groupe et est marqué « copie ».
+
+`sources` (et la section « Groupes Telegram » du tableau de bord) compare, par groupe, le réalisé
+au taux de base des mêmes signaux : écart moyen en R (R réalisé − R de base, mêmes règles des deux
+côtés) avec son intervalle à 95 %, tiré par **jours de réception** (les signaux d'un même jour suivent
+le même marché : ils ne comptent pas comme des observations indépendantes). **Aucune conclusion avant
+20 signaux résolus répartis sur au moins 10 jours** ; ensuite seulement « au-dessus », « en dessous »
+ou « pas d'écart démontré ». Ce n'est ni une note du groupe ni une probabilité de réussite du
+prochain signal.
+
+Regards répétés : le bilan est recalculé à chaque signal. Décider de faire confiance à un groupe la
+première fois que l'intervalle passe au-dessus de 0 augmente le risque de faux positif ; une
+conclusion ne vaut que si elle tient ensuite, sur des signaux reçus après cette décision.
 
 ## Limites
 

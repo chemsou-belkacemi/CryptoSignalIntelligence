@@ -56,3 +56,14 @@ Non modélisé, à garder en tête : la latence de détection des remplissages (
 stop), le décalage de 0,3 % du stop-limite dans une chute rapide (vente `STOP_CROSSED` au
 marché), la limite d'un TP par cycle, les frais en BNB, et l'annulation des entrées restantes
 après TP1 (nos signaux n'ont qu'une entrée).
+
+## Routage automatique ou « À confirmer » (branche `feat/signal-routing`, 2026-09-30)
+
+Règle du propriétaire : confirmation manuelle obligatoire si le risque est élevé ou la confiance
+faible ou inconnue ; exécution automatique sur Demo seulement sans aucun motif de revue et si
+l'automatisation est activée. Confiance **déclarée** (jamais une probabilité) : signal CSI
+`DEMO_ELIGIBLE`, ou groupe Telegram déclaré de confiance et actif dans la liste validée. Risque
+mesuré avant l'ordre : perte au stop frais compris (0,5 % par défaut), limites dures du worker,
+risque total, même actif déjà ouvert, distance du stop (1 à 10 %), entrée déjà dépassée,
+`VOLATILITY_REGIME=HIGH`, coupe-circuits (4 ordres automatiques par 24 h, −2 % par jour, 3 pertes
+de suite). Par défaut, rien ne part automatiquement. Détails : `docs/SIGNAUX.md` de BSM.

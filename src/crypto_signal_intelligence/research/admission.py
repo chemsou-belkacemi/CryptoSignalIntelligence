@@ -82,11 +82,14 @@ def evaluate(*, central: dict, adverse: dict, central_trades: pd.DataFrame, wind
         criteria.append(Criterion(7, label, True, "aucune ablation déclarée"))
     else:
         others = {name: summary.get("expectancy_r") for name, summary in ablations.items()}
-        # Un filtre dont le retrait AMÉLIORE l'E[R] hors échantillon doit être retiré, pas justifié.
+        # Un filtre dont le retrait AMÉLIORE l'E[R] hors échantillon n'a pas d'apport démontré : le critère
+        # échoue. Le retirer puis relancer sur ces mêmes fenêtres serait choisir la règle APRÈS avoir vu le
+        # hors-échantillon : la version sans filtre est une nouvelle hypothèse, à juger sur des données non vues.
         worse = [name for name, other in others.items() if other is not None and other > expectancy]
         detail = f"base {expectancy} vs " + ", ".join(f"{name} {other}" for name, other in others.items())
-        criteria.append(Criterion(7, label, not worse,
-                                  detail + (f" ; filtre(s) à retirer : {', '.join(worse)}" if worse else "")))
+        criteria.append(Criterion(7, label, not worse, detail + (
+            f" ; sans apport démontré : {', '.join(worse)} (les retirer = nouvelle hypothèse, "
+            "à tester sur une période non vue, pas sur ces fenêtres)" if worse else "")))
 
     if all(c.passed for c in criteria):
         verdict = ValidationVerdict.VALIDATED_OOS

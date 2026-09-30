@@ -41,3 +41,19 @@ def test_confidence_interval_brackets_the_reported_event_weighted_mean():
     frame = pd.DataFrame({"time": times, "excess": rng.normal(0.001, 0.01, len(times))})
     low, high = _day_block_ci(frame, 10, 2000, 3)
     assert low < frame["excess"].mean() * 100 < high
+
+
+def test_cross_section_ranks_only_the_requested_universe():
+    """BTC sert de facteur à I sans être candidat ; hors univers, il n'entre pas non plus dans G."""
+    from crypto_signal_intelligence.research.screen import _cross_sectional
+    rng = np.random.default_rng(5)
+    index = pd.date_range("2023-01-01", periods=1500, freq="h", tz="UTC")
+    walk = lambda drift: pd.Series(100 * np.exp(np.cumsum(rng.normal(drift, 0.01, len(index)))), index=index)  # noqa: E731
+    closes = pd.DataFrame({f"P{i}USDT": walk(0.0) for i in range(5)})
+    btc = walk(0.002)                                          # BTC le plus fort : serait toujours classé
+    for kind in ("G", "I"):
+        chosen = _cross_sectional(closes, kind, btc)
+        assert list(chosen.columns) == list(closes.columns) and chosen.to_numpy().any()
+    with_btc = _cross_sectional(closes.assign(BTCUSDT=btc), "G", btc)
+    assert with_btc["BTCUSDT"].any()                           # dans l'univers demandé : candidat en G
+    assert "BTCUSDT" not in _cross_sectional(closes.assign(BTCUSDT=btc), "I", btc)

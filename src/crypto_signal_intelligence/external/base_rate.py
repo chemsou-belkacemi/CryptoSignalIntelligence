@@ -27,6 +27,7 @@ from dataclasses import asdict, dataclass
 import numpy as np
 import pandas as pd
 
+from ..backtest.metrics import day_block_ci95
 from ..config import CostScenario
 
 TP, SL, TIMEOUT = 1, -1, 0
@@ -126,9 +127,10 @@ def blind_limit_outcomes(frame: pd.DataFrame, *, entry_offset: float, stop_atr: 
     outcome = np.full(count, np.nan)
     exit_price = np.full(count, np.nan)
     ambiguous = np.zeros(count, dtype=bool)
-    gap_fill = filled & (fill_price <= stop)                  # rempli sous le stop : stop-market aussitôt
+    fill_open = opens[np.where(filled, fill_bar, 0)]
+    gap_fill = filled & ~touched & (fill_open <= stop)        # ouverture sous le stop : stop-market aussitôt
     outcome[gap_fill] = SL
-    exit_price[gap_fill] = fill_price[gap_fill] * (1 - market_cost)
+    exit_price[gap_fill] = fill_open[gap_fill] * (1 - market_cost)
     pending = np.flatnonzero(filled & ~gap_fill)
     for step in range(horizon):
         if not len(pending):
@@ -162,28 +164,6 @@ def blind_limit_outcomes(frame: pd.DataFrame, *, entry_offset: float, stop_atr: 
     r = (exit_price[known] * (1 - fee) - fill_price[known] * (1 + fee)) / risk[known]
     return BlindOutcomes(outcome=outcome[known], r=r, ambiguous=ambiguous[known], times=decision[idx][known],
                          emitted=emitted, filled=int(filled.sum()))
-
-
-def day_block_ci95(values: np.ndarray, times: np.ndarray, *, block_days: int, samples: int,
-                   seed: int) -> tuple[tuple[float, float] | None, int]:
-    """IC95 de la moyenne (pondérée par entrée, donc la MÊME que celle affichée) : on tire, avec remise,
-    des blocs de `block_days` jours calendaires consécutifs (jours présents dans l'échantillon)."""
-    if len(values) == 0:
-        return None, 0
-    days = pd.to_datetime(times, utc=True).floor("D")
-    frame = pd.DataFrame({"day": days, "v": values}).groupby("day")["v"].agg(["sum", "count"])
-    sums, counts = frame["sum"].to_numpy(), frame["count"].to_numpy()
-    blocks = math.ceil(len(sums) / block_days)
-    if blocks < MIN_BLOCKS:
-        return None, blocks
-    pad = blocks * block_days - len(sums)
-    sums = np.concatenate([sums, np.zeros(pad)]).reshape(blocks, block_days).sum(axis=1)
-    counts = np.concatenate([counts, np.zeros(pad)]).reshape(blocks, block_days).sum(axis=1)
-    rng = np.random.default_rng(seed)
-    picks = rng.integers(0, blocks, size=(samples, blocks))
-    draws = sums[picks].sum(axis=1) / counts[picks].sum(axis=1)
-    low, high = np.percentile(draws, [2.5, 97.5])
-    return (round(float(low), 4), round(float(high), 4)), blocks
 
 
 def base_rate(frame: pd.DataFrame, *, stop_atr: float, target_r: float, horizon: int, costs: CostScenario,

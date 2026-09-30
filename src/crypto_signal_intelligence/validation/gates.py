@@ -8,11 +8,8 @@ from datetime import datetime, timedelta
 
 from ..config import CostScenario
 from ..domain.enums import NoTradeReason, StrategyStatus
-from ..domain.market import MarketContext
+from ..domain.market import MAX_CONTEXT_AGE, MarketContext
 from ..levels.engine import TradeLevels
-
-# La bougie de contexte doit dater d'au plus deux intervalles de contexte.
-MAX_CONTEXT_AGE = timedelta(hours=2)
 
 
 def pre_decision(context: MarketContext, *, now: datetime, setup_interval: timedelta, max_staleness_bars: int,

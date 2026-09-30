@@ -58,16 +58,18 @@ volatility_min_bars = 240
 volatility_low_quantile = 0.2
 volatility_high_quantile = 0.8
 liquidity_window_bars = 720
+liquidity_min_bars = 240
 liquidity_low_ratio = 0.3         # volume 24h < 30 % de sa médiane passée → LOW
 liquidity_min_quote_volume_24h = 5000000
 transition_lookback_bars = 6
 
 [protocol]
 # Fixé AVANT toute optimisation. Le test final n'est consulté qu'explicitement
-# (--i-understand-final-test) et chaque consultation est enregistrée.
+# (--i-understand-final-test) et chaque consultation est enregistrée. Bornes figées dans
+# research/protocol.py : development_end peut être plus tôt ici, jamais plus tard.
 development_end = "2025-06-30T23:59:59Z"
 final_test_start = "2025-07-01T00:00:00Z"
-bootstrap_block_size = 10
+bootstrap_block_days = 10
 bootstrap_samples = 2000
 seed = 20260929
 
@@ -87,7 +89,9 @@ extra_entry_delay_bars = 0
 fee_bps = 10
 slippage_bps = 5
 half_spread_bps = 3
-extra_entry_delay_bars = 0
+# Une bougie de retard (2026-09-30, après l'audit look-ahead) : en direct, le signal part ≈ 40 s
+# après la clôture et l'ordre après sa lecture par le consommateur ; le central garde 0.
+extra_entry_delay_bars = 1
 
 [costs.stress]
 fee_bps = 15

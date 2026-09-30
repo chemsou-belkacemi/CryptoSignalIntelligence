@@ -135,8 +135,9 @@ def replay_signal(bars: pd.DataFrame, signal: Signal, costs: CostScenario, step:
     """Rejoue UN signal publié avec les règles du simulateur et SA politique de sortie.
 
     `bars` : bougies clôturées du timeframe de setup, triées ; seules celles qui ouvrent à partir de
-    DECISION_AT comptent. Entrée LIMIT active jusqu'à ENTRY_EXPIRES_AT (pas EXPIRES_AT, qui ne borne
-    que l'acceptation du message). Les TP suivent les poids TP_WEIGHTS ; la sortie temporelle n'existe
+    DECISION_AT comptent. Entrée LIMIT active sur les bougies qui CLÔTURENT au plus tard à
+    ENTRY_EXPIRES_AT (pas EXPIRES_AT, qui ne borne que l'acceptation du message) : les mêmes
+    `expires_after_bars` bougies que le simulateur. R rapporté au risque prévu ENTRY_1 − STOP_LOSS. Les TP suivent les poids TP_WEIGHTS ; la sortie temporelle n'existe
     que si la politique en prévoit une (MAX_HOLD_MINUTES).
     """
     if signal.entry_count != 1:
@@ -149,7 +150,7 @@ def replay_signal(bars: pd.DataFrame, signal: Signal, costs: CostScenario, step:
     entry, stop = float(signal.entry_1), float(signal.stop_loss)
     opens, highs, lows, closes = (bars[c].to_numpy(float) for c in ("open", "high", "low", "close"))
     times = [t.to_pydatetime() for t in bars["open_time"]]
-    window = sum(1 for t in times if t < signal.entry_expires_at)
+    window = sum(1 for t in times if t + step <= signal.entry_expires_at)
     fill = None
     for k in range(window):
         if opens[k] <= entry:
@@ -159,11 +160,11 @@ def replay_signal(bars: pd.DataFrame, signal: Signal, costs: CostScenario, step:
             fill = (k, entry, True)
             break
     if fill is None:
-        entry_window_over = len(times) > window or times[-1] + step >= signal.entry_expires_at
+        entry_window_over = len(times) > window or times[-1] + 2 * step > signal.entry_expires_at
         return Prospective("UNFILLED" if entry_window_over else "PENDING")
     start, price, touched = fill
-    if price <= stop:   # rempli sous le stop (gap) : stop-market immédiat, R rapporté au risque prévu
-        exit_price = price * (1 - market_cost)
+    if not touched and opens[start] <= stop:   # ouverture sous le stop (gap) : stop-market immédiat
+        exit_price = opens[start] * (1 - market_cost)
         r = (exit_price * (1 - fee) - price * (1 + fee)) / (entry - stop)
         return Prospective("SL_GAP", round(r, 4), times[start], price)
     position = OpenPosition(entry=price, initial_stop=stop, targets=tuple(float(t) for t in signal.targets),
@@ -177,7 +178,7 @@ def replay_signal(bars: pd.DataFrame, signal: Signal, costs: CostScenario, step:
         position.process_bar(opens[k], highs[k], lows[k], closes[k], first_bar=k == start, touched=touched and k == start,
                              market_cost=market_cost, time_limit_reached=max_bars is not None and held >= max_bars)
         if position.closed:
-            r = pnl_per_unit(position.fills, price, fee) / position.risk
+            r = pnl_per_unit(position.fills, price, fee) / (entry - stop)
             return Prospective(position.exit_reason or "CLOSED", round(r, 4), times[start], price, position.ambiguous)
     return Prospective("OPEN", None, times[start], price, position.ambiguous)
 

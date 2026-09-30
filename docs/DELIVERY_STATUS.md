@@ -20,7 +20,7 @@ stratégies actuelles sont **REJECTED** hors échantillon (README). Vérificatio
 | Stratégies A, B, C (règles calculables, fiches complètes point 10) | TESTÉ | tests unitaires ; walk-forward réel → REJECTED (BTC+ETH), univers 16 paires en cours |
 | Simulateur : fills LIMIT stricts, gaps, TP/SL même bougie ambigus, pas de plus haut pré-entrée crédité (point 14) | TESTÉ | `test_simulator`, `test_exits` ; non-régression sur 246 trades réels |
 | Frais sur quantités remplies, spread compté une fois (point 14) | TESTÉ | frais par remplissage pondéré (`pnl_per_unit`) ; glissement + demi-spread appliqués une fois à l'entrée au marché et à chaque sortie au marché |
-| Walk-forward purgé, verdict automatique, registre d'expériences | TESTÉ | `test_walk_forward` ; 9 exécutions réelles reproductibles |
+| Walk-forward purgé, verdict automatique, registre d'expériences | TESTÉ | `test_walk_forward` ; 14 walk-forwards réels (21 exécutions DEVELOPMENT en tout) ; protocole durci après l'audit du 2026-09-30 (docs/PROTOCOL.md) |
 | Criblage brut des familles D à I (dérive retirée, seuil de coûts, IC par blocs de jours, essais comptés) | TESTÉ | `test_screen` (causalité, entrée à l'ouverture suivante, IC encadrant la moyenne) ; exécution réelle 16 paires : aucune famille ne passe ([SCREENING.md](SCREENING.md)) |
 | Contrat TXT V3 (point 11), deux expirations (point 12) | TESTÉ | `test_signals` (34 cas dont 27 refus) ; texte V3 produit sur un vrai setup ETH |
 | Politique de sortie partagée et hachée (point 13) | TESTÉ | `test_exits` : empreintes figées, fichier `config/exit_policies.json` identique au code |
@@ -29,6 +29,11 @@ stratégies actuelles sont **REJECTED** hors échantillon (README). Vérificatio
 | Retour d'exécution v2 : reçu / ordre envoyé / rempli, UNKNOWN (point 15) | TESTÉ | `test_feedback` (contrat strict, états, UNKNOWN, NOT_CONSUMED) |
 | Écarts expliqués, backtest / prospectif / Demo séparés (point 16) | TESTÉ sur fixtures | `test_deviations_*`, `test_prospective_replay_*` ; aucun retour Demo réel encore |
 | Évaluation de signaux Telegram (taux de base, registre, résolution) | TESTÉ | `test_external` ; démonstration sur données réelles (SOL) |
+| Évaluateur Telegram v2 : refus « signal invalidé / déjà joué », géométrie sur l'entrée obtenue, taux de base LIMIT_ALIGNED_V2 (même ordre que la résolution), IC par blocs de jours | TESTÉ | `test_blind_limit_orders_are_resolved_exactly_like_replay` (≥ 30 ordres identiques), `test_day_block_interval_*` ; essai réel SOL (IC désormais disponible par régime) |
+| Bilan Telegram : doublons comptés une fois, copies marquées, suivi depuis la réception, résolution automatique dans `run`, bilan par groupe avec IC et seuil de 20 signaux | TESTÉ | `test_same_text_is_counted_once_*`, `test_resolution_starts_at_*`, `test_monitor_resolves_external_signals_*`, `test_source_record_*` |
+| Test croisé CSI ↔ BSM sur les messages Telegram réels (mêmes prix lus) | TESTÉ | `test_csi_and_bsm_read_the_same_telegram_signal` (main et branche) |
+| MAX_ENTRY_DEVIATION_BPS couvrant l'écart réel référence → ENTRY_1 (+ tolérance 25 pb) | TESTÉ | `test_published_band_accepts_the_price_at_publication` |
+| Registre des publications portable entre machines (chemins relatifs, chemins étrangers ramenés) | TESTÉ | `test_registry_paths_survive_a_move_between_machines` |
 
 ## Intégration avec BinanceSpotManager (Binance Demo uniquement)
 
@@ -46,7 +51,7 @@ stratégies actuelles sont **REJECTED** hors échantillon (README). Vérificatio
 |---|---|---|
 | `scan` (un cycle) et `run --mode shadow` continu, `analyze` ponctuel (point 1) | TESTÉ | `test_live` ; `scan` réel le 2026-09-30 : 16 paires × 3 stratégies en 18 s (données 11 s, analyse 3,6 s) |
 | Déclenchement aux clôtures 15m, attente bornée des bougies 15m/1h (et BTC), pas de publication si le contexte manque (point 2) | TESTÉ | `test_missing_hourly_context_*`, `test_missing_setup_candle_*` (horloge simulée) |
-| Rafraîchissement REST des seules bougies manquantes, fenêtres en mémoire (point 3) | TESTÉ | décision identique sur la fenêtre et sur l'historique complet (`test_live_window_*`) |
+| Rafraîchissement REST des seules bougies manquantes, fenêtres en mémoire, fusion du seul chevauchement en Arrow, fichiers en blocs de 16 384 lignes (point 3) | TESTÉ | équivalences `test_tail_merge_*`, `test_upsert_tail_*`, `test_tail_load_*`, `test_live_window_*` ; lecture des bougies récentes 7 ms au lieu de 127 ms |
 | Calcul incrémental des indicateurs, contexte BTC/ETH calculé une fois pour toutes les paires (point 3) | NON IMPLÉMENTÉ | les indicateurs sont recalculés sur la fenêtre à chaque cycle (3,7 s pour 48 analyses) |
 | Processus séparés, priorité CPU basse des travaux lourds (point 4) | TESTÉ | `backtest` et `walk-forward` passent en priorité « inférieure à la normale » (`test_heavy_jobs_can_lower_their_own_priority`) ; ce sont des commandes distinctes de `run` |
 | Plafond de RAM des travaux lourds (point 4) | NON IMPLÉMENTÉ | environ 1 Go par walk-forward sur 16 paires, pour 7,7 Go de RAM sur la machine : en lancer un seul à la fois |
@@ -65,7 +70,7 @@ stratégies actuelles sont **REJECTED** hors échantillon (README). Vérificatio
 | Fonctionnement après fermeture de la session d'administration sur VPS/NAS (point 19) | BLOQUÉ | aucune machine cible accessible |
 | Sauvegarde cohérente, restauration vérifiée, suspension de publication jusqu'à réconciliation (point 20) | TESTÉ | `test_backup` (archive altérée refusée, restauration refusée pendant `run`, publication bloquée puis reprise) ; sauvegarde réelle le 2026-09-30 : 7 fichiers, 329 Ko |
 | Mesures de durée (données, analyse, délai de publication), état de santé JSON (point 21) | TESTÉ | `state/run_status.json` ; données passées de 45 s à 11 s (connexion HTTP réutilisée, 4 séries en parallèle) |
-| Interface utile (point 21) | TESTÉ | `state/dashboard.html`, régénéré à chaque cycle et par `dashboard` : santé, dernière analyse, opportunités, rejets, verdicts, signaux (backtest / prospectif / Demo), news ; texte externe échappé (`test_dashboard_*`) |
+| Interface utile (point 21) | TESTÉ | `state/dashboard.html` (Docker : http://127.0.0.1:8502/dashboard.html) : santé, dernière analyse, rejets, verdicts, signaux, fraîcheur par paire, sources de news (INCONNU si collecteur arrêté), groupes Telegram, légende, heure de Paris, bandeau « tableau figé » après 20 min ; texte externe échappé |
 
 Tests de résilience demandés au point 22 : doublons, données périmées, bougies absentes, contexte
 manquant, redémarrage et reprise de publication après crash sont couverts. Coupure réseau réelle,

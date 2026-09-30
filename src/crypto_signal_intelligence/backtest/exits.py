@@ -10,8 +10,11 @@ Conventions (partagées avec backtest/simulator.py) :
   stop ; le cas est compté AMBIGUOUS ;
 - bougie de remplissage « au contact » : aucun TP dans cette bougie (le plus haut a pu
   précéder l'entrée), seule la borne optimiste les compte ;
-- un stop remonté après un TP s'applique à partir de la bougie SUIVANTE : aucun déplacement
-  rétroactif au bénéfice du backtest ;
+- un stop remonté après un TP pris à l'OUVERTURE s'applique aussitôt ; après un TP pris en cours
+  de bougie, l'ordre du plus haut et du plus bas est inconnu : si le plus bas de cette bougie
+  atteint le nouveau stop, le restant sort au nouveau stop (pessimiste, cas compté AMBIGUOUS ;
+  la borne optimiste garde le restant, valorisé au close) ; sinon le nouveau stop vaut dès la
+  bougie suivante ;
 - sortie temporelle (profil théorique) au close après la durée maximale, si la politique
   la prévoit ; un consommateur sans sortie temporelle garde la position jusqu'au TP ou au stop.
 """
@@ -202,6 +205,9 @@ class OpenPosition:
                 self._take(self.next_target, market_cost)
             if self.closed:
                 return
+            if self.pending_stop is not None:     # TP à l'ouverture : stop remonté dès cette bougie
+                self.stop = max(self.stop, self.pending_stop)
+                self.pending_stop = None
         sl_hit = low <= self.stop
         hit = [k for k in range(self.next_target, len(self.targets)) if self._reached(h, self.targets[k])]
         if hit and (touched or sl_hit):
@@ -215,6 +221,15 @@ class OpenPosition:
         for k in hit:
             self._take(k, market_cost)
         if self.closed:
+            return
+        if hit and self.pending_stop is not None and low <= self.pending_stop:
+            # Le plus bas a pu suivre le TP : le stop remonté aurait alors été touché dans cette bougie.
+            self.ambiguous = True
+            if self.optimistic_fills is None:
+                self.optimistic_fills = [*self.fills, Fill("TIMEOUT", max(c, self.pending_stop) * (1 - market_cost),
+                                                           self.remaining)]
+            self.stop, self.pending_stop = self.pending_stop, None
+            self._close("SL", self.stop * (1 - market_cost))
             return
         if time_limit_reached and self.policy.time_exit:
             self._close("TIMEOUT", c * (1 - market_cost))

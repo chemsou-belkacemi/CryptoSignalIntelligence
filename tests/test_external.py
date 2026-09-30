@@ -301,3 +301,41 @@ def test_resolution_starts_at_the_first_bar_opened_after_reception(settings):
                     raw_text="y", resolvable=True)
     counts = resolve_pending(settings, registry, now=received + timedelta(days=30))
     assert counts == {"UNFILLED": 1}          # la plongée à 90 précède la réception : pas de remplissage à 95
+
+
+def test_source_record_draws_no_conclusion_before_twenty_resolved_signals(settings):
+    from crypto_signal_intelligence.external.record import MIN_RESOLVED, source_records
+    registry = ExternalSignalRegistry(settings.external_db)
+    t0 = pd.Timestamp("2026-01-01", tz="UTC").to_pydatetime()
+    for k in range(MIN_RESOLVED + 5):
+        sid = registry.record(received_at=t0 + timedelta(days=k), source="Bon", content_hash=f"g{k}",
+                              template="structured", symbol="ETHUSDT", entry=100.0, stop=98.0, tp1=104.0,
+                              targets=[104.0], decision_time=None, close=100.0, verdict="INDETERMINE", p_tp1=0.35,
+                              base_expectancy_r=-0.1, evaluation={}, raw_text="x", resolvable=True)
+        registry.mark(sid, "TP1_FIRST", 1.9, t0, t0 + timedelta(days=k, hours=5))
+        if k < 3:
+            other = registry.record(received_at=t0 + timedelta(days=k), source="Nouveau", content_hash=f"n{k}",
+                                    template="structured", symbol="ETHUSDT", entry=100.0, stop=98.0, tp1=104.0,
+                                    targets=[104.0], decision_time=None, close=100.0, verdict="INDETERMINE",
+                                    p_tp1=0.35, base_expectancy_r=-0.1, evaluation={}, raw_text="x", resolvable=True)
+            registry.mark(other, "TP1_FIRST", 1.9, t0, t0 + timedelta(days=k, hours=5))
+    records = {r.source: r for r in source_records(registry)}
+    assert "aucune conclusion" in records["Nouveau"].conclusion and records["Nouveau"].edge_ci95 is None
+    good = records["Bon"]
+    assert good.resolved == MIN_RESOLVED + 5 and good.edge_r == pytest.approx(2.0)
+    assert good.edge_ci95 is not None and good.edge_ci95[0] > 0 and "au-dessus" in good.conclusion
+
+
+def test_source_record_needs_signals_spread_over_several_days(settings):
+    """Vingt-cinq signaux le même jour suivent le même marché : pas vingt-cinq observations indépendantes."""
+    from crypto_signal_intelligence.external.record import MIN_RESOLVED, source_records
+    registry = ExternalSignalRegistry(settings.external_db)
+    t0 = pd.Timestamp("2026-01-01", tz="UTC").to_pydatetime()
+    for k in range(MIN_RESOLVED + 5):
+        sid = registry.record(received_at=t0 + timedelta(minutes=k), source="Rafale", content_hash=f"r{k}",
+                              template="structured", symbol="ETHUSDT", entry=100.0, stop=98.0, tp1=104.0,
+                              targets=[104.0], decision_time=None, close=100.0, verdict="INDETERMINE", p_tp1=0.35,
+                              base_expectancy_r=-0.1, evaluation={}, raw_text="x", resolvable=True)
+        registry.mark(sid, "TP1_FIRST", 1.9, t0, t0 + timedelta(hours=5))
+    record = source_records(registry)[0]
+    assert record.edge_ci95 is None and "concentrés" in record.conclusion

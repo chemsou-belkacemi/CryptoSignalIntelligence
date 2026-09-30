@@ -3,10 +3,11 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
 
+import numpy as np
 import pandas as pd
 
 from ..domain.enums import LiquidityRegime, TransitionState, TrendRegime, VolatilityRegime
-from ..domain.market import MarketContext, MarketRegime, frozen_mapping
+from ..domain.market import MAX_CONTEXT_AGE, MarketContext, MarketRegime, frozen_mapping
 
 BASE_SETUP_KEYS = ("open", "high", "low", "close", "volume", "atr14")
 CTX_NUMERIC = ("close", "ema20", "ema50", "ema50_slope", "atr_pct", "quote_volume_24h", "ret_24h")
@@ -27,13 +28,21 @@ def regime_from(trend, volatility, liquidity, transition) -> MarketRegime:
 
 def iter_contexts(frame: pd.DataFrame, symbol: str, setup_timeframe: str,
                   setup_keys: Sequence[str]) -> Iterator[tuple[int, MarketContext]]:
-    """Un contexte par bougie de setup, dans l'ordre chronologique."""
+    """Un contexte par bougie de setup, dans l'ordre chronologique.
+
+    Contexte BTC plus ancien que MAX_CONTEXT_AGE (données BTC arrêtées) : valeurs NaN, donc
+    « indisponible » pour la stratégie, jamais une vieille valeur prise pour actuelle.
+    """
     keys = tuple(dict.fromkeys((*BASE_SETUP_KEYS, *setup_keys)))
     columns = {
         "setup": [frame[k].to_numpy(float) for k in keys],
         "ctx": [frame[f"ctx_{k}"].to_numpy(float) for k in CTX_NUMERIC],
         "btc": [frame[f"btc_{k}"].to_numpy(float) for k in CTX_NUMERIC],
     }
+    if "btc_available_at" in frame:
+        stale = (frame["btc_available_at"].isna()
+                 | ((frame["available_at"] - frame["btc_available_at"]) > MAX_CONTEXT_AGE)).to_numpy()
+        columns["btc"] = [np.where(stale, np.nan, col) for col in columns["btc"]]
     regimes = frame[["ctx_trend", "ctx_volatility", "ctx_liquidity", "ctx_transition"]].to_numpy(object)
     decision = frame["decision_time"].tolist()
     available = frame["available_at"].tolist()

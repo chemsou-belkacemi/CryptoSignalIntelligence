@@ -51,6 +51,10 @@ d'entrée envoyé) → `ENTRY_PARTIAL` / `ENTRY_FILLED` (achats réels) → `TP_
 - `EXPIRED` : entrée jamais remplie avant `ENTRY_EXPIRES_AT`. `CANCELLED` : annulation, avec motif.
 - `MARKET_EXIT_FILLED` : vente au marché hors TP et hors stop (stop refusé puis vente au marché,
   fermeture manuelle). CSI la compte comme un écart à la politique.
+- Signal en attente de confirmation manuelle chez BSM (branche `feat/signal-routing`) : aucun
+  événement tant que le propriétaire n'a pas décidé ; s'il ne confirme pas, `REJECTED` n'arrive qu'à
+  `EXPIRES_AT` + 60 s, avec les codes de revue en motif. Un signal non `DEMO_ELIGIBLE` peut être
+  confirmé à la main : il produit alors `RECEIVED` et des remplissages comme les autres.
 - Sans aucun événement, l'état est **UNKNOWN** : ni un refus, ni une perte. Un signal shadow est
   `NOT_CONSUMED`.
 - Le consommateur tient son propre registre durable des `SIGNAL_ID` et des `IDEMPOTENCY_KEY`

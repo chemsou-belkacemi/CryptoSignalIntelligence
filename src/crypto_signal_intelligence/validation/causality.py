@@ -1,10 +1,13 @@
 """Test central de causalité sur données réelles.
 
-Pour plusieurs instants t : calcule features et décisions (a) avec les données
-jusqu'à t seulement, (b) avec tout l'historique, (c) avec un futur falsifié
-(prix après t multipliés, volumes permutés). Les features et décisions à t et
-avant doivent être identiques dans les trois cas. Ce test réduit le risque de
-fuite ; il ne prouve pas à lui seul son absence.
+Pour plusieurs bougies de décision t : calcule features et décisions (a) avec les
+seules bougies DISPONIBLES à l'instant de décision de t (available_at, pour chaque
+unité de temps : une bougie 1h en formation est donc exclue), (b) avec tout
+l'historique, (c) avec un futur falsifié (prix des bougies non encore disponibles
+multipliés, volumes et nombre de trades permutés). Les features et décisions à t et
+avant doivent être identiques dans les trois cas. Une jointure faite sur open_time au
+lieu d'available_at est détectée (tests/test_features.py). Ce test réduit le risque
+de fuite ; il ne prouve pas à lui seul son absence.
 """
 from __future__ import annotations
 
@@ -19,6 +22,8 @@ from ..features.context import iter_contexts
 from ..strategies.base import Strategy
 
 COMPARED_ROWS = 400
+FALSIFIED_COUNTS = ("base_volume", "quote_volume", "taker_buy_base_volume", "taker_buy_quote_volume",
+                    "number_of_trades")
 
 
 @dataclass
@@ -33,13 +38,15 @@ class CausalityCheck:
         return not self.feature_mismatches and self.decision_mismatches == 0
 
 
-def _falsify_future(frame: pd.DataFrame, cut: pd.Timestamp, rng: np.random.Generator) -> pd.DataFrame:
+def _falsify_future(frame: pd.DataFrame, decided_at: pd.Timestamp, rng: np.random.Generator) -> pd.DataFrame:
     frame = frame.copy()
-    future = frame["open_time"] > cut
+    future = frame["available_at"] > decided_at
     factor = rng.uniform(0.5, 1.5, int(future.sum()))
     for column in ("open", "high", "low", "close"):
         frame.loc[future, column] = frame.loc[future, column].to_numpy() * factor
-    frame.loc[future, "base_volume"] = rng.permutation(frame.loc[future, "base_volume"].to_numpy())
+    for column in FALSIFIED_COUNTS:
+        if column in frame:
+            frame.loc[future, column] = rng.permutation(frame.loc[future, column].to_numpy())
     return frame
 
 
@@ -63,9 +70,12 @@ def check(settings: Settings, strategy: Strategy, inputs: dict[str, pd.DataFrame
 
     full = build(inputs)
     checks = []
+    setup = inputs["setup"]
     for cut in cuts:
-        truncated = build({k: v[v["open_time"] <= cut] for k, v in inputs.items()})
-        falsified = build({k: _falsify_future(v, cut, rng) for k, v in inputs.items()})
+        # Instant de décision de la bougie t : sa propre disponibilité (clôture + latence supposée).
+        decided_at = setup.loc[setup["open_time"] <= cut, "available_at"].max()
+        truncated = build({k: v[v["available_at"] <= decided_at] for k, v in inputs.items()})
+        falsified = build({k: _falsify_future(v, decided_at, rng) for k, v in inputs.items()})
         rows = full[full["open_time"] <= cut].tail(COMPARED_ROWS)
         window = rows["open_time"]
         views = [frame[frame["open_time"].isin(window)].reset_index(drop=True) for frame in (full, truncated, falsified)]

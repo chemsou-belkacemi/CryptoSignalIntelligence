@@ -2,12 +2,16 @@
 
 - L'espérance est donnée en R (multiple du risque initial) et en % net.
 - Borne pessimiste (convention retenue) ET borne optimiste pour les cas ambigus.
-- Intervalle de confiance par bootstrap PAR BLOCS (trades chronologiques),
-  car les trades successifs ne sont pas indépendants.
+- Intervalle de confiance par bootstrap PAR BLOCS DE JOURS consécutifs (date d'entrée) :
+  les trades d'un même jour, sur des paires corrélées, et des jours voisins ne sont pas
+  indépendants ; des blocs de N trades les traiteraient comme tels et resserreraient l'IC.
+  Même méthode que le criblage et le taux de base des signaux externes.
 - Drawdown : sur la courbe cumulée des trades CLOS en R (pas mark-to-market,
   limite documentée). Pas de Sharpe annualisé sur une liste de trades irréguliers.
 """
 from __future__ import annotations
+
+import math
 
 import numpy as np
 import pandas as pd
@@ -15,17 +19,26 @@ import pandas as pd
 CLOSED = {"TP", "SL", "SL_GAP", "TIMEOUT"}
 
 
-def block_bootstrap_mean(values: np.ndarray, block: int, samples: int, seed: int) -> tuple[float, float] | None:
-    n = len(values)
-    if n < max(2 * block, 20):
-        return None
+def day_block_ci95(values: np.ndarray, times: np.ndarray, *, block_days: int, samples: int,
+                   seed: int, min_blocks: int = 10) -> tuple[tuple[float, float] | None, int]:
+    """IC95 de la moyenne (pondérée par entrée, donc la MÊME que celle affichée) : on tire, avec remise,
+    des blocs de `block_days` jours calendaires consécutifs (jours présents dans l'échantillon)."""
+    if len(values) == 0:
+        return None, 0
+    days = pd.to_datetime(times, utc=True).floor("D")
+    frame = pd.DataFrame({"day": days, "v": values}).groupby("day")["v"].agg(["sum", "count"])
+    sums, counts = frame["sum"].to_numpy(), frame["count"].to_numpy()
+    blocks = math.ceil(len(sums) / block_days)
+    if blocks < min_blocks:
+        return None, blocks
+    pad = blocks * block_days - len(sums)
+    sums = np.concatenate([sums, np.zeros(pad)]).reshape(blocks, block_days).sum(axis=1)
+    counts = np.concatenate([counts, np.zeros(pad)]).reshape(blocks, block_days).sum(axis=1)
     rng = np.random.default_rng(seed)
-    blocks = int(np.ceil(n / block))
-    starts = rng.integers(0, n - block + 1, size=(samples, blocks))
-    index = (starts[..., None] + np.arange(block)).reshape(samples, -1)[:, :n]
-    means = values[index].mean(axis=1)
-    low, high = np.percentile(means, [2.5, 97.5])
-    return round(float(low), 4), round(float(high), 4)
+    picks = rng.integers(0, blocks, size=(samples, blocks))
+    draws = sums[picks].sum(axis=1) / counts[picks].sum(axis=1)
+    low, high = np.percentile(draws, [2.5, 97.5])
+    return (round(float(low), 4), round(float(high), 4)), blocks
 
 
 def max_drawdown(cumulative: np.ndarray) -> float:
@@ -40,7 +53,7 @@ def calendar_months(start, end) -> float:
 
 
 def summarize(trades: pd.DataFrame, *, evaluated_bars: int, bars_in_position: int, candidates: int,
-              no_trade: dict, bootstrap_block: int, bootstrap_samples: int, seed: int,
+              no_trade: dict, bootstrap_block_days: int, bootstrap_samples: int, seed: int,
               months: float | None = None) -> dict:
     """`months` : durée calendaire des décisions évaluées (fréquence des trades par mois)."""
     total = len(trades)
@@ -71,7 +84,10 @@ def summarize(trades: pd.DataFrame, *, evaluated_bars: int, bars_in_position: in
         "win_rate": round(float((r > 0).mean()), 4),
         "expectancy_r": round(float(r.mean()), 4),
         "expectancy_r_optimistic_bound": round(float(r_opt.mean()), 4),
-        "expectancy_r_ci95_block_bootstrap": block_bootstrap_mean(r, bootstrap_block, bootstrap_samples, seed),
+        "expectancy_r_ci95_block_bootstrap": day_block_ci95(
+            r, closed["entry_time"].to_numpy(), block_days=bootstrap_block_days, samples=bootstrap_samples,
+            seed=seed)[0],
+        "ci95_method": f"bootstrap par blocs de {bootstrap_block_days} jours consécutifs (date d'entrée)",
         "median_r": round(float(np.median(r)), 4),
         "avg_net_return_pct": round(float(net.mean() * 100), 4),
         "avg_gross_return_pct": round(float(gross.mean() * 100), 4),
