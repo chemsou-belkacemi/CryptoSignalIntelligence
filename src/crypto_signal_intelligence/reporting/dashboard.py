@@ -18,6 +18,7 @@ from ..data.schema import interval
 from ..data.store import CandleStore
 from ..external.record import MIN_RESOLVED, source_records
 from ..external.registry import ExternalSignalRegistry
+from ..external.universe import UserUniverse
 from ..feedback.reconcile import execution_report
 from ..live.backup import publication_suspended
 from ..live.health import check
@@ -112,14 +113,22 @@ def render(settings: Settings, *, now: datetime) -> str:
     store = CandleStore(settings.data_dir)
     step = interval(settings.data.setup_timeframe)
     fresh_rows = []
-    for symbol in settings.data.symbols:
+    user_pairs = {row["symbol"]: row for row in UserUniverse(settings.external_db).all()}
+    for symbol in [*settings.data.symbols, *user_pairs]:
+        label = _e(symbol) + (" (ajoutée)" if symbol in user_pairs else "")
+        pair = user_pairs.get(symbol)
+        if pair is not None and pair["status"] != "READY":
+            state = (f'<span class="warn">téléchargement en cours ({pair["attempts"]}/3)</span>'
+                     if pair["status"] == "REQUESTED" else f'<span class="bad">échec : {_e(pair["last_error"] or "?")}</span>')
+            fresh_rows.append([label, "–", state])
+            continue
         last = store.last_open_time(symbol, settings.data.setup_timeframe)
         if last is None:
-            fresh_rows.append([_e(symbol), "–", '<span class="bad">aucune donnée</span>'])
+            fresh_rows.append([label, "–", '<span class="bad">aucune donnée</span>'])
             continue
         age = (now - (last + step).to_pydatetime()).total_seconds() / 60
         cls = "ok" if age <= 2 * step.total_seconds() / 60 else "bad"
-        fresh_rows.append([_e(symbol), _e(f"{(last + step):%Y-%m-%d %H:%M}"), f'<span class="{cls}">{age:.0f} min</span>'])
+        fresh_rows.append([label, _e(f"{(last + step):%Y-%m-%d %H:%M}"), f'<span class="{cls}">{age:.0f} min</span>'])
 
     # Groupes Telegram : réalisé contre taux de base, mêmes règles.
     group_rows = []

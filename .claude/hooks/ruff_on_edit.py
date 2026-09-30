@@ -30,7 +30,9 @@ def main() -> int:
         return 0                                   # hors du projet : pas nos règles
     ruff = str(RUFF) if RUFF.exists() else "ruff"
     try:
-        result = subprocess.run([ruff, "check", "--fix", "--quiet", str(path)], cwd=PROJECT,
+        # Jamais de suppression automatique d'import (F401) : entre deux modifications d'un même fichier,
+        # un import fraîchement ajouté n'a pas encore d'usage ; il est signalé, pas retiré.
+        result = subprocess.run([ruff, "check", "--fix", "--unfixable", "F401", "--quiet", str(path)], cwd=PROJECT,
                                 capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.SubprocessError):
         return 0                                   # ruff absent ou bloqué : ne jamais bloquer le travail

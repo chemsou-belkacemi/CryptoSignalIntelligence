@@ -110,6 +110,11 @@ INDETERMINE / FAVORABLE. Chaque signal est enregistré ; `resolve-signals` mesur
 issue réelle et `sources` compare chaque groupe à son taux de base. Ce n'est pas une prédiction
 du signal : détails et limites dans [docs/EXTERNAL_SIGNALS.md](docs/EXTERNAL_SIGNALS.md).
 
+Paire hors univers : un signal **soumis à la main** par le propriétaire vaut validation de sa paire,
+qui est ajoutée définitivement (avis `EN_ATTENTE` le temps de télécharger l'historique, puis avis
+normal) ; un signal reçu automatiquement n'ajoute jamais rien. Liste et état : `universe`
+([docs/UNIVERSE.md](docs/UNIVERSE.md)).
+
 ## Univers de paires
 
 16 paires USDT depuis le 2026-09-30 : BTC, ETH et 14 paires retenues par un screening halal croisé
@@ -166,6 +171,7 @@ sans nouvelle dépendance. Régénérer le verrou : voir `pip lock` dans l'histo
 .\.venv\Scripts\python.exe -m crypto_signal_intelligence evaluate-signal --source "Suhaib" --file signal.txt
 .\.venv\Scripts\python.exe -m crypto_signal_intelligence resolve-signals               # issues des signaux évalués
 .\.venv\Scripts\python.exe -m crypto_signal_intelligence sources                       # bilan par groupe Telegram
+.\.venv\Scripts\python.exe -m crypto_signal_intelligence universe                      # paires configurées + ajoutées par toi
 .\.venv\Scripts\python.exe -m crypto_signal_intelligence import-feedback --file feedback.jsonl   # retour Demo du bot
 .\.venv\Scripts\python.exe -m crypto_signal_intelligence execution-report              # backtest / prospectif / Demo + écarts
 .\.venv\Scripts\python.exe -m crypto_signal_intelligence exit-policies                 # politiques de sortie et empreintes

@@ -313,7 +313,10 @@ VERDICT_TEXT = {
     "INDETERMINE": "aucun veto, mais l'historique ne permet pas de conclure (échantillon, IC contenant 0)",
     "FAVORABLE": "aucun veto et espérance nette positive de cette géométrie sur l'historique",
 }
-VERDICT_COLOR = {"REFUSE": "red", "DEFAVORABLE": "red", "INDETERMINE": "yellow", "FAVORABLE": "green"}
+VERDICT_COLOR = {"REFUSE": "red", "DEFAVORABLE": "red", "INDETERMINE": "yellow", "FAVORABLE": "green",
+                 "EN_ATTENTE": "cyan"}
+VERDICT_TEXT["EN_ATTENTE"] = ("paire ajoutée à l'univers sur validation du propriétaire ; historique en cours de "
+                              "téléchargement par la surveillance : réévaluer dans quelques minutes (non enregistré)")
 
 
 def _print_evaluation(ev) -> None:
@@ -366,6 +369,9 @@ def evaluate_signal(text: str = typer.Option(None, "--text", help="Texte du sign
                     source: str = typer.Option("inconnu", help="Nom du groupe ou de la source"),
                     refresh: bool = typer.Option(True, help="Met à jour les données de la paire avant analyse"),
                     no_record: bool = typer.Option(False, "--no-record", help="Ne pas enregistrer l'évaluation"),
+                    add_pair: bool = typer.Option(True, "--add-pair/--no-add-pair",
+                                                  help="Un signal soumis à la main vaut validation de la paire : "
+                                                       "ajoutée à l'univers si elle n'y est pas (défaut)"),
                     verbose: bool = False):
     """Évalue un signal externe (groupe Telegram) : vetos, contexte, taux de base, avis. N'exécute rien."""
     from pathlib import Path
@@ -373,19 +379,40 @@ def evaluate_signal(text: str = typer.Option(None, "--text", help="Texte du sign
     from .data.pipeline import download as run_download
     from .external.evaluate import evaluate as run_evaluate
     from .external.parser import parse
+    from .external.universe import universe_symbols
     settings = _settings(verbose)
     raw = text or (Path(file).read_text(encoding="utf-8") if file else sys.stdin.read())
     if not raw.strip():
         console.print("[red]Aucun texte de signal (--text, --file ou entrée standard).[/red]")
         raise typer.Exit(2)
     parsed = parse(raw)
-    if refresh and parsed.ok and parsed.symbol in settings.data.symbols:
+    if refresh and parsed.ok and parsed.symbol in universe_symbols(settings):
         now = _now()
         for sym, tf in ((parsed.symbol, settings.data.setup_timeframe), (parsed.symbol, settings.data.context_timeframe),
                         ("BTCUSDT", settings.data.context_timeframe)):
             with console.status(f"mise à jour {sym} {tf}…"):
                 run_download(settings, sym, tf, now=now)
-    _print_evaluation(run_evaluate(settings, raw, source=source, now=_now(), record=not no_record))
+    _print_evaluation(run_evaluate(settings, raw, source=source, now=_now(), record=not no_record,
+                                   user_validated=add_pair))
+
+
+@app.command()
+def universe(forget: str = typer.Option(None, "--forget", help="Retire une paire ajoutée par le propriétaire")):
+    """Univers évaluable : paires configurées et paires ajoutées par le propriétaire (signal soumis à la main)."""
+    from .external.universe import UserUniverse
+    settings = _settings()
+    store = UserUniverse(settings.external_db)
+    if forget:
+        symbol = forget.upper()
+        console.print(f"{symbol} retirée de l'univers du propriétaire (bougies conservées sur disque)."
+                      if store.forget(symbol) else f"{symbol} n'est pas une paire ajoutée par le propriétaire.")
+    console.print(f"Configuration ({len(settings.data.symbols)}) : {', '.join(settings.data.symbols)}")
+    table = Table("paire", "état", "pas de prix", "demandée le", "prête le", "tentatives", "dernière erreur",
+                  title="Paires ajoutées par le propriétaire (un signal soumis à la main vaut validation)")
+    for row in store.all():
+        table.add_row(row["symbol"], row["status"], row["tick_size"], row["requested_at"][:16],
+                      (row["ready_at"] or "–")[:16], str(row["attempts"]), row["last_error"] or "–")
+    console.print(table)
 
 
 @app.command("resolve-signals")

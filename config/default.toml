@@ -177,3 +177,5 @@ min_stop_atr = 0.5                # stop plus serré que 0,5 ATR14 : bruit de ma
 max_stop_atr = 8.0                # stop plus large que 8 ATR14 : risque incontrôlé
 min_net_rr = 0.8                  # RR TP1 net de coûts centraux minimal
 min_base_rate_samples = 300       # en dessous : taux de base sur tous les régimes, puis INDETERMINE
+auto_add_pairs = false            # mode test : toute paire soumise est ajoutée, même sans validation manuelle
+                                  # (CSI_EXTERNAL__AUTO_ADD_PAIRS=true ; Docker : CSI_AUTO_ADD_PAIRS dans .env)

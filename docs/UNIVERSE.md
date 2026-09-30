@@ -78,6 +78,31 @@ certains avis), SOL (IFG contradictoire), ATOM et ETC proches du seuil de liquid
 - **Coût** : chaque paire ajoute deux historiques (15m et 1h) à télécharger, soit environ deux à
   trois minutes par paire au premier `download`, puis quelques secondes par mise à jour.
 
+## Paires ajoutées par le propriétaire (validation manuelle, 2026-09-30)
+
+Règle décidée par le propriétaire : **un signal qu'il soumet lui-même vaut validation de la paire**
+(il a jugé l'actif acceptable). CSI l'ajoute alors définitivement à l'univers évaluable, sans
+screening supplémentaire — ce projet ne certifie rien, la décision est la sienne, tracée avec sa
+date et son motif. Les signaux reçus **automatiquement** (relève Telegram du worker de
+BinanceSpotManager) n'ajoutent jamais de paire : personne ne les a validés.
+
+- Soumission manuelle = page Avis CSI ou signal collé sur la page Signaux de BSM (`user_validated`),
+  commande `evaluate-signal` (option `--add-pair`, activée par défaut), `scripts/evaluer-signal.ps1`.
+- À la première soumission, CSI vérifie que la paire existe sur Binance Spot (pas de prix lu sur l'API
+  publique, aucune clé), l'enregistre en `REQUESTED` et rend l'avis **EN_ATTENTE** (non enregistré).
+  La surveillance (`run`) télécharge ensuite l'historique 15m et 1h entre deux cycles, une paire par
+  cycle, seulement s'il reste au moins six minutes avant la clôture suivante ; la paire passe `READY`
+  et le signal peut être réévalué (avis normal, enregistré). Trois échecs de téléchargement → `FAILED`,
+  relancée par une nouvelle soumission manuelle.
+- Ces paires servent à l'évaluation des signaux externes et à leur résolution ; elles n'entrent pas
+  dans les walk-forwards, qui gardent l'univers de la configuration.
+- Où : table `user_pairs` de `signals/external.sqlite3` (état Docker : volume `csi-state`).
+  Consulter : `universe` (ou `GET /universe` de l'API) ; retirer : `universe --forget PAIRE`.
+- **Mode test** (`[external] auto_add_pairs = true`, ou `CSI_EXTERNAL__AUTO_ADD_PAIRS=true` ; Docker :
+  `CSI_AUTO_ADD_PAIRS=true` dans le `.env` de CSI) : toute paire soumise est ajoutée, même par un signal
+  reçu automatiquement, **sans validation du propriétaire** ; le motif enregistré le dit. À réserver aux
+  essais : en mode normal, seule la soumission manuelle vaut validation.
+
 ## Modifier l'univers
 
 1. Ajouter ou retirer la paire dans `[data].symbols` et son pas de prix dans `[data.tick_size]`

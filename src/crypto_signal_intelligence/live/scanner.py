@@ -37,6 +37,9 @@ from .lock import InstanceLock
 
 log = logging.getLogger(__name__)
 Downloader = Callable[..., object]
+# Téléchargement d'une paire ajoutée (archives 15m + 1h, ≈ 2 à 4 min) : seulement s'il reste ce délai
+# avant la clôture suivante, pour ne jamais retarder un cycle d'analyse.
+USER_PAIR_DOWNLOAD_MARGIN = timedelta(minutes=6)
 
 
 def last_close(now: datetime, step: timedelta) -> datetime:
@@ -161,11 +164,17 @@ def _resolve_external_signals(settings: Settings, *, now: datetime) -> dict:
     return resolve_pending(settings, ExternalSignalRegistry(settings.external_db), now=now)
 
 
+def _download_user_pairs(settings: Settings, *, now: datetime, downloader: Downloader) -> dict:
+    from ..external.universe import download_pending
+    return download_pending(settings, now=now, downloader=downloader)
+
+
 def write_status(path: Path, report: CycleReport, *, cycles: int, started_at: datetime,
-                 news: dict | None = None, external: object = None) -> None:
+                 news: dict | None = None, external: object = None, universe: object = None) -> None:
     """État de santé lisible (dernière analyse, décomptes, publications, erreurs, durées, news, résolution)."""
     status = {"pid_started_at": started_at.isoformat(), "cycles": cycles, "last_cycle": report.to_dict(),
               "last_news_collection": news, "last_external_resolution": external,
+              "last_universe_download": universe,
               "published": [{"symbol": o.symbol, "strategy": o.strategy, "signal_id": o.signal_id,
                              "path": o.signal_path} for o in report.published()]}
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -193,6 +202,8 @@ def run_forever(settings: Settings, *, clock: Callable[[], datetime] = lambda: d
 
     Les actualités (mode observe) sont collectées APRÈS l'analyse de chaque cycle, quand l'intervalle
     configuré est écoulé : une source lente ou en panne ne retarde jamais l'analyse des bougies.
+    Les paires ajoutées par le propriétaire (external/universe.py) sont téléchargées de même après le
+    cycle, une par cycle, seulement s'il reste au moins USER_PAIR_DOWNLOAD_MARGIN avant la clôture suivante.
     """
     if news_collector is None and settings.news.mode != "off":
         from ..news.collector import collect as news_collector
@@ -233,8 +244,16 @@ def run_forever(settings: Settings, *, clock: Callable[[], datetime] = lambda: d
             except Exception as exc:  # noqa: BLE001 - la résolution n'arrête jamais la surveillance
                 log.exception("résolution des signaux externes")
                 resolution = {"error": f"{type(exc).__name__}: {exc}"}
+            # Paires ajoutées par le propriétaire : historique téléchargé ici, une paire par cycle, hors analyse.
+            universe_note: object = None
+            if next_close(clock(), step) - clock() >= USER_PAIR_DOWNLOAD_MARGIN:
+                try:
+                    universe_note = _download_user_pairs(settings, now=clock(), downloader=downloader)
+                except Exception as exc:  # noqa: BLE001 - jamais bloquant
+                    log.exception("téléchargement des paires ajoutées")
+                    universe_note = {"error": f"{type(exc).__name__}: {exc}"}
             write_status(settings.root / settings.live.status_file, report, cycles=cycles, started_at=started_at,
-                         news=news_note, external=resolution)
+                         news=news_note, external=resolution, universe=universe_note)
             log.info("cycle %s : %s ; publiés %s ; erreurs %s ; durées %s", report.decision_close.isoformat(),
                      report.counts(), len(report.published()), len(report.errors), report.timings)
             _refresh_dashboard(settings, clock())

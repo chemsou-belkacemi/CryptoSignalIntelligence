@@ -260,3 +260,30 @@ def test_monitor_resolves_external_signals_after_each_cycle_and_survives_errors(
     assert cycles == 2 and len(calls) == 2                      # une résolution par cycle, malgré l'erreur
     status = json.loads((settings.root / settings.live.status_file).read_text(encoding="utf-8"))
     assert "base verrouillée" in status["last_external_resolution"]["error"]
+
+
+def test_monitor_downloads_owner_added_pairs_between_cycles(settings):
+    """Une paire ajoutée par le propriétaire est téléchargée après le cycle (archives), puis READY."""
+    from decimal import Decimal
+
+    from crypto_signal_intelligence.external.universe import UserUniverse
+
+    store_candles(settings)
+    universe = UserUniverse(settings.external_db)
+    universe.request("QTUMUSDT", Decimal("0.001"), reason="signal soumis à la main", now=DECISION)
+    clock = FakeClock(DECISION - timedelta(minutes=3))
+    full_downloads = []
+
+    def downloader(settings_, symbol, timeframe, *, now, **kwargs):
+        if kwargs.get("rest_only"):                              # rafraîchissement du cycle : rien à faire
+            return None
+        full_downloads.append((symbol, timeframe))
+        CandleStore(settings_.data_dir).save(
+            canonical(300, timeframe, symbol=symbol, start="2024-01-01", seed=9), symbol, timeframe)
+
+    cycles = run_forever(settings, clock=clock, sleep=clock.sleep, max_cycles=1, downloader=downloader,
+                         news_collector=lambda s, now: None, signal_resolver=lambda s, now: {})
+    assert cycles == 1 and full_downloads == [("QTUMUSDT", "15m"), ("QTUMUSDT", "1h")]
+    assert universe.get("QTUMUSDT")["status"] == "READY"
+    status = json.loads((settings.root / settings.live.status_file).read_text(encoding="utf-8"))
+    assert status["last_universe_download"]["ready"] == ["QTUMUSDT"]

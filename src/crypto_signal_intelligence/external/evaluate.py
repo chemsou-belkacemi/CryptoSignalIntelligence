@@ -17,6 +17,8 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 from ..config import ExternalSection, Settings
+from ..data.http import PublicHttpClient
+from ..data.rest import fetch_tick_size
 from ..data.schema import interval
 from ..features.builder import SetupFeatureParams, build_decision_frame
 from ..features.loader import MissingData, load_inputs
@@ -25,9 +27,11 @@ from ..signals.schema import gross_rr
 from .base_rate import BaseRate, base_rate
 from .parser import ExternalSignal, parse
 from .registry import ExternalSignalRegistry
+from .universe import FAILED, REQUESTED, UserUniverse, tick_size_for, universe_symbols
 
-VERDICTS = ("REFUSE", "DEFAVORABLE", "INDETERMINE", "FAVORABLE")
-REFUSAL, VETO = "refus", "veto"
+# EN_ATTENTE : paire ajoutée par le propriétaire, historique en cours de téléchargement (non enregistré).
+VERDICTS = ("REFUSE", "DEFAVORABLE", "INDETERMINE", "FAVORABLE", "EN_ATTENTE")
+REFUSAL, VETO, PENDING = "refus", "veto", "attente"
 
 
 @dataclass(frozen=True)
@@ -82,6 +86,8 @@ def _age(delta: timedelta) -> str:
 
 def _verdict(evaluation: ExternalEvaluation, cfg: ExternalSection) -> str:
     failed = evaluation.failed
+    if any(c.kind == PENDING for c in failed):
+        return "EN_ATTENTE"
     if any(c.kind == REFUSAL for c in failed):
         return "REFUSE"
     if failed:
@@ -95,7 +101,48 @@ def _verdict(evaluation: ExternalEvaluation, cfg: ExternalSection) -> str:
     return "FAVORABLE" if low > 0 else "INDETERMINE"
 
 
-def evaluate(settings: Settings, text: str, *, source: str, now: datetime, record: bool = True) -> ExternalEvaluation:
+def _binance_tick_size(settings: Settings, symbol: str) -> Decimal:
+    """Pas de prix d'une paire Spot, lu sur l'API publique (aucune clé) ; erreur si la paire n'existe pas."""
+    client = PublicHttpClient.rest(settings.data.rest_base_url, retries=2)
+    try:
+        return fetch_tick_size(client, symbol)
+    finally:
+        client.close()
+
+
+def _universe_check(settings: Settings, symbol: str, *, source: str, now: datetime, user_validated: bool,
+                    tick_size_lookup) -> Check:
+    """Paire hors configuration : ajout sur validation du propriétaire, demande en cours, ou refus."""
+    label = "paire dans l'univers"
+    universe = UserUniverse(settings.external_db)
+    entry = universe.get(symbol)
+    if entry is not None and entry["status"] == REQUESTED:
+        return Check(label, False, f"{symbol} ajoutée à l'univers sur validation du propriétaire le "
+                     f"{entry['requested_at'][:16]} ; historique en cours de téléchargement par la surveillance "
+                     "(quelques minutes) : redemander l'avis ensuite", PENDING)
+    if not (user_validated or settings.external.auto_add_pairs):
+        failure = f" ; téléchargement en échec ({entry['last_error']})" if entry and entry["status"] == FAILED else ""
+        return Check(label, False, f"{symbol} hors univers (docs/UNIVERSE.md) : non screenée, aucune donnée locale"
+                     f"{failure}. La soumettre à la main (page Avis CSI) vaut validation et l'ajoute", REFUSAL)
+    # Soumission manuelle = validation du propriétaire (ou mode test auto_add_pairs) : ajout (ou relance)
+    # après contrôle sur Binance Spot.
+    try:
+        tick = (tick_size_lookup or _binance_tick_size)(settings, symbol)
+    except Exception as exc:  # noqa: BLE001 - paire inconnue ou réseau : refus explicite, jamais un ajout aveugle
+        return Check(label, False, f"{symbol} introuvable sur Binance Spot ({type(exc).__name__}) : non ajoutée",
+                     REFUSAL)
+    reason = (f"signal soumis à la main (source « {source} »)" if user_validated
+              else f"mode test auto_add_pairs, sans validation manuelle (source « {source} »)")
+    universe.request(symbol, tick, reason=reason, now=now)
+    return Check(label, False, f"{symbol} ajoutée à l'univers sur ta validation (pas de prix {tick}) ; historique "
+                 "15m et 1h en cours de téléchargement par la surveillance (quelques minutes) : redemander l'avis "
+                 "ensuite", PENDING)
+
+
+def evaluate(settings: Settings, text: str, *, source: str, now: datetime, record: bool = True,
+             user_validated: bool = False, tick_size_lookup=None) -> ExternalEvaluation:
+    """`user_validated` : signal soumis à la main par le propriétaire (sa validation ajoute une paire
+    inconnue à l'univers). Un signal reçu automatiquement n'ajoute jamais rien."""
     signal = parse(text)
     evaluation = ExternalEvaluation(source=source, evaluated_at=now, signal=signal)
     evaluation.warnings.extend(signal.warnings)
@@ -106,7 +153,7 @@ def evaluate(settings: Settings, text: str, *, source: str, now: datetime, recor
 
     def finish() -> ExternalEvaluation:
         evaluation.verdict = _verdict(evaluation, cfg)
-        if record:
+        if record and evaluation.verdict != "EN_ATTENTE":   # réévalué et enregistré une fois les données prêtes
             rate = evaluation.base_rate
             evaluation.record_id = registry.record(
                 received_at=now, source=source, content_hash=signal.content_hash, template=signal.template,
@@ -123,9 +170,9 @@ def evaluate(settings: Settings, text: str, *, source: str, now: datetime, recor
         return finish()
     evaluation.checks.append(Check("lecture du signal", True, f"modèle {signal.template}, {len(signal.entries)} "
                                    f"entrée(s), {len(signal.targets)} objectif(s), stop {signal.stop:g}", REFUSAL))
-    if signal.symbol not in settings.data.symbols:
-        evaluation.checks.append(Check("paire dans l'univers", False, f"{signal.symbol} hors univers "
-                                       "(docs/UNIVERSE.md) : non screenée, aucune donnée locale", REFUSAL))
+    if signal.symbol not in universe_symbols(settings):
+        evaluation.checks.append(_universe_check(settings, signal.symbol, source=source, now=now,
+                                                 user_validated=user_validated, tick_size_lookup=tick_size_lookup))
         return finish()
     evaluation.checks.append(Check("paire dans l'univers", True, signal.symbol, REFUSAL))
     previous = registry.previous(signal.content_hash)
@@ -193,7 +240,7 @@ def evaluate(settings: Settings, text: str, *, source: str, now: datetime, recor
     evaluation.checks.append(Check("distance du stop", cfg.min_stop_atr <= stop_atr <= cfg.max_stop_atr,
                                    f"{stop_atr:.2f} ATR14 ({(effective - stop) / effective * 100:.2f} % sous l'entrée "
                                    f"obtenue) ; admis {cfg.min_stop_atr:g} à {cfg.max_stop_atr:g} ATR"))
-    tick = settings.tick_size(signal.symbol)
+    tick = tick_size_for(settings, signal.symbol)
     off_tick = [p for p in (entry, stop, *targets) if Decimal(str(p)) % tick != 0]
     if off_tick:
         evaluation.warnings.append(f"prix hors pas de cotation {tick} : {', '.join(f'{p:g}' for p in off_tick)}")

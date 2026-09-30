@@ -106,8 +106,10 @@ conclusion ne vaut que si elle tient ensuite, sur des signaux reçus après cett
   est « entrée 1, stop fixe, TP1 », des deux côtés (taux de base et résolution).
 - « Signal encore valable » se juge sur le dernier prix : un stop ou un TP1 touché puis quitté
   entre la publication et la réception n'est pas détecté.
-- Paires hors univers : refusées (pas de données, pas de screening). Ajouter la paire dans la
-  configuration si elle est acceptable ([UNIVERSE.md](UNIVERSE.md)).
+- Paires hors univers : refusées pour un signal reçu automatiquement (pas de données, pas de
+  screening). Un signal **soumis à la main par le propriétaire** vaut validation de la paire : elle
+  est ajoutée à l'univers, l'avis est `EN_ATTENTE` le temps du téléchargement de l'historique par la
+  surveillance, puis le signal se réévalue normalement ([UNIVERSE.md](UNIVERSE.md)).
 - Une probabilité calibrée par apprentissage (lot 5) ne viendra qu'avec assez de signaux
   résolus ; d'ici là, aucun chiffre n'est présenté comme une prédiction.
 

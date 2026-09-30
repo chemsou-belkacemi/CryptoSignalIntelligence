@@ -8,7 +8,10 @@ demande de clé Binance. Routes (JSON, UTF-8) :
     GET  /sources              bilan de chaque groupe Telegram contre le taux de base
     GET  /signals/recent?limit=N   dernières évaluations de signaux externes
     GET  /execution-report     signaux publiés : backtest, prospectif et Demo séparés
-    POST /evaluate             {"text": "...", "source": "groupe", "record": true} → verdict expliqué
+    GET  /universe             paires configurées et paires ajoutées par le propriétaire (état)
+    POST /evaluate             {"text": "...", "source": "groupe", "record": true, "user_validated": false}
+                               → verdict expliqué ; user_validated = signal soumis à la main par le
+                               propriétaire (sa validation ajoute une paire inconnue à l'univers)
 
 Sécurité :
 - écoute sur 127.0.0.1 par défaut ; dans Docker, le port n'est publié que sur 127.0.0.1 de l'hôte ;
@@ -48,6 +51,8 @@ VERDICT_TEXT = {
     "DEFAVORABLE": "Défavorable : un veto est déclenché, ou la même géométrie perd en moyenne dans ce régime.",
     "INDETERMINE": "Indéterminé : pas assez d'éléments pour préférer ce signal au hasard (ce n'est pas du 50/50).",
     "FAVORABLE": "Favorable : la même géométrie a gagné en moyenne dans ce régime (IC95 > 0), hors avantage du groupe.",
+    "EN_ATTENTE": "En attente : paire ajoutée à l'univers sur ta validation ; historique en cours de téléchargement, "
+                  "redemander l'avis dans quelques minutes.",
 }
 
 
@@ -152,19 +157,29 @@ class CsiApi:
         from ..feedback.reconcile import execution_report
         return {"rows": _jsonable(execution_report(self.settings))}
 
+    def universe(self) -> dict:
+        from ..external.universe import UserUniverse
+        return {"configured": list(self.settings.data.symbols),
+                "user_pairs": UserUniverse(self.settings.external_db).all(),
+                "rule": "un signal soumis à la main par le propriétaire vaut validation de sa paire : ajoutée "
+                        "définitivement (READY une fois l'historique téléchargé) ; un signal reçu automatiquement "
+                        "n'ajoute jamais rien"}
+
     # --- évaluation --------------------------------------------------------------------------
     def evaluate(self, payload: dict) -> dict:
         text = payload.get("text")
         source = payload.get("source")
         record = payload.get("record", True)
+        user_validated = payload.get("user_validated", False)
         if not isinstance(text, str) or not text.strip():
             raise ApiError(HTTPStatus.BAD_REQUEST, "champ « text » (texte du signal) requis")
         if not isinstance(source, str) or not source.strip() or len(source) > MAX_SOURCE_CHARS:
             raise ApiError(HTTPStatus.BAD_REQUEST, f"champ « source » (nom du groupe, {MAX_SOURCE_CHARS} car. max) requis")
-        if not isinstance(record, bool):
-            raise ApiError(HTTPStatus.BAD_REQUEST, "champ « record » : booléen")
+        if not isinstance(record, bool) or not isinstance(user_validated, bool):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "champs « record » et « user_validated » : booléens")
         from ..external.evaluate import evaluate
-        evaluation = evaluate(self.settings, text, source=source.strip(), now=self.now(), record=record)
+        evaluation = evaluate(self.settings, text, source=source.strip(), now=self.now(), record=record,
+                              user_validated=user_validated)
         result = _jsonable(evaluation.to_dict())
         result["record_id"] = evaluation.record_id
         result["summary_fr"] = explain(result)
@@ -175,7 +190,7 @@ class CsiApi:
         if method == "GET":
             routes: dict[str, Callable[[], dict]] = {
                 "/health": self.health, "/strategies": self.strategies, "/sources": self.sources,
-                "/execution-report": self.execution_report,
+                "/execution-report": self.execution_report, "/universe": self.universe,
                 "/signals/recent": lambda: self.recent(_int(query.get("limit", ["20"])[0])),
             }
             if path in routes:

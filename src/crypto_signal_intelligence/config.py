@@ -126,6 +126,9 @@ class ExternalSection(BaseModel):
     max_stop_atr: float = Field(8.0, gt=0)
     min_net_rr: float = Field(0.8, ge=0)
     min_base_rate_samples: int = Field(300, ge=1)
+    # Mode test (docs/UNIVERSE.md) : toute paire soumise est ajoutée à l'univers, même par un signal reçu
+    # automatiquement, sans validation du propriétaire. Faux par défaut : seule sa soumission manuelle vaut.
+    auto_add_pairs: bool = False
 
 
 class CostScenario(BaseModel):

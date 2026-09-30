@@ -50,6 +50,24 @@ def test_evaluate_validates_input_and_refuses_pairs_outside_the_universe(api):
     assert api.dispatch("GET", "/signals/recent", {}, None)["signals"][0]["source"] == "Groupe A"
 
 
+def test_owner_submitted_signal_adds_its_pair_and_universe_lists_it(api, monkeypatch):
+    from decimal import Decimal
+
+    from crypto_signal_intelligence.external import evaluate as evaluate_module
+    monkeypatch.setattr(evaluate_module, "_binance_tick_size", lambda settings, symbol: Decimal("0.0000001"))
+    with pytest.raises(ApiError):
+        api.dispatch("POST", "/evaluate", {}, {"text": FOREIGN, "source": "g", "user_validated": "oui"})
+    pending = api.dispatch("POST", "/evaluate", {}, {"text": FOREIGN, "source": "Groupe A", "user_validated": True})
+    assert pending["verdict"] == "EN_ATTENTE" and pending["record_id"] is None
+    assert "En attente" in pending["summary_fr"] and "redemander" in pending["summary_fr"]
+    listing = api.dispatch("GET", "/universe", {}, None)
+    assert listing["configured"] == list(api.settings.data.symbols)
+    assert [(p["symbol"], p["status"]) for p in listing["user_pairs"]] == [("PEPEUSDT", "REQUESTED")]
+    again = api.dispatch("POST", "/evaluate", {}, {"text": FOREIGN, "source": "Groupe A"})
+    assert again["verdict"] == "EN_ATTENTE"                    # automatique : en attente aussi, jamais ajouté deux fois
+    assert api.dispatch("GET", "/signals/recent", {}, None)["signals"] == []
+
+
 def test_explanation_defines_every_number():
     text = explain({"verdict": "INDETERMINE", "checks": [], "source": "g",
                     "base_rate": {"samples": 412, "tp_first": 0.37, "expectancy_r": -0.08,

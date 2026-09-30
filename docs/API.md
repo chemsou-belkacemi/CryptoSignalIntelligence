@@ -35,6 +35,13 @@ chaque chiffre porte sa définition (un taux de base historique n'est jamais la 
 signal réussisse). `record: true` (défaut) enregistre l'évaluation : la surveillance la résout
 ensuite (TP1, stop, non rempli) et le bilan du groupe se construit. `record: false` pour un essai.
 
+`user_validated: true` signifie que le propriétaire a soumis ce signal lui-même : sa validation
+ajoute une paire inconnue à l'univers (voir `docs/UNIVERSE.md`). Le verdict est alors `EN_ATTENTE`
+(non enregistré) jusqu'à ce que la surveillance ait téléchargé l'historique ; redemander l'avis
+ensuite. Un signal reçu automatiquement (`user_validated: false`, défaut) n'ajoute jamais rien et
+reste `REFUSE` hors univers. `GET /universe` liste les paires configurées et ajoutées avec leur état
+(`REQUESTED`, `READY`, `FAILED`).
+
 ## Sécurité
 
 - Ports publiés sur **127.0.0.1** seulement : l'API n'est pas joignable depuis le réseau local ni
