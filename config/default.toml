@@ -187,6 +187,9 @@ min_stop_atr = 0.5                # stop plus serré que 0,5 ATR14 : bruit de ma
 max_stop_atr = 8.0                # stop plus large que 8 ATR14 : risque incontrôlé
 min_net_rr = 0.8                  # RR TP1 net de coûts centraux minimal
 min_base_rate_samples = 300       # en dessous : taux de base sur tous les régimes, puis INDETERMINE
+management = "stop_suiveur"      # gestion jugée : stop à l'entrée 1 après TP1, puis à TP(k−2) après TPk ; "tp1" sinon
+tp_count = 5                      # objectifs vendus (parts 33/27/20/13/7 %), comme le réglage de BinanceSpotManager
+trail_max_hold_bars = 2880        # au-delà de 30 jours, le reste est vendu (BinanceSpotManager n'a pas de limite)
 auto_add_pairs = false            # mode test : toute paire soumise est ajoutée, même sans validation manuelle
                                   # (CSI_EXTERNAL__AUTO_ADD_PAIRS=true ; Docker : CSI_AUTO_ADD_PAIRS dans .env)
 

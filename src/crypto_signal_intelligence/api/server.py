@@ -154,9 +154,18 @@ def explain(evaluation: dict) -> str:
             f"{rate['tp_first'] * 100:.0f} % ont touché le TP1 avant le stop ; espérance "
             f"{rate['expectancy_r']:+.2f} R par ordre rempli{ci_text}. C'est un historique, pas la "
             "probabilité que CE signal réussisse.")
+    trail = evaluation.get("trailing") or {}
+    if trail.get("samples"):
+        ci = trail.get("expectancy_r_ci95")
+        ci_text = f", IC95 [{ci[0]:+.2f} ; {ci[1]:+.2f}] R" if ci else ", sans intervalle fiable"
+        parts.append(
+            f"Avec ta gestion (ventes aux {trail['tp_count']} premiers objectifs, stop à l'entrée 1 après TP1 puis à "
+            f"TP(k−2)) : sur {trail['samples']} ordres de même géométrie pris à l'aveugle ({trail['regime']}), "
+            f"{trail['positive_share'] * 100:.0f} % se terminent en gain ; espérance {trail['expectancy_r']:+.2f} R par "
+            f"ordre rempli{ci_text}. C'est cette gestion que l'avis juge.")
     geometry = evaluation.get("geometry") or {}
     ratio = geometry.get("rr_net_tp1_central")
-    if ratio is not None and ratio > -1:
+    if ratio is not None and ratio > -1 and not trail.get("samples"):
         needed = 1 / (1 + ratio) if ratio > 0 else 1.0
         seen = f" ; l'historique comparable en donne {rate['tp_first'] * 100:.0f} %" if rate and rate.get("samples") else ""
         parts.append(

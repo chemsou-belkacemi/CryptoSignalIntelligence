@@ -80,6 +80,7 @@ class ExternalEvaluation:
     decision_time: datetime | None = None
     record_id: str | None = None
     volatility: dict | None = None           # TP1 et stop en « mouvements typiques prévus » (information)
+    trailing: dict | None = None             # taux de base de la gestion « stop suiveur » (si c'est elle qui est jugée)
     verdict_basis: str = ""                  # « groupe » (preuve en direct) ou « geometrie » (taux de base) si FAVORABLE
     source_proof: dict | None = None         # bilan en direct du groupe : résolus, jours, prouvé ou non
 
@@ -93,7 +94,7 @@ class ExternalEvaluation:
                 "context": self.context, "geometry": self.geometry,
                 "base_rate": self.base_rate.to_dict() if self.base_rate else None,
                 "source_stats": self.source_stats, "verdict_basis": self.verdict_basis,
-                "volatility": self.volatility,
+                "volatility": self.volatility, "trailing": self.trailing,
                 "source_proof": self.source_proof,
                 "decision_time": self.decision_time.isoformat() if self.decision_time else None}
 
@@ -125,6 +126,14 @@ def _verdict(evaluation: ExternalEvaluation, cfg: ExternalSection) -> tuple[str,
         return "DEFAVORABLE", ""
     if proven and evaluation.geometry:
         return "FAVORABLE", BASIS_GROUP
+    if cfg.management == "stop_suiveur":
+        trail = evaluation.trailing
+        if not trail or trail["samples"] < cfg.min_base_rate_samples or trail["expectancy_r_ci95"] is None:
+            return "INDETERMINE", ""
+        low, high = trail["expectancy_r_ci95"]
+        if high <= 0:
+            return "DEFAVORABLE", ""
+        return ("FAVORABLE", BASIS_GEOMETRY) if low > 0 else ("INDETERMINE", "")
     rate = evaluation.base_rate
     if rate is None or rate.samples < cfg.min_base_rate_samples or rate.expectancy_r_ci95 is None:
         return "INDETERMINE", ""
@@ -254,7 +263,8 @@ def evaluate(settings: Settings, text: str, *, source: str, now: datetime, recor
                 tp1=signal.targets[0] if signal.targets else None, targets=signal.targets,
                 decision_time=evaluation.decision_time, close=evaluation.context.get("close"),
                 verdict=evaluation.verdict, p_tp1=rate.tp_first if rate else None,
-                base_expectancy_r=rate.expectancy_r if rate else None, evaluation=evaluation.to_dict(),
+                base_expectancy_r=(evaluation.trailing["expectancy_r"] if evaluation.trailing
+                                   else rate.expectancy_r if rate else None), evaluation=evaluation.to_dict(),
                 raw_text=text, resolvable=evaluation.verdict != "REFUSE")
         return evaluation
 
@@ -355,9 +365,13 @@ def evaluate(settings: Settings, text: str, *, source: str, now: datetime, recor
                          target_weights=(weight,) * len(d_targets), rr_gross=rr, entry_premium_bps=Decimal(0),
                          tick_size=tick)
     net = levels.net_rr(settings.costs["central"], 0)
-    evaluation.checks.append(Check(RR_CHECK, net >= cfg.min_net_rr,
+    trailing = cfg.management == "stop_suiveur"
+    # Avec le stop suiveur, un TP1 proche n'est pas un défaut en soi (il protège la position) : on exige seulement
+    # qu'il couvre les coûts ; c'est le taux de base de la gestion entière qui juge ensuite.
+    minimum = 0.0 if trailing else cfg.min_net_rr
+    evaluation.checks.append(Check(RR_CHECK, net > minimum if trailing else net >= minimum,
                                    f"RR brut TP1 {rr[0]} (recalculé sur l'entrée obtenue), net en coûts centraux "
-                                   f"{net:.2f} ; minimum {cfg.min_net_rr:g}"))
+                                   f"{net:.2f} ; minimum {'> 0 (gestion avec stop suiveur)' if trailing else f'{minimum:g}'}"))
     evaluation.geometry = {
         "entry": entry, "entry_effective": effective, "entries": signal.entries, "stop": stop, "targets": targets,
         "deviation_pct": round(deviation, 3), "stop_atr": round(stop_atr, 3),
@@ -377,4 +391,14 @@ def evaluate(settings: Settings, text: str, *, source: str, now: datetime, recor
                                      entry_offset=entry / close - 1, entry_window=cfg.entry_window_bars,
                                      bar_minutes=int(setup_interval.total_seconds() // 60),
                                      history_end=pd.Timestamp(development_end(settings)))
+    if trailing:
+        from .trailing import trailing_rate, used_targets
+        risk = entry - stop
+        evaluation.trailing = trailing_rate(
+            frame, entry_offset=entry / close - 1, stop_atr=risk / atr,
+            target_rs=[(t - entry) / risk for t in used_targets(targets, cfg.tp_count)], trend=trend,
+            volatility=volatility, entry_window=cfg.entry_window_bars, horizon=cfg.trail_max_hold_bars,
+            costs=settings.costs["central"], min_samples=cfg.min_base_rate_samples, seed=settings.protocol.seed,
+            bootstrap_samples=settings.protocol.bootstrap_samples, bar_minutes=int(setup_interval.total_seconds() // 60),
+            history_end=pd.Timestamp(development_end(settings)))
     return finish()

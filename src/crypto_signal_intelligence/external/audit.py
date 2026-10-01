@@ -36,12 +36,13 @@ from .parser import ExternalSignal, group_of, parse
 from .record import MIN_DAYS, MIN_RESOLVED
 from .registry import limit_fill, replay
 
-TP1_TOUCH, TP1_RULE, LADDER = "tp1_contact", "tp1_regle_du_signal", "echelle_bsm"
-CONVENTIONS = (TP1_TOUCH, TP1_RULE, LADDER)
+TP1_TOUCH, TP1_RULE, LADDER, TRAILING = "tp1_contact", "tp1_regle_du_signal", "echelle_bsm", "stop_suiveur"
+CONVENTIONS = (TP1_TOUCH, TP1_RULE, LADDER, TRAILING)
 CONVENTION_LABELS = {
     TP1_TOUCH: "TP1 ou stop au contact (convention de CSI)",
     TP1_RULE: "TP1 ou stop à la clôture de bougie écrite dans le signal",
     LADDER: "tous les objectifs, stop fixe, comme BinanceSpotManager",
+    TRAILING: "ta gestion : stop à l'entrée 1 après TP1, puis à TP(k−2) après TPk",
 }
 LADDER_POLICY = "BSM_MARKET_TP_FIXED_SL_V2"
 OK, UNREADABLE, DUPLICATE, NO_DATA, INVALID, PLAYED, STALE = (
@@ -51,8 +52,9 @@ FOLLOW_DAYS = 30                       # suivi de l'échelle : au-delà, la posi
 DUPLICATE_DAYS = 7
 MAX_REFERENCE_AGE = pd.Timedelta(hours=2)   # dernier prix connu avant la publication : pas plus vieux
 ALL = "ensemble"
-# Preuve sur historique (docs/EXTERNAL_SIGNALS.md, « Avis lié au groupe ») : mesurée comme BSM exécute.
-PROOF_CONVENTION = LADDER
+# Preuve sur historique (docs/EXTERNAL_SIGNALS.md, « Avis lié au groupe ») : mesurée avec la gestion jugée par
+# l'avis (réglage external.management) : ta gestion par défaut, sinon l'échelle de BSM.
+PROOF_CONVENTION = TRAILING
 PROOF_RESOLVED, PROOF_DAYS = 50, 20
 MAX_MISSING_SHARE = 0.10            # messages absents de la numérotation de Telegram (supprimés) : 10 % au plus
 PROOF_VALID_DAYS = 30               # une preuve sur historique se refait (nouvel export) au-delà
@@ -289,6 +291,10 @@ def measure(signal: ExternalSignal, bars: pd.DataFrame, received: pd.Timestamp, 
                              weights=ladder_weights(len(targets), weights), entry_window=cfg.entry_window_bars,
                              costs=costs, follow_bars=int(pd.Timedelta(days=FOLLOW_DAYS) / STEP))
     outcomes[LADDER] = {"issue": issue, "r": r, "provisoire": provisional}
+    from .trailing import replay_trailing
+    issue, r = replay_trailing(after, entry=entry, stop=stop, targets=targets, entry_window=cfg.entry_window_bars,
+                               max_hold=int(pd.Timedelta(days=FOLLOW_DAYS) / STEP), costs=costs, tp_count=cfg.tp_count)
+    outcomes[TRAILING] = {"issue": issue, "r": r, "provisoire": False}
     return OK, "", outcomes
 
 
@@ -352,11 +358,19 @@ def summarize(rows: list[AuditRow], *, samples: int, seed: int) -> dict[str, dic
     return out
 
 
+_MANAGEMENT = {"value": "stop_suiveur"}
+
+
+def proof_convention() -> str:
+    """La preuve sur historique se mesure avec la gestion que l'avis juge (fixée par `audit` à chaque bilan)."""
+    return TRAILING if _MANAGEMENT["value"] == "stop_suiveur" else LADDER
+
+
 def history_proof(entry: dict) -> dict:
     """Le groupe est-il prouvé sur son historique ? TOUT doit être vrai (docs/EXTERNAL_SIGNALS.md) :
     au moins PROOF_RESOLVED signaux résolus sur PROOF_DAYS jours, R net moyen avec IC95 entièrement > 0, mesuré
     comme BSM exécute (`PROOF_CONVENTION`), et au plus MAX_MISSING_SHARE de messages supprimés."""
-    block = entry["conventions"].get(PROOF_CONVENTION, {})
+    block = entry["conventions"].get(proof_convention(), {})
     resolved, days, ci = block.get("resolus", 0), block.get("jours", 0), block.get("ic95")
     missing = entry.get("messages_supprimes_part")
     checks = {
@@ -377,7 +391,7 @@ def history_proof(entry: dict) -> dict:
                                                 f"(au plus {MAX_MISSING_SHARE * 100:.0f} %)"}
         text = "non prouvé sur son historique : " + " ; ".join(reasons[k] for k, ok in checks.items() if not ok)
     return {"proven": proven, "checks": checks, "text": text, "resolved": resolved, "days": days,
-            "r_mean": block.get("r_moyen"), "r_ci95": ci, "missing_share": missing, "convention": PROOF_CONVENTION}
+            "r_mean": block.get("r_moyen"), "r_ci95": ci, "missing_share": missing, "convention": proof_convention()}
 
 
 def save_history(settings: Settings, report: AuditReport) -> None:
@@ -422,6 +436,7 @@ def audit(settings: Settings, items: Iterable[HistoryItem], *, now: datetime, so
     """Rejoue chaque message de l'historique. `source` nomme le groupe quand ni l'export ni le texte ne le font."""
     say = progress or (lambda _text: None)
     ladder_weights(1, weights)                                      # refuse tout de suite une répartition inconnue
+    _MANAGEMENT["value"] = settings.external.management
     fetch = bars_for or market_bars(settings, now=now)
     rows: list[AuditRow] = []
     parsed: list[tuple[AuditRow, ExternalSignal, pd.Timestamp]] = []

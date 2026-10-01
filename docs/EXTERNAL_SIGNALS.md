@@ -97,6 +97,24 @@ Regards répétés : le bilan est recalculé à chaque signal. Décider de faire
 première fois que l'intervalle passe au-dessus de 0 augmente le risque de faux positif ; une
 conclusion ne vaut que si elle tient ensuite, sur des signaux reçus après cette décision.
 
+## Gestion avec stop suiveur (celle du propriétaire, jugée par défaut)
+
+Depuis le 2026-10-02, l'avis juge la gestion réelle du propriétaire (`[external] management = "stop_suiveur"`) :
+- ventes aux 5 premiers objectifs (`tp_count`), parts 33 / 27 / 20 / 13 / 7 % ;
+- TP1 touché → stop à l'**entrée 1** du signal ; TP2 → il y reste ; TP3 → TP1 ; TP4 → TP2 ; TPk → TP(k−2) ;
+- le stop remonté s'applique à la bougie suivante (pire cas si le plus bas de la bougie du TP le traverse déjà) ;
+- au-delà de 30 jours (`trail_max_hold_bars`), le reste est vendu.
+
+Le **taux de base** rejoue cette gestion entière sur les mêmes ordres aveugles que le taux TP1 (même régime,
+historique jusqu'à la fin de DEVELOPMENT) : FAVORABLE si l'IC95 de son espérance est entièrement > 0,
+DEFAVORABLE s'il est entièrement ≤ 0. Le veto « RR TP1 ≥ 0,8 » ne s'applique plus (un TP1 proche protège la
+position) ; TP1 doit seulement couvrir les coûts. Les signaux enregistrés sont résolus avec la même gestion,
+et le bilan d'historique l'affiche comme 4e façon de jouer (c'est elle qui sert à la preuve). Le taux TP1 reste
+affiché pour comparaison. `management = "tp1"` rétablit l'ancienne convention.
+
+Moteur unique (`external/trailing.py`) pour le signal réel et les ordres aveugles : un test vérifie qu'ils
+donnent le même résultat.
+
 ## Historique d'un groupe (bilan sans attendre)
 
 Attendre 20 signaux résolus prend des semaines. Un groupe a déjà un passé : CSI peut le rejouer.

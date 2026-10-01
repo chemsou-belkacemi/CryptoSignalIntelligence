@@ -207,6 +207,20 @@ class ExternalSignalRegistry:
         return out
 
 
+def replay_managed(bars: pd.DataFrame, *, entry: float, stop: float, targets: list[float],
+                   settings: Settings) -> tuple[str, float | None, datetime | None]:
+    """Gestion « stop suiveur » (external/trailing.py), avec les issues du registre : un trade qui a touché au
+    moins un objectif est compté TP1_FIRST, un stop direct SL_FIRST, la fin du temps TIMEOUT."""
+    from .trailing import replay_trailing
+    cfg = settings.external
+    issue, r = replay_trailing(bars, entry=entry, stop=stop, targets=targets, entry_window=cfg.entry_window_bars,
+                               max_hold=cfg.trail_max_hold_bars, costs=settings.costs["central"], tp_count=cfg.tp_count)
+    if r is None:
+        return issue, None, None
+    code = "SL_FIRST" if issue == "SL" else "TIMEOUT" if issue == "TEMPS" else "TP1_FIRST"
+    return code, r, None
+
+
 def resolve_pending(settings: Settings, registry: ExternalSignalRegistry, *, now: datetime) -> dict[str, int]:
     """Résout les signaux en attente avec les bougies stockées ; renvoie les issues comptées."""
     store = CandleStore(settings.data_dir)
@@ -228,8 +242,12 @@ def resolve_pending(settings: Settings, registry: ExternalSignalRegistry, *, now
         # de l'avis a commencé avant (jusqu'à 15 min) ; ses plus hauts et plus bas n'étaient pas atteignables.
         start = pd.Timestamp(row["received_at"]).ceil(f"{int(step.total_seconds() // 60)}min")
         bars = frame[frame["open_time"] >= start] if not frame.empty else frame
-        outcome, r, filled_at = replay(bars, entry=row["entry"], stop=row["stop"], target=row["tp1"],
-                                       entry_window=cfg.entry_window_bars, max_hold=cfg.max_hold_bars, costs=costs)
+        if cfg.management == "stop_suiveur" and row.get("targets"):
+            outcome, r, filled_at = replay_managed(bars, entry=row["entry"], stop=row["stop"],
+                                                   targets=json.loads(row["targets"]), settings=settings)
+        else:
+            outcome, r, filled_at = replay(bars, entry=row["entry"], stop=row["stop"], target=row["tp1"],
+                                           entry_window=cfg.entry_window_bars, max_hold=cfg.max_hold_bars, costs=costs)
         if outcome != "PENDING":
             registry.mark(row["id"], outcome, r, filled_at, now)
         counts[outcome] += 1

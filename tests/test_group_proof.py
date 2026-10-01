@@ -56,7 +56,7 @@ def test_live_proof_needs_thirty_signals_fifteen_days_and_both_intervals_above_z
 
 def entry(resolved: int = 60, days: int = 25, ci=(0.05, 0.4), missing=0.02) -> dict:
     return {"messages_supprimes_part": missing,
-            "conventions": {au.LADDER: {"resolus": resolved, "jours": days, "ic95": ci, "r_moyen": 0.2}}}
+            "conventions": {au.TRAILING: {"resolus": resolved, "jours": days, "ic95": ci, "r_moyen": 0.2}}}
 
 
 def test_history_proof_needs_every_criterion():
@@ -68,7 +68,7 @@ def test_history_proof_needs_every_criterion():
         proof = au.history_proof(case)
         assert not proof["proven"] and [k for k, ok in proof["checks"].items() if not ok] == [check], check
     assert not au.history_proof(entry(ci=None))["proven"]
-    assert au.history_proof(entry())["convention"] == au.LADDER == au.PROOF_CONVENTION
+    assert au.history_proof(entry())["convention"] == au.TRAILING == au.proof_convention()      # ta gestion
 
 
 def test_deleted_messages_are_counted_from_telegram_numbering():
@@ -132,7 +132,7 @@ def test_a_proven_group_lifts_geometry_vetoes_but_never_refusals(settings, marke
     close, atr, now = market
     wide = signal(close * 1.001, close * 1.001 - 9 * atr, close * 1.001 + 0.5 * atr)       # stop large, TP1 proche
     blind = evaluate(settings, wide, source="LEGEND TRADING INDICATOR", now=now, record=False)
-    assert blind.verdict == "DEFAVORABLE" and {c.label for c in blind.failed} == {"distance du stop", "RR TP1 net de coûts"}
+    assert blind.verdict == "DEFAVORABLE" and {c.label for c in blind.failed} == {"distance du stop"}   # stop à 9 ATR
     prove(settings, "LEGEND TRADING INDICATOR", now)
     lifted = evaluate(settings, wide, source="LEGEND TRADING INDICATOR", now=now, record=False)
     assert lifted.verdict == "FAVORABLE" and lifted.verdict_basis == "groupe"
@@ -171,6 +171,7 @@ def test_a_live_proof_also_counts_and_generic_names_take_the_header(settings, ma
 
 def test_the_summary_says_how_often_tp1_must_be_hit(settings, market):
     close, atr, now = market
+    settings.external.management = "tp1"                              # ancienne convention : TP1 ou stop
     entry_price = close * 1.001
     ev = evaluate(settings, signal(entry_price, entry_price - 2 * atr, entry_price + 1.2 * atr), source="G", now=now,
                   record=False)

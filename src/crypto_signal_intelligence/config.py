@@ -139,6 +139,12 @@ class ExternalSection(BaseModel):
     # Mode test (docs/UNIVERSE.md) : toute paire soumise est ajoutée à l'univers, même par un signal reçu
     # automatiquement, sans validation du propriétaire. Faux par défaut : seule sa soumission manuelle vaut.
     auto_add_pairs: bool = False
+    # Gestion jugée par l'avis (docs/EXTERNAL_SIGNALS.md) : « stop_suiveur » = celle du propriétaire (ventes aux
+    # `tp_count` premiers objectifs, stop à l'entrée 1 après TP1, puis à TP(k−2) après TPk) ; « tp1 » = ancienne
+    # convention (TP1 ou stop). `trail_max_hold_bars` : au-delà, le reste est vendu (30 jours de bougies 15 min).
+    management: Literal["stop_suiveur", "tp1"] = "stop_suiveur"
+    tp_count: int = Field(5, ge=1, le=20)
+    trail_max_hold_bars: int = Field(2880, ge=1)
 
 
 class CostScenario(BaseModel):
