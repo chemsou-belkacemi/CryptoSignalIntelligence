@@ -1,84 +1,272 @@
-# Avis de screening halal relevés le 2026-09-30 sur trois sources publiques (docs/UNIVERSE.md).
+# Avis de screening halal relevés le 2026-10-01 sur trois sources publiques (docs/UNIVERSE.md), par extraction
+# directe du HTML de chaque page (instantané : docs/universe_sources/2026-10-01.json).
 # CE PROJET NE CERTIFIE LA CONFORMITÉ D'AUCUN ACTIF : la décision finale appartient au propriétaire.
 #
-# Avis par source : halal | douteux | haram | ambigu (contradictoire sur une même page : ni pour ni contre).
-# Quand docs/UNIVERSE.md ne donne qu'un résumé, `resume` le reprend tel quel.
+# Avis par source : halal | douteux (« grey area ») | haram (« Halal? No »).
+#   HS  = HalalSignalz, liste des cryptos qui passent son filtre (les autres n'y figurent pas) ;
+#   SB  = SharifBot, halal ou zone grise ;
+#   IFG = Islamic Finance Guru, colonne « Halal? » de son tableau.
 # Statut CSI, déduit mécaniquement (external/admission.py) :
 #   FAVORABLE     halal pour au moins 2 sources, aucune douteuse ni haram   → ajout direct (paire USDT)
 #   DEFAVORABLE   haram pour au moins une source                            → refus
-#   DOUTEUX       douteuse pour au moins une source, ou avis contradictoires → décision du propriétaire
-#   INEXPLOITABLE moins de 2 sources, ou screening non consigné             → décision du propriétaire
-# Une crypto absente de ce fichier est INEXPLOITABLE.
+#   DOUTEUX       douteuse pour au moins une source                         → décision du propriétaire
+#   INEXPLOITABLE moins de 2 sources halal, ou aucune source                → décision du propriétaire
+# Relevé : cryptos ayant une paire USDT négociable sur Binance Spot et listées par une source au moins, plus
+# les paires liquides (volume médian 7 j d'au moins 5 M$) qu'aucune source ne liste. Stablecoins et monnaies
+# fiduciaires exclus. Une crypto absente de ce fichier est INEXPLOITABLE (traitée quand un signal arrive).
 
-checked_on = "2026-09-30"
+checked_on = "2026-10-01"
 
 [sources]
-HS = "HalalSignalz — crypto pass list (Crypto Shariah Screening Framework), juin 2026"
-SB = "SharifBot — halal coins (AAOIFI Shariah Standard 17), sept. 2026"
-IFG = "Islamic Finance Guru — crypto (analyse maison), non datée"
+HS = "HalalSignalz — crypto pass list (Crypto Shariah Screening Framework), liste d'octobre 2026"
+SB = "SharifBot — halal coins (AAOIFI Shariah Standard 17), revue de septembre 2026"
+IFG = "Islamic Finance Guru — crypto (analyse maison), page non datée"
 
 [assets]
-# Univers de la configuration (16 paires retenues)
-BTC = { HS = "halal", SB = "halal", IFG = "halal" }
-ETH = { HS = "halal", SB = "halal", IFG = "halal" }
-SOL = { HS = "halal", SB = "halal", IFG = "ambigu" }
-XRP = { HS = "halal", SB = "halal", IFG = "halal" }
-NEAR = { HS = "halal", SB = "halal", IFG = "halal" }
-AVAX = { HS = "halal", SB = "halal" }
-HBAR = { HS = "halal", SB = "halal", IFG = "halal" }
-LINK = { HS = "halal", SB = "halal" }
-XLM = { HS = "halal", SB = "halal", IFG = "halal" }
+# Favorables : halal pour au moins 2 sources, aucune réserve
 ADA = { HS = "halal", SB = "halal", IFG = "halal" }
-TRX = { SB = "halal", IFG = "halal", note = "écosystème de jeux d'argent selon certains avis" }
-FIL = { HS = "halal", SB = "halal", IFG = "halal" }
 ALGO = { HS = "halal", SB = "halal", IFG = "halal" }
-DOT = { HS = "halal", SB = "halal", IFG = "halal" }
+APT = { SB = "halal", IFG = "halal" }
+ARB = { SB = "halal", IFG = "halal" }
 ATOM = { HS = "halal", SB = "halal", IFG = "halal" }
+AVAX = { HS = "halal", SB = "halal", IFG = "halal" }
+BCH = { SB = "halal", IFG = "halal" }
+BTC = { HS = "halal", SB = "halal", IFG = "halal" }
+DOT = { HS = "halal", SB = "halal", IFG = "halal" }
+EGLD = { SB = "halal", IFG = "halal" }
 ETC = { SB = "halal", IFG = "halal" }
-
-# Exclues de la configuration pour historique trop court : screening favorable sur 3 sources
+ETH = { HS = "halal", SB = "halal", IFG = "halal" }
+FIL = { HS = "halal", SB = "halal", IFG = "halal" }
+HBAR = { HS = "halal", SB = "halal", IFG = "halal" }
+IOTA = { SB = "halal", IFG = "halal" }
+LINK = { HS = "halal", SB = "halal", IFG = "halal" }
+LTC = { SB = "halal", IFG = "halal" }
+NEAR = { HS = "halal", SB = "halal", IFG = "halal" }
+NEO = { SB = "halal", IFG = "halal" }
 POL = { HS = "halal", SB = "halal", IFG = "halal" }
 RENDER = { HS = "halal", SB = "halal", IFG = "halal" }
-# Historique trop court, screening non détaillé dans docs/UNIVERSE.md
-APT = { resume = "inexploitable", note = "screening non consigné (exclue pour historique trop court)" }
-ARB = { resume = "inexploitable", note = "screening non consigné (exclue pour historique trop court)" }
-SUI = { resume = "inexploitable", note = "screening non consigné (exclue pour historique trop court)" }
-TIA = { resume = "inexploitable", note = "screening non consigné (exclue pour historique trop court)" }
-OP = { resume = "inexploitable", note = "screening non consigné (exclue pour historique trop court)" }
+SOL = { HS = "halal", SB = "halal", IFG = "halal" }
+SUI = { SB = "halal", IFG = "halal" }
+TAO = { SB = "halal", IFG = "halal" }
+THETA = { SB = "halal", IFG = "halal" }
+TRX = { SB = "halal", IFG = "halal", note = "écosystème de jeux d'argent selon certains avis" }
+VET = { SB = "halal", IFG = "halal" }
+XLM = { HS = "halal", SB = "halal", IFG = "halal" }
+XRP = { HS = "halal", SB = "halal", IFG = "halal" }
+XTZ = { HS = "halal", SB = "halal", IFG = "halal" }
 
-# Exclues pour liquidité < 5 M$ le 2026-09-30 « malgré un screening favorable »
-XTZ = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
-VET = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
-IOTA = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
-THETA = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
-NEO = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
-EGLD = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
-AR = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
-KSM = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
-ONE = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
-ZIL = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
-QTUM = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
-MINA = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
-FLOW = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
-STX = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
-GRT = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
+# Défavorables : haram pour une source au moins
+AAVE = { IFG = "haram" }
+ENA = { IFG = "haram" }
+FTT = { SB = "douteux", IFG = "haram" }
+HYPE = { IFG = "haram" }
+MKR = { IFG = "haram", note = "sans paire USDT négociable sur Binance le 2026-10-01" }
+ONDO = { IFG = "haram" }
 
-# Screening insuffisant ou avis négatif
-LTC = { resume = "inexploitable", note = "une seule source" }
-BCH = { resume = "inexploitable", note = "une seule source" }
-BNB = { SB = "douteux" }
-ICP = { SB = "douteux" }
-QNT = { SB = "douteux" }
-ZEC = { SB = "douteux" }
+# Douteuses : zone grise pour une source au moins
+0G = { SB = "douteux" }
+1INCH = { SB = "douteux" }
+ACE = { SB = "douteux" }
+AERO = { SB = "douteux" }
+AIXBT = { SB = "douteux" }
+ALICE = { SB = "douteux" }
+ARPA = { SB = "douteux" }
+ASTER = { SB = "douteux" }
+AUDIO = { SB = "douteux" }
+BAND = { SB = "douteux" }
+BEAMX = { SB = "douteux" }
+BIGTIME = { SB = "douteux" }
+BIO = { SB = "douteux" }
+BLUR = { SB = "douteux" }
+BNB = { SB = "douteux", IFG = "halal" }
+BNT = { SB = "douteux" }
+CATI = { SB = "douteux" }
+CETUS = { SB = "douteux" }
+CFX = { SB = "douteux" }
+CGPT = { SB = "douteux" }
+CHZ = { SB = "douteux" }
+COTI = { SB = "douteux" }
+COW = { SB = "douteux" }
+CRCLB = { SB = "douteux" }
+CYBER = { SB = "douteux" }
 DASH = { SB = "douteux" }
-SEI = { SB = "douteux" }
+DCR = { SB = "douteux" }
+DUSK = { SB = "douteux" }
+ENJ = { SB = "douteux" }
+ENS = { SB = "douteux" }
+FET = { SB = "douteux", IFG = "halal" }
+GALA = { SB = "douteux" }
+GLMR = { SB = "douteux" }
+GMT = { SB = "douteux" }
+GNO = { SB = "douteux" }
+GUN = { SB = "douteux" }
+HEMI = { SB = "douteux" }
+ICP = { HS = "halal", SB = "douteux", IFG = "halal" }
+ILV = { SB = "douteux" }
+KAIA = { SB = "douteux" }
+KAITO = { SB = "douteux" }
+LUNC = { SB = "douteux" }
+MAGIC = { SB = "douteux" }
+MANA = { SB = "douteux" }
+MET = { SB = "douteux" }
+METIS = { SB = "douteux" }
+MTL = { SB = "douteux" }
+MUB = { SB = "douteux" }
+NIGHT = { SB = "douteux" }
+NXPC = { SB = "douteux" }
+OPG = { SB = "douteux" }
+PIXEL = { SB = "douteux" }
+POLYX = { SB = "douteux" }
+PORTAL = { SB = "douteux" }
+PROVE = { SB = "douteux" }
+QNT = { HS = "halal", SB = "douteux" }
+RLC = { SB = "douteux" }
+RONIN = { SB = "douteux" }
 ROSE = { SB = "douteux" }
-FET = { SB = "douteux" }
-UNI = { IFG = "haram" }
-DOGE = { resume = "douteux", note = "une source, ou avis contradictoires" }
-SHIB = { resume = "douteux", note = "une source, ou avis contradictoires" }
-PEPE = { resume = "douteux", note = "une source, ou avis contradictoires" }
-XMR = { resume = "douteux", note = "une source, ou avis contradictoires" }
-AAVE = { IFG = "haram", note = "intérêt / produits synthétiques" }
-MKR = { IFG = "haram", note = "intérêt / produits synthétiques" }
-ENA = { IFG = "haram", note = "intérêt / produits synthétiques" }
+RUNE = { SB = "douteux" }
+SAND = { SB = "douteux" }
+SEI = { SB = "douteux" }
+SKL = { SB = "douteux" }
+SOPH = { SB = "douteux" }
+SPCXB = { SB = "douteux" }
+SUPER = { SB = "douteux" }
+SYN = { SB = "douteux" }
+TREE = { SB = "douteux" }
+TSLAB = { SB = "douteux" }
+VELODROME = { SB = "douteux" }
+VIRTUAL = { SB = "douteux" }
+W = { SB = "douteux" }
+WAXP = { SB = "douteux" }
+XAI = { SB = "douteux" }
+XAUT = { SB = "douteux" }
+XVG = { SB = "douteux" }
+YGG = { SB = "douteux" }
+ZAMA = { SB = "douteux" }
+ZBT = { SB = "douteux" }
+ZEC = { SB = "douteux", IFG = "halal" }
+ZEN = { SB = "douteux" }
+ZK = { SB = "douteux" }
+ZKP = { SB = "douteux" }
+ZRX = { SB = "douteux" }
+
+# Inexploitables : une seule source halal, ou aucune source
+2Z = { SB = "halal" }
+ACH = { SB = "halal" }
+ALLO = { SB = "halal" }
+AMP = { SB = "halal" }
+API3 = { SB = "halal" }
+AR = { SB = "halal" }
+ARK = { SB = "halal" }
+ASTR = { SB = "halal" }
+AVA = { SB = "halal" }
+AXL = { SB = "halal" }
+BABY = { note = "aucune des trois sources ne la liste ; volume médian 7 j d'au moins 5 M$ sur Binance le 2026-10-01" }
+BAT = { SB = "halal" }
+BICO = { SB = "halal" }
+BONK = { IFG = "halal" }
+BREV = { SB = "halal" }
+CAKE = { note = "aucune des trois sources ne la liste ; volume médian 7 j d'au moins 5 M$ sur Binance le 2026-10-01" }
+CELO = { SB = "halal" }
+CELR = { SB = "halal" }
+CHR = { SB = "halal" }
+CKB = { SB = "halal" }
+CRV = { note = "aucune des trois sources ne la liste ; volume médian 7 j d'au moins 5 M$ sur Binance le 2026-10-01" }
+CTSI = { SB = "halal" }
+CVC = { SB = "halal" }
+DGB = { SB = "halal" }
+DOGE = { IFG = "halal" }
+DYM = { SB = "halal" }
+EDU = { SB = "halal" }
+ENSO = { SB = "halal" }
+ERA = { SB = "halal" }
+ESP = { SB = "halal" }
+ETHFI = { note = "aucune des trois sources ne la liste ; volume médian 7 j d'au moins 5 M$ sur Binance le 2026-10-01" }
+FLOW = { SB = "halal" }
+FLUX = { SB = "halal" }
+GAS = { SB = "halal" }
+GLM = { SB = "halal" }
+GRAM = { SB = "halal" }
+GRT = { SB = "halal" }
+HIVE = { SB = "halal" }
+HOLO = { SB = "halal" }
+HOT = { SB = "halal" }
+HYPER = { SB = "halal" }
+INIT = { SB = "halal" }
+INJ = { note = "aucune des trois sources ne la liste ; volume médian 7 j d'au moins 5 M$ sur Binance le 2026-10-01" }
+IO = { SB = "halal" }
+IOST = { SB = "halal" }
+IOTX = { SB = "halal" }
+JASMY = { SB = "halal" }
+JUP = { note = "aucune des trois sources ne la liste ; volume médian 7 j d'au moins 5 M$ sur Binance le 2026-10-01" }
+KITE = { SB = "halal" }
+KSM = { SB = "halal" }
+LDO = { note = "aucune des trois sources ne la liste ; volume médian 7 j d'au moins 5 M$ sur Binance le 2026-10-01" }
+LINEA = { SB = "halal" }
+LPT = { SB = "halal" }
+LSK = { SB = "halal" }
+MARSCOIN = { note = "aucune des trois sources ne la liste ; volume médian 7 j d'au moins 5 M$ sur Binance le 2026-10-01" }
+MASK = { SB = "halal" }
+MBL = { SB = "halal" }
+MEGA = { SB = "halal" }
+MINA = { SB = "halal" }
+MIRA = { SB = "halal" }
+MORPHO = { note = "aucune des trois sources ne la liste ; volume médian 7 j d'au moins 5 M$ sur Binance le 2026-10-01" }
+MOVE = { SB = "halal" }
+MOVR = { SB = "halal" }
+MSTRB = { note = "aucune des trois sources ne la liste ; volume médian 7 j d'au moins 5 M$ sur Binance le 2026-10-01" }
+MUBARAK = { note = "aucune des trois sources ne la liste ; volume médian 7 j d'au moins 5 M$ sur Binance le 2026-10-01" }
+NIL = { note = "aucune des trois sources ne la liste ; volume médian 7 j d'au moins 5 M$ sur Binance le 2026-10-01" }
+NVDAB = { note = "aucune des trois sources ne la liste ; volume médian 7 j d'au moins 5 M$ sur Binance le 2026-10-01" }
+ONE = { SB = "halal" }
+ONT = { SB = "halal" }
+OP = { SB = "halal" }
+OPEN = { SB = "halal" }
+PARTI = { SB = "halal" }
+PAXG = { SB = "halal" }
+PENGU = { note = "aucune des trois sources ne la liste ; volume médian 7 j d'au moins 5 M$ sur Binance le 2026-10-01" }
+PEPE = { IFG = "halal" }
+PHA = { SB = "halal" }
+PLUME = { note = "aucune des trois sources ne la liste ; volume médian 7 j d'au moins 5 M$ sur Binance le 2026-10-01" }
+POWR = { SB = "halal" }
+PUMP = { note = "aucune des trois sources ne la liste ; volume médian 7 j d'au moins 5 M$ sur Binance le 2026-10-01" }
+PYTH = { SB = "halal" }
+QKC = { SB = "halal" }
+QTUM = { SB = "halal" }
+RAD = { SB = "halal" }
+RAY = { note = "aucune des trois sources ne la liste ; volume médian 7 j d'au moins 5 M$ sur Binance le 2026-10-01" }
+REQ = { SB = "halal" }
+RIF = { SB = "halal" }
+ROBO = { SB = "halal" }
+RVN = { SB = "halal" }
+SAGA = { SB = "halal" }
+SAHARA = { SB = "halal" }
+SAPIEN = { SB = "halal" }
+SC = { SB = "halal" }
+SCR = { SB = "halal" }
+SENT = { SB = "halal" }
+SHELL = { SB = "halal" }
+SHIB = { IFG = "halal" }
+SIGN = { SB = "halal" }
+SNDKB = { note = "aucune des trois sources ne la liste ; volume médian 7 j d'au moins 5 M$ sur Binance le 2026-10-01" }
+SOMI = { SB = "halal" }
+STRAX = { SB = "halal" }
+STRK = { SB = "halal" }
+STX = { SB = "halal" }
+TFUEL = { SB = "halal" }
+TIA = { SB = "halal" }
+TKO = { SB = "halal" }
+TOWNS = { SB = "halal" }
+TRUMP = { IFG = "halal" }
+TWT = { SB = "halal" }
+UNI = { IFG = "halal" }
+VANA = { SB = "halal" }
+VTHO = { note = "aucune des trois sources ne la liste ; volume médian 7 j d'au moins 5 M$ sur Binance le 2026-10-01" }
+WAL = { SB = "halal" }
+WLD = { note = "aucune des trois sources ne la liste ; volume médian 7 j d'au moins 5 M$ sur Binance le 2026-10-01" }
+WLFI = { note = "aucune des trois sources ne la liste ; volume médian 7 j d'au moins 5 M$ sur Binance le 2026-10-01" }
+XEC = { SB = "halal" }
+XNO = { SB = "halal" }
+XPL = { note = "aucune des trois sources ne la liste ; volume médian 7 j d'au moins 5 M$ sur Binance le 2026-10-01" }
+ZIL = { SB = "halal" }
+ZKC = { SB = "halal" }
+ZRO = { SB = "halal" }

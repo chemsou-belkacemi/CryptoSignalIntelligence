@@ -75,7 +75,10 @@ def screening_path(settings: Settings) -> Path:
 
 def load_screening(settings: Settings) -> tuple[dict[str, Screening], str]:
     """(avis par crypto, date du relevé)."""
-    path = screening_path(settings)
+    return load_screening_file(screening_path(settings))
+
+
+def load_screening_file(path: Path) -> tuple[dict[str, Screening], str]:
     if not path.exists():
         return {}, ""
     data = tomllib.loads(path.read_text(encoding="utf-8"))
@@ -269,7 +272,23 @@ def decide(settings: Settings, symbol: str, *, add: bool, now: datetime, lookup:
                       reason=f"acceptée par le propriétaire (avis {screening.explain()})")
 
 
-def decide_all_pending(settings: Settings, *, now: datetime, lookup: Lookup = binance_listing) -> list[dict]:
-    """« Tout ajouter » : chaque crypto à décider est ajoutée, comme décision du propriétaire."""
+def decide_all_pending(settings: Settings, *, now: datetime, lookup: Lookup = binance_listing,
+                       symbols: list[str] | None = None) -> list[dict]:
+    """« Tout ajouter » : chaque crypto à décider (ou seulement celles de `symbols`) est ajoutée, comme décision
+    du propriétaire. Une paire qui n'est pas « à décider » n'est jamais touchée."""
+    wanted = None if symbols is None else {s.upper() for s in symbols}
     return [decide(settings, entry["symbol"], add=True, now=now, lookup=lookup)
-            for entry in AdmissionLog(settings.external_db).pending()]
+            for entry in AdmissionLog(settings.external_db).pending()
+            if wanted is None or entry["symbol"] in wanted]
+
+
+# Groupes d'affichage des cryptos à décider, du plus étayé au moins étayé.
+GROUP_ONE_SOURCE, GROUP_DOUBTFUL, GROUP_NO_SOURCE = "une_source", "douteux", "aucune_source"
+
+
+def pending_group(screening: Screening) -> str:
+    """une_source : une seule source dit halal, aucune réserve ; douteux : zone grise pour une source au
+    moins ; aucune_source : aucune source ne la liste."""
+    if screening.status == DOUTEUX:
+        return GROUP_DOUBTFUL
+    return GROUP_ONE_SOURCE if "halal" in screening.sources.values() else GROUP_NO_SOURCE

@@ -1,19 +1,35 @@
-# Univers de paires — vérifié le 2026-09-30
+# Univers de paires — avis halal relevés le 2026-10-01
 
 Configuration : `[data].symbols` et `[data.tick_size]` dans `config/default.toml`.
 
 **Ce projet ne certifie la conformité religieuse d'aucun actif.** Les classements ci-dessous
-viennent de trois services de screening publics, aux méthodologies différentes, consultés le
-2026-09-30. Ils se contredisent parfois et évoluent chaque mois. La décision finale appartient à
+viennent de trois services de screening publics, aux méthodologies différentes, relevés le
+2026-10-01. Ils se contredisent parfois et évoluent chaque mois. La décision finale appartient à
 l'utilisateur, selon le référent qu'il suit ; la liste se modifie dans la configuration.
+
+**Méthode du relevé (2026-10-01).** Chaque page est téléchargée telle quelle, puis ses listes sont
+extraites directement du HTML, sans résumé automatique. L'instantané des trois listes, avec
+l'empreinte SHA-256 de chaque page, est dans `docs/universe_sources/2026-10-01.json` ; le fichier
+`config/halal_screening.toml` en est dérivé mécaniquement, et un test vérifie qu'il lui correspond
+(`tests/test_admission.py`).
+
+**Corrections par rapport au relevé du 2026-09-30.** Ce premier relevé avait été fait par lecture
+résumée des pages et comportait des erreurs :
+- sur la page d'IFG, la colonne « IFG Holding? » (IFG en détient-il ?) avait été confondue avec la
+  colonne « Halal? ». SOL était noté « ambigu » alors qu'IFG répond « Yes » ; UNI était noté « haram »
+  alors qu'IFG répond « Yes » ;
+- plusieurs cryptos notées « favorables » ne sont listées halal que par une seule source (AR, FLOW,
+  GRT, KSM, MINA, ONE, QTUM, STX, ZIL). La règle en demande deux : elles repassent « à décider ».
+
+Les 16 paires de la configuration restent toutes favorables.
 
 ## Sources consultées
 
 | Code | Source | Méthodologie affichée | Date affichée |
 |---|---|---|---|
-| HS | [HalalSignalz — crypto pass list](https://www.halalsignalz.com/crypto-passlist) | Crypto Shariah Screening Framework (Mufti Faraz Adam, 2021), mensuel | juin 2026 |
-| SB | [SharifBot — halal coins](https://sharifbot.com/pages/halal-coins) | AAOIFI Shariah Standard 17 | sept. 2026 |
-| IFG | [Islamic Finance Guru — crypto](https://www.islamicfinanceguru.com/crypto) | analyse maison | non datée |
+| HS | [HalalSignalz — crypto pass list](https://www.halalsignalz.com/crypto-passlist) | Crypto Shariah Screening Framework (Mufti Faraz Adam, 2021), mensuel ; 20 cryptos passent, les autres ne sont pas listées | octobre 2026 |
+| SB | [SharifBot — halal coins](https://sharifbot.com/pages/halal-coins) | AAOIFI Shariah Standard 17 ; 122 halal, 85 en zone grise | sept. 2026 |
+| IFG | [Islamic Finance Guru — crypto](https://www.islamicfinanceguru.com/crypto) | analyse maison ; 60 cryptos, colonne « Halal? » : 53 oui, 7 non | non datée |
 
 Algorand dispose en plus d'une certification de la Shariyah Review Bureau (citée par plusieurs
 sources secondaires, non vérifiée à la source ici).
@@ -35,12 +51,12 @@ sources secondaires, non vérifiée à la source ici).
 |---|---|---|---|---|---|---|
 | BTCUSDT | ✔ | ✔ | ✔ | 2017-08 | 0.01 | 1126 |
 | ETHUSDT | ✔ | ✔ | ✔ | 2017-08 | 0.01 | 854 |
-| SOLUSDT | ✔ | ✔ | ambigu (halal et non sur la même page) | 2020-08 | 0.01 | 289 |
+| SOLUSDT | ✔ | ✔ | ✔ | 2020-08 | 0.01 | 289 |
 | XRPUSDT | ✔ | ✔ | ✔ | 2018-05 | 0.0001 | 286 |
 | NEARUSDT | ✔ | ✔ | ✔ | 2020-10 | 0.001 | 204 |
-| AVAXUSDT | ✔ | ✔ | – | 2020-09 | 0.001 | 118 |
+| AVAXUSDT | ✔ | ✔ | ✔ | 2020-09 | 0.001 | 118 |
 | HBARUSDT | ✔ | ✔ | ✔ | 2019-09 | 0.00001 | 88 |
-| LINKUSDT | ✔ | ✔ | – | 2019-01 | 0.001 | 84 |
+| LINKUSDT | ✔ | ✔ | ✔ | 2019-01 | 0.001 | 84 |
 | XLMUSDT | ✔ | ✔ | ✔ | 2018-05 | 0.0001 | 44 |
 | ADAUSDT | ✔ | ✔ | ✔ | 2018-04 | 0.0001 | 42 |
 | TRXUSDT | – | ✔ | ✔ | 2018-06 | 0.0001 | 22 |
@@ -50,21 +66,32 @@ sources secondaires, non vérifiée à la source ici).
 | ATOMUSDT | ✔ | ✔ | ✔ | 2019-04 | 0.001 | 7 |
 | ETCUSDT | – | ✔ | ✔ | 2018-06 | 0.01 | 6 |
 
-Points d'attention signalés par au moins une source : TRX (écosystème de jeux d'argent selon
-certains avis), SOL (IFG contradictoire), ATOM et ETC proches du seuil de liquidité.
+Les colonnes « Cotée depuis », « Pas de prix » et « Volume 24 h » datent du 2026-09-30. Points
+d'attention : TRX (écosystème de jeux d'argent selon certains avis ; HS ne la liste pas), ETC (HS ne la
+liste pas), ATOM et ETC proches du seuil de liquidité. IFG répond « Yes » pour SOL, mais indique ne pas
+en détenir.
 
-## Exclues, avec le motif
+## Relevé complet du 2026-10-01 (240 cryptos)
 
-- **Screening insuffisant ou avis négatif** : LTC, BCH (une seule source) ; BNB, ICP, QNT, ZEC,
-  DASH, SEI, ROSE, FET (douteux SB) ; UNI (haram IFG) ; DOGE, SHIB, PEPE, XMR (une source, ou avis
-  contradictoires) ; AAVE, MKR, ENA (haram IFG, intérêt/produits synthétiques).
-- **Historique trop court** (cotation Binance après 2021-06), à réexaminer au lot 4 : POL (2024-09,
-  3 sources), RENDER (2024-07, 3 sources), APT (2022-10), ARB (2023-03), SUI, TIA, OP, ICP (2021-05
-  et douteux SB).
-- **Liquidité < 5 M$ le 2026-09-30** malgré un screening favorable : XTZ (0,7), VET (1,8), IOTA
-  (3,3), THETA (0,7), NEO (0,4), EGLD (0,4), AR (3,5), KSM, ONE, ZIL, QTUM, MINA, FLOW, STX, GRT.
-- **Non cotée ou suspendue sur Binance Spot** (`BREAK`/absente) : MATIC (remplacé par POL), TON,
-  EOS, XMR, KDA, CSPR, QNT, ISLM.
+Le relevé couvre les cryptos qui ont une paire USDT négociable sur Binance Spot et qu'une source au
+moins liste, plus les paires liquides (volume médian sur 7 jours d'au moins 5 M$) qu'aucune source ne
+liste. Les stablecoins et les monnaies fiduciaires sont exclus. Détail par crypto :
+`config/halal_screening.toml`.
+
+| Statut | Nombre | Cryptos |
+|---|---|---|
+| Favorable (au moins 2 sources halal, aucune réserve) | 30 | ADA, ALGO, APT, ARB, ATOM, AVAX, BCH, BTC, DOT, EGLD, ETC, ETH, FIL, HBAR, IOTA, LINK, LTC, NEAR, NEO, POL, RENDER, SOL, SUI, TAO, THETA, TRX, VET, XLM, XRP, XTZ |
+| Défavorable (« Halal? No » chez IFG) | 6 | AAVE, ENA, FTT, HYPE, MKR, ONDO |
+| Douteuse (zone grise chez SharifBot) | 84 | voir le fichier |
+| Inexploitable : une seule source halal | 98 | voir le fichier |
+| Inexploitable : aucune source, mais liquide | 22 | BABY, CAKE, CRV, ETHFI, INJ, JUP, LDO, MARSCOIN, MORPHO, MSTRB, MUBARAK, NIL, NVDAB, PENGU, PLUME, PUMP, RAY, SNDKB, VTHO, WLD, WLFI, XPL |
+
+Les favorables hors configuration sont ajoutées à l'univers évaluable par la règle d'admission
+ci-dessous. Les douteuses et les inexploitables vont dans « Cryptos à décider ». Elles n'entrent pas
+dans les protocoles de recherche déjà exécutés, qui gardent les 16 paires de la configuration.
+
+Cryptos listées par une source mais sans paire USDT négociable sur Binance Spot le 2026-10-01 :
+BGB, CRO, CSPR, DAI, EOS, KAS, LEO, MKR, MNT, OKB, OM, TON, XMR.
 
 ## Limites techniques de cet univers
 
@@ -106,9 +133,9 @@ Demande du propriétaire : « ajoute toutes ces cryptos favorables avec de l'USD
 direct ; défavorable : refus ; douteux : ne se transmet pas directement, il doit me notifier ; avis
 inexploitable aussi, avec un bouton pour choisir ».
 
-- **Avis.** `config/halal_screening.toml` reprend, crypto par crypto, les avis consignés ci-dessus : trois
-  sources relevées le 2026-09-30, avec l'avis par source ou le résumé de ce document. Une crypto absente
-  du fichier est « inexploitable ». Ce projet ne certifie rien.
+- **Avis.** `config/halal_screening.toml` reprend, crypto par crypto, l'avis de chacune des trois sources
+  relevées le 2026-10-01. Une crypto absente du fichier est « inexploitable ». Ce projet ne certifie
+  rien.
 - **Statut**, déduit mécaniquement (`external/admission.py`) :
 
   | Statut | Condition | Ce que fait CSI |
@@ -144,9 +171,11 @@ inexploitable aussi, avec un bouton pour choisir ».
   à relancer).
 - **Notification et décision.**
   - Un badge « N cryptos à décider » s'affiche en haut du tableau de bord.
-  - Dans l'onglet Suivi, la liste « Cryptos à décider » propose deux boutons, Ajouter et Refuser, et un
-    bouton « Tout ajouter (ma décision) » (`POST /admissions/decide-all`). Les paires USDC se décident
-    aussi.
+  - Dans l'onglet Suivi, les « Cryptos à décider » sont rangées en trois groupes, du plus étayé au moins
+    étayé : une seule source halal sans réserve, zone grise pour une source, aucune source.
+  - Chaque ligne a ses boutons Ajouter et Refuser ; chaque groupe a un bouton d'ajout groupé ; un bouton
+    « Tout ajouter (ma décision) » couvre toute la liste (`POST /admissions/decide-all`). Les paires USDC
+    se décident aussi.
   - La décision est tracée « par propriétaire », et la règle ne l'écrase jamais.
   - Telegram : CSI n'a pas de bot. Il lui faudrait un jeton, donc un secret, alors que CSI n'en utilise
     aucun. La notification passe par le tableau de bord. Un relais par le bot de BinanceSpotManager reste

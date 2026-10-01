@@ -19,7 +19,8 @@ demande de clé Binance. Pages : `/` (application : analyser une paire, évaluer
     POST /opportunities/pair   {"symbol": "ETHUSDT"} → les 6 horizons d'une paire (plans, fréquences, états) et l'avis
                                simulé des stratégies ; statistiques en échantillon, jamais une proposition d'entrer
     POST /admissions/decide    {"symbol": "DOGEUSDT", "decision": "add" | "refuse"} → décision du propriétaire
-    POST /admissions/decide-all  {} → « Tout ajouter » : chaque crypto à décider ajoutée par le propriétaire
+    POST /admissions/decide-all  {} ou {"symbols": [...]} → « Tout ajouter » : chaque crypto à décider (ou celles
+                               de la liste) ajoutée par le propriétaire
     POST /analyze-pair         {"symbol": "ETHUSDT", "horizon": "24h"} → contexte, historique comparable,
                                plan indicatif évalué sur le passé, avis des stratégies (simulation)
     POST /refresh-pair         {"symbol": "ETHUSDT"} → télécharge les bougies publiques manquantes de la paire
@@ -375,11 +376,16 @@ class CsiApi:
 
     def admissions(self) -> dict:
         """Avis halal (sources publiques relevées, aucune certification) et décisions d'ajout des paires."""
-        from ..external.admission import A_DECIDER, AdmissionLog, load_screening
+        from ..external.admission import A_DECIDER, AdmissionLog, load_screening, pending_group, screening_for
         screenings, checked_on = load_screening(self.settings)
         rows = AdmissionLog(self.settings.external_db).all()
+        pending = []
+        for row in rows:
+            if row["decision"] == A_DECIDER:
+                screening = screenings.get(row["base"]) or screening_for(self.settings, row["symbol"])
+                pending.append(row | {"group": pending_group(screening), "sources": screening.sources})
         return {"checked_on": checked_on, "screened": len(screenings),
-                "pending": [r for r in rows if r["decision"] == A_DECIDER],
+                "pending": pending,
                 "decisions": [r for r in rows if r["decision"] != A_DECIDER],
                 "rule": "favorable au screening halal (2 sources sur 3 au moins, aucune douteuse ni haram) : ajout "
                         "direct de la paire USDT ; défavorable (haram pour une source) : refus ; douteuse ou "
@@ -417,13 +423,17 @@ class CsiApi:
         except HttpError as exc:
             raise ApiError(HTTPStatus.BAD_GATEWAY, f"Binance injoignable ({exc}) : réessayer") from None
 
-    def admissions_decide_all(self) -> dict:
+    def admissions_decide_all(self, payload: dict) -> dict:
         from collections import Counter
 
         from ..data.http import HttpError
         from ..external.admission import decide_all_pending
+        symbols = payload.get("symbols")
+        if symbols is not None and not (isinstance(symbols, list) and len(symbols) <= 500
+                                        and all(isinstance(s, str) and s.isalnum() and len(s) <= 20 for s in symbols)):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "champ « symbols » : liste de paires (500 au plus)")
         try:
-            results = decide_all_pending(self.settings, now=self.now(), lookup=self._listing())
+            results = decide_all_pending(self.settings, now=self.now(), lookup=self._listing(), symbols=symbols)
         except HttpError as exc:
             raise ApiError(HTTPStatus.BAD_GATEWAY, f"Binance injoignable ({exc}) : réessayer") from None
         return {"counts": dict(Counter(r["decision"] for r in results)), "results": results}
@@ -604,7 +614,7 @@ class CsiApi:
         elif method == "POST" and path == "/admissions/decide":
             return self.admissions_decide(body or {})
         elif method == "POST" and path == "/admissions/decide-all":
-            return self.admissions_decide_all()
+            return self.admissions_decide_all(body or {})
         raise ApiError(HTTPStatus.NOT_FOUND, f"route inconnue : {method} {path}")
 
 

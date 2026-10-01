@@ -40,6 +40,13 @@ def canonical(n: int, timeframe: str = "15m", symbol: str = "ETHUSDT", **kwargs)
                      now=datetime(2030, 1, 1, tzinfo=UTC), latency_seconds=2)
 
 
+@pytest.fixture(autouse=True)
+def fixed_halal_screening(monkeypatch):
+    """Le mécanisme d'admission est testé sur un fichier d'avis FIGÉ (tests/data), pas sur le relevé courant."""
+    from crypto_signal_intelligence.external import admission
+    monkeypatch.setattr(admission, "screening_path", lambda settings: PROJECT / "tests" / "data" / "halal_screening.toml")
+
+
 @pytest.fixture
 def settings(monkeypatch, tmp_path):
     monkeypatch.setenv("CSI_ROOT", str(tmp_path))

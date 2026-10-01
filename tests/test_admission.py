@@ -10,6 +10,8 @@ from crypto_signal_intelligence.api.server import ApiError, CsiApi
 from crypto_signal_intelligence.external import admission as adm
 from crypto_signal_intelligence.external.universe import REQUESTED, UserUniverse
 
+from .conftest import PROJECT
+
 NOW = datetime(2026, 10, 1, 12, tzinfo=UTC)
 LISTED = {"POLUSDT", "RENDERUSDT", "GRTUSDT", "DOGEUSDT", "LTCUSDT", "BNBUSDT", "UNIUSDT"}
 
@@ -182,3 +184,43 @@ def test_run_refuses_a_concurrent_application(settings):
         assert exc.value.status == 409
     finally:
         api._admissions_lock.release()
+
+
+def test_the_current_screening_file_matches_its_source_snapshot(settings):
+    """Le relevé courant (config/halal_screening.toml) reprend exactement l'instantané des sources, et rien d'autre."""
+    import json
+    screenings, checked_on = adm.load_screening_file(PROJECT / "config" / "halal_screening.toml")
+    snapshot = json.loads((PROJECT / "docs" / "universe_sources" / f"{checked_on}.json").read_text(encoding="utf-8"))
+    src = snapshot["sources"]
+    assert len(screenings) > 100
+    for base, screening in screenings.items():
+        assert screening.sources.get("HS") == ("halal" if base in src["HS"]["pass"] else None), base
+        assert screening.sources.get("SB") == ("halal" if base in src["SB"]["halal"] else
+                                               "douteux" if base in src["SB"]["grey_area"] else None), base
+        assert screening.sources.get("IFG") == ("halal" if base in src["IFG"]["halal_yes"] else
+                                                "haram" if base in src["IFG"]["halal_no"] else None), base
+    assert all(screenings[adm.base_of(p)].status == adm.FAVORABLE for p in settings.data.symbols)
+    assert not set(screenings) & set(snapshot["binance"]["excluded_stable_or_fiat"])      # ni stablecoin ni fiat
+    assert {b for b, s in screenings.items() if "haram" in s.sources.values()} == {
+        b for b, s in screenings.items() if s.status == adm.DEFAVORABLE}
+
+
+def test_pending_cryptos_are_grouped_by_evidence_and_can_be_added_by_group(settings):
+    api = CsiApi(settings, now=lambda: NOW)
+    api.listing = lambda settings, symbol: Decimal("0.0001")
+    log = adm.AdmissionLog(settings.external_db)
+    one = adm.Screening("ABC", adm.INEXPLOITABLE, {"SB": "halal"})
+    grey = adm.Screening("DEF", adm.DOUTEUX, {"SB": "douteux", "IFG": "halal"})
+    none = adm.Screening("GHI", adm.INEXPLOITABLE, {})
+    assert [adm.pending_group(s) for s in (one, grey, none)] == ["une_source", "douteux", "aucune_source"]
+    api.dispatch("POST", "/admissions/run", {}, {})
+    pending = api.dispatch("GET", "/admissions", {}, None)["pending"]
+    groups = {p["symbol"]: p["group"] for p in pending}
+    assert groups["LTCUSDT"] == "aucune_source" and groups["BNBUSDT"] == "douteux"      # fichier de test figé
+    chosen = [p["symbol"] for p in pending if p["group"] == "douteux"]
+    out = api.dispatch("POST", "/admissions/decide-all", {}, {"symbols": chosen + ["POLUSDT", "INCONNUEUSDT"]})
+    assert sorted(r["symbol"] for r in out["results"]) == sorted(chosen)                # rien d'autre n'est touché
+    left = {p["symbol"] for p in api.dispatch("GET", "/admissions", {}, None)["pending"]}
+    assert not left & set(chosen) and "LTCUSDT" in left and log.get("POLUSDT")["decided_by"] == adm.RULE
+    with pytest.raises(ApiError):
+        api.dispatch("POST", "/admissions/decide-all", {}, {"symbols": "DOGEUSDT"})

@@ -684,11 +684,11 @@ async function decideAdmission(symbol, decision, button) {
   }
 }
 
-async function decideAllAdmissions(button) {
+async function decideAllAdmissions(button, symbols) {
   button.disabled = true;
-  button.textContent = "Ajout de toutes les cryptos à décider…";
+  button.textContent = "Ajout en cours…";
   try {
-    const out = await api("/admissions/decide-all", {});
+    const out = await api("/admissions/decide-all", symbols ? { symbols } : {});
     const c = out.counts || {};
     button.textContent = `Fait : ${c.AJOUTEE || 0} ajoutée(s), ${c.INDISPONIBLE || 0} indisponible(s)`;
     await refreshAdmissions();
@@ -716,6 +716,11 @@ async function runAdmissions(button) {
   }
 }
 
+const ADMISSION_GROUPS = [
+  ["une_source", "Une source dit halal, aucune réserve", "Une seule des trois sources la classe halal ; les autres ne la listent pas. La règle en demande deux pour un ajout direct."],
+  ["douteux", "Zone grise pour une source au moins", "Une source la place en zone grise (avis partagés ou activité en partie non conforme)."],
+  ["aucune_source", "Aucune source ne la liste", "Aucune des trois sources ne donne d'avis : rien ne permet de conclure."],
+];
 const ADMISSION_LABELS = { AJOUTEE: ["ok", "ajoutée"], REFUSEE: ["bad", "refusée"], INDISPONIBLE: ["muted", "indisponible sur Binance"], A_DECIDER: ["warn", "à décider"] };
 
 function admissionsCard(data) {
@@ -724,13 +729,26 @@ function admissionsCard(data) {
   run.addEventListener("click", () => runAdmissions(run));
   const addAll = el("button", { type: "button", class: "ghost", text: "Tout ajouter (ma décision)" });
   addAll.addEventListener("click", () => decideAllAdmissions(addAll));
-  const pending = (data.pending || []).map((p) => {
+  const pendingRow = (p) => {
     const add = el("button", { type: "button", class: "primary", text: "Ajouter" });
     const refuse = el("button", { type: "button", class: "ghost", text: "Refuser" });
     add.addEventListener("click", () => decideAdmission(p.symbol, "add", add));
     refuse.addEventListener("click", () => decideAdmission(p.symbol, "refuse", refuse));
-    return [{ node: el("strong", { text: pair(p.symbol) }) }, p.screening.toLowerCase(), p.reason, { node: el("div", { class: "row" }, add, refuse) }];
+    const sources = Object.entries(p.sources || {}).map(([code, verdict]) => `${code} ${verdict}`).join(", ") || "aucune source";
+    return [{ node: el("strong", { text: pair(p.symbol) }) }, sources, p.reason, { node: el("div", { class: "row" }, add, refuse) }];
+  };
+  const all = data.pending || [];
+  // Du plus étayé au moins étayé ; chaque groupe a son bouton d'ajout (décision du propriétaire).
+  const groups = ADMISSION_GROUPS.map(([key, title, hint]) => {
+    const rows = all.filter((p) => (p.group || "aucune_source") === key);
+    if (!rows.length) return null;
+    const bulk = el("button", { type: "button", class: "ghost", text: `Ajouter ces ${rows.length} cryptos (ma décision)` });
+    bulk.addEventListener("click", () => decideAllAdmissions(bulk, rows.map((p) => p.symbol)));
+    return el("div", {}, el("h3", { text: `${title} (${rows.length})` }), el("p", { class: "muted small", text: hint }),
+      el("div", { class: "row" }, bulk),
+      table(["Paire", "Avis des sources", "Motif", "Ta décision"], rows.map(pendingRow), "rien à décider"));
   });
+  const pending = all;
   const decisions = (data.decisions || []).map((d) => {
     const [kind, label] = ADMISSION_LABELS[d.decision] || ["muted", d.decision];
     return [pair(d.symbol), { node: el("span", { class: `pill ${kind}`, text: label }) }, d.decided_by, d.reason, when(d.decided_at)];
@@ -739,7 +757,8 @@ function admissionsCard(data) {
     el("p", { class: "muted small", text: data.rule }),
     el("div", { class: "row" }, run, (data.pending || []).length ? addAll : null),
     el("h3", { text: `Cryptos à décider (${pending.length})` }),
-    table(["Paire", "Avis", "Motif", "Ta décision"], pending, "rien à décider"),
+    pending.length ? null : el("p", { class: "muted", text: "rien à décider" }),
+    ...groups,
     el("h3", { text: "Décisions" }),
     table(["Paire", "Décision", "Par", "Motif", "Date"], decisions, "aucune décision pour l'instant"));
 }
