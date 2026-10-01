@@ -491,8 +491,16 @@ def ml_swing(stage: str = typer.Argument("select", help="select (DEVELOPMENT) | 
                                                           help="Consulter la période finale (enregistré)"),
              selection_run: str = typer.Option(None, help="Sélection de référence pour `final` ; défaut : la dernière"),
              allow_dirty: bool = typer.Option(False, help="Accepter du code non commité (essai local, enregistré)"),
+             long: bool = typer.Option(False, "--long", help="Historique long 2017-2025, 40 paires, 3 à 7 jours "
+                                                             "(docs/ML_SWING_LONG.md) : programme ML_SWING_LONG"),
              verbose: bool = False):
-    """Lot 5 ter : ML swing de 1 à 7 jours (docs/ML_SWING.md) — sélection avec la règle v6, puis estimation unique."""
+    """Lot 5 ter : ML swing de 1 à 7 jours (docs/ML_SWING.md) — sélection avec la règle v6, puis estimation unique.
+    Avec --long : le même protocole rejoué sur l'historique long (docs/ML_SWING_LONG.md)."""
+    if long:
+        from .ml.swing import long as protocol_long
+        _ml_program(protocol_long, "ML swing long", stage, final_test=i_understand_final_test,
+                    selection_run=selection_run, allow_dirty=allow_dirty, verbose=verbose)
+        return
     from .ml.swing import protocol
     _ml_program(protocol, "ML swing", stage, final_test=i_understand_final_test, selection_run=selection_run,
                 allow_dirty=allow_dirty, verbose=verbose)

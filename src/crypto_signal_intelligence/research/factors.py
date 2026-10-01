@@ -20,14 +20,14 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from functools import cached_property
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 from ..config import Settings
 from .derivatives_screen import fingerprint
-from .experiments import ExperimentRegistry, dependency_versions, git_state, new_run_id
+from .experiments import ExperimentRegistry, dependency_versions, new_run_id
+from .experiments import code_state as experiments_code_state
 from .long_history import load_long
 from .protocol import development_end
 from .universe import MARKET, RESEARCH_UNIVERSE
@@ -68,7 +68,7 @@ class DirtyCode(RuntimeError):
 
 def code_state() -> str:
     """Commit du code EXÉCUTÉ (dépôt qui contient ce module), « +DIRTY » s'il a des modifications non commitées."""
-    return git_state(Path(__file__).resolve().parents[3])
+    return experiments_code_state()
 
 
 # --- Panneau journalier ------------------------------------------------------------------------------------

@@ -317,6 +317,7 @@ Recherche (travaux lourds, DEVELOPMENT seulement ; chaque protocole est déclar�
 .venv/bin/csi ml-evaluate                        # lot 5 : méta-labeling des setups
 .venv/bin/csi ml-intraday select                 # lot 5 bis : ML intraday
 .venv/bin/csi ml-swing select                    # lot 5 ter : ML swing
+.venv/bin/csi ml-swing select --long             # lot 5 quater : ML swing sur l'historique long (2017-2025, 40 paires)
 .venv/bin/csi download-derivatives               # historique public du marché à terme
 .venv/bin/csi screen-derivatives                 # criblage du positionnement
 .venv/bin/csi download-long --research           # bougies 1 h depuis la cotation, 40 paires de recherche

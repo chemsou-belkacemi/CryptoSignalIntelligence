@@ -24,7 +24,7 @@ from ..domain.enums import ValidationVerdict
 from ..features.loader import data_hashes, decision_frame, load_inputs
 from ..strategies import registry
 from ..strategies.base import Strategy
-from .experiments import ExperimentRegistry, dependency_versions, git_state, new_run_id
+from .experiments import ExperimentRegistry, code_state, dependency_versions, new_run_id
 from .protocol import period as resolve_period
 
 
@@ -112,7 +112,7 @@ CONSUMER_PROFILE = ("profil_BSM", "BSM_MARKET_TP_FIXED_SL_V2")
 def run_context(settings: Settings) -> tuple[dict, dict[str, Any]]:
     """Données de toutes les paires + éléments de traçabilité communs aux exécutions."""
     inputs = {symbol: load_inputs(settings, symbol) for symbol in settings.data.symbols}
-    common = {"git_commit": git_state(settings.root), "dependencies": dependency_versions(),
+    common = {"git_commit": code_state(), "dependencies": dependency_versions(),
               "seed": settings.protocol.seed, "universe": settings.data.symbols,
               "data_hashes": {symbol: data_hashes(data) for symbol, data in inputs.items()}}
     return inputs, common

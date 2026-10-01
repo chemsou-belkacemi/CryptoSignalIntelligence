@@ -24,6 +24,12 @@ def new_run_id(prefix: str = "RUN") -> str:
     return f"{prefix}-{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{uuid.uuid4().hex[:6]}"
 
 
+def code_state() -> str:
+    """Commit du code EXÉCUTÉ (dépôt qui contient ce paquet), « +DIRTY » s'il a des modifications non commitées.
+    À distinguer de `CSI_ROOT` (données, registre) : depuis un worktree propre, c'est ce code qui tourne."""
+    return git_state(Path(__file__).resolve().parents[3])
+
+
 def git_state(root: Path) -> str:
     try:
         commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True,

@@ -21,7 +21,7 @@ import json
 import math
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -29,9 +29,9 @@ import numpy as np
 import pandas as pd
 
 from ..config import CostScenario, Settings
-from ..research.experiments import ExperimentRegistry, git_state, new_run_id
+from ..research.experiments import ExperimentRegistry, code_state, new_run_id
 from ..research.intervals import calendar_mean_ci
-from ..research.protocol import FinalTestLocked
+from ..research.protocol import FinalTestLocked, Period
 from ..research.protocol import period as resolve_period
 from ..risk.exposure import RiskLimits
 from .intraday.models import ModelSpec, Payoff, calibration_report, fit, fit_platt
@@ -141,6 +141,12 @@ class Program:
     decision_modules: tuple[str, ...]
     extra_params: dict = field(default_factory=dict)
     random_draws: int = 200
+    # None (défaut) : début de l'historique des réglages (`data.history_start`). Un programme qui lit un autre
+    # magasin (historique long) déclare ici le début de SON historique : ancrage, plis, `period_start` du registre.
+    history_start: date | None = None
+    # None (défaut) : première validation = début de l'historique + `first_valid_months`. Sinon cette date,
+    # pour un historique qui ne commence pas un premier du mois.
+    first_valid_start: date | None = None
 
     @property
     def all_families(self) -> tuple[str, ...]:
@@ -166,14 +172,18 @@ class Program:
     def feature_set(self, families: tuple[str, ...]) -> tuple[str, ...]:
         return tuple(name for family in families for name in self.families[family])
 
+    def start(self, settings: Settings) -> pd.Timestamp:
+        """Début de l'historique : celui que le programme déclare, sinon celui des réglages."""
+        return pd.Timestamp((self.history_start or settings.data.history_start).isoformat(), tz="UTC")
+
     def folds(self, settings: Settings, first_valid, end) -> list[Fold]:
-        history_start = pd.Timestamp(settings.data.history_start.isoformat(), tz="UTC")
         return make_folds(first_valid, end, train_months=self.train_months, calib_months=self.calib_months,
-                          valid_months=self.valid_months, history_start=history_start)
+                          valid_months=self.valid_months, history_start=self.start(settings))
 
     def first_valid(self, settings: Settings) -> pd.Timestamp:
-        return (pd.Timestamp(settings.data.history_start.isoformat(), tz="UTC")
-                + pd.DateOffset(months=self.first_valid_months))
+        if self.first_valid_start is not None:
+            return pd.Timestamp(self.first_valid_start.isoformat(), tz="UTC")
+        return self.start(settings) + pd.DateOffset(months=self.first_valid_months)
 
 
 def register(program: Program) -> Program:
@@ -282,7 +292,7 @@ def config_fingerprint(settings: Settings) -> str:
 
 def require_clean_code(settings: Settings, *, allow_dirty: bool) -> str:
     """Versions reproductibles : code commité (et dépôt git présent) avant tout chargement de données."""
-    state = git_state(settings.root)
+    state = code_state()
     if (state.endswith("+DIRTY") or state == "NO_GIT_COMMIT") and not allow_dirty:
         raise RuntimeError(f"code non commité ou sans dépôt git ({state}) : exécution refusée (versions "
                            "reproductibles ; --allow-dirty pour un essai local, enregistré comme tel)")
@@ -897,6 +907,12 @@ class SelectResult:
     payload: dict = field(default_factory=dict, repr=False)
 
 
+def development_period(program: Program, settings: Settings, *, now: datetime) -> Period:
+    """DEVELOPMENT vu par le programme : même fin (bornée par le protocole), début de SON historique."""
+    period = resolve_period(settings, "development", now=now)
+    return replace(period, start=program.start(settings).to_pydatetime())
+
+
 def _system_from_row(row, program: Program) -> System:
     return System(row["kind"], int(row["horizon"]), row["model"], float(row["margin"]), tuple(row["families"]),
                   row["filter"], program.strategy_id)
@@ -906,7 +922,7 @@ def select(program: Program, settings: Settings, *, now: datetime, allow_dirty: 
            progress: Callable[[str], None] | None = None) -> SelectResult:
     say = progress or (lambda _text: None)
     rule = program.selection
-    period = resolve_period(settings, "development", now=now)
+    period = development_period(program, settings, now=now)
     run_id = new_run_id(program.run_prefix)
     report_dir = settings.reports_dir / run_id
     report_dir.mkdir(parents=True, exist_ok=True)

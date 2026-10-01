@@ -28,7 +28,7 @@ import pandas as pd
 
 from ..config import Settings
 from ..features.loader import load_candles
-from .experiments import ExperimentRegistry, dependency_versions, git_state, new_run_id
+from .experiments import ExperimentRegistry, code_state, dependency_versions, new_run_id
 from .protocol import clip_to_development, development_end
 
 HORIZONS_HOURS = (1, 4, 24)
@@ -267,7 +267,7 @@ def _record(settings: Settings, result: ScreenResult, *, now: datetime, symbols:
         strategy="SCREEN_D_TO_I", strategy_version=1, variant="conditions figées (voir CONDITIONS)",
         params={"horizons_h": result.horizons, "conditions": CONDITIONS}, period_label="DEVELOPMENT",
         period_start=settings.data.history_start.isoformat(), period_end=result.period_end, universe=symbols,
-        data_hashes={}, git_commit=git_state(settings.root), dependencies=dependency_versions(),
+        data_hashes={}, git_commit=code_state(), dependencies=dependency_versions(),
         seed=settings.protocol.seed, cost_scenario="central (seuil aller-retour)",
         simulation_rules={"entry": "ouverture t+1", "exit": "clôture t+h", "stops": "aucun"},
         metrics={"n_trials": result.n_trials, "program_trials": result.program_trials,

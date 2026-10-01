@@ -120,16 +120,22 @@ def common_context(settings: Settings, end) -> tuple[dict, dict]:
     inputs = {symbol: {name: frame[frame["open_time"] <= limit].reset_index(drop=True)
                        for name, frame in data.items()} for symbol, data in inputs.items()}
     common["data_hashes"] = {symbol: data_hashes(data) for symbol, data in inputs.items()}
-    common["dependencies"] = dict(common["dependencies"])
+    common["dependencies"] = ml_dependencies(settings, common["dependencies"])
+    return inputs, common
+
+
+def ml_dependencies(settings: Settings, base: dict) -> dict:
+    """Versions à tracer pour un programme ML : celles de `base`, les bibliothèques de modèles et l'empreinte
+    du verrou des dépendances."""
+    dependencies = dict(base)
     for package in ("lightgbm", "xgboost", "catboost"):
         try:
-            common["dependencies"][package] = metadata.version(package)
+            dependencies[package] = metadata.version(package)
         except metadata.PackageNotFoundError:
-            common["dependencies"][package] = "absent"
+            dependencies[package] = "absent"
     lock = settings.root / "pylock.toml"
-    common["dependencies"]["pylock_sha256"] = (hashlib.sha256(lock.read_bytes()).hexdigest()[:16]
-                                               if lock.exists() else "absent")
-    return inputs, common
+    dependencies["pylock_sha256"] = hashlib.sha256(lock.read_bytes()).hexdigest()[:16] if lock.exists() else "absent"
+    return dependencies
 
 
 def daily_closes(inputs: dict) -> pd.DataFrame:

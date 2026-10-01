@@ -90,6 +90,8 @@ MODEL_KINDS = {"WALK_FORWARD": "stratégie (walk-forward)", "ML_META": "méta-la
                "ML_INTRADAY_FINAL": f"ML intraday, {ML_HORIZON_LABELS['ML_INTRADAY']} : période finale",
                "ML_SWING_SELECT": f"ML swing, {ML_HORIZON_LABELS['ML_SWING']} : sélection (lot 5 ter)",
                "ML_SWING_FINAL": f"ML swing, {ML_HORIZON_LABELS['ML_SWING']} : période finale",
+               "ML_SWING_LONG_SELECT": "ML swing long (2017-2025, 40 paires), 3 à 7 jours : sélection (lot 5 quater)",
+               "ML_SWING_LONG_FINAL": "ML swing long (2017-2025, 40 paires), 3 à 7 jours : période finale",
                "SCREEN": "criblage de familles", "FACTORS": "portefeuilles hebdomadaires (lot 7)"}
 
 VERDICT_TEXT = {

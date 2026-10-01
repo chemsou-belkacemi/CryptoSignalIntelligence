@@ -35,7 +35,7 @@ from ..config import Settings
 from ..derivatives import features as fx
 from ..derivatives.history import STEPS, DerivativesStore, incomplete_days, quality
 from ..features.loader import load_candles
-from .experiments import ExperimentRegistry, dependency_versions, git_state, new_run_id
+from .experiments import ExperimentRegistry, code_state, dependency_versions, new_run_id
 from .intervals import calendar_mean_ci
 from .protocol import clip_to_development, development_end
 
@@ -299,7 +299,7 @@ def _record(settings: Settings, result: Result, *, now: datetime, symbols: list[
                 "min_blocks": MIN_BLOCKS, "min_other_pairs": MIN_OTHER_PAIRS, "max_share": MAX_SHARE},
         period_label="DEVELOPMENT",
         period_start=settings.data.history_start.isoformat(), period_end=result.period_end, universe=symbols,
-        data_hashes=result.data_hashes, git_commit=git_state(settings.root), dependencies=dependency_versions(),
+        data_hashes=result.data_hashes, git_commit=code_state(), dependencies=dependency_versions(),
         seed=settings.protocol.seed, cost_scenario="central (seuil aller-retour)",
         simulation_rules={"entry": "ouverture t+1", "exit": "clôture t+H", "stops": "aucun",
                           "decisions": "toutes les 4 h"},
