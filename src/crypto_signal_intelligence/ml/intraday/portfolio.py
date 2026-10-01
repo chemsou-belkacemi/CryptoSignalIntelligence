@@ -187,7 +187,7 @@ def buy_and_hold(daily_closes: pd.DataFrame, start, end) -> dict:
 
 
 def random_entries(pool: pd.DataFrame, count: int, limits: RiskLimits, start, end, *, draws: int, seed: int,
-                   step_ns: int = STEP_NS) -> dict:
+                   step_ns: int = STEP_NS, strategy: str = STRATEGY) -> dict:
     """Distribution du Sharpe d'entrées tirées au hasard (même nombre de candidats, mêmes limites)."""
     if pool.empty or count == 0:
         return {"draws": 0, "sharpe_p50": None, "sharpe_p95": None}
@@ -195,7 +195,7 @@ def random_entries(pool: pd.DataFrame, count: int, limits: RiskLimits, start, en
     values = []
     for _ in range(draws):
         pick = pool.iloc[rng.choice(len(pool), size=min(count, len(pool)), replace=False)]
-        trades = simulate(pick.assign(score=rng.random(len(pick))), limits, step_ns=step_ns)
+        trades = simulate(pick.assign(score=rng.random(len(pick))), limits, step_ns=step_ns, strategy=strategy)
         value = sharpe(daily_returns(trades, start, end).to_numpy())
         values.append(value if value is not None else 0.0)
     return {"draws": draws, "sharpe_p50": round(float(np.percentile(values, 50)), 4),

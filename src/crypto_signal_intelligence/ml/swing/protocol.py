@@ -1,9 +1,9 @@
-"""Protocole ML swing v2 (docs/ML_SWING.md), déclaré et commité avant toute exécution.
+"""Protocole ML swing v3 (docs/ML_SWING.md), déclaré et commité avant toute exécution.
 
 Programme du moteur commun (`ml/engine.py`) : bougies 1 h, une décision toutes les 4 h, horizons 1, 3 et
 7 jours, cibles horizon fixe et triple barrière, logistique / LightGBM / XGBoost / CatBoost, entraînement
-ancré, 6 validations, règle d'admission STRICTE v6 (leçons de la sélection intraday) complétée en v2 avant
-toute exécution (jours d'entrée distincts, IC de Student sur blocs calendaires, excès sur le marché). Aucun ordre.
+ancré, 6 validations, règle d'admission STRICTE v6 (leçons de la sélection intraday) complétée avant toute
+exécution (périodes d'entrée distinctes, IC de Student sur blocs calendaires, excès sur le marché). Aucun ordre.
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ from ..intraday.models import ModelSpec
 from ..intraday.protocol import common_context, daily_closes
 from . import dataset as ds
 
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 KIND_SELECT, KIND_FINAL = "ML_SWING_SELECT", "ML_SWING_FINAL"
 STRATEGY_ID = "ML_SWING"
 MARGINS = (0.0, 0.0025, 0.0050)
@@ -53,7 +53,7 @@ FAMILY_VARIANTS: dict[str, tuple[str, ...]] = {
 META_FEATURES = ("p", "expected", "rv_168", "atr_pct", "d1_ret_30", "btc_ret_168", "xs_rank_168", "r_168",
                  "vol_ratio_24", "taker_24", "h4_ret_42", "dd_720")
 CONTEXT_REQUIRED = ("h4_ret_6", "d1_ret_7", "btc_ret_24")
-RULE = SelectionRule(stability_share=0.70, min_trades=150, min_trades_per_fold=20, min_entry_days_per_fold=20,
+RULE = SelectionRule(stability_share=0.70, min_trades=150, min_trades_per_fold=20, min_entry_periods_per_fold=20,
                      strict=True, max_group_share=0.6, ci_method="student_calendar", min_ci_blocks=20,
                      excess_check=True)
 AUDIT_PAIRS = ("BTCUSDT", "ETHUSDT", "SOLUSDT")
@@ -82,6 +82,12 @@ def reserves(program_trials_before: int) -> list[str]:
         "Cibles qui traversent un trou de données exclues : léger biais de sélection possible autour des incidents.",
         "Regards non comptés : le tableau de bord (analyse d'une paire de 1 h à 7 jours) montre des statistiques "
         "sur DEVELOPMENT ; ces regards ne sont pas des essais enregistrés.",
+        "Critère 7 (excès sur le marché) : il ne mesure que la sélection ENTRE paires ; un avantage de pur timing, "
+        "le même pour toutes les paires, est rejeté par construction (choix déclaré avant exécution).",
+        "IC des critères 3 et 7 : environ 2 % de faux positifs simulés seulement si la dépendance ne dépasse pas "
+        "deux blocs voisins ; avec une dérive commune persistante, le critère 3 en accepte environ 9 à 10 %, et un "
+        "penchant persistant vers les mêmes paires (survivantes) passe le critère 7 dans 5 à 11 % des tirages "
+        "(17 % avec une demi-vie de 140 jours), simulation de relecture : limite d'un échantillon de 3 ans.",
         "Cibles qui se chevauchent dans l'entraînement (déclaré) ; purge par la barrière verticale entre blocs.",
         "Moteur : remplissage complet à l'ouverture de la bougie 1 h suivante, ordre intra-bougie défavorable, "
         "capital réalisé, pas d'impact de marché ; vérification en bougies 15 min obligatoire avant la période "

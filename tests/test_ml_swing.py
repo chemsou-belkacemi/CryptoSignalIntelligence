@@ -60,8 +60,8 @@ def test_code_matches_the_written_protocol():
     assert all(f"`{name}`" in doc for name in swing.CONTEXT_REQUIRED)
     assert all(f"`{name}`" in doc for name in swing.META_FEATURES if name not in ("p", "expected"))
     rule = swing.RULE
-    assert (rule.min_trades, rule.min_trades_per_fold, rule.min_entry_days_per_fold, rule.min_ci_blocks) == (150, 20,
-                                                                                                             20, 20)
+    assert (rule.min_trades, rule.min_trades_per_fold, rule.min_entry_periods_per_fold, rule.min_ci_blocks) == (
+        150, 20, 20, 20)
     assert rule.strict and rule.excess_check and rule.ci_method == "student_calendar"
     assert rule.max_group_share == 0.6 and rule.required_positive(6) == 5
 
@@ -203,30 +203,39 @@ def test_folds_are_anchored_with_six_validations():
 def test_strict_rule_needs_enough_trades_in_each_counted_validation():
     system = engine.System("fh", 24, "logistic_l2", 0.0, program=swing.STRATEGY_ID)
     rows = [system.to_dict() | {"key": "peu", "fold": i, "sharpe": 1.0, "trades": 10 if i < 2 else 40,
-                                "entry_days": 30, "status": "OK"} for i in range(6)]
+                                "entry_periods": 30, "status": "OK"} for i in range(6)]
     rows += [system.to_dict() | {"key": "assez", "fold": i, "sharpe": 1.0 if i < 5 else -1.0, "trades": 30,
-                                 "entry_days": 30, "status": "OK"} for i in range(6)]
+                                 "entry_periods": 30, "status": "OK"} for i in range(6)]
     table = engine.summarize(pd.DataFrame(rows), swing.RULE).set_index("key")
     assert table.loc["peu", "positive_folds"] == 4 and not table.loc["peu", "stable"]
     assert table.loc["assez", "positive_folds"] == 5 and table.loc["assez", "stable"]
 
 
-def test_a_validation_needs_twenty_distinct_entry_days_to_count():
-    entries = pd.to_datetime([f"2023-01-{day:02d} 04:00" for day in (2, 9, 16, 23) for _ in range(5)], utc=True)
+def test_a_validation_needs_twenty_distinct_entry_periods_to_count():
+    """20 entrées sur 20 jours distincts, mais en 4 semaines : 20 paris à H = 1 jour, 4 seulement à H = 7 jours."""
+    offsets = [day for week in range(4) for day in range(7 * week, 7 * week + 5)]
+    entries = pd.Timestamp("2023-01-01 04:00", tz="UTC") + pd.to_timedelta(offsets, unit="D")
     trades = pd.DataFrame({"symbol": [f"P{i % 5}USDT" for i in range(20)], "entry_time": entries,
                            "exit_time": entries + pd.Timedelta(days=7), "notional": 0.1, "net": 0.01,
                            "pnl": 0.001, "candidate": range(20)})
     fold = engine.Fold(0, pd.Timestamp("2021-01-01", tz="UTC"), pd.Timestamp("2022-10-01", tz="UTC"),
                        pd.Timestamp("2023-01-01", tz="UTC"), pd.Timestamp("2023-06-30 23:59:59", tz="UTC"))
-    metrics = engine.fold_metrics(trades, fold, valid_rows=500, submitted=20)
-    assert metrics["trades"] == 20 and metrics["entry_days"] == 4 and metrics["sharpe"] > 0
-    assert not swing.RULE.counts(metrics["sharpe"], metrics["trades"], metrics["entry_days"])   # 4 paris, pas 20
-    assert swing.RULE.counts(metrics["sharpe"], metrics["trades"], 20)
+    assert [engine.entry_period(swing.SWING, h) for h in ds.HORIZONS] == [pd.Timedelta(days=d) for d in (1, 3, 7)]
+    daily, weekly = (engine.fold_metrics(trades, fold, valid_rows=500, submitted=20,
+                                         period=engine.entry_period(swing.SWING, h)) for h in (24, 168))
+    assert daily["trades"] == weekly["trades"] == 20 and daily["sharpe"] > 0
+    assert daily["entry_periods"] == 20 and weekly["entry_periods"] == 4
+    assert swing.RULE.counts(daily["sharpe"], daily["trades"], daily["entry_periods"])
+    assert not swing.RULE.counts(weekly["sharpe"], weekly["trades"], weekly["entry_periods"])
+    assert not swing.RULE.counts(1.0, 40, None)                       # inconnu : ne compte pas
+    assert replace(swing.RULE, min_entry_periods_per_fold=0).counts(1.0, 40, None)
     system = engine.System("fh", 168, "logistic_l2", 0.0, program=swing.STRATEGY_ID)
     rows = [system.to_dict() | {"key": "paquets", "fold": i, "sharpe": 1.0, "trades": 40,
-                                "entry_days": 4 if i < 2 else 25, "status": "OK"} for i in range(6)]
+                                "entry_periods": 4 if i < 2 else 25, "status": "OK"} for i in range(6)]
     table = engine.summarize(pd.DataFrame(rows), swing.RULE).set_index("key")
     assert table.loc["paquets", "positive_folds"] == 4 and not table.loc["paquets", "stable"]
+    without = engine.summarize(pd.DataFrame(rows).drop(columns="entry_periods"), swing.RULE).set_index("key")
+    assert without.loc["paquets", "positive_folds"] == 0              # colonne absente : rien ne compte
 
 
 def passing_metrics(**overrides) -> dict:
@@ -255,6 +264,15 @@ def test_every_strict_criterion_alone_rejects_a_system():
             assert [name for name, ok in verdict["checks"].items() if not ok] == [check], (check, case)
     without_excess = engine.judge_strict(passing_metrics(excess_ci95=None), replace(swing.RULE, excess_check=False))
     assert without_excess["passed"] and "ic_exces_sur_le_marche_positif" not in without_excess["checks"]
+
+
+def test_meta_filter_must_also_beat_the_abstention_of_the_same_severity():
+    rule = swing.RULE
+    assert engine.meta_filter_kept(6, 6, True, 5, 6, rule)
+    assert not engine.meta_filter_kept(6, 6, True, 3, 6, rule)      # ne fait que trier par espérance
+    assert not engine.meta_filter_kept(6, 6, False, 6, 6, rule)     # non admissible
+    assert not engine.meta_filter_kept(3, 6, True, 6, 6, rule)      # ne bat pas la référence
+    assert not engine.meta_filter_kept(6, 6, True, 2, 2, rule)      # trop peu de validations évaluables
 
 
 def test_a_variant_that_beats_the_reference_but_fails_the_strict_rule_is_not_kept():
@@ -292,6 +310,34 @@ def test_mean_interval_keeps_false_positives_near_nominal_without_edge(staggered
     assert hits / draws <= 0.035                 # nominal 2,5 % ; blocs de jours avec trades (v1) : 4 à 7 %
 
 
+T_975 = {3: 3.1824463052837078, 4: 2.7764451051977934}           # quantiles de Student (table)
+START = pd.Timestamp("2024-03-01 04:00", tz="UTC")
+
+
+def at_days(days: list[int]) -> pd.DatetimeIndex:
+    return START + pd.to_timedelta(days, unit="D")
+
+
+def test_calendar_interval_matches_a_hand_computation():
+    """Blocs de 2 jours. Covariance des blocs voisins POSITIVE : ajoutée ; un bloc VIDE sépare deux blocs (il
+    compte dans le calendrier, pas dans le seuil)."""
+    values = [5.0, 4.0, 0.0, -1.0, -3.0]                              # blocs 0, 1, 2, 3, (4 vide), 5
+    times = at_days([0, 2, 4, 6, 10])
+    # moyenne 1 ; écarts u = (4, 3, -1, -2, 0, -4) ; Σu² = 46 ; retard 1 : 12 - 3 + 2 + 0 + 0 = 11 > 0
+    variance = (46 + 2 * 11) * 5 / 4 / 5 ** 2
+    half = T_975[4] * np.sqrt(variance)
+    ci = engine.calendar_mean_ci(values, times, block_days=2, min_blocks=5)
+    assert ci == pytest.approx([1 - half, 1 + half], abs=1e-6)
+    assert engine.calendar_mean_ci(values, times, block_days=2, min_blocks=6) is None   # 5 blocs avec trades
+    # Covariance NÉGATIVE : jamais retranchée. Blocs : (1 ; 3), (2), vide, (-1 ; -1), (5).
+    values = [1.0, 3.0, 2.0, -1.0, -1.0, 5.0]
+    times = at_days([0, 1, 2, 7, 7, 8])
+    # moyenne 9 / 6 = 1,5 ; u = (1, 0,5, 0, -5, 3,5) ; Σu² = 38,5 ; retard 1 : 0,5 - 17,5 = -17 < 0 → ignoré
+    half = T_975[3] * np.sqrt(38.5 * 4 / 3 / 6 ** 2)
+    ci = engine.calendar_mean_ci(values, times, block_days=2, min_blocks=4)
+    assert ci == pytest.approx([1.5 - half, 1.5 + half], abs=1e-6)
+
+
 def test_calendar_interval_needs_enough_blocks_with_trades():
     times = pd.Timestamp("2023-01-01", tz="UTC") + pd.to_timedelta(np.arange(0, 190, 10), unit="D")
     values = np.linspace(-0.01, 0.03, len(times))
@@ -302,6 +348,32 @@ def test_calendar_interval_needs_enough_blocks_with_trades():
     assert engine.mean_ci([], [], block_days=10, samples=0, seed=0, method="student_calendar") is None
     with pytest.raises(ValueError, match="inconnue"):
         engine.mean_ci(values, times, block_days=10, samples=0, seed=0, method="normale")
+
+
+def hand_prepared() -> engine.Prepared:
+    """Deux instants de décision, cinq paires : une en trou récent, une sans contexte connu, une sans cible."""
+    t1, t2 = pd.Timestamp("2024-03-01 04:00", tz="UTC"), pd.Timestamp("2024-03-01 08:00", tz="UTC")
+    meta = pd.DataFrame({
+        "symbol": ["A", "B", "C", "D", "E", "A", "B", "C"],
+        "decision_time": [t1] * 5 + [t2] * 3,
+        "gap_recent": [False, False, True, False, False, False, False, False],
+        "net_fh_24": [0.01, 0.03, -0.02, 0.05, np.nan, -0.01, 0.02, 0.04]})
+    X = np.zeros((len(meta), len(swing.SWING.features)), dtype=np.float32)
+    X[3, swing.SWING.feature_index["h4_ret_6"]] = np.nan              # D : contexte 4 h inconnu
+    return engine.Prepared(meta, X, {}, {}, pd.DataFrame(), {}, pd.Timestamp("2024-03-02", tz="UTC"),
+                           ["A", "B", "C", "D", "E"], swing.SWING)
+
+
+def test_excess_is_measured_against_the_valid_decisions_of_the_same_instant():
+    reference = engine.same_time_mean_net(hand_prepared(), "fh", 24)
+    # t1 : A et B seulement (C en trou, D sans contexte, E sans cible) ; t2 : A, B et C
+    assert list(reference.round(9)) == [0.02, round((-0.01 + 0.02 + 0.04) / 3, 9)]
+    trades = pd.DataFrame({"entry_time": pd.to_datetime(["2024-03-01 04:00", "2024-03-01 08:00",
+                                                         "2024-03-01 12:00"], utc=True),
+                           "net": [0.01, 0.02, 0.07]})                # le 3e instant n'a pas de référence
+    excess, entry = engine.excess_over_market(trades, reference)
+    np.testing.assert_allclose(excess, [0.01 - 0.02, 0.02 - 0.05 / 3], atol=1e-12)
+    assert list(entry) == list(pd.to_datetime(["2024-03-01 04:00", "2024-03-01 08:00"]))
 
 
 def test_random_picks_in_a_rising_market_pass_the_mean_criterion_but_not_the_excess_criterion():
@@ -332,7 +404,7 @@ def test_random_picks_in_a_rising_market_pass_the_mean_criterion_but_not_the_exc
 @pytest.fixture
 def small_swing(monkeypatch, settings):
     """Le protocole swing en miniature : 3 paires, 9 mois, logistique seule, validations d'un mois."""
-    rule = replace(swing.RULE, min_trades=5, min_trades_per_fold=1, min_entry_days_per_fold=1, min_ci_blocks=5)
+    rule = replace(swing.RULE, min_trades=5, min_trades_per_fold=1, min_entry_periods_per_fold=1, min_ci_blocks=5)
     small = replace(swing.SWING, specs=(swing.SPECS[0],), margins=(0.0,), horizons=(24,), first_valid_months=5,
                     calib_months=1, valid_months=1, random_draws=3, selection=rule)
     monkeypatch.setitem(engine.PROGRAMS, swing.STRATEGY_ID, small)
@@ -376,6 +448,10 @@ def test_swing_selection_runs_end_to_end_with_the_strict_rule(small_swing):
     for decision in payload["variants"][:-1]:                     # variantes de familles
         assert decision["kept"] == engine.variant_kept(decision["wins_vs_reference"], decision["evaluated"],
                                                        decision["admissible"], small.selection)
+    meta = payload["variants"][-1]
+    assert meta["kept"] == engine.meta_filter_kept(meta["wins_vs_reference"], meta["evaluated"], meta["admissible"],
+                                                   meta["wins_vs_matched_abstention"],
+                                                   meta["evaluated_vs_matched_abstention"], small.selection)
 
 
 def test_strict_checks_report_every_criterion(small_swing):
@@ -398,20 +474,28 @@ def test_strict_checks_report_every_criterion(small_swing):
         assert details["avg_excess"] == pytest.approx(float(excess.mean()), abs=1e-6)
 
 
-def test_prediction_cache_gives_identical_runs(small_swing):
+def test_prediction_cache_gives_identical_runs(small_swing, monkeypatch):
+    """Le cache ne sert qu'au même pli, même cible, même modèle et mêmes variables : une autre marge le
+    réutilise ; un autre modèle ou d'autres familles ajoutent leurs propres entrées, au même résultat."""
     settings, small = small_swing
-    prep = small.prepare(settings, end=pd.Timestamp("2024-09-29 23:59:59", tz="UTC"), progress=lambda _t: None)
-    folds = small.folds(settings, small.first_valid(settings), pd.Timestamp("2024-09-29 23:59:59", tz="UTC"))
+    two_models = replace(small, specs=(swing.SPECS[0], swing.SPECS[1]))
+    monkeypatch.setitem(engine.PROGRAMS, swing.STRATEGY_ID, two_models)
+    prep = two_models.prepare(settings, end=pd.Timestamp("2024-09-29 23:59:59", tz="UTC"), progress=lambda _t: None)
+    folds = two_models.folds(settings, two_models.first_valid(settings), pd.Timestamp("2024-09-29 23:59:59", tz="UTC"))
     cache: dict = {}
     first = engine.System("fh", 24, "logistic_l2", 0.0, program=swing.STRATEGY_ID)
     engine.run_system(prep, first, folds, RiskLimits(), seed=1, cache=cache)
     assert len(cache) == len(folds)
-    other_margin = replace(first, margin=0.002)
-    cached = engine.run_system(prep, other_margin, folds, RiskLimits(), seed=1, cache=cache)
-    fresh = engine.run_system(prep, other_margin, folds, RiskLimits(), seed=1)
-    assert len(cache) == len(folds)                                  # aucun nouvel ajustement
-    for a, b in zip(cached, fresh, strict=True):
-        assert a.metrics == b.metrics and a.trades.equals(b.trades)
+    others = (replace(first, margin=0.002), replace(first, model=swing.SPECS[1].name),
+              replace(first, families=swing.FAMILY_VARIANTS["prix"]))
+    expected_sizes = (len(folds), 2 * len(folds), 3 * len(folds))
+    for system, size in zip(others, expected_sizes, strict=True):
+        cached = engine.run_system(prep, system, folds, RiskLimits(), seed=1, cache=cache)
+        assert len(cache) == size, system.key
+        fresh = engine.run_system(prep, system, folds, RiskLimits(), seed=1)
+        for a, b in zip(cached, fresh, strict=True):
+            assert a.state == b.state and a.trades.equals(b.trades), system.key
+            np.testing.assert_array_equal(a.prediction.p, b.prediction.p)
 
 
 def test_final_period_is_locked_for_the_whole_program_once_any_strategy_consulted_it(small_swing):

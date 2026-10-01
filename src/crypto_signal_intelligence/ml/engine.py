@@ -50,6 +50,7 @@ from .logistic import fit_logistic
 
 NO_EDGE = "AUCUN_AVANTAGE_DEMONTRE"
 ADMISSIBLE = "SYSTEME_ADMISSIBLE"
+ONE_DAY = pd.Timedelta(days=1)
 META_MIN_SIGNALS = 300
 META_MIN_MINORITY_PER_FEATURE = 10
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -67,7 +68,7 @@ class SelectionRule:
     stability_share: float = 0.70
     min_trades: int = 200
     min_trades_per_fold: int = 0
-    min_entry_days_per_fold: int = 0          # paris indépendants : jours d'entrée distincts
+    min_entry_periods_per_fold: int = 0       # paris indépendants : périodes d'entrée distinctes (`entry_period`)
     min_evaluated_folds: int = 3
     strict: bool = False
     max_group_share: float = 0.6
@@ -81,16 +82,26 @@ class SelectionRule:
     def kept(self, wins: int, evaluated: int) -> bool:
         return evaluated >= self.min_evaluated_folds and wins >= self.required_positive(evaluated)
 
-    def counts(self, sharpe, trades, entry_days) -> bool:
-        """Une validation compte comme « positive » : Sharpe > 0, assez de trades et de jours d'entrée."""
-        return (sharpe or 0.0) > 0 and (trades or 0) >= self.min_trades_per_fold and \
-            (entry_days if entry_days is not None else 10**9) >= self.min_entry_days_per_fold
+    def counts(self, sharpe, trades, entry_periods) -> bool:
+        """Une validation compte comme « positive » : Sharpe > 0, assez de trades et assez de périodes d'entrée
+        distinctes ; un nombre de périodes inconnu ne compte pas dès qu'un minimum est exigé."""
+        enough_periods = self.min_entry_periods_per_fold == 0 or (
+            entry_periods is not None and entry_periods >= self.min_entry_periods_per_fold)
+        return (sharpe or 0.0) > 0 and (trades or 0) >= self.min_trades_per_fold and enough_periods
 
 
 def variant_kept(wins: int, evaluated: int, admissible: bool, rule: SelectionRule) -> bool:
     """Une variante n'est conservée que si elle bat la référence assez souvent ET (règle stricte) si elle est
     elle-même admissible."""
     return rule.kept(wins, evaluated) and (admissible or not rule.strict)
+
+
+def meta_filter_kept(wins_vs_reference: int, evaluated_vs_reference: int, admissible: bool,
+                     wins_vs_matched: int, evaluated_vs_matched: int, rule: SelectionRule) -> bool:
+    """Le méta-filtre est conservé s'il est conservable comme variante (`variant_kept`) ET s'il bat aussi
+    l'abstention de même sévérité assez souvent (sinon il ne fait que trier par espérance)."""
+    return (variant_kept(wins_vs_reference, evaluated_vs_reference, admissible, rule)
+            and rule.kept(wins_vs_matched, evaluated_vs_matched))
 
 
 @dataclass(frozen=True)
@@ -403,11 +414,19 @@ def step_ns(program: Program) -> int:
     return int(program.step.total_seconds() * 10**9)
 
 
-def fold_metrics(trades: pd.DataFrame, fold: Fold, *, valid_rows: int, submitted: int) -> dict:
+def entry_period(program: Program, horizon: int) -> pd.Timedelta:
+    """Durée d'une période d'entrée : max(1 jour, H). Plusieurs entrées dans la même période (consécutives
+    depuis le début de la validation) ne font qu'un pari face au marché."""
+    return max(ONE_DAY, horizon * program.step)
+
+
+def fold_metrics(trades: pd.DataFrame, fold: Fold, *, valid_rows: int, submitted: int,
+                 period: pd.Timedelta = ONE_DAY) -> dict:
     stats = series_metrics(daily_returns(trades, fold.valid_start, fold.valid_end))
-    entry_days = int(pd.to_datetime(trades["entry_time"], utc=True).dt.floor("D").nunique()) if len(trades) else 0
+    entry = pd.to_datetime(trades["entry_time"], utc=True)
+    entry_periods = int(((entry - fold.valid_start) // period).nunique()) if len(trades) else 0
     return {"fold": fold.index, "sharpe": stats["sharpe"], "total_return": stats["total_return"],
-            "max_drawdown": stats["max_drawdown"], "trades": int(len(trades)), "entry_days": entry_days,
+            "max_drawdown": stats["max_drawdown"], "trades": int(len(trades)), "entry_periods": entry_periods,
             "avg_net": round(float(trades["net"].mean()), 6) if len(trades) else None,
             "submitted": int(submitted), "valid_rows": int(valid_rows),
             "abstention": round(1 - submitted / valid_rows, 4) if valid_rows else None}
@@ -445,7 +464,8 @@ def run_grid(prep: Prepared, folds: list[Fold], limits: RiskLimits, *, seed: int
                         trades, _ = run_book(candidates, limits, step_ns=step_ns(program),
                                              strategy=program.strategy_id)
                         batch.append(system.to_dict() | {"status": "OK", "error": ""} | fold_metrics(
-                            trades, fold, valid_rows=len(prediction.rows), submitted=len(candidates)))
+                            trades, fold, valid_rows=len(prediction.rows), submitted=len(candidates),
+                            period=entry_period(program, horizon)))
                 results += batch
                 if on_rows:
                     on_rows(batch)
@@ -456,7 +476,7 @@ def summarize(results: pd.DataFrame, rule: SelectionRule, evaluated_folds: dict[
     """Une ligne par système : validations positives, trades, Sharpe médian (pli sans trade = 0), stabilité.
 
     Une validation n'est « positive » qu'avec un Sharpe > 0, au moins `rule.min_trades_per_fold` trades et
-    `rule.min_entry_days_per_fold` jours d'entrée distincts.
+    `rule.min_entry_periods_per_fold` périodes d'entrée distinctes (`entry_period`).
     `admissible` = stabilité ; la règle stricte complète cette colonne dans `select` (contrôles sur trades)."""
     if results.empty:
         return pd.DataFrame()
@@ -466,9 +486,9 @@ def summarize(results: pd.DataFrame, rule: SelectionRule, evaluated_folds: dict[
         ok = group[group["status"] == "OK"]
         evaluated = (evaluated_folds or {}).get(str(key), n_folds)
         sharpes = ok["sharpe"].astype(float).fillna(0.0).tolist() + [0.0] * max(evaluated - len(ok), 0)
-        entry_days = ok["entry_days"] if "entry_days" in ok else pd.Series(10**9, index=ok.index)
-        counted = [rule.counts(sh, tr, None if pd.isna(ed) else ed) for sh, tr, ed in
-                   zip(ok["sharpe"].astype(float).fillna(0.0), ok["trades"].astype(float), entry_days, strict=True)]
+        periods = ok["entry_periods"] if "entry_periods" in ok else pd.Series(np.nan, index=ok.index)
+        counted = [rule.counts(sh, tr, None if pd.isna(ep) else ep) for sh, tr, ep in
+                   zip(ok["sharpe"].astype(float).fillna(0.0), ok["trades"].astype(float), periods, strict=True)]
         positive = int(sum(counted))
         trades = int(ok["trades"].sum())
         first = group.iloc[0]
@@ -584,7 +604,8 @@ def run_system(prep: Prepared, system: System, folds: list[Fold], limits: RiskLi
             trades["candidate"] = np.flatnonzero(submitted)[trades["candidate"].to_numpy(int)]
         runs.append(FoldRun(fold, prediction, candidates, submitted, trades, full_status,
                             fold_metrics(trades, fold, valid_rows=len(prediction.rows),
-                                         submitted=int(submitted.sum())), state))
+                                         submitted=int(submitted.sum()),
+                                         period=entry_period(program, system.horizon)), state))
     return runs
 
 
@@ -679,7 +700,8 @@ def replay(prep: Prepared, system: System, runs: list[FoldRun], limits: RiskLimi
         candidates = candidates[np.isfinite(candidates["net"]) & (candidates["bars"] >= 0)
                                 & inside.to_numpy()].reset_index(drop=True)
         trades, _ = run_book(candidates, limits, step_ns=step_ns(program), strategy=program.strategy_id)
-        folds.append(fold_metrics(trades, run.fold, valid_rows=len(run.prediction.rows), submitted=len(candidates)))
+        folds.append(fold_metrics(trades, run.fold, valid_rows=len(run.prediction.rows), submitted=len(candidates),
+                                  period=entry_period(program, system.horizon)))
         frames.append(trades)
     trades = pd.concat([f for f in frames if not f.empty], ignore_index=True) if any(
         not f.empty for f in frames) else pd.DataFrame(columns=["net", "pnl"])
@@ -786,7 +808,7 @@ def strict_checks(prep: Prepared, system: System, runs: list[FoldRun], limits: R
 def runs_stable(runs: list[FoldRun], rule: SelectionRule) -> bool:
     """Stabilité d'un système à partir de ses plis (mêmes règles que `summarize`)."""
     evaluated = len(runs)
-    positive = sum(rule.counts(r.metrics["sharpe"], r.metrics["trades"], r.metrics.get("entry_days")) for r in runs)
+    positive = sum(rule.counts(r.metrics["sharpe"], r.metrics["trades"], r.metrics.get("entry_periods")) for r in runs)
     trades = sum(r.metrics["trades"] for r in runs)
     return evaluated >= rule.min_evaluated_folds and positive >= rule.required_positive(evaluated) and \
         trades >= rule.min_trades
@@ -810,7 +832,8 @@ def analyse(prep: Prepared, system: System, runs: list[FoldRun], limits: RiskLim
             "benchmarks": buy_and_hold(prep.daily_closes, run.fold.valid_start, run.fold.valid_end),
             "random_entries": random_entries(pool, int(run.submitted.sum()), limits, run.fold.valid_start,
                                              run.fold.valid_end, draws=program.random_draws,
-                                             seed=protocol.seed + run.fold.index, step_ns=step_ns(program)),
+                                             seed=protocol.seed + run.fold.index, step_ns=step_ns(program),
+                                             strategy=program.strategy_id),
             "calibration": run.prediction.quality, "state": run.state})
     progress("analyse : robustesse (coûts, retard)")
     robustness = [replay(prep, system, runs, limits, "central", delay=1)]
@@ -1000,10 +1023,10 @@ def select(program: Program, settings: Settings, *, now: datetime, allow_dirty: 
         wins_ref, evaluated_ref = beats(meta_runs, base_runs)
         wins_matched, evaluated_matched = beats(meta_runs, matched_runs)
         meta_admissible, meta_details = evaluate_variant(meta_system, meta_runs)
-        meta_kept = (variant_kept(wins_ref, evaluated_ref, meta_admissible, rule)
-                     and rule.kept(wins_matched, evaluated_matched))
+        meta_kept = meta_filter_kept(wins_ref, evaluated_ref, meta_admissible, wins_matched, evaluated_matched, rule)
         decisions.append({"variant": "méta-filtre", "key": meta_system.key, "wins_vs_reference": wins_ref,
                           "wins_vs_matched_abstention": wins_matched, "evaluated": evaluated_ref,
+                          "evaluated_vs_matched_abstention": evaluated_matched,
                           "admissible": meta_admissible, "kept": meta_kept,
                           **({"strict": meta_details} if meta_details else {})})
 
@@ -1137,9 +1160,12 @@ def _write(program: Program, report_dir: Path, payload: dict) -> None:
     lines += [f"Essais de cette exécution : {payload['n_trials']} (déclarés : {payload['declared_trials']}) ; "
               f"programme sur DEVELOPMENT : {payload['program_trials']}.", "",
               f"Règle d'admission : Sharpe > 0 dans au moins {rule.stability_share:.0%} des validations"
-              + (f" (au moins {rule.min_trades_per_fold} trades pour compter)" if rule.min_trades_per_fold else "")
-              + f", au moins {rule.min_trades} trades"
-              + (f" et {rule.min_entry_days_per_fold} jours d'entrée distincts" if rule.min_entry_days_per_fold else "")
+              + (" (pour compter, une validation a au moins " + " et ".join(
+                  ([f"{rule.min_trades_per_fold} trades"] if rule.min_trades_per_fold else [])
+                  + ([f"{rule.min_entry_periods_per_fold} périodes d'entrée distinctes de max(1 jour, H)"]
+                     if rule.min_entry_periods_per_fold else [])) + ")"
+                 if rule.min_trades_per_fold or rule.min_entry_periods_per_fold else "")
+              + f", au moins {rule.min_trades} trades au total"
               + (" ; puis IC du gain moyen > 0"
                  + (", IC de son excès sur la moyenne de toutes les décisions au même instant > 0" if rule.excess_check else "")
                  + ", positif en coûts défavorables et sans le 1 % des meilleurs "
@@ -1288,7 +1314,8 @@ def final(program: Program, settings: Settings, *, now: datetime, allow_final_te
             "net": np.asarray(prep.column(f"net_{system.kind}_{system.horizon}"), dtype=float)[rows]}))
     pool = pd.concat(pool_parts, ignore_index=True)
     random = random_entries(pool, int(sum(r.submitted.sum() for r in runs)), limits, period.start, period.end,
-                            draws=program.random_draws, seed=settings.protocol.seed, step_ns=step_ns(program))
+                            draws=program.random_draws, seed=settings.protocol.seed, step_ns=step_ns(program),
+                            strategy=program.strategy_id)
     benchmarks = buy_and_hold(prep.daily_closes, period.start, period.end)
     robustness = [replay(prep, system, runs, limits, "central", delay=1),
                   replay(prep, system, runs, limits, "adverse"), replay(prep, system, runs, limits, "stress")]

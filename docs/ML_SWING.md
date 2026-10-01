@@ -71,11 +71,16 @@ E = p × gain moyen + (1 − p) × perte moyenne (période d'ajustement) ; entr�
 - Portefeuille simulé avec les **limites centralisées** (`risk/exposure.py`, section `[risk]`) : 10 % par
   position, 5 positions, 50 % au total, une position par paire, perte du jour 3 % ; c'est le même registre
   que toute autre stratégie (aucune autre n'étant retenue, la simulation ne contient que le swing).
-- **Règle d'admission v6** (complétée en v2, avant toute exécution) — un système n'est admissible que si
-  TOUT est vrai :
+- **Règle d'admission v6** (complétée en v2 et v3, avant toute exécution) — un système n'est admissible
+  que si TOUT est vrai :
   1. Sharpe > 0 dans au moins 5 des 6 validations. Une validation à **moins de 20 trades ou à moins de
-     20 jours d'entrée distincts** compte comme non positive : avec 5 places et des sorties synchronisées,
-     20 trades peuvent n'être que 4 paris hebdomadaires.
+     20 périodes d'entrée distinctes** compte comme non positive.
+     - Une période d'entrée dure max(1 jour, H). Les périodes se suivent depuis le début de la
+       validation.
+     - Il faut donc 20 jours avec entrée pour H = 1 jour, 20 fenêtres de 3 jours pour H = 3 jours, et
+       20 semaines sur environ 26 pour H = 7 jours.
+     - Pourquoi : avec 5 places et des sorties synchronisées, 20 trades, ou 20 jours d'entrée à 7 jours,
+       peuvent n'être que 4 paris face au marché.
   2. Au moins 150 trades au total.
   3. IC95 du gain moyen par trade sur les validations enchaînées **entièrement > 0**. Méthode :
      - sommes des gains par blocs de jours **calendaires** consécutifs, jours sans trade compris ;
@@ -89,7 +94,9 @@ E = p × gain moyen + (1 − p) × perte moyenne (période d'ajustement) ; entr�
      Sous un gain nul simulé (positions de 7 jours corrélées, deux schémas d'entrée), cette méthode
      donne 2,1 à 2,4 % de bornes basses > 0, pour 2,5 % visés. Les blocs de jours *avec trades* de la
      v1 en donnaient 3,1 à 5,6 %, et 6 à 7 % dans la simulation de la relecture (test dans
-     `tests/test_ml_swing.py`).
+     `tests/test_ml_swing.py`). Ce chiffre ne vaut que si la dépendance ne dépasse pas deux blocs
+     voisins. Avec une dérive commune persistante, le critère 3 seul accepte environ 9 à 10 % de
+     systèmes sans avantage (simulation de la relecture) : c'est ce que corrige le critère 7.
   4. Gain moyen par trade > 0 en **coûts défavorables** (avec une bougie de retard).
   5. Gain moyen > 0 **sans le 1 % des meilleurs trades**.
   6. Aucune paire ni aucune validation ne porte plus de 60 % du gain total.
@@ -98,6 +105,13 @@ E = p × gain moyen + (1 − p) × perte moyenne (période d'ajustement) ; entr�
      même méthode qu'au point 3. Sans ce critère, un portefeuille long seul qui suit la hausse commune
      pourrait passer les points 1 à 6 sans aucun pouvoir de sélection. Deux raisons à cela : BTC finit en
      hausse dans 5 validations sur 6, et l'univers ne compte que des paires survivantes.
+     - **Ce qu'il mesure** : seulement la sélection *entre* paires. Un avantage de pur timing, le même
+       pour toutes les paires, est rejeté par construction. Ce choix est déclaré avant exécution et ne
+       sera pas assoupli après un résultat ; le timing pur demanderait son propre protocole.
+     - **Limite** : un système sans pouvoir de prédiction, mais penché en permanence vers les mêmes
+       paires, passe ce critère dans 5 à 11 % des tirages simulés au lieu de 2,5 %, et dans 17 % avec
+       une demi-vie de 140 jours (simulation de la relecture, pas une mesure du marché). C'est une
+       limite d'un échantillon de 3 ans ; seule la période finale peut la lever.
 
   Parmi les admissibles, le retenu maximise le Sharpe médian par validation.
 - Variantes, une à la fois sur la référence, comptées comme essais. La référence est le meilleur système
@@ -166,3 +180,13 @@ trimestre, paire et contexte ; journal de chaque décision ; modèles archivés 
   - Audit des fuites : une mutation 4 h et une mutation 1 jour, chacune détectée par sa famille.
   - Ouverture *strictement* au-dessus de l'objectif pour la sortie à l'objectif.
   - Réserves complétées.
+- 2026-10-01, v3 : **avant toute exécution**, après une seconde relecture indépendante (aucune fuite ni
+  erreur de calcul trouvée ; aucune donnée de sélection regardée). Le nombre d'essais déclarés ne change
+  pas (136).
+  - Validation positive : 20 *périodes* d'entrée distinctes de max(1 jour, H) au lieu de 20 jours, pour
+    qu'à 7 jours cela fasse 20 semaines et non 4.
+  - Déclarés : le critère 7 rejette le timing pur ; limites des IC quand la dépendance persiste
+    (critères 3 et 7).
+  - Phrase de la règle corrigée dans le rapport.
+  - Tests déterministes ajoutés : IC calculé à la main, excès exact avec exclusions, cache, méta-filtre
+    contre l'abstention de même sévérité.
