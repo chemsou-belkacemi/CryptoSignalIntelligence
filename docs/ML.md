@@ -59,6 +59,19 @@ défavorables perdants ou quand le gain vient d'une seule paire.
   setup de cette stratégie, avec sa cible, son horizon et sa calibration (contrat V3) ; jamais une
   promesse de gain.
 
-## Résultats
+## Résultats (protocole v2, 2026-10-01) : NOT_USEFUL pour les trois stratégies
 
-Voir ci-dessous (mis à jour après chaque exécution) et `reports/ML-*/`.
+| Stratégie | Setups testés | AUC moy. fenêtres | Setups gardés vs tous (E[R]) | Stratégie filtrée re-simulée, coûts centraux | Défavorables | Rapport |
+|---|---|---|---|---|---|---|
+| A `DONCHIAN_VOLUME_BREAKOUT` | 6 949 | ≈ 0,52 | −0,26 → −0,21 R (44 % gardés) | 3 270 trades, −0,21 R [−0,28 ; −0,14] | −0,27 R | `ML-20261001T013037Z-a16247` |
+| B `EMA_PULLBACK_CONTINUATION` | 13 034 | ≈ 0,51 | −0,28 → −0,21 R (31 %) | 4 926 trades, −0,22 R [−0,29 ; −0,16] | −0,27 R | `ML-20261001T014037Z-af84b5` |
+| C `RANGE_REENTRY` | 2 378 | ≈ 0,55 | −0,27 → −0,16 R (42 %) | 993 trades, −0,16 R [−0,28 ; −0,05] | −0,24 R | `ML-20261001T015034Z-50ab66` |
+
+- Critère 4 vrai pour les trois : le modèle trie un peu (les setups gardés perdent moins), mais le
+  score de Brier ne bat jamais le taux de base (critère 3) et la stratégie filtrée reste perdante,
+  intervalle entièrement négatif (critères 5 à 7). Aucun filtre statistique sur ces variables ne
+  transforme ces règles en stratégie gagnante après frais.
+- Cohérent avec la décomposition du lot 2 : pas d'avantage brut à trier. Le levier restant est
+  l'horizon (criblage à 3 et 7 jours, docs/SCREENING.md), pas un modèle plus complexe sur les mêmes setups.
+- Programme : 254 essais sur DEVELOPMENT après ces trois exécutions. Pic mémoire : 4,3 Go engagés
+  (plafond 6 Go), 1,9 Go en RAM.

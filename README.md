@@ -93,6 +93,12 @@ coûts défavorables, gap à l'entrée à deux coûts, stop remonté pessimiste,
 - Moins de trades en coûts défavorables (A : 1 381 → 1 164) : la bougie de retard fait expirer des entrées.
 - Programme de recherche : 24 exécutions sur DEVELOPMENT, 251 essais cumulés (`program_trials`).
 
+### Lot 5 : un modèle peut-il trier les setups ? Non (2026-10-01)
+
+Méta-labeling logistique purgé (protocole déclaré avant exécution, [docs/ML.md](docs/ML.md)) : le modèle
+trie un peu les setups de A, B et C, mais la stratégie filtrée reste perdante (−0,16 à −0,22 R par
+trade, intervalles entièrement négatifs). Verdict NOT_USEFUL pour les trois ; rien n'est branché.
+
 ### Pourquoi elles perdent, et criblage des familles suivantes
 
 Avant frais, A, B et C n'ont pratiquement aucun avantage (≈ +0,01 R, −0,06 R, +0,03 R) : les coûts
