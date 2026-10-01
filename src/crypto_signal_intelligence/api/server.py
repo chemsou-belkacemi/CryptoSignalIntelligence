@@ -296,6 +296,9 @@ class CsiApi:
                     verdict = "ÉCHEC D'EXÉCUTION"
                 item = {"kind": kind, "label": MODEL_KINDS[kind], "strategy": strategy, "run_id": run_id,
                         "created_at": created_at, "status": status, "verdict": verdict or status, "source": source}
+                if kind.endswith("_SELECT") and verdict == "SYSTEME_ADMISSIBLE":
+                    item["detail"] = ("admissible selon la règle de sélection, en échantillon : NON validé tant que la "
+                                      "période finale n'a pas été consultée (voir le rapport de sélection)")
                 key = (kind, strategy)
                 if key not in latest or created_at > latest[key]["created_at"]:
                     latest[key] = item

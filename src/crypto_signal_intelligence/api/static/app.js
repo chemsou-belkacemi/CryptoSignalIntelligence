@@ -408,7 +408,8 @@ function renderSignal(e) {
 // --- onglet Suivi --------------------------------------------------------------------------------------
 function verdictClass(verdict) {
   const v = String(verdict || "");
-  if (/^(VALIDATED|USEFUL_OOS|SYSTEME_ADMISSIBLE)/.test(v) || /^[1-9]\d* CONDITION/.test(v)) return "ok";
+  if (/^(VALIDATED|USEFUL_OOS)/.test(v)) return "ok";
+  if (/^SYSTEME_ADMISSIBLE|^[1-9]\d* CONDITION/.test(v)) return "warn";            // en échantillon : jamais vert
   if (/REJECTED|NOT_USEFUL|AUCUN|ÉCHEC|INCONCLUSIVE/.test(v)) return "bad";
   return "muted";
 }
@@ -438,7 +439,8 @@ async function loadFollow(force = false) {
           + (isNum(models.research_program_trials) ? `registre de recherche ${models.research_program_trials}, ` : "")
           + `registre de la surveillance ${models.program_trials}.` }),
         table(["Modèle", "Stratégie", "Verdict", "Date", "Registre"], (models.models || []).map((m) => [m.label, m.strategy,
-          { node: el("strong", { class: verdictClass(m.verdict), text: m.verdict || m.status }) }, when(m.created_at), m.source]),
+          { node: el("span", {}, el("strong", { class: verdictClass(m.verdict), text: m.verdict || m.status }),
+            m.detail ? el("div", { class: "small muted", text: m.detail }) : null) }, when(m.created_at), m.source]),
         "aucun modèle évalué")),
       card("Signaux évalués récemment", table(["Reçu", "Source", "Paire", "Entrée · stop · TP1", "Avis", "Issue", "R"],
         (recent.signals || []).map((x) => [when(x.received_at), x.source, pair(x.symbol), `${price(x.entry)} · ${price(x.stop)} · ${price(x.tp1)}`,
