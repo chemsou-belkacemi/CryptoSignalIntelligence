@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -169,6 +170,28 @@ def test_heavy_jobs_can_lower_their_own_priority():
     code = "from crypto_signal_intelligence.live.priority import lower_priority; print(lower_priority())"
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60, check=True)
     assert out.stdout.strip() == "True"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="plafond mémoire par Job Object : Windows seulement")
+def test_heavy_jobs_get_a_memory_ceiling_that_fails_cleanly():
+    """Au-delà du plafond, l'allocation échoue proprement (MemoryError) au lieu d'épuiser la machine."""
+    import subprocess
+    code = "\n".join([
+        "import sys",
+        "from crypto_signal_intelligence.live.priority import heavy_job",
+        "print(heavy_job(150))",
+        "try:",
+        "    block = bytearray(400 * 1024 * 1024)",
+        "except MemoryError:",
+        "    print('refus')",
+        "    sys.exit(3)",
+        "print('alloué')",
+    ])
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
+    assert "'memory_limited': True" in out.stdout and "refus" in out.stdout and out.returncode == 3
+    ok = subprocess.run([sys.executable, "-c", code.replace("400 * 1024", "20 * 1024")], capture_output=True,
+                        text=True, timeout=120)
+    assert ok.returncode == 0 and "alloué" in ok.stdout          # sous le plafond : rien ne change
 
 
 def test_health_distinguishes_started_ready_stale_and_degraded(settings):

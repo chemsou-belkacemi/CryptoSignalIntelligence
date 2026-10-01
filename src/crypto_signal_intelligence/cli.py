@@ -123,6 +123,16 @@ def data_quality(symbol: str = typer.Option(..., help="Paire, ex. BTCUSDT"),
             console.print(f"… {len(gaps) - 30} autres")
 
 
+def _heavy_job(settings) -> None:
+    """Travail lourd (point 4) : priorité CPU basse et plafond mémoire, pour ne pas gêner `run` ni le PC."""
+    from .live.priority import heavy_job
+    limit = settings.live.heavy_job_max_memory_mb
+    applied = heavy_job(limit)
+    if applied["memory_limited"]:
+        console.print(f"[dim]Travail lourd : priorité basse, mémoire plafonnée à {limit} Mo "
+                      "(live.heavy_job_max_memory_mb).[/dim]")
+
+
 def _strategies(requested: list[str] | None) -> list[str]:
     from .strategies.registry import STRATEGIES
     names = [s.upper() for s in requested] if requested else list(STRATEGIES)
@@ -175,11 +185,10 @@ def backtest(strategy: str = typer.Option("DONCHIAN_VOLUME_BREAKOUT"),
              no_ablation: bool = typer.Option(False, help="Ne pas lancer les variantes sans filtre"),
              verbose: bool = False):
     """Backtest de référence local (signaux indépendants), scénarios de coûts et ablations."""
-    from .live.priority import lower_priority
-    lower_priority()   # travail lourd : ne pas ralentir une surveillance `run` en cours
     from .research.backtest_run import run
     from .research.protocol import FinalTestLocked
     settings = _settings(verbose)
+    _heavy_job(settings)
     try:
         with console.status("simulation…") as status:
             batch = run(settings, strategy, period_label=period, now=_now(), allow_final_test=i_understand_final_test,
@@ -208,10 +217,9 @@ def backtest(strategy: str = typer.Option("DONCHIAN_VOLUME_BREAKOUT"),
 def walk_forward(strategy: list[str] = typer.Option(None, help="Stratégie(s) ; défaut : toutes"),
                  verbose: bool = False):
     """Walk-forward purgé sur DEVELOPMENT : recalibrage sur le passé, test sur la fenêtre suivante, verdict."""
-    from .live.priority import lower_priority
     from .research.walk_forward import run
     settings = _settings(verbose)
-    lower_priority()   # travail lourd : ne pas ralentir une surveillance `run` en cours
+    _heavy_job(settings)
     for name in _strategies(strategy):
         with console.status(f"{name}…") as status:
             result = run(settings, name, now=_now(), progress=lambda text, n=name: status.update(f"{n} : {text}"))
@@ -241,10 +249,9 @@ def walk_forward(strategy: list[str] = typer.Option(None, help="Stratégie(s) ; 
 @app.command()
 def screen(verbose: bool = False):
     """Criblage brut des familles D à I (période DEVELOPMENT) : avantage après dérive et au-delà des coûts ?"""
-    from .live.priority import lower_priority
     from .research.screen import CONDITIONS, run
-    lower_priority()
     settings = _settings(verbose)
+    _heavy_job(settings)
     with console.status("criblage…") as status:
         result = run(settings, now=_now(), progress=lambda s: status.update(f"criblage : {s}"))
     table = Table("condition", "horizon", "événements", "paires", "rendement moyen %", "excès moyen %",
