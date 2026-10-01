@@ -1,0 +1,2 @@
+# Scripts shell : fins de ligne Unix, même extraits sous Windows (copiés tels quels sur un VPS).
+*.sh text eol=lf

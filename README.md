@@ -131,6 +131,8 @@ ci-dessus portent sur BTC + ETH seulement.
 
 Détails (état séparé du dossier local, démarrage automatique, arrêt) : [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
+Tout démarrer d'un coup (CSI puis le bot) : `.\scripts\demarrer.ps1`. Serveur 24 h/24 (VPS) : [docs/VPS.md](docs/VPS.md) (installation, migration des données, accès par tunnel SSH, sauvegardes).
+
 Évaluer un signal Telegram dans l'état Docker (résolu ensuite automatiquement, bilan par groupe au
 tableau de bord) : `.\scripts\evaluer-signal.ps1 -Source "Nom du groupe" -Fichier signal.txt`.
 
