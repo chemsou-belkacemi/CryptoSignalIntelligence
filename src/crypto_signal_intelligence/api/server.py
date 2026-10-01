@@ -147,7 +147,7 @@ class CsiApi:
         from ..external.record import MIN_DAYS, MIN_RESOLVED, source_records
         from ..external.registry import ExternalSignalRegistry
         records = source_records(ExternalSignalRegistry(self.settings.external_db), seed=self.settings.protocol.seed)
-        return {"sources": _jsonable(records),
+        return {"sources": _jsonable(records), "min_resolved": MIN_RESOLVED, "min_days": MIN_DAYS,
                 "rule": f"aucune conclusion avant {MIN_RESOLVED} signaux résolus sur au moins {MIN_DAYS} jours"}
 
     def recent(self, limit: int) -> dict:

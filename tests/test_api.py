@@ -26,7 +26,8 @@ def test_read_routes_answer_on_an_empty_state(api):
     health = api.dispatch("GET", "/health", {}, None)
     assert health["ready"] is False and health["places_orders"] is False
     assert api.dispatch("GET", "/strategies", {}, None)["strategies"] == []
-    assert api.dispatch("GET", "/sources", {}, None)["sources"] == []
+    sources = api.dispatch("GET", "/sources", {}, None)
+    assert sources["sources"] == [] and (sources["min_resolved"], sources["min_days"]) == (20, 10)
     assert api.dispatch("GET", "/signals/recent", {"limit": ["5"]}, None)["signals"] == []
     assert api.dispatch("GET", "/execution-report", {}, None)["rows"] == []
     with pytest.raises(ApiError) as unknown:
