@@ -85,7 +85,7 @@ def targets(h1: pd.DataFrame, costs: CostScenario, horizon: int, kind: str, *, d
         for j in range(1, horizon + 1):
             bar = delay + j
             oj, hj, lj, cj = ahead(o, bar), ahead(h, bar), ahead(low, bar), ahead(c, bar)
-            rules = [] if j == 1 else [(oj <= down, oj), (oj >= up, up)]
+            rules = [] if j == 1 else [(oj <= down, oj), (oj > up, up)]   # ouverture AU-DELÀ de l'objectif
             rules += [(lj <= down, down), (hj > up, up)]          # objectif : seulement s'il est dépassé
             if j == horizon:
                 rules.append((np.ones(n, dtype=bool), cj))

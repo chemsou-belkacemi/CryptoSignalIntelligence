@@ -97,6 +97,11 @@ class ExperimentRegistry:
             return db.execute("SELECT COUNT(*) FROM final_test_consultations WHERE strategy=?",
                               (strategy,)).fetchone()[0]
 
+    def final_test_consultations_total(self) -> int:
+        """Consultations du test final, toutes stratégies confondues (le compteur est global)."""
+        with self.connect() as db:
+            return db.execute("SELECT COUNT(*) FROM final_test_consultations").fetchone()[0]
+
     def program_trials(self, period_label: str = "DEVELOPMENT") -> int:
         """Nombre d'essais déjà faits sur la période par TOUT le programme de recherche : somme des
         `n_trials` enregistrés (combinaisons de grille, conditions × horizons), 1 pour une exécution

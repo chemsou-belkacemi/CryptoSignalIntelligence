@@ -20,6 +20,8 @@ aux meilleurs trades et de concentration appliqués **dès la sélection**.
 - **Décisions toutes les 4 heures** (clôture des bougies 1 h de 03:00, 07:00… UTC, soit 6 par jour et
   par paire) ; entrée au plus tôt à l'**ouverture de la bougie 1 h suivante**.
 - Trou de données dans les 168 dernières heures → aucune décision ni ligne d'entraînement.
+- **Contexte requis** pour décider : rendement 4 h sur 24 h, rendement 1 jour sur 7 jours et rendement
+  BTC sur 24 h connus (`h4_ret_6`, `d1_ret_7`, `btc_ret_24`) ; sinon aucune décision, comme en service.
 - Familles de variables (toutes connues à la décision) :
 
 | Famille | Variables |
@@ -37,11 +39,14 @@ aux meilleurs trades et de concentration appliqués **dès la sélection**.
 - Horizons : **H ∈ {1 jour, 3 jours, 7 jours}** (24, 72, 168 bougies 1 h).
 - Horizon fixe : achat à l'ouverture de t+1, vente à la clôture de t+H. Triple barrière : objectif et
   stop à ±1,5 σ_H de l'entrée (σ_H : volatilité réalisée 1 h sur 7 jours × √H), stop touché au contact,
-  objectif seulement s'il est **dépassé**, stop et objectif dans la même bougie → stop, ouverture au-delà
-  d'une barrière → sortie à l'ouverture (stop) ou à l'objectif. Coûts du scénario central aux deux
-  remplissages. Étiquette : rendement net > 0. La stratégie sort selon la cible qu'elle a apprise.
-- Chevauchement : lignes d'entraînement toutes les max(1, H/16) décisions (les cibles se chevauchent
-  dans l'entraînement, ce qui est déclaré ; aucune ne franchit une frontière de bloc) ; **purge** par la
+  objectif seulement s'il est **dépassé**, stop et objectif dans la même bougie → stop ; ouverture au
+  niveau du stop ou en dessous → sortie à l'ouverture, ouverture strictement au-dessus de l'objectif →
+  sortie à l'objectif. Coûts du scénario central aux deux remplissages. Une fenêtre qui traverse un trou
+  de données n'a pas de cible. Étiquette : rendement net > 0. La stratégie sort selon la cible qu'elle a
+  apprise.
+- Chevauchement : une ligne d'entraînement toutes les max(1, ⌊H/16⌋) décisions de la paire, soit 1, 4
+  et 10 décisions (4 h, 16 h et 40 h) pour H = 1, 3 et 7 jours ; les cibles se chevauchent dans
+  l'entraînement, ce qui est déclaré, mais aucune ne franchit une frontière de bloc. **Purge** par la
   barrière verticale entre ajustement, étalonnage et validation.
 
 ## 3. Modèles, étalonnage, abstention
@@ -66,29 +71,73 @@ E = p × gain moyen + (1 − p) × perte moyenne (période d'ajustement) ; entr�
 - Portefeuille simulé avec les **limites centralisées** (`risk/exposure.py`, section `[risk]`) : 10 % par
   position, 5 positions, 50 % au total, une position par paire, perte du jour 3 % ; c'est le même registre
   que toute autre stratégie (aucune autre n'étant retenue, la simulation ne contient que le swing).
-- **Règle d'admission v6** — un système n'est admissible que si TOUT est vrai :
-  1. Sharpe > 0 dans au moins 5 des 6 validations, une validation à **moins de 20 trades** comptant comme
-     non positive ;
-  2. au moins 150 trades au total ;
-  3. IC95 (blocs de jours) du gain moyen par trade sur les validations enchaînées **entièrement > 0** ;
-  4. gain moyen par trade > 0 en **coûts défavorables** (avec une bougie de retard) ;
-  5. gain moyen > 0 **sans le 1 % des meilleurs trades** ;
-  6. aucune paire ni aucune validation ne porte plus de 60 % du gain total.
+- **Règle d'admission v6** (complétée en v2, avant toute exécution) — un système n'est admissible que si
+  TOUT est vrai :
+  1. Sharpe > 0 dans au moins 5 des 6 validations. Une validation à **moins de 20 trades ou à moins de
+     20 jours d'entrée distincts** compte comme non positive : avec 5 places et des sorties synchronisées,
+     20 trades peuvent n'être que 4 paris hebdomadaires.
+  2. Au moins 150 trades au total.
+  3. IC95 du gain moyen par trade sur les validations enchaînées **entièrement > 0**. Méthode :
+     - sommes des gains par blocs de jours **calendaires** consécutifs, jours sans trade compris ;
+     - blocs d'au moins 2 × H et d'au moins 10 jours, soit 10, 10 et 14 jours ;
+     - moyenne = somme des gains / nombre de trades ;
+     - variance robuste à un retard : la covariance de deux blocs voisins est ajoutée si elle est
+       positive, jamais retranchée ;
+     - quantile de Student ;
+     - **au moins 20 blocs avec trades**, sinon le critère échoue.
+
+     Sous un gain nul simulé (positions de 7 jours corrélées, deux schémas d'entrée), cette méthode
+     donne 2,1 à 2,4 % de bornes basses > 0, pour 2,5 % visés. Les blocs de jours *avec trades* de la
+     v1 en donnaient 3,1 à 5,6 %, et 6 à 7 % dans la simulation de la relecture (test dans
+     `tests/test_ml_swing.py`).
+  4. Gain moyen par trade > 0 en **coûts défavorables** (avec une bougie de retard).
+  5. Gain moyen > 0 **sans le 1 % des meilleurs trades**.
+  6. Aucune paire ni aucune validation ne porte plus de 60 % du gain total.
+  7. **Excès sur le marché** : le gain de chaque trade, moins la moyenne nette de **toutes** les décisions
+     valides au même instant (même cible, même H, toutes les paires), a un IC95 entièrement > 0, avec la
+     même méthode qu'au point 3. Sans ce critère, un portefeuille long seul qui suit la hausse commune
+     pourrait passer les points 1 à 6 sans aucun pouvoir de sélection. Deux raisons à cela : BTC finit en
+     hausse dans 5 validations sur 6, et l'univers ne compte que des paires survivantes.
+
   Parmi les admissibles, le retenu maximise le Sharpe médian par validation.
-- Variantes, une à la fois sur la référence (le meilleur admissible, à défaut le meilleur Sharpe médian,
-  en diagnostic), comptées comme essais : familles (8 : prix ; prix + volume ; prix + transactions ; prix
-  + volume + transactions ; sans contexte ; sans marché ; sans coupe transversale ; sans calendrier),
-  puis méta-filtre et abstention de même sévérité (2). Une variante n'est conservée que si elle bat la
-  référence dans au moins 70 % des validations évaluables ET satisfait elle-même la règle v6.
+- Variantes, une à la fois sur la référence, comptées comme essais. La référence est le meilleur système
+  admissible ; à défaut, le meilleur Sharpe médian, en diagnostic.
+  - **Familles (8)** :
+    - prix + calendrier ;
+    - prix + volume + calendrier ;
+    - prix + transactions + calendrier ;
+    - prix + volume + transactions + calendrier ;
+    - sans contexte ;
+    - sans marché ;
+    - sans coupe transversale ;
+    - sans calendrier.
+
+    Le calendrier reste dans les quatre premières, qui ne comparent que prix, volume et transactions.
+  - **Méta-filtre et abstention de même sévérité (2)**.
+    - Le méta-filtre est une logistique L2 apprise sur les seuls signaux hors entraînement des
+      validations précédentes.
+    - Il lui faut au moins 300 signaux et, dans la classe minoritaire, 10 signaux par variable ; sinon la
+      validation est non évaluable et sort de la comparaison.
+    - Variables : p, espérance nette, `rv_168`, `atr_pct`, `d1_ret_30`, `btc_ret_168`, `xs_rank_168`,
+      `r_168`, `vol_ratio_24`, `taker_24`, `h4_ret_42`, `dd_720`.
+    - Un signal passe si sa probabilité dépasse le taux de gain de cet historique.
+    - L'abstention de même sévérité garde autant de signaux que le méta-filtre : les plus forts en
+      espérance.
+  - **Conservation.** Une variante n'est conservée que si elle bat la référence dans au moins 70 % des
+    validations évaluables ET satisfait elle-même la règle v6. Le méta-filtre doit en plus battre
+    l'abstention de même sévérité dans au moins 70 % des validations évaluables.
 - **Total déclaré : 136 essais.**
 - Aucun système admissible → conclusion « aucun avantage démontré » ; le test final n'est pas consulté.
 
 ## 5. Test final, vérification fine, critères
 
-- Le test final (2025-07-01 → aujourd'hui) est **commun à tout le programme** et reste vierge. Il n'est
-  consulté (une seule fois, `--i-understand-final-test`, enregistré) que pour un système admissible,
-  après la **vérification en bougies 15 min** : entrée à la clôture de la première bougie 15 min qui
-  suit l'ouverture (latence de 15 min), gain moyen encore > 0 sur les validations.
+- Le test final (2025-07-01 → aujourd'hui) est **commun à tout le programme** et reste vierge. Il est
+  refusé dès qu'une stratégie quelconque l'a déjà consulté : le verrou se lit dans le compteur global du
+  registre, qui ne compte encore aucune consultation au 2026-10-01.
+- Il n'est consulté qu'une seule fois, avec `--i-understand-final-test`, et la consultation est
+  enregistrée. Il faut pour cela un système admissible et, avant, la **vérification en bougies 15 min** :
+  - entrée à la clôture de la première bougie 15 min qui suit l'ouverture (latence de 15 min) ;
+  - gain moyen encore > 0 sur les validations.
 - Critères sur le test final : ceux du §7 du protocole intraday (rendement et IC du gain moyen > 0 ;
   Sharpe au-delà du 95e centile du hasard ; mieux que BTC acheté-gardé en Sharpe ou en perte maximale ;
   au moins 100 trades et aucune paire ni trimestre > 60 % ; positif en coûts défavorables ; positif sans
@@ -104,3 +153,16 @@ trimestre, paire et contexte ; journal de chaque décision ; modèles archivés 
 ## Historique
 
 - 2026-10-01, v1 : version initiale, avant toute exécution.
+- 2026-10-01, v2 : **avant toute exécution**, après relecture indépendante du code (aucune donnée de
+  sélection regardée). Le nombre d'essais déclarés ne change pas (136).
+  - Le document est aligné sur le code : calendrier dans les quatre premières variantes de familles, pas
+    d'entraînement ⌊H/16⌋, contexte requis, règles du méta-filtre, IC non calculé sous le minimum de
+    blocs.
+  - Validation positive : au moins 20 jours d'entrée distincts, en plus des 20 trades.
+  - Critère 3 : IC de Student sur sommes par blocs de jours calendaires, variance robuste à un retard,
+    au moins 20 blocs. Les blocs de jours avec trades de la v1 donnaient trop de faux positifs.
+  - Critère 7 ajouté : excès sur la moyenne de toutes les décisions au même instant.
+  - Verrou du test final commun à tout le programme.
+  - Audit des fuites : une mutation 4 h et une mutation 1 jour, chacune détectée par sa famille.
+  - Ouverture *strictement* au-dessus de l'objectif pour la sortie à l'objectif.
+  - Réserves complétées.

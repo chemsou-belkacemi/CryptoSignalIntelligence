@@ -27,6 +27,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from scipy.stats import t as student_t
 
 from ..config import CostScenario, Settings
 from ..research.experiments import ExperimentRegistry, git_state, new_run_id
@@ -60,19 +61,36 @@ PROGRAMS: dict[str, Program] = {}
 @dataclass(frozen=True)
 class SelectionRule:
     """Règle d'admission déclarée. Non stricte (intraday v5) : stabilité seulement. Stricte (swing v6) :
-    stabilité avec un minimum de trades par validation, puis contrôles sur les trades du système."""
+    stabilité avec un minimum de trades ET de jours d'entrée distincts par validation, puis contrôles sur
+    les trades du système (IC du gain moyen et de son excès sur la moyenne de toutes les décisions au même
+    instant, coûts défavorables, sans le 1 % des meilleurs trades, concentration)."""
     stability_share: float = 0.70
     min_trades: int = 200
     min_trades_per_fold: int = 0
+    min_entry_days_per_fold: int = 0          # paris indépendants : jours d'entrée distincts
     min_evaluated_folds: int = 3
     strict: bool = False
     max_group_share: float = 0.6
+    ci_method: str = "bootstrap"              # bootstrap (intraday v5) | student_calendar (swing v2) : `mean_ci`
+    min_ci_blocks: int = 10
+    excess_check: bool = False                # gain en excès de la moyenne de toutes les décisions au même instant
 
     def required_positive(self, evaluated: int) -> int:
         return math.ceil(self.stability_share * evaluated - 1e-9)
 
     def kept(self, wins: int, evaluated: int) -> bool:
         return evaluated >= self.min_evaluated_folds and wins >= self.required_positive(evaluated)
+
+    def counts(self, sharpe, trades, entry_days) -> bool:
+        """Une validation compte comme « positive » : Sharpe > 0, assez de trades et de jours d'entrée."""
+        return (sharpe or 0.0) > 0 and (trades or 0) >= self.min_trades_per_fold and \
+            (entry_days if entry_days is not None else 10**9) >= self.min_entry_days_per_fold
+
+
+def variant_kept(wins: int, evaluated: int, admissible: bool, rule: SelectionRule) -> bool:
+    """Une variante n'est conservée que si elle bat la référence assez souvent ET (règle stricte) si elle est
+    elle-même admissible."""
+    return rule.kept(wins, evaluated) and (admissible or not rule.strict)
 
 
 @dataclass(frozen=True)
@@ -244,7 +262,10 @@ def config_fingerprint(settings: Settings) -> str:
     """Empreinte des réglages qui décident : coûts, limites, régimes, univers, protocole."""
     payload = {"costs": {k: v.model_dump() for k, v in settings.costs.items()}, "risk": settings.risk.model_dump(),
                "regimes": settings.regimes.model_dump(), "symbols": list(settings.data.symbols),
-               "history_start": str(settings.data.history_start), "seed": settings.protocol.seed}
+               "history_start": str(settings.data.history_start), "seed": settings.protocol.seed,
+               "bootstrap_block_days": settings.protocol.bootstrap_block_days,
+               "bootstrap_samples": settings.protocol.bootstrap_samples,
+               "max_group_pnl_share": settings.admission.max_group_pnl_share}
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()[:16]
 
 
@@ -271,6 +292,7 @@ class Prepared:
     symbols: list[str]                 # ordre des paires dans `meta` (alignement des cibles recalculées)
     program: Program
     _columns: dict[str, np.ndarray] = field(default_factory=dict, repr=False)
+    _series: dict[str, pd.Series] = field(default_factory=dict, repr=False)
 
     def column(self, name: str) -> np.ndarray:
         """Colonne en tableau numpy (horodatages : datetime64 UTC sans fuseau, jamais des objets Python)."""
@@ -383,8 +405,9 @@ def step_ns(program: Program) -> int:
 
 def fold_metrics(trades: pd.DataFrame, fold: Fold, *, valid_rows: int, submitted: int) -> dict:
     stats = series_metrics(daily_returns(trades, fold.valid_start, fold.valid_end))
+    entry_days = int(pd.to_datetime(trades["entry_time"], utc=True).dt.floor("D").nunique()) if len(trades) else 0
     return {"fold": fold.index, "sharpe": stats["sharpe"], "total_return": stats["total_return"],
-            "max_drawdown": stats["max_drawdown"], "trades": int(len(trades)),
+            "max_drawdown": stats["max_drawdown"], "trades": int(len(trades)), "entry_days": entry_days,
             "avg_net": round(float(trades["net"].mean()), 6) if len(trades) else None,
             "submitted": int(submitted), "valid_rows": int(valid_rows),
             "abstention": round(1 - submitted / valid_rows, 4) if valid_rows else None}
@@ -419,7 +442,8 @@ def run_grid(prep: Prepared, folds: list[Fold], limits: RiskLimits, *, seed: int
                     for margin in program.margins:
                         system = replace(base, margin=margin)
                         candidates = signals(prep, system, prediction)
-                        trades, _ = run_book(candidates, limits, step_ns=step_ns(program))
+                        trades, _ = run_book(candidates, limits, step_ns=step_ns(program),
+                                             strategy=program.strategy_id)
                         batch.append(system.to_dict() | {"status": "OK", "error": ""} | fold_metrics(
                             trades, fold, valid_rows=len(prediction.rows), submitted=len(candidates)))
                 results += batch
@@ -431,7 +455,8 @@ def run_grid(prep: Prepared, folds: list[Fold], limits: RiskLimits, *, seed: int
 def summarize(results: pd.DataFrame, rule: SelectionRule, evaluated_folds: dict[str, int] | None = None) -> pd.DataFrame:
     """Une ligne par système : validations positives, trades, Sharpe médian (pli sans trade = 0), stabilité.
 
-    Une validation n'est « positive » qu'avec un Sharpe > 0 ET au moins `rule.min_trades_per_fold` trades.
+    Une validation n'est « positive » qu'avec un Sharpe > 0, au moins `rule.min_trades_per_fold` trades et
+    `rule.min_entry_days_per_fold` jours d'entrée distincts.
     `admissible` = stabilité ; la règle stricte complète cette colonne dans `select` (contrôles sur trades)."""
     if results.empty:
         return pd.DataFrame()
@@ -441,8 +466,10 @@ def summarize(results: pd.DataFrame, rule: SelectionRule, evaluated_folds: dict[
         ok = group[group["status"] == "OK"]
         evaluated = (evaluated_folds or {}).get(str(key), n_folds)
         sharpes = ok["sharpe"].astype(float).fillna(0.0).tolist() + [0.0] * max(evaluated - len(ok), 0)
-        counted = (ok["sharpe"].astype(float) > 0) & (ok["trades"].astype(float) >= rule.min_trades_per_fold)
-        positive = int(counted.sum())
+        entry_days = ok["entry_days"] if "entry_days" in ok else pd.Series(10**9, index=ok.index)
+        counted = [rule.counts(sh, tr, None if pd.isna(ed) else ed) for sh, tr, ed in
+                   zip(ok["sharpe"].astype(float).fillna(0.0), ok["trades"].astype(float), entry_days, strict=True)]
+        positive = int(sum(counted))
         trades = int(ok["trades"].sum())
         first = group.iloc[0]
         stable = bool(evaluated >= rule.min_evaluated_folds and positive >= rule.required_positive(evaluated)
@@ -516,15 +543,23 @@ def _meta_mask(history: pd.DataFrame, current: pd.DataFrame, meta_features: tupl
 
 
 def run_system(prep: Prepared, system: System, folds: list[Fold], limits: RiskLimits, *, seed: int,
-               progress: Callable[[str], None] = lambda _t: None) -> list[FoldRun]:
+               progress: Callable[[str], None] = lambda _t: None, cache: dict | None = None) -> list[FoldRun]:
+    """Le système sur chaque validation. `cache` : prédictions déjà calculées pour le même modèle, la même
+    cible et les mêmes variables (marges et filtres n'y changent rien ; résultats identiques, déterministes)."""
     program = prep.program
     runs: list[FoldRun] = []
     history: list[pd.DataFrame] = []
     for fold in folds:
         progress(f"{system.key} : pli {fold.index + 1}/{len(folds)}")
         state = "OK"
+        key = (fold.index, fold.valid_start, system.kind, system.horizon, system.model, system.resolved_families)
         try:
-            prediction = predict_fold(prep, split_rows(prep, fold, system.kind, system.horizon), system, seed=seed)
+            if cache is not None and key in cache:
+                prediction = cache[key]
+            else:
+                prediction = predict_fold(prep, split_rows(prep, fold, system.kind, system.horizon), system, seed=seed)
+                if cache is not None:
+                    cache[key] = prediction
         except Exception as exc:  # noqa: BLE001 - pli en échec : enregistré, compté comme sans gain
             prediction, state = _failed_prediction(exc), "FAILED"
         candidates = signals(prep, system, prediction)
@@ -541,7 +576,8 @@ def run_system(prep: Prepared, system: System, folds: list[Fold], limits: RiskLi
                 submitted = np.zeros(len(candidates), dtype=bool)
                 submitted[order[:int(mask.sum())]] = True
         history.append(candidates)
-        trades, status = run_book(candidates[submitted].reset_index(drop=True), limits, step_ns=step_ns(program))
+        trades, status = run_book(candidates[submitted].reset_index(drop=True), limits, step_ns=step_ns(program),
+                                  strategy=program.strategy_id)
         full_status = np.full(len(candidates), "FILTERED", dtype=object)
         full_status[submitted] = status
         if not trades.empty:                             # rang dans les candidats complets
@@ -582,6 +618,44 @@ def all_trades(runs: list[FoldRun], labels: Callable[[pd.DataFrame], pd.DataFram
         columns=["symbol", "entry_time", "exit_time", "notional", "net", "pnl", "candidate", "fold"])
 
 
+def calendar_mean_ci(values, times, *, block_days: int, min_blocks: int = 20,
+                     level: float = 0.95) -> list[float] | None:
+    """IC d'une moyenne par trade (docs/ML_SWING.md, v2) : sommes par blocs de `block_days` jours CALENDAIRES
+    consécutifs (jours sans trade compris ; un bloc dure au moins deux fois l'horizon, donc seuls deux blocs
+    voisins partagent des positions ouvertes), moyenne = somme des gains / nombre de trades, variance robuste
+    à un retard (la covariance entre blocs voisins s'ajoute quand elle est positive et n'est jamais
+    retranchée), quantile de Student. Aucun IC sous `min_blocks` blocs AVEC trades : le critère échoue alors.
+    Sous un gain nul simulé : 2,1 à 2,4 % de bornes basses > 0 pour 2,5 % visés (tests/test_ml_swing.py)."""
+    values = np.asarray(values, dtype=float)
+    if len(values) == 0:
+        return None
+    days = pd.to_datetime(pd.Series(times), utc=True).dt.floor("D")
+    block = ((days - days.min()) // pd.Timedelta(days=1)).to_numpy(np.int64) // block_days
+    sums = np.bincount(block, weights=values)
+    counts = np.bincount(block).astype(float)
+    filled = int((counts > 0).sum())
+    if filled < max(min_blocks, 2):
+        return None
+    mean = float(sums.sum() / counts.sum())
+    u = sums - mean * counts
+    variance = (u @ u + 2 * max(0.0, float(u[1:] @ u[:-1]))) * filled / (filled - 1) / counts.sum() ** 2
+    half = float(student_t.ppf(0.5 + level / 2, filled - 1)) * math.sqrt(variance)
+    return [round(mean - half, 6), round(mean + half, 6)]
+
+
+def mean_ci(values, times, *, block_days: int, samples: int, seed: int, method: str = "bootstrap",
+            min_blocks: int = 10) -> list[float] | None:
+    """IC95 d'une moyenne par trade selon la méthode déclarée par la règle d'admission : `bootstrap`
+    (intraday v5 : blocs de jours AYANT des trades, `trade_mean_ci`) ou `student_calendar` (swing v2 :
+    `calendar_mean_ci`)."""
+    if method == "student_calendar":
+        return calendar_mean_ci(values, times, block_days=block_days, min_blocks=min_blocks)
+    if method != "bootstrap":
+        raise ValueError(f"méthode d'IC inconnue : {method}")
+    return trade_mean_ci(np.asarray(values, dtype=float), times, block_days=block_days, samples=samples, seed=seed,
+                         min_blocks=min_blocks)
+
+
 def block_days_for(program: Program, horizon: int, settings: Settings) -> int:
     """Blocs du bootstrap : au moins le réglage du protocole, et au moins deux fois l'horizon."""
     days = math.ceil(horizon * program.step / pd.Timedelta(days=1))
@@ -604,7 +678,7 @@ def replay(prep: Prepared, system: System, runs: list[FoldRun], limits: RiskLimi
         inside = exit_time <= run.fold.valid_end                     # même purge qu'en central
         candidates = candidates[np.isfinite(candidates["net"]) & (candidates["bars"] >= 0)
                                 & inside.to_numpy()].reset_index(drop=True)
-        trades, _ = run_book(candidates, limits, step_ns=step_ns(program))
+        trades, _ = run_book(candidates, limits, step_ns=step_ns(program), strategy=program.strategy_id)
         folds.append(fold_metrics(trades, run.fold, valid_rows=len(run.prediction.rows), submitted=len(candidates)))
         frames.append(trades)
     trades = pd.concat([f for f in frames if not f.empty], ignore_index=True) if any(
@@ -616,7 +690,8 @@ def replay(prep: Prepared, system: System, runs: list[FoldRun], limits: RiskLimi
             "trades": int(len(trades)), "positive_folds": sum((f["sharpe"] or 0) > 0 for f in folds)}
 
 
-def aggregate(runs: list[FoldRun], settings: Settings, block_days: int | None = None) -> dict:
+def aggregate(runs: list[FoldRun], settings: Settings, block_days: int | None = None, *,
+              ci_method: str = "bootstrap", min_ci_blocks: int = 10) -> dict:
     """Plis enchaînés : rendements journaliers de chaque pli (capital du pli) mis bout à bout — équivalent
     à un compte unique, la taille des positions étant proportionnelle au capital — puis mesures du
     portefeuille, IC par blocs circulaires et mesures par trade."""
@@ -636,8 +711,9 @@ def aggregate(runs: list[FoldRun], settings: Settings, block_days: int | None = 
     return out | {
         "turnover_per_year": round(float(2 * trades["notional"].sum() / max(len(returns) / 365, 1e-9)), 2),
         "avg_net_per_trade": round(float(trades["net"].mean()), 6),
-        "avg_net_ci95": trade_mean_ci(trades["net"].to_numpy(float), entry, block_days=days,
-                                      samples=protocol.bootstrap_samples, seed=protocol.seed),
+        "avg_net_ci95": mean_ci(trades["net"].to_numpy(float), entry, block_days=days,
+                                samples=protocol.bootstrap_samples, seed=protocol.seed, method=ci_method,
+                                min_blocks=min_ci_blocks),
         "win_rate": round(float((trades["net"] > 0).mean()), 4),
         "pnl_share_max_symbol": round(float(trades.groupby("symbol")["pnl"].sum().max() / gains), 4) if gains > 0 else None,
         "pnl_share_max_quarter": round(float(trades.groupby(quarters)["pnl"].sum().max() / gains), 4) if gains > 0 else None,
@@ -645,32 +721,72 @@ def aggregate(runs: list[FoldRun], settings: Settings, block_days: int | None = 
     }
 
 
-def strict_checks(prep: Prepared, system: System, runs: list[FoldRun], limits: RiskLimits, *,
-                  settings: Settings, rule: SelectionRule) -> dict:
-    """Règle stricte (v6) sur les validations : IC du gain moyen > 0, positif en coûts défavorables et sans le
-    1 % des meilleurs trades, aucune paire ni validation au-delà de `max_group_share` du gain."""
-    totals = aggregate(runs, settings, block_days_for(prep.program, system.horizon, settings))
-    adverse = replay(prep, system, runs, limits, "adverse") if "adverse" in prep.costs else {}
-    exceptional = exceptional_dependence(all_trades(runs))
-    ci = totals.get("avg_net_ci95")
-    symbol_share, fold_share = totals.get("pnl_share_max_symbol"), totals.get("pnl_share_max_fold")
+def same_time_mean_net(prep: Prepared, kind: str, horizon: int) -> pd.Series:
+    """Moyenne du rendement net de TOUTES les décisions valides (contexte connu, sans trou) à chaque instant de
+    décision, toutes paires confondues : ce que le marché aurait donné sans aucune sélection."""
+    key = f"same_time_{kind}_{horizon}"
+    if key not in prep._series:
+        net = prep.column(f"net_{kind}_{horizon}").astype(float)
+        valid = np.isfinite(net) & ~prep.column("gap_recent").astype(bool) & prep.context_known()
+        times = pd.DatetimeIndex(prep.column("decision_time")[valid]).as_unit("ns")
+        prep._series[key] = pd.Series(net[valid], index=times).groupby(level=0).mean()
+    return prep._series[key]
+
+
+def excess_over_market(trades: pd.DataFrame, reference: pd.Series) -> tuple[np.ndarray, pd.Series]:
+    """(gain net de chaque trade moins la moyenne de toutes les décisions valides au même instant, instants
+    d'entrée). `reference` : indexée par instant de décision (UTC sans fuseau). Trades sans référence exclus."""
+    entry = pd.to_datetime(trades["entry_time"], utc=True).dt.tz_convert(None).reset_index(drop=True)
+    baseline = reference.reindex(pd.DatetimeIndex(entry).as_unit("ns")).to_numpy(float)
+    excess = trades["net"].to_numpy(float) - baseline
+    known = np.isfinite(excess)
+    return excess[known], entry[known].reset_index(drop=True)
+
+
+def judge_strict(metrics: dict, rule: SelectionRule) -> dict:
+    """Jugement de la règle stricte à partir des mesures (fonction pure, testée)."""
+    ci, excess_ci = metrics.get("avg_net_ci95"), metrics.get("excess_ci95")
+    symbol_share, fold_share = metrics.get("pnl_share_max_symbol"), metrics.get("pnl_share_max_fold")
     checks = {
         "ic_gain_moyen_positif": bool(ci is not None and ci[0] > 0),
-        "positif_couts_defavorables": bool((adverse.get("avg_net_per_trade") or -1) > 0),
-        "positif_sans_meilleurs_trades": bool((exceptional.get("avg_net_without_top1pct") or -1) > 0),
+        "positif_couts_defavorables": bool((metrics.get("adverse_avg_net") or -1) > 0),
+        "positif_sans_meilleurs_trades": bool((metrics.get("avg_net_without_top1pct") or -1) > 0),
         "concentration_limitee": bool(symbol_share is not None and fold_share is not None
                                       and symbol_share <= rule.max_group_share and fold_share <= rule.max_group_share),
     }
-    return {"passed": all(checks.values()), "checks": checks, "avg_net_ci95": ci,
-            "adverse_avg_net": adverse.get("avg_net_per_trade"),
-            "avg_net_without_top1pct": exceptional.get("avg_net_without_top1pct"),
-            "pnl_share_max_symbol": symbol_share, "pnl_share_max_fold": fold_share}
+    if rule.excess_check:
+        checks["ic_exces_sur_le_marche_positif"] = bool(excess_ci is not None and excess_ci[0] > 0)
+    return {"passed": all(checks.values()), "checks": checks}
+
+
+def strict_checks(prep: Prepared, system: System, runs: list[FoldRun], limits: RiskLimits, *,
+                  settings: Settings, rule: SelectionRule) -> dict:
+    """Règle stricte (v6) sur les validations : IC du gain moyen > 0 ; (si déclaré) IC de son excès sur la
+    moyenne de toutes les décisions valides au même instant > 0 (sépare la sélection de la dérive commune du
+    marché) ; positif en coûts défavorables et sans le 1 % des meilleurs trades ; aucune paire ni validation
+    au-delà de `max_group_share` du gain."""
+    protocol = settings.protocol
+    days = block_days_for(prep.program, system.horizon, settings)
+    totals = aggregate(runs, settings, days, ci_method=rule.ci_method, min_ci_blocks=rule.min_ci_blocks)
+    adverse = replay(prep, system, runs, limits, "adverse") if "adverse" in prep.costs else {}
+    trades = all_trades(runs)
+    exceptional = exceptional_dependence(trades)
+    metrics = {"avg_net_ci95": totals.get("avg_net_ci95"), "adverse_avg_net": adverse.get("avg_net_per_trade"),
+               "avg_net_without_top1pct": exceptional.get("avg_net_without_top1pct"),
+               "pnl_share_max_symbol": totals.get("pnl_share_max_symbol"),
+               "pnl_share_max_fold": totals.get("pnl_share_max_fold"), "excess_ci95": None, "avg_excess": None}
+    if rule.excess_check and len(trades):
+        excess, entry = excess_over_market(trades, same_time_mean_net(prep, system.kind, system.horizon))
+        metrics["avg_excess"] = round(float(excess.mean()), 6) if len(excess) else None
+        metrics["excess_ci95"] = mean_ci(excess, entry, block_days=days, samples=protocol.bootstrap_samples,
+                                         seed=protocol.seed, method=rule.ci_method, min_blocks=rule.min_ci_blocks)
+    return judge_strict(metrics, rule) | metrics
 
 
 def runs_stable(runs: list[FoldRun], rule: SelectionRule) -> bool:
     """Stabilité d'un système à partir de ses plis (mêmes règles que `summarize`)."""
     evaluated = len(runs)
-    positive = sum((r.metrics["sharpe"] or 0.0) > 0 and r.metrics["trades"] >= rule.min_trades_per_fold for r in runs)
+    positive = sum(rule.counts(r.metrics["sharpe"], r.metrics["trades"], r.metrics.get("entry_days")) for r in runs)
     trades = sum(r.metrics["trades"] for r in runs)
     return evaluated >= rule.min_evaluated_folds and positive >= rule.required_positive(evaluated) and \
         trades >= rule.min_trades
@@ -704,7 +820,9 @@ def analyse(prep: Prepared, system: System, runs: list[FoldRun], limits: RiskLim
     return {
         "system": system.to_dict(),
         "by_fold": by_fold,
-        "aggregate": aggregate(runs, settings, block_days_for(program, system.horizon, settings)),
+        "aggregate": aggregate(runs, settings, block_days_for(program, system.horizon, settings),
+                               ci_method=program.selection.ci_method,
+                               min_ci_blocks=program.selection.min_ci_blocks),
         "exceptional_trades": exceptional_dependence(trades),
         "breakdown": breakdown(trades, tuple(label_columns)) if len(trades) else {},
         "robustness": robustness,
@@ -826,12 +944,13 @@ def select(program: Program, settings: Settings, *, now: datetime, allow_dirty: 
         summary = summarize(results, rule)
         strict_details: dict[str, dict] = {}
         cached_runs: dict[str, list[FoldRun]] = {}
+        predictions: dict = {}
         if rule.strict:
             # Deuxième temps de la règle v6 : contrôles sur les trades des systèmes stables (aucun nouvel essai).
             for _, row in summary[summary["stable"]].iterrows():
                 system = _system_from_row(row, program)
                 say(f"règle stricte : {system.key}")
-                runs = run_system(prep, system, folds, limits, seed=seed)
+                runs = run_system(prep, system, folds, limits, seed=seed, cache=predictions)
                 cached_runs[system.key] = runs
                 strict_details[system.key] = strict_checks(prep, system, runs, limits, settings=settings, rule=rule)
             summary["admissible"] = [bool(strict_details.get(k, {}).get("passed", False)) for k in summary["key"]]
@@ -848,19 +967,20 @@ def select(program: Program, settings: Settings, *, now: datetime, allow_dirty: 
             return runs_stable(runs, rule) and details["passed"], details
 
         say("variantes : familles de variables")
-        ref_runs = cached_runs.get(reference.key) or run_system(prep, reference, folds, limits, seed=seed, progress=say)
+        ref_runs = cached_runs.get(reference.key) or run_system(prep, reference, folds, limits, seed=seed, progress=say,
+                                                                cache=predictions)
         variant_rows, decisions = [], []
         family_systems: dict[str, list[FoldRun]] = {}
         for name, families in program.family_variants.items():
             system = replace(reference, families=families)
-            runs = run_system(prep, system, folds, limits, seed=seed, progress=say)
+            runs = run_system(prep, system, folds, limits, seed=seed, progress=say, cache=predictions)
             family_systems[system.key] = runs
             variant_rows += runs_to_rows(system, runs)
             wins, evaluated = beats(runs, ref_runs)
             admissible_variant, details = evaluate_variant(system, runs)
-            keep = rule.kept(wins, evaluated) and (admissible_variant or not rule.strict)
+            keep = variant_kept(wins, evaluated, admissible_variant, rule)
             decisions.append({"variant": name, "key": system.key, "wins_vs_reference": wins, "evaluated": evaluated,
-                              "kept": keep, **({"strict": details} if details else {})})
+                              "admissible": admissible_variant, "kept": keep, **({"strict": details} if details else {})})
         state["evaluated"] += len(program.family_variants)
         kept_families = [d for d in decisions if d["kept"]]
         base_system, base_runs = reference, ref_runs
@@ -873,17 +993,18 @@ def select(program: Program, settings: Settings, *, now: datetime, allow_dirty: 
 
         say("variantes : méta-filtre et abstention de même sévérité")
         meta_system, matched_system = replace(base_system, filter="meta"), replace(base_system, filter="matched")
-        meta_runs = run_system(prep, meta_system, folds, limits, seed=seed, progress=say)
-        matched_runs = run_system(prep, matched_system, folds, limits, seed=seed, progress=say)
+        meta_runs = run_system(prep, meta_system, folds, limits, seed=seed, progress=say, cache=predictions)
+        matched_runs = run_system(prep, matched_system, folds, limits, seed=seed, progress=say, cache=predictions)
         state["evaluated"] += 2
         variant_rows += runs_to_rows(meta_system, meta_runs) + runs_to_rows(matched_system, matched_runs)
         wins_ref, evaluated_ref = beats(meta_runs, base_runs)
         wins_matched, evaluated_matched = beats(meta_runs, matched_runs)
         meta_admissible, meta_details = evaluate_variant(meta_system, meta_runs)
-        meta_kept = (rule.kept(wins_ref, evaluated_ref) and rule.kept(wins_matched, evaluated_matched)
-                     and (meta_admissible or not rule.strict))
+        meta_kept = (variant_kept(wins_ref, evaluated_ref, meta_admissible, rule)
+                     and rule.kept(wins_matched, evaluated_matched))
         decisions.append({"variant": "méta-filtre", "key": meta_system.key, "wins_vs_reference": wins_ref,
-                          "wins_vs_matched_abstention": wins_matched, "evaluated": evaluated_ref, "kept": meta_kept,
+                          "wins_vs_matched_abstention": wins_matched, "evaluated": evaluated_ref,
+                          "admissible": meta_admissible, "kept": meta_kept,
                           **({"strict": meta_details} if meta_details else {})})
 
         variants = pd.DataFrame(variant_rows)
@@ -904,7 +1025,7 @@ def select(program: Program, settings: Settings, *, now: datetime, allow_dirty: 
         runs_by_key = {**cached_runs, reference.key: ref_runs, meta_system.key: meta_runs,
                        matched_system.key: matched_runs, **family_systems}
         analysed_runs = runs_by_key.get(analysed.key) or run_system(prep, analysed, folds, limits, seed=seed,
-                                                                    progress=say)
+                                                                    progress=say, cache=predictions)
         analysis = analyse(prep, analysed, analysed_runs, limits, settings=settings, progress=say)
         say("journal des décisions et modèles")
         model_hashes, fold_hashes = save_models(analysed_runs, report_dir / "models")
@@ -1018,8 +1139,13 @@ def _write(program: Program, report_dir: Path, payload: dict) -> None:
               f"Règle d'admission : Sharpe > 0 dans au moins {rule.stability_share:.0%} des validations"
               + (f" (au moins {rule.min_trades_per_fold} trades pour compter)" if rule.min_trades_per_fold else "")
               + f", au moins {rule.min_trades} trades"
-              + (" ; puis IC du gain moyen > 0, positif en coûts défavorables et sans le 1 % des meilleurs "
+              + (f" et {rule.min_entry_days_per_fold} jours d'entrée distincts" if rule.min_entry_days_per_fold else "")
+              + (" ; puis IC du gain moyen > 0"
+                 + (", IC de son excès sur la moyenne de toutes les décisions au même instant > 0" if rule.excess_check else "")
+                 + ", positif en coûts défavorables et sans le 1 % des meilleurs "
                  f"trades, aucune paire ni validation > {rule.max_group_share:.0%} du gain" if rule.strict else "")
+              + (f" (IC : Student sur sommes par blocs de jours calendaires, au moins {rule.min_ci_blocks} blocs "
+                 "avec trades)" if rule.ci_method == "student_calendar" else "")
               + f". Systèmes stables : {payload['stable_count']} ; admissibles : {payload['admissible_count']}.", "",
               f"Audit des fuites : {'réussi' if payload['leak_audit']['passed'] else 'ÉCHEC'} (mutation détectée : "
               f"{payload['leak_audit']['mutation_detected']}).", "",
@@ -1030,11 +1156,11 @@ def _write(program: Program, report_dir: Path, payload: dict) -> None:
               for r in payload["top_systems"][:10]]
     if payload.get("strict_checks"):
         lines += ["", "## Contrôles stricts des systèmes stables", "",
-                  "| Système | IC gain moyen > 0 | Coûts défavorables > 0 | Sans meilleurs trades > 0 | Concentration | Admis |",
-                  "|---|---|---|---|---|---|"]
+                  "| Système | IC gain moyen > 0 | IC excès sur le marché > 0 | Coûts défavorables > 0 | "
+                  "Sans meilleurs trades > 0 | Concentration | Admis |", "|---|---|---|---|---|---|---|"]
         for key, d in payload["strict_checks"].items():
             c = d["checks"]
-            lines.append(f"| `{key}` | {_fmt(d['avg_net_ci95'])} | {_fmt(d['adverse_avg_net'])} | "
+            lines.append(f"| `{key}` | {_fmt(d['avg_net_ci95'])} | {_fmt(d.get('excess_ci95'))} | {_fmt(d['adverse_avg_net'])} | "
                          f"{_fmt(d['avg_net_without_top1pct'])} | paire {_fmt(d['pnl_share_max_symbol'])}, validation "
                          f"{_fmt(d['pnl_share_max_fold'])} | {'oui' if d['passed'] else 'non'} "
                          f"({', '.join(k for k, v in c.items() if not v) or 'tout passe'}) |")
@@ -1057,7 +1183,7 @@ def _write(program: Program, report_dir: Path, payload: dict) -> None:
               f"perte maximale {_fmt(totals['max_drawdown'], True)}, Sharpe {_fmt(totals['sharpe'])} "
               f"(IC95 par blocs circulaires : {_fmt(totals.get('sharpe_ci95'))}), {totals['trades']} trades, "
               f"rotation {_fmt(totals.get('turnover_per_year'))} par an, taux de gain {_fmt(totals.get('win_rate'))}.",
-              f"- Gain moyen par trade {_fmt(totals.get('avg_net_per_trade'))} (IC95 par blocs de jours : "
+              f"- Gain moyen par trade {_fmt(totals.get('avg_net_per_trade'))} (IC95, méthode {rule.ci_method} : "
               f"{_fmt(totals.get('avg_net_ci95'))}) ; sans le 1 % des meilleurs trades : "
               f"{_fmt(analysis['exceptional_trades'].get('avg_net_without_top1pct'))}.",
               *([f"- Au bord de la grille : {'; '.join(payload['grid_edges'])}."] if payload["grid_edges"] else []),
@@ -1114,8 +1240,9 @@ def final(program: Program, settings: Settings, *, now: datetime, allow_final_te
     say = progress or (lambda _text: None)
     period = resolve_period(settings, "final-test", now=now, allow_final_test=allow_final_test)
     experiments = ExperimentRegistry(settings.experiments_db)
-    if experiments.final_test_consulted(program.strategy_id):
-        raise FinalTestLocked(f"la période finale a déjà été consultée pour {program.name} : une seule consultation")
+    if experiments.final_test_consultations_total():
+        raise FinalTestLocked("la période finale a déjà été consultée par le programme de recherche (compteur "
+                              "global, docs/PROTOCOL.md) : elle n'est plus un test vierge")
     run = experiments.get(selection_run) if selection_run else next(
         (experiments.get(r["run_id"]) for r in experiments.recent(500)
          if r["kind"] == program.kind_select and r["status"] == "COMPLETED"), None)
@@ -1148,7 +1275,9 @@ def final(program: Program, settings: Settings, *, now: datetime, allow_final_te
     runs = [r for r in run_system(prep, system, folds, limits, seed=settings.protocol.seed, progress=say)
             if r.fold.index >= offset]
     trades = all_trades(runs, program.labels)
-    metrics = aggregate(runs, settings, block_days_for(program, system.horizon, settings))
+    metrics = aggregate(runs, settings, block_days_for(program, system.horizon, settings),
+                        ci_method=program.selection.ci_method,
+                        min_ci_blocks=program.selection.min_ci_blocks)
     pool_parts = []
     for r in runs:
         rows = r.prediction.rows

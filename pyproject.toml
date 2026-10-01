@@ -25,7 +25,7 @@ dependencies = [
 dev = ["pytest>=8.4", "ruff>=0.12", "mypy>=1.17", "pyright>=1.1.400"]
 # Lots 5 bis et 5 ter (ML intraday et swing, docs/ML_INTRADAY.md, docs/ML_SWING.md) : modèles à arbres
 # comparés à la logistique de référence. Hors de l'image Docker de surveillance (elle n'entraîne rien).
-ml = ["lightgbm>=4.6", "xgboost>=3.0", "catboost>=1.2"]
+ml = ["lightgbm>=4.6", "xgboost>=3.0", "catboost>=1.2", "scipy>=1.15"]
 # Groupes des lots suivants, ajoutés à leur étape : agents, streaming, reports.
 
 [project.scripts]

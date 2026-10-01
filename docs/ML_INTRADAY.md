@@ -320,3 +320,9 @@ branché, aucun signal n'est publié.
 - 2026-10-01, résultats de la sélection ajoutés (§12) ; protocole inchangé, période finale non consultée.
 - 2026-10-01, moteur commun : le code du protocole est déplacé dans `ml/engine.py` (partagé avec le swing), sans changement de comportement (mêmes tests) ; l'empreinte du code qui décide change, donc une
   consultation de la période finale intraday exigerait d'abord une nouvelle sélection (essais comptés).
+- 2026-10-01, moteur commun complété pour le swing v2. La règle v5 de l'intraday est inchangée : même
+  IC par bootstrap de blocs de jours avec trades, sans jours d'entrée minimaux ni critère d'excès.
+  - Le verrou de la période finale est désormais commun à tout le programme : si le swing la consulte
+    d'abord, l'intraday ne peut plus la consulter, et inversement.
+  - L'empreinte de configuration inclut les réglages du bootstrap et de concentration.
+  - Les trades portent l'étiquette de leur stratégie.

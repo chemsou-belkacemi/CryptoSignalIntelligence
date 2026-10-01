@@ -1,8 +1,9 @@
-"""Protocole ML swing v1 (docs/ML_SWING.md), déclaré et commité avant toute exécution.
+"""Protocole ML swing v2 (docs/ML_SWING.md), déclaré et commité avant toute exécution.
 
 Programme du moteur commun (`ml/engine.py`) : bougies 1 h, une décision toutes les 4 h, horizons 1, 3 et
 7 jours, cibles horizon fixe et triple barrière, logistique / LightGBM / XGBoost / CatBoost, entraînement
-ancré, 6 validations, règle d'admission STRICTE v6 (leçons de la sélection intraday). Aucun ordre.
+ancré, 6 validations, règle d'admission STRICTE v6 (leçons de la sélection intraday) complétée en v2 avant
+toute exécution (jours d'entrée distincts, IC de Student sur blocs calendaires, excès sur le marché). Aucun ordre.
 """
 from __future__ import annotations
 
@@ -21,7 +22,7 @@ from ..intraday.models import ModelSpec
 from ..intraday.protocol import common_context, daily_closes
 from . import dataset as ds
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 KIND_SELECT, KIND_FINAL = "ML_SWING_SELECT", "ML_SWING_FINAL"
 STRATEGY_ID = "ML_SWING"
 MARGINS = (0.0, 0.0025, 0.0050)
@@ -52,7 +53,9 @@ FAMILY_VARIANTS: dict[str, tuple[str, ...]] = {
 META_FEATURES = ("p", "expected", "rv_168", "atr_pct", "d1_ret_30", "btc_ret_168", "xs_rank_168", "r_168",
                  "vol_ratio_24", "taker_24", "h4_ret_42", "dd_720")
 CONTEXT_REQUIRED = ("h4_ret_6", "d1_ret_7", "btc_ret_24")
-RULE = SelectionRule(stability_share=0.70, min_trades=150, min_trades_per_fold=20, strict=True, max_group_share=0.6)
+RULE = SelectionRule(stability_share=0.70, min_trades=150, min_trades_per_fold=20, min_entry_days_per_fold=20,
+                     strict=True, max_group_share=0.6, ci_method="student_calendar", min_ci_blocks=20,
+                     excess_check=True)
 AUDIT_PAIRS = ("BTCUSDT", "ETHUSDT", "SOLUSDT")
 AUDIT_TIMES = 4
 DECISION_MODULES = ("ml/engine.py", "ml/swing/dataset.py", "ml/swing/protocol.py", "ml/intraday/dataset.py",
@@ -67,8 +70,18 @@ def reserves(program_trials_before: int) -> list[str]:
         "période : biais du survivant possible (expérience avancée 1 du protocole intraday).",
         f"Sélection sur {SWING.declared_trials} essais ; le programme comptait déjà {program_trials_before} essais "
         "sur DEVELOPMENT avant cette exécution : un résultat isolé favorable doit être lu avec ce nombre en tête.",
-        "Règle d'admission v6 (stricte) : elle réduit les faux positifs de la règle intraday, sans les supprimer ; "
-        "« admissible » reste une sélection en échantillon, que seule la période finale juge.",
+        "Règle d'admission v6 (stricte, complétée en v2) : elle réduit les faux positifs de la règle intraday, "
+        "sans les supprimer ; « admissible » reste une sélection en échantillon, que seule la période finale juge.",
+        "Hasard : à pile ou face, un système obtient au moins 5 validations positives sur 6 avec une probabilité "
+        "d'environ 10,9 % (davantage pour un portefeuille long seul en marché haussier) ; d'où les critères 3 à 7.",
+        "Limite de perte journalière presque inerte : capital réalisé et positions jusqu'à 7 jours ; la perte "
+        "latente n'est pas suivie par la simulation.",
+        "Étalonnage de Platt sur 3 mois : pour H = 7 jours, une douzaine de semaines indépendantes seulement.",
+        "Gain et perte moyens de l'espérance nette estimés sur l'entraînement ancré, qui inclut 2021 (marché très "
+        "haussier).",
+        "Cibles qui traversent un trou de données exclues : léger biais de sélection possible autour des incidents.",
+        "Regards non comptés : le tableau de bord (analyse d'une paire de 1 h à 7 jours) montre des statistiques "
+        "sur DEVELOPMENT ; ces regards ne sont pas des essais enregistrés.",
         "Cibles qui se chevauchent dans l'entraînement (déclaré) ; purge par la barrière verticale entre blocs.",
         "Moteur : remplissage complet à l'ouverture de la bougie 1 h suivante, ordre intra-bougie défavorable, "
         "capital réalisé, pas d'impact de marché ; vérification en bougies 15 min obligatoire avant la période "
@@ -111,19 +124,31 @@ def scenario_targets(prep: Prepared, kind: str, horizon: int, costs: CostScenari
 
 # --- Audit des fuites ------------------------------------------------------------------------------------
 
-def _leaky_resampler(candles: pd.DataFrame, hours: int) -> pd.DataFrame:
-    """MUTATION volontaire : bougie de contexte visible dès la fin de sa première heure (fuite)."""
+def _leaky_4h(candles: pd.DataFrame, hours: int) -> pd.DataFrame:
+    """MUTATION volontaire : bougie 4 h jointe sur son ouverture (visible dès qu'elle commence : fuite)."""
     bars = resample_complete(candles, hours)
-    return bars.assign(available_at=bars["open_time"] + pd.Timedelta(hours=1, seconds=3))
+    return bars.assign(available_at=bars["open_time"]) if hours == 4 else bars
+
+
+def _leaky_1d(candles: pd.DataFrame, hours: int) -> pd.DataFrame:
+    """MUTATION volontaire : bougie 1 jour visible dès la fin de sa première heure (fuite)."""
+    bars = resample_complete(candles, hours)
+    return bars.assign(available_at=bars["open_time"] + pd.Timedelta(hours=1, seconds=3)) if hours == 24 else bars
+
+
+# Chaque mutation doit être détectée par les variables de SA famille (une seule ne suffit pas).
+MUTATIONS: dict[str, tuple[Callable[[pd.DataFrame, int], pd.DataFrame], str]] = {
+    "4h": (_leaky_4h, "h4_"), "1d": (_leaky_1d, "d1_")}
 
 
 def leak_audit(settings: Settings, prep: Prepared, *, seed: int) -> dict:
-    """Variables de la paire recalculées avec seulement le passé, puis avec un futur falsifié : identiques ; la
-    mutation (bougies 4 h et 1 jour visibles trop tôt) doit être détectée ; la coupe transversale à une heure
-    de décision ne change pas quand on coupe toutes les paires à cette heure."""
+    """Variables de la paire recalculées avec seulement le passé, puis avec un futur falsifié : identiques ;
+    chaque mutation (bougie 4 h jointe sur son ouverture, bougie 1 jour visible après sa première heure) doit
+    être détectée par les variables de sa famille ; la coupe transversale à une heure de décision ne change pas
+    quand on coupe toutes les paires à cette heure."""
     rng = np.random.default_rng(seed)
     violations: list[dict] = []
-    mutation: list[dict] = []
+    detected = dict.fromkeys(MUTATIONS, False)
     present = [s for s in AUDIT_PAIRS if s in prep.inputs]
     for symbol in present:
         h1 = prep.inputs[symbol]["context"].sort_values("open_time").reset_index(drop=True)
@@ -138,9 +163,11 @@ def leak_audit(settings: Settings, prep: Prepared, *, seed: int) -> dict:
         def window(frame: pd.DataFrame, lo=lo, hi=hi) -> pd.DataFrame:
             return frame[(frame["open_time"] >= lo) & (frame["open_time"] <= hi)].reset_index(drop=True)
 
-        for resampler, found in ((resample_complete, violations), (_leaky_resampler, mutation)):
-            found += [v | {"symbol": symbol} for v in ds.causality_violations(
-                window(h1), window(btc), decisions=moments, seed=seed, resampler=resampler)]
+        violations += [v | {"symbol": symbol} for v in ds.causality_violations(
+            window(h1), window(btc), decisions=moments, seed=seed)]
+        for name, (resampler, prefix) in MUTATIONS.items():
+            found = ds.causality_violations(window(h1), window(btc), decisions=moments, seed=seed, resampler=resampler)
+            detected[name] |= any(f.startswith(prefix) for v in found for f in v["features"])
     # Coupe transversale : calcul complet contre calcul où TOUTES les paires sont coupées à la décision.
     if len(present) >= 2:
         h1s = {s: prep.inputs[s]["context"].sort_values("open_time").reset_index(drop=True) for s in present}
@@ -168,8 +195,9 @@ def leak_audit(settings: Settings, prep: Prepared, *, seed: int) -> dict:
         full, truncated = section(False), section(True)
         if not np.allclose(full.to_numpy(float), truncated.to_numpy(float), equal_nan=True):
             violations.append({"check": "coupe transversale", "decision_time": str(decision)})
-    return {"violations": violations, "mutation_detected": bool(mutation), "checked_pairs": present,
-            "times_per_pair": AUDIT_TIMES, "passed": not violations and bool(mutation)}
+    mutation_detected = all(detected.values())
+    return {"violations": violations, "mutation_detected": mutation_detected, "mutation_by_timeframe": detected,
+            "checked_pairs": present, "times_per_pair": AUDIT_TIMES, "passed": not violations and mutation_detected}
 
 
 def labels(candidates: pd.DataFrame) -> pd.DataFrame:
