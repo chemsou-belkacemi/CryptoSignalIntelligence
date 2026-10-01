@@ -10,7 +10,9 @@ plus des signaux, l'exécution reste à BinanceSpotManager sur Demo.
 Ce document est commité **avant** la première exécution. Toute modification ultérieure est datée en
 bas, avec sa raison, et ne peut jamais être motivée par un résultat de la période finale.
 **La conclusion « aucune stratégie testée ne démontre d'avantage exploitable » est un résultat
-valable et attendu comme possible.**
+valable et attendu comme possible.** Priorités déclarées : contrôles de risque et cohérence des
+cibles d'abord ; un second modèle (méta-filtre) n'est ajouté que si son bénéfice hors entraînement
+justifie sa complexité.
 
 ## 0. Évaluation de Freqtrade + FreqAI (documentation officielle, consultée le 2026-10-01)
 
@@ -35,7 +37,7 @@ séparé, en backtest seulement, sans clé.
 - Contexte **1 h** (paire et BTC) : jointure `available_at` existante ; contexte de plus de 2 h → inconnu.
 - Contexte **4 h** : reconstruit à partir des bougies 1 h **complètes** (00, 04, 08… UTC), disponible à
   l'`available_at` de sa dernière bougie 1 h ; plus de 8 h → inconnu. Une bougie 4 h en formation n'est
-  jamais visible (test de causalité + test de mutation).
+  jamais visible.
 - Trou de données dans les 96 dernières bougies → ligne exclue (fenêtres d'indicateurs douteuses).
 - **Familles de variables** (mesurées séparément, §6) :
 
@@ -48,16 +50,35 @@ séparé, en backtest seulement, sans clé.
 | marché | BTC 1 h (rendement 24 h, ATR, pente) |
 | calendrier | heure et jour (sinus, cosinus) |
 
-## 2. Cibles et chevauchement
+Les variables « transactions » sont des **agrégats des bougies Binance** (volume acheteur agressif,
+nombre de trades), pas un flux d'ordres tick par tick : les archives `aggTrades` (plusieurs Go) sont
+une extension possible si cette famille apporte quelque chose.
 
-- Horizons : **H ∈ {2, 4, 8, 16} bougies = 30 min, 1 h, 2 h, 4 h**.
-- Rendement net d'un aller-retour : achat à l'ouverture de t+1, vente à la clôture de t+H, frais
-  10 pb par côté, glissement et demi-spread du scénario **central** (≈ 0,26 % aller-retour). Une cible
-  qui traverse un trou de données est invalide.
-- Classification : **rendement net > 0** (le mouvement couvre les coûts).
-- Chevauchement : une ligne d'entraînement toutes les H bougies par paire (cibles disjointes dans une
-  paire) ; **purge** : aucune ligne d'entraînement dont la sortie dépasse le début de la validation ;
-  l'étalonnage (§3) est purgé de la même façon.
+**Audit des fuites (exécuté avant toute sélection, l'exécution s'arrête en échec sinon)** : sur les
+données réelles, pour des instants tirés au hasard, les variables recalculées avec **seulement** les
+données disponibles à l'instant de décision, puis avec un **futur falsifié**, doivent être identiques à
+celles du calcul complet ; un test de **mutation** (4 h joint sur l'heure d'ouverture) doit être détecté.
+
+## 2. Cibles (deux étiquetages, cohérents avec les règles de sortie et les coûts)
+
+Horizons : **H ∈ {2, 4, 8, 16} bougies = 30 min, 1 h, 2 h, 4 h**. Entrée à l'ouverture de t+1 ; frais
+10 pb par côté, glissement et demi-spread du scénario **central** (≈ 0,26 % aller-retour). Étiquette :
+**rendement net > 0**. Une cible qui traverse un trou de données est invalide.
+
+| Cible | Sortie (= règle de sortie de la stratégie qui l'utilise) |
+|---|---|
+| **horizon fixe (FH)** | clôture de t+H |
+| **triple barrière (TB)** | première barrière touchée : objectif `entrée × (1 + 1,5 σ_H)`, stop `entrée × (1 − 1,5 σ_H)`, sinon clôture de t+H ; σ_H = volatilité réalisée 96 bougies × √H (connue à la décision) |
+
+Règles d'exécution de la triple barrière (conservatrices, identiques pour l'étiquette et le
+backtest) : stop et objectif touchés dans la même bougie → **stop** ; ouverture au-delà du stop →
+sortie à l'ouverture ; ouverture au-delà de l'objectif → sortie à l'objectif (pas mieux) ; coûts de
+marché appliqués aux deux sorties. Une stratégie entraînée sur une cible sort **selon cette même
+cible** : aucune stratégie n'apprend une cible et en exécute une autre.
+
+**Chevauchement** : une ligne d'entraînement toutes les H bougies par paire ; **purge** au plus tard de
+la barrière verticale (t+H) : aucune ligne d'entraînement ou d'étalonnage dont t+H dépasse le début du
+bloc suivant ; en validation, seules les décisions dont t+H reste dans la validation comptent.
 
 ## 3. Modèles, étalonnage, espérance et abstention
 
@@ -69,56 +90,85 @@ séparé, en backtest seulement, sans clé.
 
 - Chaque fenêtre d'entraînement de 12 mois est coupée en **10 mois d'ajustement + 2 mois
   d'étalonnage** (purgés). Les probabilités sont **étalonnées** (Platt : logistique sur le logit) sur
-  ces 2 mois ; la calibration est **vérifiée** en validation (Brier, erreur d'étalonnage par déciles).
-- **Espérance nette** d'un setup : E = p × gain moyen net des gagnants + (1 − p) × perte moyenne nette
-  des perdants (moyennes de la période d'ajustement, coûts inclus).
-- **Décision** : entrer si E > marge m, avec **m ∈ {0 ; 0,05 % ; 0,10 %}** ; sinon **abstention**.
-  Entre candidats simultanés, priorité à la plus forte espérance.
-- Essais : 4 horizons × 9 configurations × 3 marges = **108**, comptés dans `program_trials`.
+  ces 2 mois ; la calibration est **vérifiée** en validation (Brier contre le taux de base, erreur
+  d'étalonnage par déciles, AUC).
+- **Espérance nette** : E = p × gain moyen net des gagnants + (1 − p) × perte moyenne nette des
+  perdants (moyennes de la période d'ajustement, coûts inclus). Hypothèse déclarée : l'ampleur des
+  gains et des pertes ne dépend pas de p.
+- **Décision** : entrer si E > marge m, **m ∈ {0 ; 0,05 % ; 0,10 %}** ; sinon **abstention**. Entre
+  candidats simultanés, priorité à la plus forte espérance.
+- **Grille principale** : 2 cibles × 4 horizons × 9 modèles × 3 marges = **216 essais**.
 
-## 4. Validation (glissante, stable, période finale réservée)
+## 4. Validation, stabilité, variantes, période finale
 
 - **Sélection, sur DEVELOPMENT seulement** (2021-01 → 2025-06) : fenêtres glissantes, entraînement
   12 mois, validation 6 mois, pas de 6 mois → **7 validations** (2022-01 → 2025-06).
-- **Stabilité exigée** : une configuration n'est admissible que si son portefeuille a un Sharpe > 0
-  dans **au moins 5 des 7 validations** et au moins 200 trades au total. Parmi les admissibles, la
-  retenue maximise le **Sharpe médian par validation** (pas l'agrégat, sensible à une période
-  exceptionnelle). Une variante (famille de variables, §6) n'est conservée que si elle améliore le
-  Sharpe dans au moins 5 des 7 validations.
-- **Aucune admissible → conclusion « aucun avantage démontré », sans consulter la période finale**
-  (elle reste vierge pour une idée future).
+- **Règle de stabilité** (un « système » = configuration et ses éventuelles variantes) : Sharpe > 0
+  dans **au moins 70 % des validations évaluées** (5 sur 7) et au moins 200 trades au total. Parmi les
+  systèmes admissibles, le retenu maximise le **Sharpe médian par validation**.
+- **Système de référence** des variantes : le meilleur admissible, à défaut le meilleur Sharpe médian
+  (diagnostic). Variantes, toutes comptées comme essais :
+  - **familles de variables** (6) : prix ; prix + volume ; prix + transactions ; prix + volume +
+    transactions ; + contexte ; + marché (tout = la référence) ;
+  - **méta-filtre** (1) : logistique L2 entraînée sur les **signaux hors entraînement** du modèle
+    principal (validations précédentes, sorties antérieures au début de la validation jugée ; au moins
+    300 signaux et 10 cas minoritaires par variable), variables : p, E, volatilité, régimes, BTC,
+    momentum, volume ; règle : garder le signal si la probabilité méta dépasse le taux de gain de son
+    entraînement ;
+  - **abstention de même sévérité** (1) : dans chaque validation, garder autant de signaux que le
+    méta-filtre, ceux de plus forte espérance (comparaison équitable : même nombre de trades).
+- Une variante n'est **conservée** que si elle bat la référence dans au moins 70 % des validations où
+  elle est évaluable (au moins 3). Le méta-filtre doit en plus battre l'abstention de même sévérité de
+  la même façon ; sinon le second modèle n'est pas ajouté.
+- **Total déclaré : 224 essais**, comptés dans `program_trials`.
+- **Aucun système admissible → conclusion « aucun avantage démontré », sans consulter la période
+  finale** (elle reste vierge pour une idée future).
 - **Estimation honnête, sur FINAL_TEST** (2025-07-01 → date d'exécution), consultée **une seule
-  fois** et enregistrée (`--i-understand-final-test`) : configuration figée, réentraînée tous les 6 mois
-  sur les 12 mois précédents (même règle), jouée sur toute la période finale. Les résultats de
-  sélection sont optimistes par construction (meilleure de 108) ; seul ce chiffre juge l'approche.
+  fois** et enregistrée (`--i-understand-final-test`), seulement si un système est admissible et après
+  la vérification en bougies 1 min (§5) : système figé, réentraîné tous les 6 mois sur les 12 mois
+  précédents (même règle), joué sur toute la période finale. Les résultats de sélection sont
+  optimistes par construction (meilleur de 224) ; seul ce chiffre juge l'approche.
 
-## 5. Stratégie, taille, exécution (couches séparées) et hypothèses du moteur
+## 5. Stratégie, limites de risque centralisées, exécution et hypothèses du moteur
 
-- **Modèle** → probabilité étalonnée → espérance. **Entrée** : E > m. **Sortie** : clôture de t+H
-  (sortie temporelle, sans stop dans cette version).
-- **Taille** : 10 % du capital réalisé par position ; **limites configurables** : 5 positions au plus
-  (50 % d'exposition totale), une position par paire, perte du jour ≥ 3 % → plus d'entrée jusqu'au
-  lendemain UTC. Spot, sans levier.
+- **Couches séparées** : modèle → probabilité étalonnée → espérance ; **entrée** : E > m ;
+  **sortie** : celle de la cible (§2) ; **taille et limites** : module commun `risk/exposure.py` ;
+  **exécution** : BinanceSpotManager (jamais CSI).
+- **Limites centralisées** (`[risk]` de la configuration, communes à **toutes** les stratégies et
+  à tous les actifs, positions déjà ouvertes comprises) : 10 % du capital réalisé par position ;
+  5 positions au plus ; exposition totale ≤ 50 % ; exposition par paire ≤ 10 % (une position par paire,
+  toutes stratégies confondues) ; exposition par stratégie ≤ 50 % ; perte du jour ≥ 3 % → plus
+  d'entrée jusqu'au lendemain UTC. Spot, sans levier. Le swing (§10) utilisera le même registre.
 - **Hypothèses du moteur** (déclarées) : remplissage complet au prix d'ouverture de t+1 corrigé du
-  glissement et du demi-spread (pas de carnet d'ordres, pas de remplissage partiel) ; sortie au prix de
-  clôture de t+H corrigé de même ; capital suivi en réalisé (pas de valorisation intra-position) ;
-  positions indépendantes de la liquidité (tailles faibles devant les volumes 15 min) ; pas de funding.
-- **Vérifications de robustesse** (configuration retenue, sur la période finale et sur les validations) :
-  coûts **défavorables** et **stress** ; **une bougie de retard** à l'entrée ; **bougies 1 min** : entrée
-  au prix de la première minute suivant l'ouverture de t+1 (latence réaliste de publication), sur les
-  trades réellement pris.
+  glissement et du demi-spread (pas de carnet d'ordres, pas de remplissage partiel) ; sorties selon §2
+  corrigées de même ; ordre intra-bougie inconnu → hypothèse défavorable ; capital suivi en réalisé
+  (pas de valorisation intra-position) ; tailles faibles devant les volumes 15 min (pas d'impact) ;
+  pas de funding (spot).
+- **Robustesse** (système retenu ou de référence, en validation et, le cas échéant, sur la période
+  finale) : coûts **défavorables** et **stress** (avec une bougie de retard, comme configurés) ; coûts
+  centraux avec **une bougie de retard** ; **bougies 1 min** : entrée au prix de la première minute
+  suivant l'ouverture de t+1 (latence réaliste) et ordre réel stop/objectif dans la bougie, sur les
+  trades réellement pris (obligatoire avant toute consultation du test final ; le téléchargement 1 min
+  n'est activé que pour ce contrôle).
 
-## 6. Mesures, analyses, apport des familles
+## 6. Mesures, incertitude, analyses, apport des familles
 
 - Rendement net, CAGR, **perte maximale du portefeuille**, **Sharpe** (journalier annualisé), nombre de
-  trades, **rotation**, gain moyen par trade (IC par blocs de jours), taux de gain, part de
-  l'abstention.
+  trades, **rotation**, gain moyen par trade, taux de gain, part d'abstention.
+- **Incertitude adaptée aux séries temporelles** : bootstrap **par blocs circulaires de 10 jours** des
+  rendements journaliers du portefeuille (IC95 du Sharpe et du rendement total) et bootstrap par blocs
+  de jours du gain moyen par trade.
+- **Dépendance aux trades exceptionnels** : rendement et gain moyen **sans le 1 % des meilleurs trades**
+  et **sans les 10 meilleurs** ; part du gain brut venant des 10 meilleurs trades.
 - **Par période et contexte** : année, trimestre, paire, régime 1 h (tendance, volatilité), BTC en
   hausse ou en baisse sur 24 h.
 - **Références** : liquidités, **BTC acheté et gardé**, **univers à parts égales acheté et gardé**,
   **entrées au hasard** (même nombre de candidats, mêmes règles ; 200 tirages : distribution du Sharpe).
-- **Apport des familles** (sur la configuration retenue, en validation) : prix seul ; prix + volume ;
-  prix + volume + transactions ; + contexte ; + marché ; tout. Chaque variante compte comme un essai.
+- **Apport des familles** : Sharpe, AUC et score de Brier par validation pour chaque variante (§4) ;
+  la comparaison prix + volume contre prix + transactions répond directement à la question « volume
+  contre transactions ».
+- **Cibles** : pour chaque horizon, modèle et marge, Sharpe par validation en horizon fixe contre
+  triple barrière.
 
 ## 7. Critères (sur FINAL_TEST, déclarés avant)
 
@@ -128,7 +178,8 @@ L'approche n'est retenue (statut VALIDATED ; aucune exécution automatique pour 
 3. Sharpe supérieur à celui de BTC acheté et gardé **ou** perte maximale au moins deux fois plus
    faible pour un rendement positif ;
 4. au moins 100 trades, aucune paire ni trimestre > 60 % du gain ;
-5. résultat encore positif en coûts défavorables et avec une bougie de retard.
+5. résultat encore positif en coûts défavorables et avec une bougie de retard ;
+6. gain moyen encore positif **sans le 1 % des meilleurs trades**.
 Sinon : REJECTED (INCONCLUSIVE si moins de 100 trades).
 
 ## 8. Surveillance, suspension, positions existantes (si l'approche est un jour retenue)
@@ -136,30 +187,41 @@ Sinon : REJECTED (INCONCLUSIVE si moins de 100 trades).
 - **Âge du modèle** : réentraînement tous les 6 mois ; au-delà de 7 mois sans réentraînement →
   suspension des nouvelles entrées.
 - **Qualité des données** : bougie 15 min attendue absente ou contexte 1 h/4 h inconnu → aucune entrée
-  sur la paire (règle déjà active dans la surveillance) ; plus de 4 paires sans données → suspension
-  globale.
-- **Dégradation** : sur les 100 derniers trades (prospectifs), gain moyen dont l'IC95 est entièrement
-  < 0, ou perte du portefeuille > 1,5 × la perte maximale de la période finale → suspension des
-  nouvelles entrées jusqu'à revue.
+  sur la paire ; plus de 4 paires sans données → suspension globale.
+- **Dégradation** : sur les 100 derniers trades prospectifs, IC95 du gain moyen entièrement < 0, ou
+  perte du portefeuille > 1,5 × la perte maximale de la période finale → suspension jusqu'à revue.
 - **Calibration** : écart moyen entre probabilité prédite et fréquence observée > 10 points sur les
   200 derniers setups → suspension.
-- **Positions existantes** : jamais coupées par une suspension ; elles vont à leur sortie prévue (t+H) ;
-  une coupure de données au moment de la sortie est signalée et gérée par le bot (sortie au marché
-  dès le retour des données).
-- **Enregistrement** : toutes les exécutions, **échecs compris**, avec paramètres, versions et
-  empreintes des données (registre des expériences).
+- **Positions existantes** : jamais coupées par une suspension ; elles vont à leur sortie prévue ; une
+  coupure de données au moment de la sortie est signalée et gérée par le bot. Les limites (§5)
+  comptent toujours les positions ouvertes.
+- **Reprise après interruption, synchronisation, doublons** : côté CSI, publication idempotente
+  (`SIGNAL_ID` / `IDEMPOTENCY_KEY`, registre, réconciliation après crash, verrou d'instance, setups
+  anciens → EXPIRED) ; côté BinanceSpotManager, état vérifié par un audit dédié (DELIVERY_STATUS) avant
+  tout branchement.
+- **Enregistrement** : toutes les exécutions, **échecs compris** (statut FAILED), avec paramètres,
+  versions et empreintes des données.
 
-## 9. Swing (étape suivante, protocole séparé)
+## 9. Ce qui n'est pas fait
+
+Aucun signal publié, aucun branchement à la surveillance, aucun ordre. Un VALIDATED ouvrirait
+seulement une phase de signaux shadow prospectifs, puis une décision du propriétaire.
+
+## 10. Swing (étape suivante, protocole séparé)
 
 Après l'évaluation intraday : positions de plusieurs jours, cibles et entraînements distincts (4 h /
-1 jour), LightGBM, XGBoost et éventuellement CatBoost, **limite d'exposition commune** aux stratégies
-intraday et swing. Protocole écrit avant exécution, comme celui-ci.
+1 jour), LightGBM, XGBoost et éventuellement CatBoost, **limites d'exposition communes** (même module
+`risk/exposure.py`). Protocole écrit avant exécution, comme celui-ci.
 
 ## Historique
 
 - 2026-10-01, v1 (commit 69f7f6c) : version initiale, avant toute exécution.
-- 2026-10-01, v2 (avant toute exécution) : demandes du propriétaire — abstention et sélection par
-  espérance nette, étalonnage et vérification de calibration, stabilité sur 5 validations sur 7,
-  apport des familles de variables (prix, volume, transactions…), hypothèses du moteur, robustesse
-  (coûts défavorables, retard, bougies 1 min), analyses par période et contexte, surveillance et
-  suspension, conclusion « aucun avantage » sans consulter la période finale.
+- 2026-10-01, v2 (commit 4780d2f, avant toute exécution) : abstention et sélection par espérance
+  nette, étalonnage vérifié, stabilité, familles de variables, hypothèses du moteur, robustesse,
+  analyses par période et contexte, surveillance et suspension, conclusion « aucun avantage » sans
+  consulter la période finale.
+- 2026-10-01, v3 (avant toute exécution) : demandes du propriétaire — cible triple barrière cohérente
+  avec la sortie et les coûts, méta-filtre comparé à une abstention de même sévérité, limites
+  d'exposition centralisées (actifs, stratégies, positions ouvertes), bootstrap par blocs et
+  dépendance aux trades exceptionnels (critère 6), audit des fuites exécuté avant sélection, variante
+  prix + transactions, reprise et doublons audités. 108 → 224 essais déclarés.
