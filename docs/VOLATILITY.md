@@ -225,9 +225,34 @@ En échec, aucun résultat n'est produit et aucun essai n'est enregistré (`Leak
   sur 24 h de bougies 15 min.
 - **Variances nulles** : exclues (§2, §3). Elles sont attendues très rares.
 
-## 12. Résultats
+## 12. Résultats (exécution unique du 2026-10-01)
 
-Aucun. Le protocole n'a pas été exécuté sur les données réelles.
+Exécution `VOL-20261001T194742Z-926ff2`, code du commit `81f9f13` (arbre propre), audit des fuites
+réussi, 38 paires évaluées (POL et RENDER sans origine), 2 202 à 2 321 jours par horizon de 2019 à
+2025-06. 15 comparaisons ; programme : **713 essais**. Période finale non consultée.
+
+**Verdict : PREVISION_UTILE.** Retenus : **M5 LightGBM** à 1 et 3 jours, **M4 HAR + BTC** à 7 jours.
+
+| Horizon | QLIKE de M0 (référence) | Meilleur modèle utile | QLIKE | Écart [IC 99,67 %] |
+|---|---|---|---|---|
+| 1 jour | 0,492 | M5 LightGBM | 0,424 | −0,068 [−0,119 ; −0,018] |
+| 3 jours | 0,437 | M5 LightGBM | 0,344 | −0,092 [−0,158 ; −0,027] |
+| 7 jours | 0,448 | M4 HAR + BTC | 0,285 | −0,163 [−0,257 ; −0,070] |
+
+- Les HAR (M2 à M4) ont la meilleure QLIKE à 1 et 3 jours (−0,095 et −0,113, IC entièrement < 0, les
+  7 années, presque toutes les paires) mais une erreur de log RV un peu plus grande que M0 : le
+  critère 4 les écarte à ces horizons, comme déclaré. M5 passe les quatre critères.
+- À 7 jours, les cinq modèles passent les quatre critères ; EWMA lui-même bat M0.
+- La référence M0 (volatilité des 7 derniers jours × √horizon) est simple : « mieux que M0 » veut
+  dire qu'on prévoit l'ampleur des prochains jours plus finement que par la règle usuelle, pas que la
+  prévision est précise.
+
+Ce que ce résultat permet, et ce qu'il ne permet pas :
+- il permet de dimensionner une position ou de placer un stop et un objectif selon la volatilité
+  prévue, et d'afficher une « volatilité prévue » à côté d'un signal ;
+- il ne dit rien de la direction ni de la rentabilité : ce n'est pas un signal d'achat ;
+- c'est une sélection sur DEVELOPMENT (15 comparaisons sur des données en partie déjà parcourues) :
+  sa confirmation sur la période finale réservée reste à décider par le propriétaire.
 
 ## Historique
 

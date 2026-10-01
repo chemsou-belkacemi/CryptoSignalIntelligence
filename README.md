@@ -154,6 +154,14 @@ Même protocole que le swing, rejoué sur 2017-2025 et 40 paires (12 validations
 système stable (au mieux 7 validations positives sur 12, il en faut 9). Programme : 698 essais.
 Détail : [docs/ML_SWING_LONG.md §10](docs/ML_SWING_LONG.md).
 
+### Prévision de volatilité : utile (2026-10-01) — l'ampleur, pas la direction
+
+Premier résultat positif du programme, sur ce qu'on attendait : prévoir **l'ampleur** des mouvements
+des 1, 3 et 7 prochains jours. LightGBM (1 et 3 jours) et HAR + BTC (7 jours) battent la règle
+« volatilité des 7 derniers jours » sur les 7 années et presque toutes les paires, avec un intervalle
+corrigé de Bonferroni. Cela sert à dimensionner les positions et à placer stops et objectifs ; cela ne
+dit rien de la direction ni de la rentabilité. Détail : [docs/VOLATILITY.md §12](docs/VOLATILITY.md).
+
 ### Pourquoi elles perdent, et criblage des familles suivantes
 
 Avant frais, A, B et C n'ont pratiquement aucun avantage (≈ +0,01 R, −0,06 R, +0,03 R) : les coûts
