@@ -164,6 +164,48 @@ et taux de gain ; IC par blocs circulaires (blocs d'au moins deux fois l'horizon
 trades exceptionnels ; références BTC et univers achetés-gardés, entrées au hasard ; analyse par année,
 trimestre, paire et contexte ; journal de chaque décision ; modèles archivés avec leur empreinte.
 
+## 7. Résultats de la sélection (2026-10-01)
+
+Sélection `MLS-20261001T085521Z-a04c71` (protocole v3, commit 0f4b8c8) : **AUCUN_AVANTAGE_DEMONTRE**.
+- 136 essais comptés ; le programme en compte désormais 626 sur DEVELOPMENT.
+- Audit des fuites réussi : aucun écart, mutations 4 h et 1 jour détectées. Aucune validation en échec.
+- La période finale n'est pas consultée et reste vierge.
+
+| Mesure | Résultat |
+|---|---|
+| Systèmes stables / admissibles | 0 / 0 sur 126 systèmes de grille ; aucune variante conservée |
+| Validations > 0 **sans** les minimums par validation | au mieux 4 sur 6 ; 70 systèmes sur 126 en ont 0 ou 1 |
+| AUC (médiane, quartiles) | 0,51 (0,47 – 0,53) ; 0,51 / 0,50 / 0,51 à 1, 3 et 7 jours |
+| Brier skill (médiane) | −0,034 ; positif dans 34 cas sur 252 (−0,009 / −0,036 / −0,079 à 1, 3 et 7 jours) |
+| Abstention | 354 couples (système, validation) sur 756 ont moins de 20 trades |
+| Triple barrière contre horizon fixe | meilleure pour 20 des 63 couples (horizon, modèle, marge) |
+
+- **Le verdict ne tient pas aux minimums de la v3.** Même en ignorant les 20 trades et les 20 périodes
+  d'entrée par validation, aucun système n'atteint 5 validations positives sur 6.
+- **Les probabilités ne prédisent rien.** Étalonnées, elles font moins bien que le simple taux de base
+  dans 87 % des cas, et l'AUC reste celle du hasard.
+- **Référence de diagnostic (non admissible)** : `fh_H168_catboost_depth4_n400_m0bp_tout`, le meilleur
+  Sharpe médian.
+  - Sharpe par validation : 2,11 (26 trades) ; aucun trade ; 1,79 ; −1,40 ; 2,99 ; −0,95.
+  - Gain moyen +1,31 % par trade, IC95 [−1,83 % ; +4,44 %] ; +0,40 % sans le 1 % des meilleurs trades.
+  - Sharpe inférieur à BTC acheté-gardé dans 4 validations sur 6.
+  - Le méta-filtre n'est évaluable que dans 3 validations, et il n'est pas conservé.
+
+**Lecture.** Sur ces 16 paires, de 2022-07 à 2025-06, les variables testées ne prédisent pas le
+rendement net à 1, 3 ou 7 jours mieux que le taux de base. Ces variables sont :
+- prix, volume et transactions ;
+- contexte 4 h et 1 jour ;
+- BTC ;
+- coupe transversale.
+
+C'est le quatrième résultat dans le même sens, après le méta-labeling du lot 5, le criblage à 3 et 7 jours
+et l'intraday. Rien n'est branché et aucun signal n'est publié.
+
+**Suite possible.**
+- Une source d'information vraiment différente, et non une nouvelle combinaison des mêmes bougies.
+- Avant tout nouveau programme, l'univers point-in-time (expérience avancée 1 de l'intraday).
+- Avec 626 essais déjà comptés, un « admissible » isolé serait encore moins probant qu'avant.
+
 ## Historique
 
 - 2026-10-01, v1 : version initiale, avant toute exécution.
@@ -190,3 +232,5 @@ trimestre, paire et contexte ; journal de chaque décision ; modèles archivés 
   - Phrase de la règle corrigée dans le rapport.
   - Tests déterministes ajoutés : IC calculé à la main, excès exact avec exclusions, cache, méta-filtre
     contre l'abstention de même sévérité.
+- 2026-10-01, résultats de la sélection ajoutés (§7) : AUCUN_AVANTAGE_DEMONTRE ; protocole inchangé,
+  période finale non consultée.

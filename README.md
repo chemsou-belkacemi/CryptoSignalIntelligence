@@ -111,6 +111,16 @@ LightGBM, XGBoost et logistique sur 15 min + contexte 1 h/4 h, 224 essais décla
 contient 0, devient négatif en coûts défavorables et sans le 1 % des meilleurs trades, et doit tout à
 2022. La période finale n'est pas consultée. Détail : [docs/ML_INTRADAY.md §12](docs/ML_INTRADAY.md).
 
+### ML swing (lot 5 ter) : aucun avantage démontré (2026-10-01)
+
+LightGBM, XGBoost, CatBoost et logistique sur bougies 1 h, avec contexte 4 h / 1 jour, BTC et coupe
+transversale ; horizons de 1 à 7 jours ; 136 essais déclarés avant exécution, règle stricte v6.
+- Aucun système n'est stable, même en ignorant les minimums par validation.
+- Les probabilités ne font pas mieux que le taux de base (AUC médiane 0,51).
+- La période finale n'est pas consultée.
+
+Détail : [docs/ML_SWING.md §7](docs/ML_SWING.md).
+
 ### Pourquoi elles perdent, et criblage des familles suivantes
 
 Avant frais, A, B et C n'ont pratiquement aucun avantage (≈ +0,01 R, −0,06 R, +0,03 R) : les coûts
