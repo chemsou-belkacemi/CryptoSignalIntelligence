@@ -170,10 +170,13 @@ Indépendant de BinanceSpotManager (servi par le service `api` de CSI ; sans Doc
   0), et l'avis de ses stratégies sur la dernière bougie **en simulation** (rien n'est publié).
   Adresse directe : `http://127.0.0.1:8503/?paire=ETHUSDT&horizon=24h`. Données anciennes (surveillance
   arrêtée) : bouton de mise à jour depuis les données publiques de Binance.
+- **Marché** : toutes les paires à l'horizon choisi (prix, 24 h, régime, fréquence de hausse, état du plan),
+  avec un bouton Détail ; adresse directe `http://127.0.0.1:8503/?onglet=marche&lancer=1`.
 - **Évaluer un signal** : coller un signal (Telegram ou écrit à la main) → contrôles, géométrie,
   taux de base de la même géométrie, contexte, avis expliqué ; enregistré pour suivre son issue.
-- **Suivi** : santé de la surveillance, verdicts de tous les modèles, signaux évalués, bilan des
-  groupes, signaux trouvés par les stratégies.
+- **Suivi** : santé de la surveillance, verdicts de tous les modèles (registre de la surveillance et registre
+  de recherche du PC, monté en lecture seule), signaux évalués, bilan des groupes, signaux trouvés par les
+  stratégies.
 
 Chaque pourcentage est une fréquence historique définie à côté de sa valeur, jamais une promesse :
 aucune stratégie de CSI n'a démontré d'avantage exploitable à ce jour. Même analyse dans le
