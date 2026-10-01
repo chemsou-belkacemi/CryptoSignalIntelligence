@@ -166,13 +166,23 @@ class SignalRegistry:
                         row["signal_id"]))
         return status
 
-    def reconcile(self) -> dict[str, int]:
-        """Après crash : termine les PENDING, supprime les .tmp orphelins."""
-        counts = {"published": 0, "conflicts": 0, "tmp_removed": 0}
+    def reconcile(self, *, publish: bool = True, now: datetime | None = None) -> dict[str, int]:
+        """Après crash : termine les PENDING et supprime les .tmp orphelins (à appeler sous le verrou d'instance).
+
+        `publish=False` (publication suspendue après une restauration) : aucun PENDING n'est écrit.
+        Un PENDING dont le message a expiré (EXPIRES_AT) n'est jamais écrit : le consommateur le refuserait ;
+        il reste PENDING dans le registre, comme trace.
+        """
+        counts = {"published": 0, "conflicts": 0, "tmp_removed": 0, "held": 0, "expired": 0}
+        moment = now or datetime.now(UTC)
         with self.connect() as db:
             pending = db.execute("SELECT * FROM signals WHERE status='PENDING'").fetchall()
         for row in pending:
-            if self._finish(row) == "PUBLISHED":
+            if not publish:
+                counts["held"] += 1
+            elif parse(row["payload"]).expires_at <= moment:
+                counts["expired"] += 1
+            elif self._finish(row) == "PUBLISHED":
                 counts["published"] += 1
             else:
                 counts["conflicts"] += 1

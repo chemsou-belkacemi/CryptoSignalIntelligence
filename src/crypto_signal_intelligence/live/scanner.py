@@ -34,6 +34,7 @@ from ..features.loader import MARKET_CONTEXT_SYMBOL, MissingData, load_inputs
 from ..signals.analyze import AnalysisOutcome, analyze
 from ..signals.outbox import SignalRegistry
 from ..strategies import registry
+from .backup import publication_suspended
 from .lock import InstanceLock
 
 log = logging.getLogger(__name__)
@@ -255,7 +256,8 @@ def run_forever(settings: Settings, *, clock: Callable[[], datetime] = lambda: d
     started_at = clock()
     with InstanceLock(settings.root / settings.live.lock_file):
         # Reprise : publications interrompues terminées, .tmp orphelins supprimés, registre conservé.
-        counts = SignalRegistry(settings.signals_db, settings.publication_dir()).reconcile()
+        counts = SignalRegistry(settings.signals_db, settings.publication_dir()).reconcile(
+            publish=publication_suspended(settings) is None, now=clock())
         log.info("démarrage : réconciliation du registre %s", counts)
         _refresh_dashboard(settings, clock())       # visible dès le démarrage (« pas prêt » avant le 1er cycle)
         worker.start()
@@ -281,6 +283,11 @@ def _cycles(settings: Settings, *, clock: Callable[[], datetime], sleep: Callabl
             if should_stop():
                 return cycles
             sleep(min(remaining, 1.0))
+        try:      # publication restée PENDING (fichier verrouillé…) : terminée sans attendre un redémarrage
+            SignalRegistry(settings.signals_db, settings.publication_dir()).reconcile(
+                publish=publication_suspended(settings) is None, now=clock())
+        except Exception:  # noqa: BLE001 - la réconciliation n'arrête jamais la surveillance
+            log.exception("réconciliation du registre")
         report = scan_cycle(settings, now=clock(), decision_close=target - grace, downloader=downloader,
                             clock=clock, sleep=sleep)
         cycles += 1

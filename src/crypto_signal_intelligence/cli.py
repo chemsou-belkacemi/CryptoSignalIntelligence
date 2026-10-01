@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 
@@ -143,6 +144,23 @@ def _heavy_job(settings) -> None:
     atexit.register(report_peak)
 
 
+@contextmanager
+def _exclusive(settings):
+    """Verrou d'instance (le même que la surveillance) pour toute commande qui publie ou réconcilie :
+    jamais deux écrivains sur le registre ni un `.tmp` supprimé pendant qu'un autre l'écrit."""
+    from .live.lock import InstanceAlreadyRunning, InstanceLock
+    try:
+        lock = InstanceLock(settings.root / settings.live.lock_file)
+        lock.acquire()
+    except InstanceAlreadyRunning as exc:
+        console.print(f"[red]Refusé :[/red] {exc}. Arrêter la surveillance d'abord (une seule instance publie).")
+        raise typer.Exit(3) from None
+    try:
+        yield
+    finally:
+        lock.release()
+
+
 def _strategies(requested: list[str] | None) -> list[str]:
     from .strategies.registry import STRATEGIES
     names = [s.upper() for s in requested] if requested else list(STRATEGIES)
@@ -176,14 +194,15 @@ def analyze(symbol: list[str] = typer.Option(None, help="Paire(s) ; défaut : co
                     run_download(settings, sym, tf, now=now)
     now = _now()
     console.print("[yellow]INTEGRATION_UNVERIFIED[/yellow] : sortie vers signals/shadow uniquement.")
-    for name in strategies:
-        for sym in symbols:
-            out = run_analyze(settings, sym, name, now=now)
-            if out.action == "BUY":
-                console.print(f"[green]{sym} BUY[/green] {name} ({out.publication_status}) → {out.signal_path}")
-            else:
-                console.print(f"{sym} {name} NO_TRADE [bold]{out.reason_code}[/bold] "
-                              f"(bougie {out.decision_time:%Y-%m-%d %H:%M} UTC) — {'; '.join(out.details)}")
+    with _exclusive(settings):
+        for name in strategies:
+            for sym in symbols:
+                out = run_analyze(settings, sym, name, now=now)
+                if out.action == "BUY":
+                    console.print(f"[green]{sym} BUY[/green] {name} ({out.publication_status}) → {out.signal_path}")
+                else:
+                    console.print(f"{sym} {name} NO_TRADE [bold]{out.reason_code}[/bold] "
+                                  f"(bougie {out.decision_time:%Y-%m-%d %H:%M} UTC) — {'; '.join(out.details)}")
 
 
 @app.command()
@@ -283,6 +302,48 @@ def ml_evaluate(strategy: list[str] = typer.Option(None, help="Stratégie(s) ; d
         color = "green" if result.verdict == "USEFUL_OOS" else "red" if result.verdict == "NOT_USEFUL" else "yellow"
         console.print(f"[bold {color}]Verdict : {result.verdict}[/bold {color}] — rapport : "
                       f"{result.report_dir / 'report.md'} (aucune influence sur les signaux)\n")
+
+
+@app.command("ml-intraday")
+def ml_intraday(stage: str = typer.Argument("select", help="select (DEVELOPMENT) | final (FINAL_TEST, une fois)"),
+                i_understand_final_test: bool = typer.Option(False, "--i-understand-final-test",
+                                                             help="Consulter la période finale (enregistré)"),
+                selection_run: str = typer.Option(None, help="Sélection de référence pour `final` ; défaut : la dernière"),
+                allow_dirty: bool = typer.Option(False, help="Accepter du code non commité (essai local, enregistré)"),
+                verbose: bool = False):
+    """Lot 5 bis : ML intraday (docs/ML_INTRADAY.md) — sélection glissante, puis estimation unique."""
+    from .ml.intraday import protocol
+    from .research.protocol import FinalTestLocked
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    if stage == "select":
+        with console.status("sélection…") as status:
+            result = protocol.select(settings, now=_now(), allow_dirty=allow_dirty,
+                                     progress=lambda text: status.update(f"ML intraday : {text}"))
+        payload = result.payload
+        console.rule(f"ML intraday — {result.run_id}")
+        console.print(f"Audit des fuites : {'réussi' if result.leak_audit['passed'] else 'ÉCHEC'} ; essais : "
+                      f"{payload['n_trials']} ; programme : {payload['program_trials']} ; systèmes admissibles : "
+                      f"{payload['admissible_count']}")
+        for row in payload["top_systems"][:5]:
+            console.print(f"  {row['key']} : {row['positive_folds']}/{row['evaluated_folds']} validations > 0, "
+                          f"{row['trades']} trades, Sharpe médian {row['median_sharpe']}")
+        color = "green" if result.conclusion == protocol.ADMISSIBLE else "red"
+        console.print(f"[bold {color}]{result.conclusion}[/bold {color}] — rapport : {result.report_dir / 'report.md'}")
+        return
+    if stage != "final":
+        console.print("[red]Étape inconnue[/red] : select | final")
+        raise typer.Exit(2)
+    try:
+        payload = protocol.final(settings, now=_now(), allow_final_test=i_understand_final_test,
+                                 selection_run=selection_run, progress=lambda text: console.print(f"[dim]{text}[/dim]"))
+    except FinalTestLocked as exc:
+        console.print(f"[yellow]Période finale non consultée :[/yellow] {exc}")
+        raise typer.Exit(3) from None
+    for c in payload["criteria"]:
+        console.print(f"  {'[green]✔[/green]' if c['passed'] else '[red]✘[/red]'} {c['number']}. {c['label']}")
+    console.print(f"[bold]Verdict : {payload['verdict']}[/bold] (consultations de la période finale : "
+                  f"{payload['final_test_consultations']})")
 
 
 @app.command()
@@ -582,7 +643,8 @@ def scan(mode: str = typer.Option("shadow", help="shadow uniquement tant que l'i
     if mode != settings.publication.mode:
         console.print(f"[red]mode {mode} refusé[/red] : la configuration publie en {settings.publication.mode}.")
         raise typer.Exit(2)
-    _print_cycle(scan_cycle(settings, now=_now(), refresh=not no_refresh))
+    with _exclusive(settings):
+        _print_cycle(scan_cycle(settings, now=_now(), refresh=not no_refresh))
 
 
 @app.command()
@@ -756,17 +818,20 @@ def publication_resume(yes: bool = typer.Option(False, "--yes", help="Confirme l
     if reason is None:
         console.print("aucune suspension en cours")
         return
-    counts = SignalRegistry(settings.signals_db, settings.publication_dir()).reconcile()
+    registry = SignalRegistry(settings.signals_db, settings.publication_dir())
+    pending = [r for r in registry.rows() if r["status"] == "PENDING"]
     unknown = [r for r in execution_report(settings) if r.channel == "outbox" and r.demo_status == "UNKNOWN"]
     console.print(f"suspension : {reason}")
-    console.print(f"registre : {counts} ; signaux outbox sans confirmation du consommateur : {len(unknown)}")
+    console.print(f"registre : {len(pending)} publication(s) en attente (terminées seulement après --yes) ; "
+                  f"signaux outbox sans confirmation du consommateur : {len(unknown)}")
     for row in unknown:
         console.print(f"  {row.signal_id} {row.symbol} {row.strategy} (entrées jusqu'à {row.entry_expires_at[:16]})")
     if not yes:
         console.print("Vérifier le registre du consommateur (mêmes SIGNAL_ID / IDEMPOTENCY_KEY), puis relancer avec --yes.")
         raise typer.Exit(1)
-    resume_publication(settings)
-    console.print("publication reprise")
+    with _exclusive(settings):
+        resume_publication(settings)
+        console.print(f"publication reprise ; registre : {registry.reconcile()}")
 
 
 @app.command("exit-policies")
@@ -793,7 +858,10 @@ def exit_policies_command(write: bool = typer.Option(False, "--write",
 @app.command("signals-reconcile")
 def signals_reconcile():
     """Termine les publications interrompues (PENDING) et nettoie les .tmp orphelins."""
+    from .live.backup import publication_suspended
     from .signals.outbox import SignalRegistry
     settings = _settings()
-    counts = SignalRegistry(settings.signals_db, settings.publication_dir()).reconcile()
+    with _exclusive(settings):
+        counts = SignalRegistry(settings.signals_db, settings.publication_dir()).reconcile(
+            publish=publication_suspended(settings) is None)
     console.print(counts)

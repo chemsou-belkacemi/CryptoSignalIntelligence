@@ -187,8 +187,8 @@ def test_publication_is_atomic_idempotent_and_recoverable(tmp_path):
                    (other.signal_id, other.idempotency_key, str(tmp_path / "shadow"), "CSI-TEST-3.txt",
                     sha256_text(text), text))
     (tmp_path / "shadow" / "CSI-ORPHAN.txt.tmp").write_text("partiel", encoding="utf-8")
-    counts = registry.reconcile()
-    assert counts == {"published": 1, "conflicts": 0, "tmp_removed": 1}
+    counts = registry.reconcile(now=now)
+    assert counts == {"published": 1, "conflicts": 0, "tmp_removed": 1, "held": 0, "expired": 0}
     assert parse((tmp_path / "shadow" / "CSI-TEST-3.txt").read_text(encoding="utf-8")) == other
     assert not list((tmp_path / "shadow").glob("*.tmp"))
 
