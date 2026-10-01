@@ -444,3 +444,19 @@ def test_stale_btc_context_and_a_recent_data_gap_are_reported(market):
     gap = pair_outlook(settings, "ETHUSDT", "4h", now=now)
     assert gap["context"]["data_gap_recent"] and "trou" in gap["plan"]["unavailable"]
     assert gap["plan"]["state"] == "INSUFFISANT" and "copy_text" not in gap["plan"]
+
+
+
+def test_models_route_also_reads_the_research_registry_read_only(settings, tmp_path, monkeypatch):
+    from crypto_signal_intelligence.research.experiments import ExperimentRegistry
+    research = ExperimentRegistry(tmp_path / "recherche" / "experiments.sqlite3")
+    common = {"hypothesis": "h", "strategy_version": 1, "variant": "v", "params": {}, "period_label": "DEVELOPMENT",
+              "period_start": "a", "period_end": "b", "universe": [], "data_hashes": {}, "git_commit": "x",
+              "dependencies": {}, "seed": 1, "cost_scenario": "central", "simulation_rules": {}, "report_dir": "r"}
+    research.record(run_id="MLS-1", created_at="2026-10-01T06:00:00", kind="ML_SWING_SELECT", strategy="ML_SWING",
+                    metrics={"conclusion": "AUCUN_AVANTAGE_DEMONTRE", "n_trials": 136}, status="COMPLETED", **common)
+    monkeypatch.setenv("CSI_RESEARCH_REGISTRY", str(research.db_path))
+    out = CsiApi(settings).dispatch("GET", "/models", {}, None)
+    assert [(m["kind"], m["verdict"], m["source"]) for m in out["models"]] == [
+        ("ML_SWING_SELECT", "AUCUN_AVANTAGE_DEMONTRE", "recherche")]
+    assert out["research_program_trials"] == 136 and out["program_trials"] == 0

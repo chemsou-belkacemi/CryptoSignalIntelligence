@@ -67,7 +67,10 @@ services:
       - monitor
     volumes:
       - csi-state:/srv/csi          # écriture : les évaluations sont enregistrées puis résolues par monitor
+      # Registre de RECHERCHE du PC (sélections ML lancées hors Docker), en lecture seule, pour l'onglet Suivi.
+      - ./experiments:/srv/research:ro
     environment:
+      CSI_RESEARCH_REGISTRY: /srv/research/experiments.sqlite3
       CSI_API_TOKEN: ${CSI_API_TOKEN:-}
       CSI_EXTERNAL__AUTO_ADD_PAIRS: ${CSI_AUTO_ADD_PAIRS:-true}
     command: ["python", "-m", "crypto_signal_intelligence.api", "--host", "0.0.0.0", "--port", "8503"]

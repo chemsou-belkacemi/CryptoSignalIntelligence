@@ -69,6 +69,12 @@ STATIC_FILES = {"/": ("index.html", "text/html; charset=utf-8"), "/app.js": ("ap
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
        "frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
 OUTLOOK_CACHE_SIZE = 32
+RESEARCH_REGISTRY_ENV = "CSI_RESEARCH_REGISTRY"
+MODEL_KINDS = {"WALK_FORWARD": "stratégie (walk-forward)", "ML_META": "méta-labeling (lot 5)",
+               "ML_INTRADAY_SELECT": "ML intraday : sélection (lot 5 bis)",
+               "ML_INTRADAY_FINAL": "ML intraday : période finale",
+               "ML_SWING_SELECT": "ML swing : sélection (lot 5 ter)", "ML_SWING_FINAL": "ML swing : période finale",
+               "SCREEN": "criblage de familles"}
 
 VERDICT_TEXT = {
     "REFUSE": "Refusé : le signal ne peut pas être évalué ou est déjà mort (voir le contrôle en échec).",
@@ -253,34 +259,49 @@ class CsiApi:
 
     def models(self) -> dict:
         """Dernier verdict de chaque modèle de CSI, tel qu'enregistré par le protocole (les backtests de
-        référence, purement descriptifs, ne portent pas de verdict et ne sont pas listés)."""
-        db_path = self.settings.experiments_db
-        if not db_path.exists():
-            return {"models": [], "program_trials": 0}
-        with closing(sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)) as db:
-            rows = db.execute("""SELECT kind, strategy, run_id, created_at, status, metrics FROM runs r
-                                 WHERE kind IN ('WALK_FORWARD', 'ML_META', 'ML_INTRADAY_SELECT',
-                                                'ML_INTRADAY_FINAL', 'SCREEN')
-                                   AND rowid = (SELECT MAX(rowid) FROM runs WHERE kind = r.kind
-                                                AND strategy = r.strategy)
-                                 ORDER BY kind, strategy""").fetchall()
-            trials = db.execute("""SELECT COALESCE(SUM(COALESCE(json_extract(metrics, '$.n_trials'), 1)), 0)
-                                   FROM runs WHERE period_label='DEVELOPMENT'""").fetchone()[0]
-        labels = {"WALK_FORWARD": "stratégie (walk-forward)", "ML_META": "méta-labeling (lot 5)",
-                  "ML_INTRADAY_SELECT": "ML intraday : sélection (lot 5 bis)",
-                  "ML_INTRADAY_FINAL": "ML intraday : période finale", "SCREEN": "criblage de familles"}
-        out = []
-        for kind, strategy, run_id, created_at, status, metrics_text in rows:
-            metrics = json.loads(metrics_text or "{}")
-            verdict = metrics.get("conclusion") or metrics.get("verdict")
-            if kind == "SCREEN":
-                passing = [r for r in metrics.get("rows", []) if r.get("beats_costs")]
-                verdict = f"{len(passing)} CONDITION(S) AU-DELÀ DES COÛTS" if passing else "AUCUNE_CONDITION_AU_DELA_DES_COUTS"
-            if status == "FAILED":
-                verdict = "ÉCHEC D'EXÉCUTION"
-            out.append({"kind": kind, "label": labels.get(kind, kind), "strategy": strategy, "run_id": run_id,
-                        "created_at": created_at, "status": status, "verdict": verdict or status})
-        return {"models": out, "program_trials": int(trials),
+        référence, purement descriptifs, ne portent pas de verdict et ne sont pas listés).
+
+        Deux registres possibles : celui de la surveillance (état Docker) et, s'il est monté en lecture seule,
+        le registre de RECHERCHE du PC (`CSI_RESEARCH_REGISTRY`), où tournent les sélections ML."""
+        sources = [("surveillance", self.settings.experiments_db, False)]
+        research = os.environ.get(RESEARCH_REGISTRY_ENV)
+        if research:
+            sources.append(("recherche", Path(research), True))
+        latest: dict[tuple[str, str], dict] = {}
+        trials: dict[str, int] = {}
+        for source, db_path, snapshot in sources:
+            if not db_path.exists():
+                continue
+            uri = f"file:{db_path.as_posix()}?mode=ro" + ("&immutable=1" if snapshot else "")
+            try:
+                with closing(sqlite3.connect(uri, uri=True)) as db:
+                    rows = db.execute(f"""SELECT kind, strategy, run_id, created_at, status, metrics FROM runs r
+                                          WHERE kind IN ({",".join("?" for _ in MODEL_KINDS)})
+                                            AND rowid = (SELECT MAX(rowid) FROM runs WHERE kind = r.kind
+                                                         AND strategy = r.strategy)""", tuple(MODEL_KINDS)).fetchall()
+                    trials[source] = int(db.execute(
+                        """SELECT COALESCE(SUM(COALESCE(json_extract(metrics, '$.n_trials'), 1)), 0)
+                           FROM runs WHERE period_label='DEVELOPMENT'""").fetchone()[0])
+            except sqlite3.Error:
+                log.warning("registre %s illisible (%s)", source, db_path)
+                continue
+            for kind, strategy, run_id, created_at, status, metrics_text in rows:
+                metrics = json.loads(metrics_text or "{}")
+                verdict = metrics.get("conclusion") or metrics.get("verdict")
+                if kind == "SCREEN":
+                    passing = [r for r in metrics.get("rows", []) if r.get("beats_costs")]
+                    verdict = (f"{len(passing)} CONDITION(S) AU-DELÀ DES COÛTS" if passing
+                               else "AUCUNE_CONDITION_AU_DELA_DES_COUTS")
+                if status == "FAILED":
+                    verdict = "ÉCHEC D'EXÉCUTION"
+                item = {"kind": kind, "label": MODEL_KINDS[kind], "strategy": strategy, "run_id": run_id,
+                        "created_at": created_at, "status": status, "verdict": verdict or status, "source": source}
+                key = (kind, strategy)
+                if key not in latest or created_at > latest[key]["created_at"]:
+                    latest[key] = item
+        out = sorted(latest.values(), key=lambda m: (m["kind"], m["strategy"]))
+        return {"models": out, "program_trials": trials.get("surveillance", 0),
+                "research_program_trials": trials.get("recherche"),
                 "note": "Aucun modèle n'est validé à ce jour : CSI n'annonce aucune rentabilité."}
 
     def analyze_pair(self, payload: dict) -> dict:

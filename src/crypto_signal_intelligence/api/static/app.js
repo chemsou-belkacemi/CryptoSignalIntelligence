@@ -434,9 +434,11 @@ async function loadFollow(force = false) {
           ["Paires configurées", (universe.configured || []).map(pair).join(", ")],
           ["Paires ajoutées", (universe.user_pairs || []).map((p) => `${pair(p.symbol)} (${p.status})`).join(", ") || "aucune"],
         ]))),
-      card("Verdicts des modèles", el("p", { class: "muted small", text: `${models.note} Essais du programme de recherche : ${models.program_trials}.` }),
-        table(["Modèle", "Stratégie", "Verdict", "Date"], (models.models || []).map((m) => [m.label, m.strategy,
-          { node: el("strong", { class: verdictClass(m.verdict), text: m.verdict || m.status }) }, when(m.created_at)]),
+      card("Verdicts des modèles", el("p", { class: "muted small", text: `${models.note} Essais comptés sur DEVELOPMENT : `
+          + (isNum(models.research_program_trials) ? `registre de recherche ${models.research_program_trials}, ` : "")
+          + `registre de la surveillance ${models.program_trials}.` }),
+        table(["Modèle", "Stratégie", "Verdict", "Date", "Registre"], (models.models || []).map((m) => [m.label, m.strategy,
+          { node: el("strong", { class: verdictClass(m.verdict), text: m.verdict || m.status }) }, when(m.created_at), m.source]),
         "aucun modèle évalué")),
       card("Signaux évalués récemment", table(["Reçu", "Source", "Paire", "Entrée · stop · TP1", "Avis", "Issue", "R"],
         (recent.signals || []).map((x) => [when(x.received_at), x.source, pair(x.symbol), `${price(x.entry)} · ${price(x.stop)} · ${price(x.tp1)}`,
