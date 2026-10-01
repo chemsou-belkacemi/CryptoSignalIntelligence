@@ -259,3 +259,4 @@ def test_the_page_offers_the_history_import():
     page, script = (static / "index.html").read_text(encoding="utf-8"), (static / "app.js").read_text(encoding="utf-8")
     assert 'id="history-file"' in page and 'id="history-run"' in page and "Exporter l'historique" in page
     assert '"/sources/history"' in script and "slimExport" in script and "date_unixtime" in script
+    assert 'api("/sources/history")' in script and "avis lié au groupe" in script     # carte du Suivi

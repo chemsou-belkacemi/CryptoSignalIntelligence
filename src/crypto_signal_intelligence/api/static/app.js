@@ -680,9 +680,9 @@ async function loadFollow(force = false) {
   if (state.followLoaded && !force) return;
   busy(target, "Chargement…");
   try {
-    const [health, models, recent, sources, generated, universe, admissions] = await Promise.all([
+    const [health, models, recent, sources, generated, universe, admissions, history] = await Promise.all([
       api("/health"), api("/models"), api("/signals/recent?limit=15"), api("/sources"), api("/signals/generated?limit=10"), api("/universe"),
-      refreshAdmissions(),
+      refreshAdmissions(), api("/sources/history"),
     ]);
     state.followLoaded = true;
     state.models = models;
@@ -706,6 +706,11 @@ async function loadFollow(force = false) {
             m.detail ? el("div", { class: "small muted", text: m.detail }) : null) }, when(m.created_at), m.source]),
         "aucun modèle évalué")),
       admissionsCard(admissions),
+      card("Groupes Telegram : avis lié au groupe",
+        el("p", { class: "muted small", text: "Un groupe prouvé (en direct, ou sur son historique importé depuis l'onglet « Évaluer un signal ») rend ses signaux favorables malgré une géométrie défavorable. Preuve sur historique valable 30 jours." }),
+        table(["Groupe", "Preuve sur historique", "Importé le"], (history.groups || []).map((g) => [g.source,
+          { node: el("span", { class: g.proven ? "ok" : "warn", text: g.text || "–" }) }, when(g.generated_at)]),
+          "aucun historique importé : exporte un groupe depuis Telegram Desktop (JSON) puis importe-le dans « Évaluer un signal »")),
       card("Signaux évalués récemment", table(["Reçu", "Source", "Paire", "Entrée · stop · TP1", "Avis", "Issue", "R"],
         (recent.signals || []).map((x) => [when(x.received_at), x.source, pair(x.symbol), `${price(x.entry)} · ${price(x.stop)} · ${price(x.tp1)}`,
           x.verdict, x.outcome || "en cours", fmt(x.outcome_r, 2, true)]), "aucun signal évalué")),
