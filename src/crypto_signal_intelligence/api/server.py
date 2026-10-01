@@ -93,7 +93,8 @@ MODEL_KINDS = {"WALK_FORWARD": "stratégie (walk-forward)", "ML_META": "méta-la
                "ML_SWING_LONG_SELECT": "ML swing long (2017-2025, 40 paires), 3 à 7 jours : sélection (lot 5 quater)",
                "ML_SWING_LONG_FINAL": "ML swing long (2017-2025, 40 paires), 3 à 7 jours : période finale",
                "SCREEN": "criblage de familles", "FACTORS": "portefeuilles hebdomadaires (lot 7)",
-               "VOLATILITY": "prévision de volatilité à 1, 3 et 7 jours (lot 7)"}
+               "VOLATILITY": "prévision de volatilité à 1, 3 et 7 jours (lot 7)",
+               "LONG_HORIZON": "horizons longs : tendance + volatilité prévue, basse volatilité (lot 8)"}
 
 VERDICT_TEXT = {
     "REFUSE": "Refusé : le signal ne peut pas être évalué ou est déjà mort (voir le contrôle en échec).",

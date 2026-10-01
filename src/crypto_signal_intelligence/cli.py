@@ -229,6 +229,39 @@ def factors_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", hel
     console.print(f"Rapport : {settings.reports_dir / result.run_id / 'summary.json'}")
 
 
+@app.command("long-horizon")
+def long_horizon_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Essai local sur du code non commité (enregistré comme tel)"),
+                         verbose: bool = False):
+    """Lot 8 (docs/LONG_HORIZON.md) : A (tendance 12 semaines + volatilité prévue), A + funding, B (basse volatilité
+    6 mois), contre le buy-and-hold du même panier, frais inclus ; 3 essais, DEVELOPMENT seulement, audit d'abord."""
+    from .research.factors import DirtyCode
+    from .research.long_horizon import LeakAuditFailed, run
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    try:
+        with console.status("horizons longs…") as status:
+            result = run(settings, now=_now(), progress=lambda text: status.update(f"horizons longs : {text}"),
+                         allow_dirty=allow_dirty)
+    except (LeakAuditFailed, DirtyCode, RuntimeError) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    console.rule(f"Horizons longs — {result.run_id}")
+    console.print(f"Audit des fuites : réussi ; essais : {result.n_trials} ; programme : {result.program_trials}")
+    table = Table("Modèle", "Scénario", "Rendement/an", "Volatilité", "Sharpe", "Sharpe déflaté", "Perte max.",
+                  "Durée de perte", "Transactions", "Frais", "Exposition")
+    for scenario, models in result.models.items():
+        for key, m in models.items():
+            table.add_row(key, scenario, f"{m['annual_return']:.1%}" if m["annual_return"] is not None else "–",
+                          f"{m['volatility']:.1%}", f"{m['sharpe']:.2f}", str(m["deflated_sharpe"]),
+                          f"{m['max_drawdown']:.0%}", f"{m['drawdown_days']} j", str(m["trades"]),
+                          f"{m['fees_pct']:.2f} %", f"{m['average_exposure']:.0%}")
+    console.print(table)
+    for key, v in result.verdicts.items():
+        console.print(f"[bold]{key}[/bold] (référence {v['reference']}) : {v['verdict']}")
+    console.print("Unlocks : " + result.coverage["unlock_filter"])
+    console.print(f"Rapport : {settings.reports_dir / result.run_id / 'summary.json'}")
+
+
 @app.command("volatility")
 def volatility_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Essai local sur du code non commité (enregistré comme tel)"),
                        verbose: bool = False):
