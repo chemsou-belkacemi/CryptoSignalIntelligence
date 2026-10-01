@@ -286,13 +286,15 @@ def ml_evaluate(strategy: list[str] = typer.Option(None, help="Stratégie(s) ; d
 
 
 @app.command()
-def screen(verbose: bool = False):
+def screen(horizon: list[int] = typer.Option(None, "--horizon", help="Horizon(s) de sortie en heures ; défaut : 1, 4, 24"),
+           verbose: bool = False):
     """Criblage brut des familles D à I (période DEVELOPMENT) : avantage après dérive et au-delà des coûts ?"""
-    from .research.screen import CONDITIONS, run
+    from .research.screen import CONDITIONS, HORIZONS_HOURS, run
     settings = _settings(verbose)
     _heavy_job(settings)
     with console.status("criblage…") as status:
-        result = run(settings, now=_now(), progress=lambda s: status.update(f"criblage : {s}"))
+        result = run(settings, now=_now(), progress=lambda s: status.update(f"criblage : {s}"),
+                     horizons=tuple(horizon) if horizon else HORIZONS_HOURS)
     table = Table("condition", "horizon", "événements", "paires", "rendement moyen %", "excès moyen %",
                   "IC95 excès %", "paires > 0", "années > 0", "passe",
                   title=f"Criblage {result.run_id} — seuil de coûts {result.cost_hurdle_pct:.2f} % aller-retour, "

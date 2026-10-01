@@ -59,6 +59,20 @@ Tableau complet (18 lignes) : `reports/SCREEN-20260930T093435Z-2874e7/summary.js
   de DEVELOPMENT : son walk-forward sur la même période serait contaminé ; seule une confirmation sur
   une période jamais consultée (test final réservé, ou observation prospective en shadow) compterait.
 
+## Criblage à horizons longs (déclaré le 2026-10-01, avant exécution)
+
+Hypothèse : à 1 h, 4 h et 24 h, les frais aller-retour (0,26 %) dépassent l'avantage brut ; sur 3 à 7
+jours, le mouvement attendu est plus grand et les frais pèsent moins. C'est le dernier levier non testé
+avec les conditions existantes.
+
+- Commande : `screen --horizon 72 --horizon 168` (3 et 7 jours), mêmes six conditions D à I, mêmes
+  règles (entrée à l'ouverture suivante, sortie à la clôture de t+h, dérive retirée, DEVELOPMENT seul).
+- IC95 par blocs de max(10 jours, 2 × horizon) : 14 jours à 7 jours, les rendements se chevauchant.
+- 6 conditions × 2 horizons = **12 essais** de plus au programme (`program_trials`).
+- « Passe » inchangé : rendement brut moyen > seuil de coûts ET borne basse de l'IC95 de l'excès > 0.
+  Une condition qui passe ne devient une stratégie qu'avec une fiche, un walk-forward durci et une
+  confirmation sur données non vues.
+
 ## Historique
 
 - `SCREEN-20260930T093324Z-20101b` : premier passage, **intervalles faux** (moyenne pondérée par jour

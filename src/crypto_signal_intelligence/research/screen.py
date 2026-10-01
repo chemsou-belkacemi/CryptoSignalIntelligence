@@ -18,6 +18,7 @@ Règles (toutes causales) :
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -67,6 +68,7 @@ class ScreenResult:
     cost_hurdle_pct: float
     n_trials: int
     program_trials: int = 0
+    horizons: list[int] = field(default_factory=lambda: list(HORIZONS_HOURS))
     rows: list[ScreenRow] = field(default_factory=list)
 
 
@@ -186,22 +188,33 @@ def _row(condition: str, horizon: int, frame: pd.DataFrame, hurdle_pct: float, s
     by_pair = frame.groupby("symbol")["excess"].mean()
     by_year = frame.groupby(frame["time"].dt.year)["excess"].mean()
     mean_ret = float(frame["ret"].mean()) * 100
-    ci = _day_block_ci(frame, 10, settings.protocol.bootstrap_samples, settings.protocol.seed)
+    ci = _day_block_ci(frame, block_days_for(horizon), settings.protocol.bootstrap_samples, settings.protocol.seed)
     return ScreenRow(condition, horizon, len(frame), int(by_pair.size), round(mean_ret, 4),
                      round(float(frame["excess"].mean()) * 100, 4), ci, round(float((by_pair > 0).mean()), 3),
                      round(float((by_year > 0).mean()), 3),
                      beats_costs=bool(mean_ret > hurdle_pct and ci is not None and ci[0] > 0))
 
 
+def block_days_for(horizon_h: int) -> int:
+    """Blocs de l'IC : 10 jours, ou deux horizons si plus long (rendements qui se chevauchent sur h)."""
+    return max(10, 2 * math.ceil(horizon_h / 24))
+
+
 def run(settings: Settings, *, now: datetime, symbols: list[str] | None = None,
-        progress: Callable[[str], None] | None = None) -> ScreenResult:
+        progress: Callable[[str], None] | None = None,
+        horizons: tuple[int, ...] = HORIZONS_HOURS) -> ScreenResult:
+    """`horizons` : horizons de sortie en heures (défaut : 1, 4, 24 ; le criblage d'origine). Chaque
+    combinaison condition × horizon est un essai compté dans `program_trials`."""
+    HORIZONS = tuple(sorted(set(horizons)))  # noqa: N806 - constante du run
+    if not HORIZONS or any(h < 1 for h in HORIZONS):
+        raise ValueError("horizons : entiers d'au moins 1 heure")
     symbols = symbols or list(settings.data.symbols)
     end = pd.Timestamp(development_end(settings))
     costs = settings.costs["central"]
     hurdle_pct = (2 * costs.fee_bps + 2 * (costs.slippage_bps + costs.half_spread_bps)) / 100
     result = ScreenResult(new_run_id("SCREEN"), end.isoformat(), round(hurdle_pct, 4),
-                          n_trials=len(CONDITIONS) * len(HORIZONS_HOURS))
-    collected: dict[tuple[str, int], list[pd.DataFrame]] = {(c, h): [] for c in CONDITIONS for h in HORIZONS_HOURS}
+                          n_trials=len(CONDITIONS) * len(HORIZONS), horizons=list(HORIZONS))
+    collected: dict[tuple[str, int], list[pd.DataFrame]] = {(c, h): [] for c in CONDITIONS for h in HORIZONS}
     closes_1h: dict[str, pd.Series] = {}
     opens_1h: dict[str, pd.Series] = {}
     for symbol in symbols:
@@ -209,10 +222,10 @@ def run(settings: Settings, *, now: datetime, symbols: list[str] | None = None,
             progress(symbol)
         df = load_candles(settings, symbol, "15m")
         df = df[df["open_time"] <= end].reset_index(drop=True)
-        fwd = {h: forward_returns(df, h * 4) for h in HORIZONS_HOURS}
+        fwd = {h: forward_returns(df, h * 4) for h in HORIZONS}
         for name, condition in SERIES_CONDITIONS.items():
             events = condition(df)
-            for h in HORIZONS_HOURS:
+            for h in HORIZONS:
                 collected[(name, h)].append(_collect(events, fwd[h], df["open_time"], symbol))
         hourly = clip_to_development(load_candles(settings, symbol, "1h"), settings).set_index("open_time")
         closes_1h[symbol], opens_1h[symbol] = hourly["close"], hourly["open"]
@@ -223,7 +236,7 @@ def run(settings: Settings, *, now: datetime, symbols: list[str] | None = None,
         load_candles(settings, "BTCUSDT", "1h"), settings).set_index("open_time")["close"]
     for kind, name in (("G", "G_RELATIVE_STRENGTH_TOP3"), ("I", "I_RESIDUAL_MOMENTUM_TOP3")):
         chosen = _cross_sectional(closes, kind, btc_close)
-        for h in HORIZONS_HOURS:
+        for h in HORIZONS:
             fwd = closes.shift(-h) / opens.shift(-1) - 1      # entrée à l'ouverture t+1, sortie clôture t+h
             drift = fwd.mean()
             for symbol in chosen.columns:
@@ -252,7 +265,7 @@ def _record(settings: Settings, result: ScreenResult, *, now: datetime, symbols:
         run_id=result.run_id, created_at=now.isoformat(), kind="SCREEN",
         hypothesis="criblage brut des familles D à I : avantage après dérive et au-delà des coûts ?",
         strategy="SCREEN_D_TO_I", strategy_version=1, variant="conditions figées (voir CONDITIONS)",
-        params={"horizons_h": list(HORIZONS_HOURS), "conditions": CONDITIONS}, period_label="DEVELOPMENT",
+        params={"horizons_h": result.horizons, "conditions": CONDITIONS}, period_label="DEVELOPMENT",
         period_start=settings.data.history_start.isoformat(), period_end=result.period_end, universe=symbols,
         data_hashes={}, git_commit=git_state(settings.root), dependencies=dependency_versions(),
         seed=settings.protocol.seed, cost_scenario="central (seuil aller-retour)",

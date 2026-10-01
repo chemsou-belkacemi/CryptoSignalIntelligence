@@ -57,3 +57,18 @@ def test_cross_section_ranks_only_the_requested_universe():
     with_btc = _cross_sectional(closes.assign(BTCUSDT=btc), "G", btc)
     assert with_btc["BTCUSDT"].any()                           # dans l'univers demandé : candidat en G
     assert "BTCUSDT" not in _cross_sectional(closes.assign(BTCUSDT=btc), "I", btc)
+
+
+def test_long_horizons_get_longer_ci_blocks():
+    from crypto_signal_intelligence.research.screen import block_days_for
+    assert [block_days_for(h) for h in (1, 24, 72, 168)] == [10, 10, 10, 14]
+
+
+def test_screen_refuses_invalid_horizons(settings):
+    from datetime import UTC, datetime
+
+    import pytest
+
+    from crypto_signal_intelligence.research.screen import run
+    with pytest.raises(ValueError):
+        run(settings, now=datetime(2026, 10, 1, tzinfo=UTC), symbols=["ETHUSDT"], horizons=(0,))
