@@ -20,6 +20,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from functools import cached_property
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -32,7 +33,7 @@ from .protocol import development_end
 from .universe import MARKET, RESEARCH_UNIVERSE
 
 KIND, STRATEGY = "FACTORS", "FACTORS_WEEKLY"
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 DAY, HOUR = pd.Timedelta(days=1), pd.Timedelta(hours=1)
 EXEC_HOUR = 1                              # exécution à l'ouverture de la bougie 1 h de 01:00 UTC
 MIN_HOURS_PER_DAY = 20                     # journée valide : au moins 20 bougies horaires
@@ -42,11 +43,12 @@ MAX_CLOSE_AGE_DAYS = 2                     # les signaux lisent la dernière cl�
 FIRST_DECISION = pd.Timestamp("2018-07-02", tz="UTC")
 FOLD_STARTS = tuple(pd.Timestamp(d, tz="UTC") for d in (
     "2018-07-02", "2019-07-01", "2020-07-06", "2021-07-05", "2022-07-04", "2023-07-03", "2024-07-01"))
-BLOCK_WEEKS, BOOTSTRAP_SAMPLES = 8, 20_000
+BLOCK_WEEKS, BOOTSTRAP_SAMPLES = 8, 50_000
 MIN_FOLDS_BETTER, MIN_INVESTED_SHARE = 5, 0.20
+MIN_EXPOSURE = 0.20                        # une semaine « investie » : au moins 20 % du portefeuille hors USDT
 VOL_DAYS, VOL_MIN_DECISIONS = 28, 26
 HMM_MIN_RETURNS, HMM_MAX_ITER, HMM_TOL = 300, 100, 1e-6
-AUDIT_DECISIONS = 5
+AUDIT_DECISIONS = 30
 END_TOLERANCE = pd.Timedelta(days=2)
 MIN_STD = 1e-12                            # en dessous, une série est constante : son Sharpe vaut 0 par convention
 EW, BTC = "EW", "BTC"
@@ -58,6 +60,15 @@ class IncompleteData(RuntimeError):
 
 class LeakAuditFailed(RuntimeError):
     pass
+
+
+class DirtyCode(RuntimeError):
+    pass
+
+
+def code_state() -> str:
+    """Commit du code EXÉCUTÉ (dépôt qui contient ce module), « +DIRTY » s'il a des modifications non commitées."""
+    return git_state(Path(__file__).resolve().parents[3])
 
 
 # --- Panneau journalier ------------------------------------------------------------------------------------
@@ -259,7 +270,9 @@ class Book:
 
     # régimes : séries booléennes par instant (False tant que le régime n'est pas calculable)
     def regime_sma(self, days: int) -> pd.Series:
-        btc = self.close[MARKET]
+        # Dernière clôture connue de BTC, même après une panne de plus de MAX_CLOSE_AGE_DAYS : sinon un seul jour
+        # manquant (panne de février 2018) rendrait la moyenne incalculable pendant `days` jours.
+        btc = self.close[MARKET].ffill()
         return (btc > btc.rolling(days, min_periods=days).mean()).fillna(False)
 
     def regime_momentum(self, days: int) -> pd.Series:
@@ -352,7 +365,9 @@ TRIALS: tuple[Trial, ...] = (
     Trial("REVERSAL_K5", "H7 retournement", "les 5 paires éligibles au plus faible rendement sur 7 jours"),
 )
 N_TRIALS = len(TRIALS)
-LEVEL = 1 - 0.05 / N_TRIALS
+# Bilatéral au niveau 1 − 0,025/18 (v2) : la relecture a mesuré que l'intervalle percentile par blocs laisse passer
+# environ deux fois le taux nominal dans la queue ; on divise donc ce taux par deux.
+LEVEL = 1 - 0.025 / N_TRIALS
 
 
 # --- Simulation ----------------------------------------------------------------------------------------------
@@ -500,7 +515,7 @@ def compare(sim: Simulation, bench: Simulation, adverse: Simulation, adverse_ben
     gaps = [s - r if s is not None and r is not None else -math.inf for s, r in by_fold]
     best = int(np.argmax(gaps))
     without = folds != best
-    invested = weights.reindex(sim.weekly.index).fillna(0.0).sum(axis=1) > 0
+    invested = weights.reindex(sim.weekly.index).fillna(0.0).sum(axis=1) >= MIN_EXPOSURE
     metrics = describe(sim) | {
         "benchmark_sharpe": round(sharpe(b), 4), "sharpe_diff": round(sharpe(a) - sharpe(b), 4),
         "sharpe_diff_ci": sharpe_diff_ci(a, b, level=LEVEL, seed=seed),
@@ -510,6 +525,7 @@ def compare(sim: Simulation, bench: Simulation, adverse: Simulation, adverse_ben
         "sharpe_diff_without_best_fold": round(sharpe(a[without]) - sharpe(b[without]), 4),
         "invested_share": round(float(invested.mean()), 4),
         "sharpe_diff_vs_btc": round(sharpe(a) - sharpe(btc.weekly.to_numpy(float)), 4),
+        "skipped_orders": sim.skipped_orders, "adverse_skipped_orders": adverse.skipped_orders,
     }
     return metrics | judge(metrics)
 
@@ -537,8 +553,9 @@ def load_frames(settings: Settings, symbols: list[str], end: pd.Timestamp) -> di
 
 
 def leak_audit(frames: dict[str, pd.DataFrame], panel: Panel, decisions: pd.DatetimeIndex, *, seed: int) -> dict:
-    """Poids de chaque essai à quelques décisions : identiques avec les seules bougies antérieures à la décision,
-    puis avec un futur falsifié ; la mutation (signal qui lit la clôture du lendemain) doit être détectée."""
+    """Poids de chaque essai à AUDIT_DECISIONS décisions : identiques avec les seules bougies antérieures à la décision,
+    puis avec un futur falsifié ; la mutation (signal qui lit la clôture du lendemain) doit être détectée ; la
+    simulation EW jusqu'à une décision ne change pas quand les prix d'exécution postérieurs sont falsifiés."""
     rng = np.random.default_rng(seed)
     keys = [EW, BTC, *(t.key for t in TRIALS)]
     picks = sorted(rng.choice(len(decisions), size=min(AUDIT_DECISIONS, len(decisions)), replace=False))
@@ -578,6 +595,17 @@ def leak_audit(frames: dict[str, pd.DataFrame], panel: Panel, decisions: pd.Date
                 mutated = Book(book.panel, past, leaky=True).weights("MOM_L28_K5")
                 row = mutated.loc[moment].reindex(leaky.columns).fillna(0.0).to_numpy()
                 mutation_detected |= not np.allclose(row, leaky.loc[moment].to_numpy(), atol=1e-12)
+    # Simulation : valeurs jusqu'à la décision du milieu identiques quand les prix de 01:00 postérieurs changent.
+    cut = decisions[len(decisions) // 2]
+    weights = reference[EW]
+    honest = simulate(panel, weights, decisions, cost=0.0013).values
+    later = panel.price.index > cut
+    price = panel.price.copy()
+    price.loc[later] = price.loc[later].to_numpy() * rng.uniform(0.5, 1.5, price.loc[later].shape)
+    shaken = simulate(Panel(panel.close, panel.volume, price), weights, decisions, cost=0.0013).values
+    before = honest.index <= cut
+    if not np.allclose(honest[before].to_numpy(), shaken.reindex(honest.index)[before].to_numpy(), atol=1e-12):
+        violations.append({"decision": str(cut), "check": "simulation", "trial": EW})
     return {"violations": violations, "mutation_detected": bool(mutation_detected),
             "decisions": [str(decisions[p]) for p in picks], "trials_checked": len(keys),
             "passed": not violations and bool(mutation_detected)}
@@ -599,8 +627,12 @@ class Result:
 
 
 def run(settings: Settings, *, now: datetime, symbols: list[str] | None = None,
-        progress: Callable[[str], None] | None = None) -> Result:
+        progress: Callable[[str], None] | None = None, allow_dirty: bool = False) -> Result:
     say = progress or (lambda _text: None)
+    state = code_state()
+    if (state.endswith("+DIRTY") or state == "NO_GIT_COMMIT") and not allow_dirty:
+        raise DirtyCode(f"code non commité ({state}) : exécution refusée, l'enregistrement ne prouverait pas quel code "
+                        "a tourné. Exécuter depuis un arbre propre (git worktree), ou --allow-dirty pour un essai local.")
     symbols = symbols or list(RESEARCH_UNIVERSE)
     end = pd.Timestamp(development_end(settings))
     result = Result(new_run_id("FACT"), end.isoformat(), round(LEVEL, 6))
@@ -649,11 +681,11 @@ def run(settings: Settings, *, now: datetime, symbols: list[str] | None = None,
     result.verdict = f"{len(leads)} PISTE(S) À CONFIRMER" if leads else "AUCUNE_PISTE"
     registry = ExperimentRegistry(settings.experiments_db)
     result.program_trials = registry.program_trials() + result.n_trials
-    _record(settings, result, now=now, symbols=symbols)
+    _record(settings, result, now=now, symbols=symbols, code=state)
     return result
 
 
-def _record(settings: Settings, result: Result, *, now: datetime, symbols: list[str]) -> None:
+def _record(settings: Settings, result: Result, *, now: datetime, symbols: list[str], code: str) -> None:
     report_dir = settings.reports_dir / result.run_id
     report_dir.mkdir(parents=True, exist_ok=True)
     payload = asdict(result) | {"protocol_version": PROTOCOL_VERSION, "doc": "docs/FACTORS.md"}
@@ -669,7 +701,7 @@ def _record(settings: Settings, result: Result, *, now: datetime, symbols: list[
                 "cost_per_side": result.coverage.get("cost_per_side"),
                 "adverse_cost_per_side": result.coverage.get("adverse_cost_per_side")},
         period_label="DEVELOPMENT", period_start=str(FIRST_DECISION), period_end=result.period_end, universe=symbols,
-        data_hashes=result.data_hashes, git_commit=git_state(settings.root), dependencies=dependency_versions(),
+        data_hashes=result.data_hashes, git_commit=code, dependencies=dependency_versions(),
         seed=settings.protocol.seed, cost_scenario="central ; défavorable avec un jour de retard",
         simulation_rules={"decision": "lundi 00:00 UTC", "execution": "ouverture de la bougie 1 h de 01:00 UTC",
                           "valuation": "quotidienne à 01:00", "leverage": "aucun"},

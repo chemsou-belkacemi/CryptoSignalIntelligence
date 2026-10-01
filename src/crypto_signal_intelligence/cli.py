@@ -192,16 +192,18 @@ def download_long_command(symbol: list[str] = typer.Option(None, "--symbol", hel
 
 
 @app.command("factors")
-def factors_command(verbose: bool = False):
+def factors_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Essai local sur du code non commité (enregistré comme tel)"),
+                    verbose: bool = False):
     """Portefeuilles hebdomadaires (docs/FACTORS.md) : 18 règles fixes face à leur référence, sur l'historique long,
     DEVELOPMENT seulement, audit des fuites d'abord. Mesure seulement : aucun signal ni ordre n'en découle."""
-    from .research.factors import IncompleteData, LeakAuditFailed, run
+    from .research.factors import DirtyCode, IncompleteData, LeakAuditFailed, run
     settings = _settings(verbose)
     _heavy_job(settings)
     try:
         with console.status("portefeuilles hebdomadaires…") as status:
-            result = run(settings, now=_now(), progress=lambda text: status.update(f"portefeuilles : {text}"))
-    except (LeakAuditFailed, IncompleteData) as exc:
+            result = run(settings, now=_now(), progress=lambda text: status.update(f"portefeuilles : {text}"),
+                         allow_dirty=allow_dirty)
+    except (LeakAuditFailed, IncompleteData, DirtyCode) as exc:
         console.print(f"[red]Aucun résultat :[/red] {exc}")
         raise typer.Exit(3) from None
     console.rule(f"Portefeuilles hebdomadaires — {result.run_id}")

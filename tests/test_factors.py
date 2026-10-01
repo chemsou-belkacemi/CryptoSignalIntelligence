@@ -243,7 +243,7 @@ def test_sharpe_drawdown_and_folds():
     assert fa.max_drawdown(np.array([1.0, 1.2, 0.9, 1.0])) == pytest.approx(-0.25)
     moments = pd.DatetimeIndex(["2018-07-02", "2019-06-24", "2019-07-01", "2025-06-23"], tz="UTC")
     assert fa.fold_of(moments).tolist() == [0, 0, 1, 6]
-    assert fa.N_TRIALS == 18 and len({t.key for t in fa.TRIALS}) == 18 and pytest.approx(1 - 0.05 / 18) == fa.LEVEL
+    assert fa.N_TRIALS == 18 and len({t.key for t in fa.TRIALS}) == 18 and pytest.approx(1 - 0.025 / 18) == fa.LEVEL
 
 
 def test_sharpe_difference_interval_is_paired_and_deterministic():
@@ -279,6 +279,7 @@ def test_describe_and_compare_measure_what_the_protocol_says():
     strategy[folds != 2] -= 0.0005                                    # un peu moins bonne ailleurs
     weights = pd.DataFrame({"BTCUSDT": 1.0}, index=index)
     weights.iloc[:100] = 0.0
+    weights.iloc[100:120] = 0.19                                      # moins de 20 % investi : semaine « en USDT »
     sim, ref = as_simulation(strategy, index), as_simulation(bench, index)
     described = fa.describe(sim)
     assert described["weeks"] == 365 and described["total_return"] == round(float(np.prod(1 + strategy) - 1), 4)
@@ -291,7 +292,7 @@ def test_describe_and_compare_measure_what_the_protocol_says():
     assert measured["sharpe_diff_without_best_fold"] < 0 < measured["sharpe_diff"]
     assert measured["adverse_sharpe_diff"] == -measured["sharpe_diff"]          # scénario défavorable : rôles inversés
     assert measured["sharpe_diff_vs_btc"] == measured["sharpe_diff"]
-    assert measured["invested_share"] == round(265 / 365, 4)
+    assert measured["invested_share"] == round(245 / 365, 4)
     assert measured["benchmark_max_drawdown"] == round(fa.max_drawdown(ref.values.to_numpy()), 4)
     assert measured["sharpe_diff_ci"] == fa.sharpe_diff_ci(strategy, bench, level=fa.LEVEL, seed=1)
     failed = {k for k, ok in measured["checks"].items() if not ok}
@@ -338,6 +339,8 @@ def stored(settings, monkeypatch):
     monkeypatch.setattr(fa, "FOLD_STARTS", tuple(pd.Timestamp(d, tz="UTC") for d in (
         "2024-01-01", "2024-02-05", "2024-03-11", "2024-04-15", "2024-05-20", "2024-06-24", "2024-08-05")))
     monkeypatch.setattr(fa, "BOOTSTRAP_SAMPLES", 300)
+    monkeypatch.setattr(fa, "AUDIT_DECISIONS", 5)
+    monkeypatch.setattr(fa, "code_state", lambda: "0123abcd")
     return settings
 
 
@@ -374,7 +377,9 @@ def test_run_measures_the_declared_trials_on_development_only(stored):
     result = fa.run(stored, now=NOW, symbols=list(PAIRS))
     assert len(result.rows) == 18 and {r["key"] for r in result.rows} == {t.key for t in fa.TRIALS}
     assert result.leak_audit["passed"] and set(result.data_hashes) == set(PAIRS)
-    assert result.verdict == "AUCUNE_PISTE" or result.verdict.endswith("PISTE(S) À CONFIRMER")
+    leads = [r["key"] for r in result.rows if r["lead"]]
+    assert result.verdict == (f"{len(leads)} PISTE(S) À CONFIRMER" if leads else "AUCUNE_PISTE")
+    assert all({"skipped_orders", "adverse_skipped_orders"} <= set(r) for r in result.rows)
     assert set(result.benchmarks) == {fa.EW, fa.BTC} and result.coverage["decisions"] == 38
     assert result.coverage["first"].startswith("2024-01-01") and result.coverage["last"].startswith("2024-09-16")
     assert result.coverage["cost_per_side"] == pytest.approx(0.0013)
@@ -429,3 +434,84 @@ def test_command_prints_the_verdict_and_refuses_incomplete_data(stored, monkeypa
     assert done.exit_code == 0, done.output
     assert "Verdict :" in done.output and "Rapport :" in done.output and "pas un avantage démontré" in done.output
     assert ExperimentRegistry(stored.experiments_db).program_trials() == 18
+
+
+def test_uncommitted_code_is_refused_before_anything_is_read(stored, monkeypatch):
+    monkeypatch.setattr(fa, "code_state", lambda: "0123abcd+DIRTY")
+    with pytest.raises(fa.DirtyCode, match="DIRTY"):
+        fa.run(stored, now=NOW, symbols=list(PAIRS))
+    assert ExperimentRegistry(stored.experiments_db).program_trials() == 0
+    monkeypatch.setattr(fa, "code_state", lambda: "NO_GIT_COMMIT")
+    with pytest.raises(fa.DirtyCode):
+        fa.run(stored, now=NOW, symbols=list(PAIRS))
+    result = fa.run(stored, now=NOW, symbols=list(PAIRS), allow_dirty=True)       # essai local, enregistré comme tel
+    assert ExperimentRegistry(stored.experiments_db).get(result.run_id)["git_commit"] == "NO_GIT_COMMIT"
+
+
+def test_the_audit_reports_a_real_leak_in_a_signal_and_in_the_simulation(stored, monkeypatch):
+    frames = fa.load_frames(stored, list(PAIRS), pd.Timestamp(stored.protocol.development_end))
+    panel = fa.build_panel(frames)
+    decisions = fa.decisions_of(panel)
+    honest_momentum = fa.Book.momentum
+    monkeypatch.setattr(fa.Book, "momentum", lambda self, days: honest_momentum(self, days).shift(-1))
+    audit = fa.leak_audit(frames, panel, decisions, seed=3)
+    leaking = {v["trial"] for v in audit["violations"]}
+    assert not audit["passed"] and {"MOM_L28_K5", "DUAL_MOM28", "TSMOM_L56"} <= leaking and fa.EW not in leaking
+    monkeypatch.setattr(fa.Book, "momentum", honest_momentum)
+    honest_simulate = fa.simulate
+
+    def peeking(panel, weights, decisions, **kwargs):     # valorise avec le prix du LENDEMAIN
+        return honest_simulate(fa.Panel(panel.close, panel.volume, panel.price.shift(-1)), weights, decisions, **kwargs)
+
+    monkeypatch.setattr(fa, "simulate", peeking)
+    audit = fa.leak_audit(frames, panel, decisions, seed=3)
+    assert not audit["passed"] and [v["check"] for v in audit["violations"]] == ["simulation"]
+
+
+def test_a_binance_outage_does_not_switch_the_btc_trend_off_for_200_days():
+    prices = trend(100, 0.002, 400)
+    frame = flat_days(prices)
+    outage = [START + d * DAY for d in (200, 201, 202)]               # trois journées sans bougie
+    frame = frame[~frame["open_time"].dt.floor("D").isin(outage)]
+    panel = fa.build_panel({"BTCUSDT": frame})
+    decisions = fa.decisions_of(panel, first=START + 280 * DAY)
+    assert (fa.Book(panel, decisions).weights("REGIME_SMA200").sum(axis=1) > 0).all()
+
+
+def test_positive_control_a_planted_momentum_becomes_a_lead(monkeypatch):
+    """Contrôle positif : des paires dont la tendance persiste des mois (momentum planté) doivent donner au moins une
+    piste ; sinon la chaîne poids → simulation → mesures → règle ne pourrait jamais rien trouver."""
+    rng = np.random.default_rng(11)
+    days, pairs = 1500, 12
+    index = pd.date_range("2020-01-01", periods=days, freq="D", tz="UTC")
+    drift = np.zeros((days, pairs))
+    level = rng.normal(0, 0.006, pairs)
+    for d in range(days):
+        if d % 90 == 0:
+            level = rng.normal(0, 0.006, pairs)                       # nouvelles tendances tous les 90 jours
+        drift[d] = level
+    returns = drift + rng.normal(0, 0.02, (days, pairs)) + rng.normal(0, 0.01, (days, 1))
+    close = pd.DataFrame(100 * np.exp(np.cumsum(returns, axis=0)),
+                         index=index, columns=["BTCUSDT", *(f"P{k}USDT" for k in range(1, pairs))])
+    panel = fa.Panel(close, close * 0 + 5e6, close)                   # exécution au dernier prix connu (contrôle)
+    first = pd.Timestamp("2020-06-01", tz="UTC")
+    monkeypatch.setattr(fa, "FOLD_STARTS", tuple(first + pd.Timedelta(days=26 * 7 * k) for k in range(7)))
+    monkeypatch.setattr(fa, "BOOTSTRAP_SAMPLES", 4000)
+    decisions = fa.decisions_of(panel, first=first)
+    book = fa.Book(panel, decisions)
+    weights = {key: book.weights(key) for key in ("MOM_L56_K3", fa.EW, fa.BTC)}
+    sims = {key: fa.simulate(panel, w, decisions, cost=0.0013) for key, w in weights.items()}
+    adverse = {key: fa.simulate(panel, w, decisions, cost=0.0018, delay_days=1) for key, w in weights.items()}
+    measured = fa.compare(sims["MOM_L56_K3"], sims[fa.EW], adverse["MOM_L56_K3"], adverse[fa.EW], sims[fa.BTC],
+                          weights["MOM_L56_K3"], seed=1)
+    assert measured["lead"], measured["checks"]
+    noise = fa.Panel(close.iloc[:, :1].join(pd.DataFrame(100 * np.exp(np.cumsum(rng.normal(0, 0.02, (days, pairs - 1)), axis=0)),
+                                                         index=index, columns=close.columns[1:])), panel.volume, None)  # type: ignore[arg-type]
+    noise.price = noise.close
+    book = fa.Book(noise, decisions)
+    w, ew, btc = book.weights("MOM_L56_K3"), book.weights(fa.EW), book.weights(fa.BTC)
+    blank = fa.compare(fa.simulate(noise, w, decisions, cost=0.0013), fa.simulate(noise, ew, decisions, cost=0.0013),
+                       fa.simulate(noise, w, decisions, cost=0.0018, delay_days=1),
+                       fa.simulate(noise, ew, decisions, cost=0.0018, delay_days=1),
+                       fa.simulate(noise, btc, decisions, cost=0.0013), w, seed=1)
+    assert not blank["lead"]                                          # sans momentum planté : pas de piste

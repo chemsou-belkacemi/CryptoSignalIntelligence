@@ -17,8 +17,9 @@ bas. La conclusion « aucune piste » reste un résultat valable.
 ## 1. Données et univers
 
 - **Historique long** : bougies 1 h depuis la cotation de chaque paire (`research/long_history.py`,
-  magasin séparé `long_history/`), coupées à la fin de DEVELOPMENT (2025-06-30). La période finale
-  n'est pas lue.
+  magasin séparé `long_history/`), coupées à la fin de DEVELOPMENT (2025-06-30) dès la lecture : le
+  fichier entier est chargé puis coupé, et aucune bougie postérieure n'entre dans un calcul (un test
+  le vérifie en falsifiant ces bougies).
 - **Univers figé le 2026-10-01** (`research/universe.py`, 40 paires) : les 30 cryptos favorables au
   relevé halal du jour, plus les 10 acceptées par le propriétaire.
 - **Journées.** Une journée (00:00–24:00 UTC) est valide si elle compte au moins 20 bougies horaires ;
@@ -28,8 +29,10 @@ bas. La conclusion « aucune piste » reste un résultat valable.
 - **Appartenance à la date.** À chaque décision, une paire est éligible si, avec les seules données
   connues à cet instant :
   - sa dernière journée est valide, ainsi qu'au moins 85 des 90 dernières ;
-  - son volume journalier médian des 30 derniers jours atteint 1 M$.
-- Peu de paires existent au début : 4 en juillet 2018, une dizaine fin 2018. Un portefeuille « des K
+  - son volume journalier médian des 30 derniers jours atteint 1 M$ (au moins 25 journées valides
+    dans ces 30 jours pour calculer la médiane).
+- Peu de paires existent au début : 4 en juillet 2018 (BTC, ETH, LTC, NEO), 10 en octobre 2018,
+  11 fin 2018, 20 en juillet 2020, 40 en juin 2025. Un portefeuille « des K
   meilleures » détient alors ce qui existe, à 1/K chacune, le reste en USDT.
 
 ## 2. Décisions, exécution, coûts
@@ -45,7 +48,8 @@ bas. La conclusion « aucune piste » reste un résultat valable.
   centralisées (`[risk]`) réduiraient l'exposition en service sans changer les mesures de comparaison.
 - Si le prix de 01:00 d'une paire manque (interruption de Binance), aucun ordre n'est passé sur elle ce
   jour-là : sa position reste inchangée, valorisée à son dernier prix connu, et l'ordre n'est pas
-  reporté au lendemain. Le nombre d'ordres ainsi perdus est enregistré.
+  reporté au lendemain. Le nombre d'ordres ainsi perdus est enregistré pour chaque essai, dans les
+  deux scénarios.
 - Les frais sont prélevés sur les positions : après un rééquilibrage, la somme investie ne dépasse
   jamais la valeur du portefeuille (aucun levier, même de quelques points de base).
 
@@ -71,10 +75,13 @@ Aucun paramètre n'est ajusté sur les données : chaque variante est écrite ci
 | H7 retournement | les 5 paires éligibles au plus faible rendement sur 7 jours | 1 | EW |
 
 Régimes de H2 (tous calculés sur BTC, connus à la décision) :
-- **SMA200** : clôture de BTC au-dessus de sa moyenne des 200 derniers jours ;
+- **SMA200** : clôture de BTC au-dessus de sa moyenne des 200 derniers jours (dernière clôture
+  connue reportée sur les journées non valides, pour qu'une panne ne coupe pas la moyenne) ;
 - **SMA100** : même règle sur 100 jours ;
 - **MOM28** : rendement de BTC sur 28 jours positif ;
 - **HMM** : chaîne de Markov cachée à 2 états gaussiens sur les rendements journaliers de BTC.
+  - Rendements logarithmiques entre clôtures valides consécutives (après une panne, un rendement
+    couvre 2 à 4 jours) ; Baum-Welch, 100 itérations au plus, tolérance relative 10⁻⁶.
   - Réestimée sur tout le passé à la première décision de chaque mois (au moins 300 rendements), en
     partant des paramètres du mois précédent ; première estimation depuis un départ fixe et déclaré
     (états séparés par la médiane des écarts absolus, persistance 0,95).
@@ -85,12 +92,14 @@ Régimes de H2 (tous calculés sur BTC, connus à la décision) :
     utilisée.
 
 Détails de H5 : la volatilité est l'écart-type des rendements journaliers (clôtures) des 28 derniers
-jours, du panier éligible pour EW, de BTC pour BTC. La cible est la médiane de cette volatilité sur
+jours, de BTC pour BTC ; pour EW, du rendement moyen de chaque jour passé des paires éligibles CE
+jour-là (composition historique du panier, pas celle du jour de la décision). La cible est la médiane de cette volatilité sur
 toutes les décisions jusqu'à la présente incluse (au moins 26, sinon exposition 1).
 
 ## 5. Période et validations
 
-- Première décision le lundi 2018-07-02, dernière le 2025-06-23 : 365 semaines. Dans le scénario
+- Première décision le lundi 2018-07-02, dernière le 2025-06-23 : 365 semaines. Une seule date de
+  rééquilibrage (le lundi) : voir les limites. Dans le scénario
   défavorable, la dernière semaine n'a pas de prix de fin dans DEVELOPMENT (jour de retard) : 364.
 - **7 validations** d'un an, de juillet à juin (2018-07 → 2019-06, …, 2024-07 → 2025-06).
 - Rien n'est estimé sur le futur : les règles sont fixes, et le HMM n'apprend que du passé.
@@ -99,14 +108,18 @@ toutes les décisions jusqu'à la présente incluse (au moins 26, sinon expositi
 
 Sur les rendements hebdomadaires nets de coûts, validations enchaînées :
 - rendement total, rendement annualisé, Sharpe (moyenne / écart-type × √52), perte maximale
-  (journalière), rotation annuelle, exposition moyenne ;
+  (journalière), rotation annuelle, exposition moyenne ; taux sans risque nul (l'USDT ne rapporte
+  rien), ce qui défavorise un peu les essais souvent en USDT ;
 - une série sans variation (portefeuille resté en USDT) a un Sharpe de 0 par convention ;
 - **écart de Sharpe** avec la référence, et son intervalle de confiance :
   - rééchantillonnage par blocs circulaires de 8 semaines, les deux séries tirées ensemble ;
-  - 20 000 tirages (les bornes sont des quantiles extrêmes : il faut assez de tirages dans chaque
+  - 50 000 tirages (les bornes sont des quantiles extrêmes : il faut assez de tirages dans chaque
     queue), graine du protocole, mêmes tirages pour tous les essais ;
-  - niveau corrigé de Bonferroni pour les 18 essais : 1 − 0,05/18 ≈ 99,72 %, bilatéral ;
-- mêmes mesures face à BTC acheté-conservé, à titre d'information.
+  - niveau bilatéral 1 − 0,025/18 ≈ 99,86 % : Bonferroni pour 18 essais, divisé encore par deux, car
+    la relecture a mesuré sur données simulées que cet intervalle percentile laisse passer environ
+    deux fois le taux nominal dans la queue (0,25 % au lieu de 0,14 %) ;
+- face à BTC acheté-conservé : l'écart de Sharpe seulement, à titre d'information (ni intervalle, ni
+  validations).
 
 ## 7. Règle : « piste » seulement si TOUT est vrai
 
@@ -114,8 +127,11 @@ Sur les rendements hebdomadaires nets de coûts, validations enchaînées :
 2. Sharpe supérieur à celui de la référence dans **au moins 5 validations sur 7**.
 3. Écart de Sharpe encore > 0 dans le scénario défavorable (coûts et jour de retard).
 4. Perte maximale au plus égale à celle de la référence.
-5. Écart de Sharpe encore > 0 sans la validation la plus favorable.
-6. Investi au moins 20 % des semaines (un portefeuille toujours en USDT n'est pas une stratégie).
+5. Écart de Sharpe encore > 0 sans la validation la plus favorable (celle où l'écart de Sharpe de
+   la validation est le plus grand).
+6. Investi au moins 20 % des semaines, une semaine comptant comme investie si au moins 20 % du
+   portefeuille est hors USDT après le rééquilibrage (un portefeuille toujours en USDT, ou presque,
+   n'est pas une stratégie).
 
 Verdict enregistré : « N PISTE(S) À CONFIRMER » ou « AUCUNE_PISTE ».
 
@@ -131,9 +147,14 @@ Verdict enregistré : « N PISTE(S) À CONFIRMER » ou « AUCUNE_PISTE ».
 ## 8. Audit des fuites, avant tout résultat
 
 Sans audit réussi, aucun résultat n'est produit et aucun essai n'est enregistré.
-- Pour 5 décisions tirées avec la graine, les poids de chaque essai recalculés avec les seules bougies
-  1 h antérieures à la décision, puis avec un futur falsifié, doivent être identiques au calcul complet.
+- Pour 30 décisions tirées avec la graine, les poids de chaque essai recalculés avec les seules
+  bougies 1 h antérieures à la décision, puis avec un futur falsifié, doivent être identiques au calcul
+  complet.
 - Une mutation (signal qui lit la clôture du lendemain) doit être détectée.
+- Simulation : la valeur du portefeuille EW jusqu'à la décision du milieu ne change pas quand les prix
+  d'exécution postérieurs sont falsifiés.
+- Le code exécuté doit être commité : une exécution sur du code modifié est refusée (sinon
+  l'enregistrement ne prouverait pas quel code a tourné).
 - Données exigées complètes : chaque paire de l'univers présente dans le magasin long jusqu'à 2 jours
   de la fin de DEVELOPMENT, sinon refus. Les empreintes des séries lues sont enregistrées.
 
@@ -145,13 +166,30 @@ Sans audit réussi, aucun résultat n'est produit et aucun essai n'est enregistr
   inconnu.
 - **Peu de données.** 365 semaines, dont environ 45 blocs de 8 semaines : les intervalles seront larges
   et la puissance faible. Un vrai petit avantage peut ne pas passer.
-- **Début étroit.** Moins de 10 paires éligibles jusqu'à fin 2018.
+- **Début étroit.** Moins de 10 paires éligibles jusqu'en septembre 2018.
 - **Exécution.** Prix de 01:00 sans impact de marché ; volumes modestes supposés.
 - **Régimes de marché.** La période contient deux grands cycles ; un filtre de tendance peut devoir
   son résultat à deux ou trois épisodes. Le critère 5 ne le corrige qu'en partie.
 - Les regards déjà portés sur 2021-2025 par les protocoles précédents ne sont pas indépendants de
   celui-ci.
+- **Règles venues de la littérature.** Moyenne 200 jours, momentum de 2 à 8 semaines, double
+  momentum, exposition selon la volatilité, faible volatilité et retournement court ont été rendus
+  populaires parce qu'ils « marchaient » publiquement, sur des périodes qui recouvrent en partie
+  2018-2022. Aucun paramètre n'est ajusté par CE code, mais le choix des règles n'est pas
+  indépendant des données : le nombre effectif d'essais dépasse 18, et la correction de Bonferroni
+  ne le couvre pas. Une piste ne vaudrait rien sans la période finale.
+- **Chance de calendrier.** Un seul jour de rééquilibrage (lundi 00:00) ; un autre jour pourrait
+  donner un autre résultat. Ce n'est ni mesuré ni corrigé.
+- **Audit des fuites.** Il compare des poids et une simulation, pas toutes les mesures ; aux
+  décisions où un régime est en USDT, les poids nuls ne prouvent rien pour cet essai.
 
 ## Historique
 
 - 2026-10-01, v1 : version initiale, avant toute exécution.
+- 2026-10-01, v2 (avant toute exécution, après la relecture indépendante) : niveau 1 − 0,025/18 et
+  50 000 tirages ; « investi » = au moins 20 % hors USDT ; moyenne 200 jours de BTC insensible aux
+  pannes ; audit sur 30 décisions et contrôle de la simulation ; code commité exigé ; ordres perdus
+  enregistrés par essai ; documentation alignée sur le code (liquidité, HMM, panier H5, critère 5,
+  comparaison à BTC) ; limites ajoutées (règles de la littérature, chance de calendrier, taux sans
+  risque nul, portée de l'audit). Programme : 656 essais si ce protocole est exécuté avant les autres
+  protocoles déclarés le même jour.
