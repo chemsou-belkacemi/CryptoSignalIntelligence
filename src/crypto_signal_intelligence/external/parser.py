@@ -16,6 +16,12 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta, timezone
 
 NUMBER = r"(?:\d+(?:\.\d+)?|\.\d+)"
+# Vente à découvert : même règle que BinanceSpotManager (signal_parser.SHORT_SIGNAL). « SELL » en début de ligne,
+# après DIRECTION/SIDE/POSITION/TYPE, ou suivi de LIMIT/NOW/MARKET/ZONE ; jamais « T1: 2.9 SELL (1.40%) », qui
+# veut dire « vendre à cet objectif » (prise de bénéfice d'un achat).
+SHORT_SIGNAL = re.compile(
+    r"\b(?:SHORT|LEVERAGE|FUTURES|PERP|PERPETUAL|MARGIN)\b"
+    r"|(?:^|\n)[^A-Z0-9\n]*SELL\b|\b(?:DIRECTION|SIDE|POSITION|TYPE)\s*:?\s*SELL\b|\bSELL\s+(?:LIMIT|NOW|MARKET|ZONE)\b")
 MAX_LENGTH = 20_000
 
 
@@ -49,7 +55,8 @@ def normalize(text: str) -> str:
     # Pictogrammes N'IMPORTE OÙ dans la ligne (« T1: 0.0259 📉 (1.92%) », « ENTRY 1 ✅: 0.0254 » ajouté après
     # coup par le groupe) : ils ne portent aucun prix. Les retirer ne devine rien ; les flèches « → » restent.
     text = "".join(ch for ch in text if unicodedata.category(ch) not in ("So", "Sk") and ch != "\u200d")
-    return text.replace("**", "").replace("️", "")
+    # « *PAIR:* » : gras de Telegram (un ou deux astérisques), jamais dans un prix.
+    return text.replace("*", "").replace("️", "")
 
 
 def content_hash(text: str) -> str:
@@ -97,7 +104,7 @@ def parse(raw: str) -> ExternalSignal:
                        and re.search(r"^STOP\s*:", clean, re.M)) else "simple")
     if re.search(r"\b(?:NIFTY|BANKNIFTY|INTRADAY)\b", text):
         result.errors.append("Rapport de marché / indices : pas un signal Spot.")
-    if re.search(r"\b(?:SHORT|SELL|LEVERAGE|FUTURES)\b", text):
+    if SHORT_SIGNAL.search(text):
         result.direction = "SELL"
         result.errors.append("Short, vente initiale et levier refusés : Spot, long uniquement.")
     elif re.search(r"\b(?:BUY|LONG)\b", text) or result.template in {"structured", "abk", "numbered"}:
@@ -142,7 +149,7 @@ def parse(raw: str) -> ExternalSignal:
                 result.entries.extend(float(v) for v in match.groups() if v)
         if target:
             indexed_targets.append(target[1] or target[2] or "single")
-            match = re.fullmatch(rf"({NUMBER})\s*(?:[\[(][^\]\n)]*[%][\])])?\s*", target[3])
+            match = re.fullmatch(rf"({NUMBER})\s*(?:SELL\s*)?(?:[\[(][^\]\n)]*[%][\])])?\s*", target[3])
             if match:
                 result.targets.append(float(match[1]))
             else:

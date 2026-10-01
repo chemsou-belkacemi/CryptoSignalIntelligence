@@ -182,7 +182,7 @@ def test_bsm_never_treats_the_specification_example_as_executable(bsm):
     assert bsm.parse_csi_signal(SPEC_EXAMPLE).errors, "SCHEMA_EXAMPLE_ONLY doit bloquer l'exécution"
 
 
-TELEGRAM_FIXTURES = ["BICO", "ABK", "SIMPLE", "GALA"]
+TELEGRAM_FIXTURES = ["BICO", "ABK", "SIMPLE", "GALA", "INCRYPTO"]
 
 
 @pytest.mark.parametrize("name", TELEGRAM_FIXTURES)

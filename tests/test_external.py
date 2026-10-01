@@ -52,6 +52,43 @@ GALA = """👑AL-MAHWASHI VIP👑
 ───────────────────
 🛑 Stop: 0.001990"""
 
+# Message réel du 2026-10-02 (INCRYPTO) : gras Telegram « *PAIR:* » et « SELL » derrière chaque objectif = vendre
+# à l'objectif (prise de bénéfice), pas une vente à découvert. BinanceSpotManager le lisait, CSI le refusait.
+INCRYPTO = """📈 *INCRYPTO TIME ANALYSIS INDICATOR*
+YASMINA BOUZID INDICATOR
+──────────────────────
+✨ بسم الله توكلت على الله ✨
+──────────────────────
+💎 *PAIR:* MOVR/USDT
+🔶 *ENTRY ZONE:*
+✨ENTRY 1: 2.86
+✨ENTRY 2: 2.74
+──────────────────────
+🎯 *TARGETS:*
+1️⃣ T1: 2.9  📉 SELL (1.40%)
+──────────────────────
+2️⃣ T2: 2.94  📉 SELL (2.80%)
+──────────────────────
+3️⃣ T3: 3.02  📉 SELL (5.59%)
+──────────────────────
+4️⃣ T4: 3.2  📉 SELL(11.89%)
+──────────────────────
+5️⃣ T5: 3.45  📉 SELL(20.63%)
+──────────────────────
+6️⃣ T6: 3.83  📉 SELL (33.92%)
+──────────────────────
+7️⃣ T7: 4.28  📉 SELL(49.65%)
+──────────────────────
+🛑 *SL:* 2.7  (4h) (-3.57%)
+──────────────────────
+📅Date: Friday - 2026-10-02
+⏰IndicatorTime :- 23:59 GMT+3
+──────────────────────
+👤IndicatorCeo:YASMINA BOUZID
+──────────────────────
+🟠 Platform: Binance
+──────────────────────
+☪️ *الحكم الشرعي:* مباح ✅"""
 
 def test_parser_reads_the_four_group_formats():
     bico = parse(BICO)
@@ -362,3 +399,17 @@ def test_base_rate_never_uses_orders_resolved_after_the_development_end():
     assert first.history_end == f"{end:%Y-%m-%d}" and first.method == "LIMIT_ALIGNED_V3"
     everything = br.base_rate(frame, **{**kwargs, "history_end": None})
     assert everything.emitted > first.emitted
+
+
+def test_sell_at_a_target_is_a_take_profit_and_telegram_bold_is_ignored():
+    signal = parse(INCRYPTO)
+    assert signal.ok and signal.direction == "BUY" and signal.symbol == "MOVRUSDT"
+    assert signal.entries == [2.86, 2.74] and signal.targets == [2.9, 2.94, 3.02, 3.2, 3.45, 3.83, 4.28]
+    assert signal.stop == 2.7 and signal.stop_timeframe == "4h" and signal.published_at == "2026-10-02T20:59:00+00:00"
+    # Une vraie vente reste refusée, sous toutes ses formes.
+    for short in ("SELL BTC/USDT\nENTRY 1: 84000\nT1: 80000\nSL: 90000",
+                  "PAIR: BTC/USDT\nDIRECTION: SELL\nENTRY 1: 84000\nT1: 80000\nSL: 90000",
+                  "PAIR: BTC/USDT\nSELL LIMIT 84000\nT1: 80000\nSL: 90000",
+                  "*PAIR:* BTC/USDT\n*SHORT*\nENTRY 1: 84000\nT1: 80000\nSL: 90000"):
+        assert parse(short).direction == "SELL" and parse(short).errors, short
+    assert not parse(INCRYPTO.replace("T1: 2.9  📉 SELL", "T1: 2.9 OR 2.95")).ok      # toujours aucun prix deviné
