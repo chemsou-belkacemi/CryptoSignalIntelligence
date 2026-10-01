@@ -211,10 +211,42 @@ function renderPair(r) {
   const [kind, title, text] = PLAN_STATES[plan.state] || ["neutral", plan.state || "?", ""];
   const head = banner(kind, `${pair(r.symbol)} · ${r.horizon_label} · ${title}`, text,
     el("div", { class: "small muted", text: r.warning }));
+  const futures = el("div");
   const forecast = el("div");
-  target.replaceChildren(head, el("div", { class: "grid" }, contextCard(r), planCard(r)), overviewCard(r),
+  target.replaceChildren(head, el("div", { class: "grid" }, contextCard(r), planCard(r)), futures, overviewCard(r),
     strategiesCard(r), forecast, definitionsCard(r));
+  futures.replaceChildren(card("Marché à terme — positionnement du moment", el("p", { class: "muted small", text: "Lecture des données publiques du marché à terme…" })));
+  derivativesCard(r.symbol).then((c) => futures.replaceChildren(c), (error) => futures.replaceChildren(
+    card("Marché à terme — positionnement du moment", el("p", { class: "muted small", text: `Indisponible : ${error.message}` }))));
   forecastCard().then((c) => forecast.replaceChildren(c), () => forecast.replaceChildren());
+}
+
+// Marché à terme : données PUBLIQUES de positionnement, information seulement (aucune décision, aucun contrat).
+const usd = (v) => (isNum(v) ? new Intl.NumberFormat("fr-FR", { notation: "compact", maximumFractionDigits: 2 }).format(v) + " $" : "–");
+const rankText = (r, days) => (isNum(r) ? `rang ${pctFrac(r, 0)} sur ${fmt(days, 0)} j` : "rang –");
+const DERIVATIVE_LABELS = { financement: "Financement", prime: "Prime", interet_ouvert: "Intérêt ouvert", comptes: "Comptes",
+  gros_comptes: "Gros comptes", agressifs: "Achats / ventes agressifs", rang: "Rang" };
+
+async function derivativesCard(symbol) {
+  const d = await api(`/derivatives?symbol=${encodeURIComponent(symbol)}`);
+  const off = (s) => !s || s.unavailable;
+  const why = (s) => (s && s.unavailable) || "indisponible";
+  const f = d.funding, p = d.premium, oi = d.open_interest, a = d.accounts, t = d.top_positions, k = d.taker;
+  return card(`Marché à terme — positionnement du moment (${pair(symbol)})`,
+    el("p", { class: "muted small", text: d.note }),
+    kv([
+      ["Financement, dernier règlement", off(f) ? why(f) : `${pctFrac(f.last_rate, 4, true)} par ${f.interval_hours} h (${when(f.last_at)})`],
+      ["Financement estimé, prochain règlement", off(f) ? "–" : `${pctFrac(f.estimated_next_rate, 4, true)} à ${when(f.next_at)}`],
+      ["Financement moyen sur 3 jours", off(f) ? "–" : `${pctFrac(f.mean_3d, 4, true)} (≈ ${pctFrac(f.annualized_3d, 1, true)} par an) · ${rankText(f.rank_mean_3d, f.window_days)}`],
+      ["Prime du perpétuel sur le Spot", off(p) ? why(p) : `${pctFrac(p.now, 3, true)} maintenant · moyenne 24 h ${pctFrac(p.mean_24h, 3, true)} · ${rankText(p.rank_mean_24h, p.window_days)}`],
+      ["Intérêt ouvert", off(oi) ? why(oi) : `${usd(oi.value_usd)} · 24 h ${pctFrac(oi.change_24h, 1, true)} · 7 j ${pctFrac(oi.change_7d, 1, true)} · variation 24 h : ${rankText(oi.rank_change_24h, oi.window_days)}`],
+      ["Comptes acheteurs / vendeurs", off(a) ? why(a) : `${fmt(a.ratio, 2)} (${pctFrac(a.long_share, 0)} de comptes acheteurs) · ${rankText(a.rank, a.window_days)}`],
+      ["Gros comptes : positions acheteuses / vendeuses", off(t) ? why(t) : `${fmt(t.ratio, 2)} (${pctFrac(t.long_share, 0)} acheteuses) · ${rankText(t.rank, t.window_days)}`],
+      ["Achats / ventes agressifs sur 24 h", off(k) ? why(k) : `${fmt(k.ratio_24h, 2)} · ${rankText(k.rank, k.window_days)}`],
+    ]),
+    el("details", {}, el("summary", { text: "Ce que veut dire chaque ligne" }),
+      kv(Object.entries(d.definitions || {}).map(([key, text]) => [DERIVATIVE_LABELS[key] || key, text]))),
+    el("p", { class: "muted small", text: `Source : ${d.source}${d.cached ? " (lu il y a moins de 5 min)" : ""}.` }));
 }
 
 // CSI n'affiche une prévision que d'un modèle VALIDÉ hors échantillon par son protocole ; aucun ne l'est à ce jour.

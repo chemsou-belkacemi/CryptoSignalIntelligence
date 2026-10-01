@@ -180,6 +180,9 @@ Indépendant de BinanceSpotManager (servi par le service `api` de CSI ; sans Doc
   - un **plan indicatif** (entrée au marché, stop à 1 σ, objectif à 1,5 σ de la volatilité de
     l'horizon), rejoué sur l'historique. Son état est descriptif (« Historique positif — non validé »
     au mieux), jamais une proposition d'entrer ;
+  - la carte **Marché à terme** : positionnement du moment (financement, prime, intérêt ouvert, ratios
+    acheteurs/vendeurs), données publiques, avec le rang de chaque valeur dans son historique récent ;
+    information seulement ([docs/DERIVATIVES.md](docs/DERIVATIVES.md)) ;
   - l'avis de ses stratégies sur la dernière bougie, **en simulation** : rien n'est publié ;
   - la carte **Prévision par modèle**, qui donne les verdicts des programmes ML. Aucun n'étant validé
     hors échantillon, CSI ne donne pas de probabilité « prédite ».

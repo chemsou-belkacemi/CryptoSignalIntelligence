@@ -89,6 +89,35 @@ def test_http_whitelist_refuses_private_endpoints():
                                         transport=httpx.MockTransport(lambda r: httpx.Response(200)))
     with pytest.raises(PermissionError):
         archive.get("/data/spot/../../api/v3/order")
+    with pytest.raises(PermissionError):                       # le client spot ne lit pas le marché à terme
+        archive.get("/data/futures/um/monthly/fundingRate/BTCUSDT/BTCUSDT-fundingRate-2024-01.zip")
+
+
+def test_futures_clients_reach_public_market_data_only():
+    """Marché à terme : données publiques de positionnement seulement ; ordres, comptes, levier, flux
+    utilisateur et marché à marge en jetons (dapi) refusés AVANT tout appel réseau."""
+    seen = []
+    futures = PublicHttpClient.futures_rest("https://example.invalid", transport=httpx.MockTransport(
+        lambda r: seen.append(r.url.path) or httpx.Response(200, json=[])))
+    for path in ("/fapi/v1/order", "/fapi/v1/order/test", "/fapi/v1/batchOrders", "/fapi/v1/allOrders",
+                 "/fapi/v1/openOrders", "/fapi/v2/account", "/fapi/v2/balance", "/fapi/v2/positionRisk",
+                 "/fapi/v1/leverage", "/fapi/v1/marginType", "/fapi/v1/positionSide/dual", "/fapi/v1/userTrades",
+                 "/fapi/v1/listenKey", "/dapi/v1/order", "/api/v3/order", "/sapi/v1/asset",
+                 "/fapi/v1/fundingRate/../order"):
+        with pytest.raises(PermissionError):
+            futures.get(path)
+    assert seen == []
+    for path in ("/fapi/v1/premiumIndex", "/fapi/v1/fundingRate", "/futures/data/openInterestHist",
+                 "/futures/data/globalLongShortAccountRatio"):
+        futures.get(path)
+    assert len(seen) == 4
+    archives = PublicHttpClient.futures_archives("https://example.invalid",
+                                                 transport=httpx.MockTransport(lambda r: httpx.Response(200)))
+    for path in ("/data/futures/um/../../fapi/v1/order", "/data/futures/cm/monthly/fundingRate/X/X.zip",
+                 "/data/spot/monthly/klines/BTCUSDT/1h/BTCUSDT-1h-2024-01.zip", "/fapi/v1/order"):
+        with pytest.raises(PermissionError):
+            archives.get(path)
+    archives.get("/data/futures/um/monthly/fundingRate/BTCUSDT/BTCUSDT-fundingRate-2024-01.zip")
 
 
 def test_http_retries_with_retry_after():
@@ -105,7 +134,9 @@ def test_http_retries_with_retry_after():
 
 def test_source_code_contains_no_order_or_signing_route():
     source = Path(__file__).resolve().parents[1] / "src"
-    forbidden = re.compile(r"/api/v3/(order|account|myTrades|openOrders)|X-MBX-APIKEY|hmac|signature=", re.I)
+    forbidden = re.compile(r"/api/v3/(order|account|myTrades|openOrders)|X-MBX-APIKEY|hmac|signature="
+                           r"|/[fd]api/v\d/(order|batchOrders|allOrders|openOrders|account|balance|positionRisk"
+                           r"|leverage|marginType|positionSide|userTrades|listenKey)", re.I)
     offenders = [str(p) for p in source.rglob("*.py") if forbidden.search(p.read_text(encoding="utf-8"))]
     assert offenders == []
 

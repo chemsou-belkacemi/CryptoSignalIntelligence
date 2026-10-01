@@ -25,6 +25,7 @@ demande de clé Binance. Code : `src/crypto_signal_intelligence/api/server.py`.
 | `GET /execution-report` | signaux publiés : backtest, prospectif et Demo, séparés |
 | `GET /pairs` | paires analysables (configurées et ajoutées prêtes) et âge de leur dernière bougie ; horizons proposés |
 | `GET /models` | dernier verdict de chaque modèle (walk-forward, méta-labeling, ML intraday, criblage) et nombre d'essais du programme |
+| `GET /derivatives?symbol=X` | positionnement du moment sur le marché à terme USDⓈ-M (financement, prime, intérêt ouvert, ratios) avec le rang de chaque valeur dans son historique récent ; données publiques, relues au plus toutes les 5 min ; information seulement ([DERIVATIVES.md](DERIVATIVES.md)) |
 | `POST /evaluate` | évalue un signal Telegram (voir ci-dessous) |
 | `POST /analyze-pair` | `{"symbol": "ETHUSDT", "horizon": "24h"}` : perspective d'une paire (contexte, historique comparable, plan indicatif évalué sur le passé, stratégies en simulation) ; une analyse à la fois, résultat gardé jusqu'à la bougie suivante |
 | `POST /refresh-pair` | `{"symbol": "ETHUSDT"}` : télécharge les bougies publiques manquantes de la paire et du contexte BTC (REST public, aucune clé) ; une mise à jour à la fois (409 sinon) |

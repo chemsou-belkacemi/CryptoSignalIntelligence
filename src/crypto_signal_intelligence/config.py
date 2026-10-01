@@ -231,6 +231,15 @@ class NewsSection(BaseModel):
         return value
 
 
+class DerivativesSection(BaseModel):
+    """Données publiques du marché à terme USDⓈ-M (docs/DERIVATIVES.md) : information sur le positionnement,
+    jamais de contrat négocié, aucune clé."""
+    rest_base_url: str = "https://fapi.binance.com"
+    live_cache_seconds: int = Field(300, ge=0, le=3600)
+    funding_latency_seconds: float = Field(60, ge=0)
+    metrics_latency_seconds: float = Field(302, ge=0)
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="CSI_", env_nested_delimiter="__", extra="ignore")
 
@@ -247,6 +256,7 @@ class Settings(BaseSettings):
     publication: PublicationSection = PublicationSection()
     live: LiveSection = LiveSection()
     news: NewsSection = NewsSection()
+    derivatives: DerivativesSection = DerivativesSection()
     strategies: dict[str, dict[str, Any]] = {}
     root: Path = Field(default_factory=project_root)
 

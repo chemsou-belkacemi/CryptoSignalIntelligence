@@ -189,3 +189,13 @@ min_net_rr = 0.8                  # RR TP1 net de coûts centraux minimal
 min_base_rate_samples = 300       # en dessous : taux de base sur tous les régimes, puis INDETERMINE
 auto_add_pairs = false            # mode test : toute paire soumise est ajoutée, même sans validation manuelle
                                   # (CSI_EXTERNAL__AUTO_ADD_PAIRS=true ; Docker : CSI_AUTO_ADD_PAIRS dans .env)
+
+[derivatives]
+# Données PUBLIQUES du marché à terme USDⓈ-M de Binance (docs/DERIVATIVES.md) : financement, prime,
+# intérêt ouvert, ratios acheteurs/vendeurs. Information sur le positionnement seulement : CSI ne négocie
+# aucun contrat à terme, sans clé, et les signaux restent des achats Spot de l'univers.
+rest_base_url = "https://fapi.binance.com"
+live_cache_seconds = 300          # tableau de bord : une paire relue au plus toutes les 5 min
+# Historique (recherche) : disponibilité supposée, prudente (aucune heure de publication réelle connue).
+funding_latency_seconds = 60      # financement : connu 1 min après son règlement
+metrics_latency_seconds = 302     # intérêt ouvert et ratios 5 min : connus à la fin de leur période + 2 s

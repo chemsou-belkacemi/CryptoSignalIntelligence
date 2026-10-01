@@ -2,7 +2,8 @@
 
 Aucune clé, aucune signature, aucun en-tête d'authentification. Tout chemin
 hors liste blanche est refusé AVANT l'appel réseau : il n'existe aucune route
-vers les endpoints d'ordres ou de compte.
+vers les endpoints d'ordres ou de compte, ni en Spot ni sur le marché à terme
+(dont CSI ne lit que des données PUBLIQUES de positionnement : docs/DERIVATIVES.md).
 """
 from __future__ import annotations
 
@@ -15,6 +16,15 @@ logger = logging.getLogger("csi.http")
 
 REST_ALLOWED_PATHS = frozenset({"/api/v3/klines", "/api/v3/exchangeInfo", "/api/v3/ping", "/api/v3/time"})
 ARCHIVE_ALLOWED_PREFIX = "/data/spot/"
+# Marché à terme USDⓈ-M : données publiques de marché seulement (financement, prime, intérêt ouvert, ratios),
+# comme information sur le positionnement. Aucun ordre, aucun compte, aucun flux utilisateur : CSI ne négocie
+# jamais de contrat à terme.
+FUTURES_REST_ALLOWED_PATHS = frozenset({
+    "/fapi/v1/premiumIndex", "/fapi/v1/premiumIndexKlines", "/fapi/v1/fundingRate", "/fapi/v1/openInterest",
+    "/futures/data/openInterestHist", "/futures/data/globalLongShortAccountRatio",
+    "/futures/data/topLongShortPositionRatio", "/futures/data/takerlongshortRatio",
+})
+FUTURES_ARCHIVE_ALLOWED_PREFIX = "/data/futures/um/"
 RETRYABLE_STATUS = {418, 429, 500, 502, 503, 504}
 
 
@@ -48,6 +58,16 @@ class PublicHttpClient:
     @classmethod
     def archives(cls, base_url: str, **kwargs) -> PublicHttpClient:
         return cls(base_url, allowed_prefix=ARCHIVE_ALLOWED_PREFIX, **kwargs)
+
+    @classmethod
+    def futures_rest(cls, base_url: str, **kwargs) -> PublicHttpClient:
+        """Données publiques du marché à terme (lecture seule ; aucun ordre ni compte n'est joignable)."""
+        return cls(base_url, allowed_paths=FUTURES_REST_ALLOWED_PATHS, **kwargs)
+
+    @classmethod
+    def futures_archives(cls, base_url: str, **kwargs) -> PublicHttpClient:
+        """Archives publiques du marché à terme USDⓈ-M (financement, prime, intérêt ouvert et ratios)."""
+        return cls(base_url, allowed_prefix=FUTURES_ARCHIVE_ALLOWED_PREFIX, **kwargs)
 
     def close(self) -> None:
         self._client.close()

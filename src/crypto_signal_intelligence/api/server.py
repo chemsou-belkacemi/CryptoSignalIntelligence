@@ -13,6 +13,7 @@ demande de clé Binance. Pages : `/` (application : analyser une paire, évaluer
     GET  /universe             paires configurées et paires ajoutées par le propriétaire (état)
     GET  /pairs                paires analysables, avec la fraîcheur de leurs données
     GET  /models               verdicts de tous les modèles de CSI (registre des expériences)
+    GET  /derivatives?symbol=X positionnement du marché à terme (données publiques, information seulement)
     POST /analyze-pair         {"symbol": "ETHUSDT", "horizon": "24h"} → contexte, historique comparable,
                                plan indicatif évalué sur le passé, avis des stratégies (simulation)
     POST /refresh-pair         {"symbol": "ETHUSDT"} → télécharge les bougies publiques manquantes de la paire
@@ -54,6 +55,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from ..config import Settings
+from ..data.http import PublicHttpClient
 from ..data.schema import interval
 
 log = logging.getLogger(__name__)
@@ -152,6 +154,10 @@ class CsiApi:
         self._outlook_cache: OrderedDict[tuple, dict] = OrderedDict()
         self._refresh_lock = threading.Lock()
         self.downloader: Callable[..., object] | None = None     # remplaçable dans les tests (aucun réseau)
+        # Marché à terme (données publiques) : une lecture par paire au plus toutes les `live_cache_seconds`.
+        self._derivatives_lock = threading.Lock()
+        self._derivatives_cache: dict[str, tuple[datetime, dict]] = {}
+        self.futures_client: PublicHttpClient | None = None       # remplaçable dans les tests (aucun réseau)
 
     # --- lecture ---------------------------------------------------------------------------
     def health(self) -> dict:
@@ -310,6 +316,31 @@ class CsiApi:
                 "research_program_trials": trials.get("recherche"),
                 "note": "Aucun modèle n'est validé à ce jour : CSI n'annonce aucune rentabilité."}
 
+    def derivatives(self, symbol: str) -> dict:
+        """Positionnement du marché à terme pour une paire de l'univers (données publiques, cache court).
+        Information seulement : n'entre dans aucune décision."""
+        from ..derivatives.live import snapshot
+        from ..external.universe import universe_symbols
+        symbol = (symbol or "").strip().upper()
+        if not symbol.isalnum() or symbol not in universe_symbols(self.settings):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "paramètre « symbol » : une paire de l'univers (ex. ETHUSDT)")
+        now = self.now()
+        with self._derivatives_lock:
+            cached = self._derivatives_cache.get(symbol)
+        if cached and (now - cached[0]).total_seconds() < self.settings.derivatives.live_cache_seconds:
+            return cached[1] | {"cached": True}
+        client = self.futures_client or PublicHttpClient.futures_rest(self.settings.derivatives.rest_base_url,
+                                                                      retries=2, timeout=10)
+        try:
+            result = snapshot(client, symbol, now=now)
+        finally:
+            if client is not self.futures_client:
+                client.close()
+        if result["available"]:
+            with self._derivatives_lock:
+                self._derivatives_cache[symbol] = (now, result)
+        return result | {"cached": False}
+
     def analyze_pair(self, payload: dict) -> dict:
         from ..outlook.pair import HORIZONS, OutlookError, pair_outlook
         symbol, horizon = payload.get("symbol"), payload.get("horizon", "24h")
@@ -443,6 +474,7 @@ class CsiApi:
                 "/signals/recent": lambda: self.recent(_int(query.get("limit", ["20"])[0])),
                 "/signals/generated": lambda: self.generated(_int(query.get("limit", ["20"])[0])),
                 "/pairs": self.pairs, "/models": self.models,
+                "/derivatives": lambda: self.derivatives(query.get("symbol", [""])[0]),
             }
             if path in routes:
                 return routes[path]()
