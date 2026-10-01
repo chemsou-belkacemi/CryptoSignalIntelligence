@@ -25,8 +25,8 @@ def synthetic(seed: int = 0, *, days: int = DAYS, symbol: str = "ETHUSDT"):
                             "close": rng.normal(0, 5e-4, len(hours))})
     premium["available_at"] = premium["time"] + pd.Timedelta(hours=1, seconds=2)
     stamps = pd.date_range(START, periods=288 * days, freq="5min")
-    metrics = pd.DataFrame({"time": stamps, "oi": 1.0,
-                            "oi_value": 1e9 * np.exp(np.cumsum(rng.normal(0, 2e-3, len(stamps)))),
+    contracts = 1e6 * np.exp(np.cumsum(rng.normal(0, 2e-3, len(stamps))))
+    metrics = pd.DataFrame({"time": stamps, "oi": contracts, "oi_value": contracts * 100,
                             "top_accounts_ratio": 1.0, "top_positions_ratio": 1.0,
                             "accounts_ratio": 1.5 + np.cumsum(rng.normal(0, 5e-3, len(stamps))), "taker_ratio": 1.0})
     metrics["available_at"] = metrics["time"] + pd.Timedelta(seconds=602)
@@ -94,7 +94,7 @@ def test_a_zero_open_interest_never_creates_a_flush():
     spot, funding, premium, metrics = synthetic(seed=5)
     hour = START + pd.Timedelta(days=110, hours=8)
     zero = metrics["time"] == hour - pd.Timedelta(minutes=15)          # dernière ligne lue à la décision de 08:00
-    metrics.loc[zero, "oi_value"] = 0.0
+    metrics.loc[zero, "oi"] = 0.0                                       # nombre de contrats nul (archives officielles)
     grid = fx.metrics_grid(metrics).set_index("available_at")
     assert np.isnan(grid.loc[hour, "oi_change_24h"]) and np.isnan(grid.loc[hour + pd.Timedelta(hours=24), "oi_change_24h"])
     frame = fx.decision_frame(spot, funding, premium, metrics).set_index("decision_time")
@@ -105,8 +105,8 @@ def test_a_zero_open_interest_never_creates_a_flush():
 
 def test_funding_window_holds_nine_settlements_whatever_the_jitter_and_is_per_eight_hours():
     _, funding, _, _ = synthetic(seed=6)
-    jittered = funding.assign(time=funding["time"] + pd.to_timedelta(
-        np.random.default_rng(1).integers(0, 50, len(funding)), unit="ms"))
+    jittered = funding.assign(time=funding["time"] + pd.to_timedelta(        # gigue dans les deux sens
+        np.random.default_rng(1).integers(-50, 50, len(funding)), unit="ms"))
     jittered["available_at"] = jittered["time"] + pd.Timedelta(seconds=60)
     exact, noisy = fx.funding_table(funding), fx.funding_table(jittered)
     np.testing.assert_allclose(noisy["funding_3d"].to_numpy(), exact["funding_3d"].to_numpy())
@@ -126,3 +126,21 @@ def test_metrics_thresholds_never_include_the_current_value():
     assert after["accounts_ratio"].iloc[-1] == 0.01                         # la grille la lit bien
     assert after["accounts_q10"].iloc[-1] == base["accounts_q10"].iloc[-1]
     assert after["oi_change_24h_q10"].iloc[-1] == base["oi_change_24h_q10"].iloc[-1]
+
+
+def test_open_interest_flush_counts_contracts_not_their_dollar_value():
+    """Une baisse du prix seule (contrats inchangés) n'est pas une fermeture de positions."""
+    _, _, _, metrics = synthetic(seed=8)
+    price_drop = metrics.assign(oi_value=metrics["oi_value"] * np.linspace(1.0, 0.5, len(metrics)))
+    np.testing.assert_allclose(fx.metrics_grid(price_drop)["oi_change_24h"].to_numpy(),
+                               fx.metrics_grid(metrics)["oi_change_24h"].to_numpy(), equal_nan=True)
+
+
+def test_a_zero_or_negative_accounts_ratio_is_missing():
+    _, _, _, metrics = synthetic(seed=9)
+    grid = fx.metrics_grid(metrics)
+    hour = grid["available_at"].iloc[-30]
+    read = metrics.index[metrics["available_at"] <= hour][-1]
+    metrics.loc[read, "accounts_ratio"] = 0.0
+    after = fx.metrics_grid(metrics).set_index("available_at")
+    assert np.isnan(after.loc[hour, "accounts_ratio"])

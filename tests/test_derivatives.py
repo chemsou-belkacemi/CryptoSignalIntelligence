@@ -41,8 +41,8 @@ def market(failing: frozenset[str] = frozenset()):
                                              for o, c in zip(opens, closes, strict=True)])
         if path == "/futures/data/openInterestHist":
             stamps = [HOUR_START - HOUR_MS * i for i in range(499, -1, -1)]
-            return httpx.Response(200, json=[{"symbol": "ETHUSDT", "sumOpenInterest": "1",
-                                              "sumOpenInterestValue": str(1e9 * 1.001 ** i), "timestamp": s}
+            return httpx.Response(200, json=[{"symbol": "ETHUSDT", "sumOpenInterest": str(1e6 * 1.001 ** i),
+                                              "sumOpenInterestValue": str(1e9 * 1.002 ** i), "timestamp": s}
                                              for i, s in enumerate(stamps)])
         if path in ("/futures/data/globalLongShortAccountRatio", "/futures/data/topLongShortPositionRatio"):
             stamps = [HOUR_START - HOUR_MS * i for i in range(499, -1, -1)]
@@ -80,8 +80,9 @@ def test_snapshot_describes_each_section_from_public_market_data_only():
     premium = out["premium"]
     assert premium["now"] == pytest.approx(0.01) and premium["mean_24h"] == pytest.approx(0.002)
     oi = out["open_interest"]
+    # variations en NOMBRE de contrats (sans l'effet du prix) ; valeur affichée en dollars
     assert oi["change_24h"] == pytest.approx(1.001 ** 24 - 1) and oi["change_7d"] == pytest.approx(1.001 ** 168 - 1)
-    assert oi["value_usd"] == pytest.approx(1e9 * 1.001 ** 499, rel=1e-6)
+    assert oi["value_usd"] == pytest.approx(1e9 * 1.002 ** 499, rel=1e-6)
     assert out["accounts"]["ratio"] == pytest.approx(1.5) and out["accounts"]["rank"] == pytest.approx(0.5, abs=0.01)
     assert out["accounts"]["long_share"] == pytest.approx(0.6)
     assert out["taker"]["ratio_24h"] == pytest.approx(1.0)       # l'heure en cours (achats énormes) est exclue

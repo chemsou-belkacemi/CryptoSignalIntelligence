@@ -3,13 +3,14 @@
 Décisions toutes les 4 h, à la clôture des bougies Spot 1 h de 03:00, 07:00… (comme le swing). Chaque
 variable n'utilise que des lignes dont `available_at` précède celui de la décision, avec un âge maximal :
 - financement : taux ramené à son équivalent sur 8 h (taux × 8 / intervalle en heures), moyenne des
-  règlements des 72 dernières heures (heures de règlement arrondies à la minute : leur gigue de quelques
-  millisecondes ne fait jamais entrer un 10e règlement), et son 10e centile sur les 90 jours PRÉCÉDENTS
-  (la valeur courante exclue) ;
+  règlements des 72 dernières heures (heures de règlement arrondies à la minute la plus proche : leur gigue
+  de quelques millisecondes, dans un sens ou dans l'autre, ne fait jamais entrer un 10e règlement), et son
+  10e centile sur les 90 jours PRÉCÉDENTS (la valeur courante exclue) ;
 - prime : moyenne des 24 dernières bougies 1 h closes, et son 10e centile sur les 90 jours précédents ;
 - intérêt ouvert et ratio de comptes : valeurs « metrics » ramenées sur une grille horaire (la dernière ligne
-  disponible à chaque heure), variation de l'intérêt ouvert sur 24 h, 10e centiles sur les 90 jours précédents ;
-  une valeur nulle ou négative (présente dans les archives officielles) est manquante.
+  disponible à chaque heure), variation sur 24 h du NOMBRE DE CONTRATS ouverts (pas de leur valeur en dollars,
+  qui contient la variation du prix), 10e centiles sur les 90 jours précédents ; une valeur nulle ou négative
+  (présente dans les archives officielles) est manquante.
 Cibles : achat à l'ouverture de la bougie 1 h suivante, vente à la clôture de t+H (fenêtre contiguë, sinon
 pas de cible). Le contrôle de causalité (données tronquées, futur falsifié) et ses mutations sont dans
 `causality_violations`.
@@ -44,7 +45,7 @@ def funding_table(funding: pd.DataFrame) -> pd.DataFrame:
     if funding.empty:
         return pd.DataFrame(columns=["available_at", "funding_3d", "funding_3d_q10"])
     f = _sorted(funding, "time")
-    f = f.set_index(f["time"].dt.floor("min"))
+    f = f.set_index(f["time"].dt.round("min"))
     per_8h = f["rate"] * 8 / f["interval_hours"].where(f["interval_hours"] > 0).fillna(8)
     mean_3d = per_8h.rolling("72h").mean()
     q10 = mean_3d.rolling(WINDOW, closed="left", min_periods=MIN_FUNDING_HISTORY).quantile(QUANTILE)
@@ -70,14 +71,14 @@ def metrics_grid(metrics: pd.DataFrame) -> pd.DataFrame:
     if metrics.empty:
         return pd.DataFrame(columns=columns)
     m = _sorted(metrics, "available_at")
-    m = m.assign(**{column: m[column].where(m[column] > 0) for column in ("oi_value", "accounts_ratio")})
+    m = m.assign(**{column: m[column].where(m[column] > 0) for column in ("oi", "accounts_ratio")})
     hours = pd.date_range(m["available_at"].iloc[0].ceil("h"), m["available_at"].iloc[-1].floor("h"), freq="h")
     grid = pd.merge_asof(pd.DataFrame({"available_at": hours.as_unit("ns")}),
-                         m[["available_at", "oi_value", "accounts_ratio"]].assign(
+                         m[["available_at", "oi", "accounts_ratio"]].assign(
                              available_at=m["available_at"].dt.as_unit("ns")),
                          on="available_at", direction="backward", tolerance=MAX_METRICS_AGE)
     g = grid.set_index("available_at")
-    change = g["oi_value"] / g["oi_value"].shift(24) - 1
+    change = g["oi"] / g["oi"].shift(24) - 1
     return pd.DataFrame({
         "available_at": g.index, "oi_change_24h": change.to_numpy(),
         "oi_change_24h_q10": change.rolling(WINDOW, closed="left", min_periods=MIN_HOURLY_HISTORY).quantile(
@@ -141,8 +142,8 @@ CONDITIONS: dict[str, tuple[str, tuple[str, ...], Callable[[pd.DataFrame], np.nd
                          "(perpétuel décoté : pression vendeuse sur le marché à terme)",
                          ("premium_24h", "premium_24h_q10"),
                          lambda f: (f["premium_24h"] < f["premium_24h_q10"]).to_numpy()),
-    "OI_FLUSH": ("variation 24 h de l'intérêt ouvert sous son 10e centile des 90 jours précédents ET prix Spot en "
-                 "baisse sur 24 h (positions fermées ou liquidées)",
+    "OI_FLUSH": ("variation 24 h du nombre de contrats ouverts sous son 10e centile des 90 jours précédents ET prix "
+                 "Spot en baisse sur 24 h (positions fermées ou liquidées)",
                  ("oi_change_24h", "oi_change_24h_q10", "spot_ret_24h"),
                  lambda f: ((f["oi_change_24h"] < f["oi_change_24h_q10"]) & (f["spot_ret_24h"] < 0)).to_numpy()),
     "ACCOUNTS_SHORT": ("ratio comptes acheteurs / vendeurs sous son 10e centile des 90 jours précédents (comptes "

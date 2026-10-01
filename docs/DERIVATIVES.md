@@ -92,7 +92,7 @@ mutations ci-dessous). Ces vérifications externes en tiennent lieu.
 - **Valeurs figées** : l'intérêt ouvert de BTC reste constant pendant 16 h le 2021-05-21. Ce n'est pas
   détecté ; c'est une limite déclarée.
 
-## Criblage (protocole v2, déclaré le 2026-10-01 avant toute exécution)
+## Criblage (protocole v3, déclaré le 2026-10-01 avant toute exécution)
 
 Commande : `screen-derivatives`. Code : `research/derivatives_screen.py`, `derivatives/features.py`.
 
@@ -108,7 +108,11 @@ Commande : `screen-derivatives`. Code : `research/derivatives_screen.py`, `deriv
   - metrics commencées au plus tard le 2022-01-01 ;
   - toutes poursuivies jusqu'à 2 jours avant la fin de DEVELOPMENT.
 
-  Sinon : refus, aucun essai enregistré. Les empreintes des séries lues sont enregistrées.
+  - la prime sans jour incomplet en DEVELOPMENT, hors jour de cotation : les jours absents des fichiers
+    mensuels doivent avoir été repris des archives journalières.
+
+  Sinon : refus, aucun essai enregistré. La qualité de chaque série (trous, valeurs manquantes ou
+  invalides) et les empreintes des séries lues sont enregistrées avec le résultat.
 - Décision toutes les 4 h, à la clôture des bougies Spot 1 h (00:00, 04:00… UTC).
 - Entrée à l'ouverture de la bougie suivante, sortie à la clôture de t+H, H ∈ {1 j, 3 j, 7 j}. Aucun stop
   ni objectif. Une fenêtre Spot non contiguë n'a pas de rendement.
@@ -122,8 +126,11 @@ Commande : `screen-derivatives`. Code : `research/derivatives_screen.py`, `deriv
 - Financement :
   - ramené à son équivalent sur 8 h (taux × 8 / intervalle en heures), car SOL a eu des intervalles de
     2 h et 4 h en 2022-11 ;
-  - heures de règlement arrondies à la minute avant la fenêtre de 72 h, sinon leur gigue de quelques
-    millisecondes y ferait entrer un 10e règlement.
+  - heures de règlement arrondies à la minute la plus proche avant la fenêtre de 72 h, sinon leur gigue de
+    quelques millisecondes y ferait entrer un 10e règlement.
+- Intérêt ouvert : mesuré en **nombre de contrats**, pas en dollars. Sa valeur en dollars baisse dès que le
+  prix baisse, ce que OI_FLUSH exige déjà ; en dollars, 27 à 41 % des événements n'étaient pas des baisses
+  de contrats (relecture, mesure faite sur les variables seules, sans rendement).
 
 **Conditions (4), toutes de sens contraire au positionnement, effet attendu : excès positif**
 
@@ -131,7 +138,7 @@ Commande : `screen-derivatives`. Code : `research/derivatives_screen.py`, `deriv
 |---|---|
 | FUNDING_LOW | financement moyen des 72 dernières heures sous son 10e centile |
 | PREMIUM_DISCOUNT | prime moyenne des 24 dernières heures (bougies 1 h closes) sous son 10e centile |
-| OI_FLUSH | variation 24 h de l'intérêt ouvert sous son 10e centile ET prix Spot en baisse sur 24 h |
+| OI_FLUSH | variation 24 h du nombre de contrats ouverts sous son 10e centile ET prix Spot en baisse sur 24 h |
 | ACCOUNTS_SHORT | ratio comptes acheteurs/vendeurs (tous les comptes) sous son 10e centile |
 
 Les conditions sur l'intérêt ouvert et les comptes ne sont évaluables qu'à partir de 2022-03 environ :
@@ -190,12 +197,17 @@ n'est donc **pas** un résultat « au-delà des coûts » : c'est une idée à c
 - Le calibrage de l'IC a été simulé à 95 %, pas au niveau corrigé de 99,58 %. La correction de Bonferroni
   ne porte que sur ces 12 essais, pas sur les 638 du programme.
 - Valeurs figées des archives non détectées (exemple ci-dessus).
+- Valeurs partielles non nulles après une panne (BTC le 2021-05-22, de 05:15 à 05:40, à 10-90 % du niveau)
+  et chutes isolées du ratio de comptes (HBAR le 2023-11-16 à 19:20, NEAR le 2023-04-28 à 18:05) : non
+  traitées. Aucune ne tombe aujourd'hui sur la ligne que lit la grille horaire (celle de h − 15 min).
 - La dérive d'une paire est calculée sur des décisions qui comprennent les événements eux-mêmes. L'excès
   en est atténué, ce qui va dans le sens prudent.
 
 ## Suite
 
-1. Fin du téléchargement de l'historique, puis contrôle de la qualité de chaque paire.
+1. Fin du téléchargement de l'historique, puis `download-derivatives --dataset premium` pour reprendre
+   les jours absents (après les metrics : les deux écrivent dans le même registre). Ensuite, contrôle de
+   la qualité de chaque paire : zéros, sauts de la grille horaire, début des séries.
 2. Exécution unique, puis résultats ci-dessous, quels qu'ils soient.
 
 ## Historique
@@ -215,3 +227,12 @@ n'est donc **pas** un résultat « au-delà des coûts » : c'est une idée à c
     au plus) dans la règle ; IC du rendement brut ; « passe » renommé « piste ».
   - Tests : coupure DEVELOPMENT, données incomplètes, niveau et blocs de l'IC, chaque critère de la
     règle, zéros, gigue, valeur courante exclue des seuils metrics.
+- 2026-10-01, v3 : **avant toute exécution**, après une seconde relecture indépendante (aucune fuite ;
+  12 essais inchangés).
+  - OI_FLUSH mesuré en nombre de contrats, et non en dollars. La carte du tableau de bord donne aussi ses
+    variations en contrats.
+  - Règlements arrondis à la minute la plus proche (gigue négative couverte).
+  - Prime : jours incomplets repris des archives journalières, exigés avant l'exécution.
+  - Qualité de chaque série enregistrée avec le résultat ; limites supplémentaires déclarées.
+  - Tests : zéro de contrats et du ratio de comptes, gigue négative, début et fin des séries, prime
+    incomplète, effet prix exclu.

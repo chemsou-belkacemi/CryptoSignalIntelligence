@@ -33,14 +33,14 @@ import pandas as pd
 
 from ..config import Settings
 from ..derivatives import features as fx
-from ..derivatives.history import DerivativesStore
+from ..derivatives.history import STEPS, DerivativesStore, incomplete_days, quality
 from ..features.loader import load_candles
 from .experiments import ExperimentRegistry, dependency_versions, git_state, new_run_id
 from .intervals import calendar_mean_ci
 from .protocol import clip_to_development, development_end
 
 KIND, STRATEGY = "SCREEN", "SCREEN_DERIVATIVES"
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 HORIZONS = fx.HORIZONS
 N_TRIALS = len(fx.CONDITIONS) * len(HORIZONS)
 LEVEL = 1 - 0.05 / N_TRIALS
@@ -129,8 +129,9 @@ def fingerprint(frame: pd.DataFrame) -> str:
 
 
 def check_complete(settings: Settings, symbols: list[str], end: pd.Timestamp) -> dict:
-    """Couverture de chaque (paire, jeu de données) ; lève IncompleteData si une série manque ou ne couvre
-    pas la période déclarée (une exécution sur données partielles mesurerait autre chose que le protocole)."""
+    """Couverture et qualité de chaque (paire, jeu de données) ; lève IncompleteData si une série manque, ne
+    couvre pas la période déclarée, ou si la prime garde des jours incomplets en DEVELOPMENT (hors jour de
+    cotation) : ils doivent avoir été repris des archives journalières (`download-derivatives`)."""
     store = DerivativesStore(settings.data_dir)
     report, problems = {}, []
     for symbol in symbols:
@@ -140,7 +141,15 @@ def check_complete(settings: Settings, symbols: list[str], end: pd.Timestamp) ->
                 problems.append(f"{symbol} {dataset} : absent")
                 continue
             first, last = frame["time"].min(), frame[frame["time"] <= end]["time"].max()
-            report[f"{symbol} {dataset}"] = {"first": str(first), "last": str(last)}
+            within = frame[frame["time"] <= end]
+            report[f"{symbol} {dataset}"] = {"first": str(first), "last": str(last)} | quality(dataset, within)
+            if dataset == "premium":
+                holes = [d for d in incomplete_days(within, STEPS["premium"], end.date() + pd.Timedelta(days=1))
+                         if d != first.date()]
+                report[f"{symbol} {dataset}"]["incomplete_days"] = [str(d) for d in holes]
+                if holes:
+                    problems.append(f"{symbol} premium : {len(holes)} jour(s) incomplet(s) non repris "
+                                    f"({', '.join(str(d) for d in holes[:5])})")
             if first > latest_start:
                 problems.append(f"{symbol} {dataset} : commence le {first:%Y-%m-%d} (au plus tard {latest_start:%Y-%m-%d})")
             if pd.isna(last) or last < end - END_TOLERANCE:

@@ -85,6 +85,30 @@ def test_incomplete_data_is_refused_before_any_trial(stored):
     assert ExperimentRegistry(stored.experiments_db).program_trials() == 0
 
 
+def test_series_must_cover_the_declared_period(stored, monkeypatch):
+    monkeypatch.setattr(screen, "LATEST_START", screen.LATEST_START | {"metrics": pd.Timestamp("2023-12-31", tz="UTC")})
+    with pytest.raises(screen.IncompleteData, match="metrics : commence"):
+        screen.run(stored, now=NOW)
+    monkeypatch.undo()
+    monkeypatch.setattr(screen, "LATEST_START", {k: pd.Timestamp("2024-01-02", tz="UTC") for k in screen.LATEST_START})
+    derivatives = DerivativesStore(stored.data_dir)
+    funding = derivatives.load("funding", "ETHUSDT")
+    funding[funding["time"] < pd.Timestamp("2024-07-01", tz="UTC")].to_parquet(derivatives.path("funding", "ETHUSDT"),
+                                                                               index=False)
+    with pytest.raises(screen.IncompleteData, match="ETHUSDT funding : s'arrête"):
+        screen.run(stored, now=NOW)
+    assert ExperimentRegistry(stored.experiments_db).program_trials() == 0
+
+
+def test_a_premium_day_left_incomplete_is_refused(stored):
+    derivatives = DerivativesStore(stored.data_dir)
+    premium = derivatives.load("premium", "BTCUSDT")
+    day = premium["time"].dt.floor("D") == pd.Timestamp("2024-03-10", tz="UTC")
+    premium[~day].to_parquet(derivatives.path("premium", "BTCUSDT"), index=False)
+    with pytest.raises(screen.IncompleteData, match="BTCUSDT premium : 1 jour"):
+        screen.run(stored, now=NOW)
+
+
 def test_the_leak_audit_needs_its_three_pairs(stored, monkeypatch):
     monkeypatch.setattr(screen, "check_complete", lambda *args, **kwargs: {})
     DerivativesStore(stored.data_dir).path("metrics", "SOLUSDT").unlink()

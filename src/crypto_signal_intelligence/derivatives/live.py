@@ -25,8 +25,9 @@ DEFINITIONS = {
                    "l'achat avec levier.",
     "prime": "Écart du prix du contrat perpétuel (prix de marque) sur l'indice Spot. Négatif : le perpétuel "
              "s'échange sous le Spot, signe de pression vendeuse sur le marché à terme.",
-    "interet_ouvert": "Valeur en dollars de tous les contrats ouverts. Hausse : nouvelles positions à levier ; "
-                      "forte baisse : positions fermées ou liquidées.",
+    "interet_ouvert": "Valeur en dollars de tous les contrats ouverts ; ses variations sont mesurées en NOMBRE de "
+                      "contrats (sans l'effet du prix). Hausse : nouvelles positions à levier ; forte baisse : "
+                      "positions fermées ou liquidées.",
     "comptes": "Comptes acheteurs / comptes vendeurs, sur tous les comptes du marché à terme de cette paire.",
     "gros_comptes": "Positions acheteuses / vendeuses des plus gros comptes (en taille de position).",
     "agressifs": "Volume des achats agressifs / volume des ventes agressives (ordres au marché) sur 24 h.",
@@ -102,11 +103,13 @@ def open_interest_section(client: PublicHttpClient, symbol: str, now_ms: int) ->
     frame["timestamp"] = frame["timestamp"].astype("int64")
     frame = frame[frame["timestamp"] <= now_ms].sort_values("timestamp").reset_index(drop=True)
     value = pd.to_numeric(frame["sumOpenInterestValue"], errors="coerce")
-    change_24h = value / value.shift(24) - 1
+    contracts = pd.to_numeric(frame["sumOpenInterest"], errors="coerce")
+    contracts = contracts.where(contracts > 0)
+    change_24h = contracts / contracts.shift(24) - 1
     return {"value_usd": _number(value.iloc[-1]), "at": pd.Timestamp(int(frame["timestamp"].iloc[-1]), unit="ms",
                                                                       tz="UTC").isoformat(),
             "change_24h": _number(change_24h.iloc[-1]),
-            "change_7d": _number(value.iloc[-1] / value.iloc[-169] - 1) if len(value) > 168 else None,
+            "change_7d": _number(contracts.iloc[-1] / contracts.iloc[-169] - 1) if len(contracts) > 168 else None,
             "rank_change_24h": rank(change_24h.iloc[:-1].to_numpy(), change_24h.iloc[-1]),
             "window_days": round(len(frame) / 24, 1)}
 
