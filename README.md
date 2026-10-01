@@ -148,6 +148,12 @@ Résultat (exécution unique, 18 essais, programme 656) : **aucune piste**. Aucu
 référence avec un intervalle entièrement positif. Les filtres de tendance réduisent la perte maximale
 (−48 à −71 % contre −82 %) sans gain de Sharpe démontré. Détail : [docs/FACTORS.md §10](docs/FACTORS.md).
 
+### ML swing sur l'historique long : aucun avantage démontré (2026-10-01)
+
+Même protocole que le swing, rejoué sur 2017-2025 et 40 paires (12 validations, 42 essais) : aucun
+système stable (au mieux 7 validations positives sur 12, il en faut 9). Programme : 698 essais.
+Détail : [docs/ML_SWING_LONG.md §10](docs/ML_SWING_LONG.md).
+
 ### Pourquoi elles perdent, et criblage des familles suivantes
 
 Avant frais, A, B et C n'ont pratiquement aucun avantage (≈ +0,01 R, −0,06 R, +0,03 R) : les coûts

@@ -229,6 +229,34 @@ Sans audit réussi, aucun essai n'est évalué et l'exécution est enregistrée 
   decisions.parquet, leak_audit.json, modèles archivés) ; aucun chiffre ne sera copié ici avant la
   première exécution. Les résultats seront ajoutés dans un §10 daté, sans modifier les sections 1 à 8.
 
+## 10. Résultats (exécution unique du 2026-10-01)
+
+Sélection `MLL-20261001T194110Z-090770`, code du commit `75ea6af` (arbre propre), 12 validations
+de 2019-07 à 2025-06, audit des fuites réussi (mutations détectées, population et coupure
+contrôlées). 42 essais ; programme : **698 essais**. Période finale non consultée.
+
+**Conclusion : AUCUN_AVANTAGE_DEMONTRE.** Aucun système n'est stable : le meilleur obtient 7
+validations positives sur 12 (il en faut 9) ; 0 stable, 0 admissible.
+
+| Système (meilleurs Sharpe médians) | Validations > 0 | Trades | Sharpe médian |
+|---|---|---|---|
+| `fh_H168_logistic_l2_m0bp_tout` | 6/12 | 1 203 | 1,37 |
+| `fh_H72_logistic_l2_m0bp_tout` | 6/12 | 2 282 | 1,29 |
+| `fh_H72_catboost_depth4_n400_m0bp_tout` | 7/12 | 2 419 | 0,93 |
+
+Diagnostic du système de référence (non admissible) :
+- gain moyen par trade +2,4 %, mais IC95 [−0,2 % ; +5,1 %] contenant 0 ; +0,9 % sans le 1 % des
+  meilleurs trades ;
+- AUC de 0,46 à 0,58 selon la validation et Brier skill négatif dans 8 validations sur 12 : les
+  probabilités ne trient pas mieux que le taux de base ;
+- un portefeuille long seul de 2019 à 2025 suit surtout le marché : ses bonnes validations sont
+  celles où BTC monte, et des entrées au hasard y font souvent aussi bien (colonne « Hasard p95 » du
+  rapport).
+- Triple barrière nettement moins bonne que l'horizon fixe (Sharpe médian 0,09 contre 0,77).
+
+Lecture : avec six ans et 40 paires au lieu de trois ans et 16, le résultat du swing se confirme :
+pas d'avantage démontré à 3-7 jours avec ces variables.
+
 ## Historique
 
 - 2026-10-01, v1 : version initiale, avant toute exécution. Décisions prises avant d'écrire le code :
