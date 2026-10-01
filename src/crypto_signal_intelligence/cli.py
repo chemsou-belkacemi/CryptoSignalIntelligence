@@ -831,6 +831,13 @@ def audit_telegram(file: str = typer.Option(None, "--file", help="Export JSON de
                 detail += f" ; avec les positions ouvertes au dernier prix : R moyen {c['r_moyen_avec_ouvertes']:+.2f} (provisoire)"
             console.print(f"  [bold]{CONVENTION_LABELS[convention]}[/bold] : {c['resolus']} résolus, {c['en_cours']} en "
                           f"cours, {c['non_remplis']} non remplis | {detail}\n    → {c['conclusion']}")
+        study = block.get("gestions")
+        if study:
+            console.print(f"  [bold]Gestions comparées[/bold] ({study['variants']} variantes, {study['signals']} signaux) : "
+                          f"{study['conclusion']}")
+            for row in study.get("top_on_choice", []):
+                console.print(f"    {row['label']} : {row['r_mean_choice']:+.2f} R (choix) → {row['r_mean_confirm']:+.2f} R "
+                              "(confirmation)")
         proof = block["preuve"]
         console.print(("[green]" if proof["proven"] else "[yellow]") + f"Avis lié au groupe : {proof['text']}"
                       + ("[/green]" if proof["proven"] else "[/yellow]"))

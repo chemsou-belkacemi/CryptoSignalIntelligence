@@ -81,6 +81,7 @@ class ExternalEvaluation:
     record_id: str | None = None
     volatility: dict | None = None           # TP1 et stop en « mouvements typiques prévus » (information)
     trailing: dict | None = None             # taux de base de la gestion « stop suiveur » (si c'est elle qui est jugée)
+    managements: list[dict] | None = None    # aperçu : quelques gestions sur les mêmes ordres aveugles
     verdict_basis: str = ""                  # « groupe » (preuve en direct) ou « geometrie » (taux de base) si FAVORABLE
     source_proof: dict | None = None         # bilan en direct du groupe : résolus, jours, prouvé ou non
 
@@ -94,7 +95,7 @@ class ExternalEvaluation:
                 "context": self.context, "geometry": self.geometry,
                 "base_rate": self.base_rate.to_dict() if self.base_rate else None,
                 "source_stats": self.source_stats, "verdict_basis": self.verdict_basis,
-                "volatility": self.volatility, "trailing": self.trailing,
+                "volatility": self.volatility, "trailing": self.trailing, "managements": self.managements,
                 "source_proof": self.source_proof,
                 "decision_time": self.decision_time.isoformat() if self.decision_time else None}
 
@@ -402,4 +403,13 @@ def evaluate(settings: Settings, text: str, *, source: str, now: datetime, recor
             costs=settings.costs["central"], min_samples=cfg.min_base_rate_samples, seed=settings.protocol.seed,
             bootstrap_samples=settings.protocol.bootstrap_samples, bar_minutes=int(setup_interval.total_seconds() // 60),
             history_end=pd.Timestamp(development_end(settings)))
+        from .trailing import showcase
+        span = setup_interval * (cfg.entry_window_bars + cfg.trail_max_hold_bars)
+        mask = (frame["decision_time"] + span <= pd.Timestamp(development_end(settings))).to_numpy()
+        if evaluation.trailing["regime_conditioned"]:
+            mask &= (frame["ctx_trend"].to_numpy() == trend) & (frame["ctx_volatility"].to_numpy() == volatility)
+        evaluation.managements = showcase(
+            frame, entry_offset_atr=(entry - close) / atr, stop_atr=risk / atr,
+            targets_r=[(t - entry) / risk for t in targets], mask=mask, entry_window=cfg.entry_window_bars,
+            horizon=cfg.trail_max_hold_bars, costs=settings.costs["central"])
     return finish()

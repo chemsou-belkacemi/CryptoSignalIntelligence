@@ -487,6 +487,20 @@ def audit(settings: Settings, items: Iterable[HistoryItem], *, now: datetime, so
         "dernier prix.",
     ]
     summary = summarize(rows, samples=settings.protocol.bootstrap_samples, seed=settings.protocol.seed)
+    say("comparaison des gestions")
+    from .managements import compare
+    from .trailing import Management
+    current = Management(tp_count=settings.external.tp_count)
+    for name in summary:
+        mine = [r for r in rows if r.status == OK and (name == ALL or r.group == name)]
+        if len(mine) < 2:
+            continue
+        signals = [{"symbol": r.symbol, "received_at": r.received_at, "entry": r.entry, "stop": r.stop,
+                    "targets": r.targets} for r in mine]
+        summary[name]["gestions"] = compare(
+            signals, {s: f for s, f in candles.items() if f is not None}, entry_window=settings.external.entry_window_bars,
+            horizon=int(pd.Timedelta(days=FOLLOW_DAYS) / STEP), costs=settings.costs["central"],
+            samples=settings.protocol.bootstrap_samples, seed=settings.protocol.seed, current=current)
     return AuditReport(pd.Timestamp(now).isoformat(), weights, rows, summary, notes)
 
 

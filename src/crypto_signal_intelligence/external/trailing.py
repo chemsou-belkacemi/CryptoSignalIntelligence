@@ -19,6 +19,8 @@ UN seul moteur vectorisé sert au signal réel (`replay_trailing`) et aux ordres
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
 
@@ -34,11 +36,74 @@ def early_weights(count: int) -> np.ndarray:
     return np.array([(count - k) / total for k in range(count)])
 
 
-def trail_stop(entry: np.ndarray, targets: np.ndarray, hits: np.ndarray, initial: np.ndarray) -> np.ndarray:
-    """Stop après `hits` objectifs touchés : stop initial (0), entrée (1 ou 2), TP(hits−2) ensuite."""
+FIXED, ENTRY, TRAIL = "fixe", "entree", "suiveur"
+
+
+@dataclass(frozen=True)
+class Management:
+    """Une façon de gérer un signal : `tp_count` objectifs vendus, part vendue à TP1 (`first_share`, None : parts
+    « early » n, n−1… 1), règle du stop : `fixe` (jamais déplacé), `entree` (à l'entrée 1 après TP1, puis plus),
+    `suiveur` (entrée 1 après TP1, puis TP(k − lag) après TPk)."""
+    tp_count: int = TP_COUNT
+    first_share: float | None = None
+    stop_rule: str = TRAIL
+    lag: int = TRAIL_LAG
+
+    @property
+    def key(self) -> str:
+        share = "early" if self.first_share is None else f"{round(self.first_share * 100)}"
+        rule = f"{self.stop_rule}{self.lag}" if self.stop_rule == TRAIL else self.stop_rule
+        return f"tp{self.tp_count}_{share}_{rule}"
+
+    @property
+    def label(self) -> str:
+        if self.tp_count == 1:
+            sale = "tout vendu à TP1"
+        elif self.first_share is None:
+            sale = f"{self.tp_count} objectifs, parts décroissantes"
+        else:
+            sale = f"{self.tp_count} objectifs, {round(self.first_share * 100)} % à TP1 puis parts égales"
+        stop = {FIXED: "stop fixe", ENTRY: "stop à l'entrée 1 après TP1",
+                TRAIL: f"stop à l'entrée 1 après TP1 puis à TP(k−{self.lag})"}[self.stop_rule]
+        return f"{sale}, {stop}"
+
+    def weights(self, available: int) -> np.ndarray:
+        """Parts vendues aux objectifs utilisés (au plus `tp_count`, au plus ceux du signal) ; somme 1."""
+        count = max(1, min(self.tp_count, available))
+        if count == 1:
+            return np.ones(1)
+        if self.first_share is None:
+            return early_weights(count)
+        return np.r_[self.first_share, np.full(count - 1, (1 - self.first_share) / (count - 1))]
+
+
+OWNER = Management()                                   # la gestion déclarée par le propriétaire le 2026-10-02
+
+
+def management_grid() -> list[Management]:
+    """Variantes étudiées (docs/EXTERNAL_SIGNALS.md, « Comparer les gestions ») : 1 à 7 objectifs, part à TP1
+    « early », 50, 60 ou 70 %, stop fixe / à l'entrée / suiveur à 1 ou 2 objectifs. Doublons retirés (avec un
+    seul objectif, la part et la règle du stop sont sans effet)."""
+    out: dict[str, Management] = {}
+    for tp_count in range(1, 8):
+        for share in (None, 0.5, 0.6, 0.7):
+            for rule, lag in ((FIXED, 0), (ENTRY, 0), (TRAIL, 1), (TRAIL, 2)):
+                m = (Management(1, None, FIXED, 0) if tp_count == 1
+                     else Management(tp_count, share, rule, lag if rule == TRAIL else 0))
+                out.setdefault(m.key, m)
+    return list(out.values())
+
+
+def trail_stop(entry: np.ndarray, targets: np.ndarray, hits: np.ndarray, initial: np.ndarray, *,
+               rule: str = TRAIL, lag: int = TRAIL_LAG) -> np.ndarray:
+    """Stop après `hits` objectifs touchés. `suiveur` : entrée 1 après TP1, puis TP(hits − lag)."""
     out = initial.copy()
+    if rule == FIXED:
+        return out
     out = np.where(hits >= 1, np.maximum(out, entry), out)
-    lagged = hits - TRAIL_LAG
+    if rule == ENTRY:
+        return out
+    lagged = hits - lag
     idx = np.clip(lagged - 1, 0, targets.shape[1] - 1)
     level = targets[np.arange(len(hits)), idx]
     return np.where(lagged >= 1, np.maximum(out, level), out)
@@ -46,13 +111,19 @@ def trail_stop(entry: np.ndarray, targets: np.ndarray, hits: np.ndarray, initial
 
 def simulate(opens: np.ndarray, highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, *, starts: np.ndarray,
              limit: np.ndarray, stop: np.ndarray, targets: np.ndarray, entry_window: int, horizon: int,
-             costs: CostScenario) -> dict[str, np.ndarray]:
+             costs: CostScenario, weights: np.ndarray | None = None,
+             management: Management = OWNER) -> dict[str, np.ndarray]:
     """Ordres placés à la bougie `starts[i]` (première bougie après la décision). `targets` : matrice (N, K) des
-    objectifs utilisés, croissants. Renvoie, par ordre : rempli, terminé, R net, objectifs touchés, issue."""
+    objectifs utilisés, croissants, complétée par +inf quand un ordre en a moins ; `weights` : parts (N, K) ou (K,),
+    0 sur les objectifs absents (défaut : parts « early »). Renvoie, par ordre : rempli, terminé, R net, objectifs
+    touchés, issue."""
     n_bars, count = len(opens), len(starts)
     fee = costs.fee_bps / 1e4
     market = (costs.slippage_bps + costs.half_spread_bps) / 1e4
-    weights = early_weights(targets.shape[1]) if targets.shape[1] else np.zeros(0)
+    if weights is None:
+        weights = early_weights(targets.shape[1]) if targets.shape[1] else np.zeros(0)
+    weights = np.broadcast_to(np.asarray(weights, dtype=float), targets.shape) if targets.size else np.zeros_like(targets)
+    n_used = np.isfinite(targets).sum(axis=1)
     filled = np.zeros(count, dtype=bool)
     fill_bar = np.full(count, -1, dtype=np.int64)
     price = np.full(count, np.nan)
@@ -111,13 +182,16 @@ def simulate(opens: np.ndarray, highs: np.ndarray, lows: np.ndarray, closes: np.
         in_bar = open_of & ~at_open & (tgt <= h[:, None]) & ~sl_hit[:, None] & ~gap_down[:, None] & ~blocked
         take = at_open | in_bar
         new_hits = before + take.sum(axis=1)
-        proceeds[active] += (take * weights[None, :] * tgt * (1 - market) * (1 - fee)).sum(axis=1)
-        remaining[active] -= (take * weights[None, :]).sum(axis=1)
-        all_sold = new_hits >= tgt.shape[1]
+        w = weights[active]
+        proceeds[active] += np.where(take, w * np.where(np.isfinite(tgt), tgt, 0.0) * (1 - market) * (1 - fee),
+                                     0.0).sum(axis=1)
+        remaining[active] -= (take * w).sum(axis=1)
+        all_sold = new_hits >= n_used[active]
         stopped = sl_hit & ~all_sold
         exit_price[stopped] = s[stopped] * (1 - market)
         # 4. Stop remonté (dès la bougie suivante) ; si le plus bas de cette bougie le traverse déjà : pire cas.
-        raised = trail_stop(limit[active], tgt, new_hits, s)     # « l'entrée 1 » du signal
+        raised = trail_stop(limit[active], np.where(np.isfinite(tgt), tgt, -np.inf), new_hits, s,
+                            rule=management.stop_rule, lag=management.lag)     # « l'entrée 1 » du signal
         late = ~gap_down & ~stopped & ~all_sold & in_bar.any(axis=1) & (low <= raised) & (raised > s)
         exit_price[late] = raised[late] * (1 - market)
         closing = (gap_down | stopped | late) & ~all_sold
@@ -168,7 +242,8 @@ def replay_trailing(bars: pd.DataFrame, *, entry: float, stop: float, targets: l
 
 def blind_trailing(frame: pd.DataFrame, *, entry_offset: float, stop_atr: float, target_rs: list[float],
                    entry_window: int, horizon: int, costs: CostScenario, mask: np.ndarray | None = None,
-                   entry_offset_atr: float | None = None) -> tuple[np.ndarray, np.ndarray]:
+                   entry_offset_atr: float | None = None,
+                   management: Management = OWNER) -> tuple[np.ndarray, np.ndarray]:
     """Ordres aveugles de même géométrie à chaque bougie de `frame` (comme le taux de base TP1) : limite à
     close × (1 + écart), stop à `stop_atr` ATR sous la limite, objectifs à `target_rs` R au-dessus. Renvoie les R
     des ordres remplis et terminés, et leur instant de décision."""
@@ -186,7 +261,8 @@ def blind_trailing(frame: pd.DataFrame, *, entry_offset: float, stop_atr: float,
     idx, limit, stop = idx[keep], limit[keep], stop[keep]
     targets = limit[:, None] + np.asarray(target_rs, dtype=float)[None, :] * (limit - stop)[:, None]
     out = simulate(opens, highs, lows, closes, starts=idx + 1, limit=limit, stop=stop, targets=targets,
-                   entry_window=entry_window, horizon=horizon, costs=costs)
+                   entry_window=entry_window, horizon=horizon, costs=costs, weights=management.weights(targets.shape[1]),
+                   management=management)
     done = out["complete"]
     return out["r"][done], frame["decision_time"].to_numpy()[idx][done]
 
@@ -229,3 +305,27 @@ def trailing_rate(frame: pd.DataFrame, *, entry_offset: float, stop_atr: float, 
             "regime": f"{trend}/{volatility}" if conditioned else "tous régimes", "regime_conditioned": conditioned,
             "horizon_bars": horizon, "block_days": block_days, "blocks": blocks, "tp_count": len(target_rs),
             "history_end": None if history_end is None else f"{pd.Timestamp(history_end):%Y-%m-%d}"}
+
+
+# Gestions montrées pour UN signal (ordres pris au hasard, même géométrie) : un aperçu, pas un choix. Le choix d'une
+# gestion se fait sur l'historique réel d'un groupe (external/managements.py), avec confirmation.
+SHOWCASE: tuple[Management, ...] = (
+    Management(1, None, FIXED, 0), Management(2, 0.5, ENTRY, 0), Management(3, 0.6, ENTRY, 0),
+    Management(3, None, TRAIL, 1), Management(4, 0.5, FIXED, 0), OWNER, Management(5, 0.7, TRAIL, 1),
+    Management(7, None, TRAIL, 2),
+)
+
+
+def showcase(frame: pd.DataFrame, *, entry_offset_atr: float, stop_atr: float, targets_r: list[float], mask: np.ndarray | None,
+             entry_window: int, horizon: int, costs: CostScenario) -> list[dict]:
+    """R moyen et part de trades gagnants de chaque gestion de SHOWCASE, sur les mêmes ordres aveugles."""
+    rows = []
+    for m in SHOWCASE:
+        used = targets_r[:max(1, m.tp_count)]
+        r, _ = blind_trailing(frame, entry_offset=0.0, entry_offset_atr=entry_offset_atr, stop_atr=stop_atr,
+                              target_rs=used, entry_window=entry_window, horizon=horizon, costs=costs, mask=mask,
+                              management=m)
+        rows.append({"key": m.key, "label": m.label, "samples": int(len(r)), "owner": m.key == OWNER.key,
+                     "r_mean": round(float(r.mean()), 4) if len(r) else None,
+                     "win_share": round(float((r > 0).mean()), 4) if len(r) else None})
+    return rows

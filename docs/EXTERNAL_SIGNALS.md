@@ -115,6 +115,20 @@ affiché pour comparaison. `management = "tp1"` rétablit l'ancienne convention.
 Moteur unique (`external/trailing.py`) pour le signal réel et les ordres aveugles : un test vérifie qu'ils
 donnent le même résultat.
 
+## Comparer les gestions (2 à 7 objectifs, part vendue à TP1, règle du stop)
+
+Une gestion ne crée pas d'avantage à partir d'entrées prises au hasard ; elle peut tirer bien plus (ou bien
+moins) d'un groupe qui choisit bien ses entrées. Deux usages :
+- **Un signal** (onglet « Évaluer un signal ») : carte « Autres gestions de ce signal », 8 gestions typiques
+  rejouées sur les mêmes ordres aveugles que le taux de base. Un aperçu, pas un choix.
+- **Un groupe** (bilan d'historique) : 97 gestions (1 à 7 objectifs ; à TP1 parts décroissantes, 50, 60 ou
+  70 % ; stop fixe, à l'entrée 1 après TP1, ou suiveur à 1 ou 2 objectifs d'écart) rejouées sur chacun de ses
+  signaux réels (`external/managements.py`). La meilleure est **choisie sur les deux premiers tiers** des
+  signaux (ordre chronologique) et **vérifiée sur le dernier tiers**, jamais vu pendant le choix : R moyen,
+  et écart avec ta gestion signal par signal, avec IC95 par jours de publication. Conclusion seulement si le
+  dernier tiers compte au moins 20 signaux sur 10 jours. Essayer 97 gestions et garder la meilleure sur les
+  mêmes signaux trouverait toujours un gagnant : seule la vérification compte.
+
 ## Historique d'un groupe (bilan sans attendre)
 
 Attendre 20 signaux résolus prend des semaines. Un groupe a déjà un passé : CSI peut le rejouer.

@@ -634,6 +634,11 @@ function renderSignal(e) {
     ["RSI 14", fmt(c.rsi14, 1)], ["ATR 14", pctUnits(c.atr_pct, 3, false)], ["BTC sur 24 h", pctUnits(c.btc_ret_24h_pct)],
   ]) : el("p", { class: "muted", text: "contexte non calculé" });
   const stats = e.source_stats;
+  const managements = (e.managements || []).length ? card("Autres gestions de ce signal (ordres pris au hasard, même géométrie)",
+    table(["Gestion", { label: "R moyen", num: true }, { label: "Trades gagnants", num: true }],
+      e.managements.map((m) => [{ node: el("span", { class: m.owner ? "ok" : "", text: m.label + (m.owner ? " (ta gestion)" : "") }) },
+        `${fmt(m.r_mean, 2, true)} R`, pctFrac(m.win_share)]), ""),
+    el("p", { class: "muted small", text: "Sur des entrées prises au hasard, aucune gestion ne crée d'avantage : ce tableau montre seulement comment la sortie change le résultat. Pour choisir une gestion, importe l'historique du groupe (carte ci-dessous) : CSI choisit sur le passé et vérifie sur les signaux récents." })) : null;
   target.replaceChildren(
     banner(kind, `${pair(s.symbol) || "Signal"} · ${title}`, e.summary_fr || ""),
     el("div", { class: "grid" },
@@ -642,6 +647,7 @@ function renderSignal(e) {
       card("Taux de base de cette géométrie (sans sélection)", base,
         el("p", { class: "muted small", text: "Fréquence historique d'ordres identiques pris à l'aveugle sur cette paire : une référence, pas la probabilité que ce signal réussisse." })),
       card("Contexte de marché", context)),
+    managements,
     el("p", { class: "muted small", text: (e.record_id ? `Enregistré (${e.record_id}) : son issue sera suivie automatiquement. ` : "Non enregistré. ")
       + (stats ? `Source « ${e.source} » : ${stats.evaluated || 0} signal(s) évalué(s), ${stats.resolved || 0} résolu(s).` : "") }));
 }
@@ -682,6 +688,18 @@ async function runHistory() {
   }
 }
 
+function managementsBlock(study) {
+  if (!study) return null;
+  const top = (study.top_on_choice || []).map((m) => [m.label, `${fmt(m.r_mean_choice, 2, true)} R`, `${fmt(m.r_mean_confirm, 2, true)} R`]);
+  const best = study.best, cur = study.current_confirm, diff = study.difference_confirm;
+  return el("div", {},
+    el("h3", { text: `Quelle gestion pour ce groupe ? (${study.variants} gestions comparées sur ${study.signals} signaux)` }),
+    el("p", { class: "small", text: study.conclusion }),
+    best ? el("p", { class: "muted small", text: `Choix sur ${study.choice_period.join(" → ")}, vérification sur ${study.confirm_period.join(" → ")} (jamais vue pendant le choix). `
+      + `Sur la vérification : meilleure gestion ${fmt(best.confirm.r_mean, 2, true)} R ${ciR(best.confirm.ic95)}, ta gestion ${fmt(cur.r_mean, 2, true)} R ${ciR(cur.ic95)}, écart ${fmt(diff.r_mean, 2, true)} R ${ciR(diff.ic95)}.` }) : null,
+    top.length ? table(["Gestion (5 meilleures sur les deux premiers tiers)", { label: "R moyen au choix", num: true }, { label: "R moyen à la vérification", num: true }], top, "") : null);
+}
+
 function renderHistory(result) {
   const target = document.getElementById("history-result");
   const labels = result.conventions || {};
@@ -698,7 +716,8 @@ function renderHistory(result) {
         + (b.tp1_pct_moyen !== undefined ? ` · TP1 moyen +${fmt(b.tp1_pct_moyen, 2)} %, stop moyen −${fmt(b.stop_pct_moyen, 2)} % : il faut ${pctFrac(b.part_tp1_pour_etre_a_zero)} de TP1 atteints pour être à zéro, avant frais` : "")
         + (deleted !== null && deleted !== undefined ? ` · messages supprimés dans la numérotation : ${pctFrac(deleted)}` : "") }),
       table(["Façon de jouer le signal", { label: "Résolus", num: true }, { label: "En cours", num: true }, { label: "Gagnants", num: true },
-        { label: "R moyen", num: true }, { label: "Avec positions ouvertes", num: true }, "IC95", "Conclusion"], rows, "aucun signal mesuré"));
+        { label: "R moyen", num: true }, { label: "Avec positions ouvertes", num: true }, "IC95", "Conclusion"], rows, "aucun signal mesuré"),
+      managementsBlock(b.gestions));
   });
   const detail = (result.rows || []).slice(-60).reverse().map((r) => [when(r.received_at), r.group, pair(r.symbol),
     `−${fmt(r.stop_pct, 2)} % / +${fmt(r.tp1_pct, 2)} %`, ...["tp1_contact", "tp1_regle_du_signal", "echelle_bsm"].map((k) => {
