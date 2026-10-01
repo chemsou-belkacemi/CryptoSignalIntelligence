@@ -23,8 +23,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.4", "ruff>=0.12", "mypy>=1.17", "pyright>=1.1.400"]
-# Groupes des lots suivants, ajoutés à leur étape : research (vectorbt, optuna),
-# ml (scikit-learn, puis un seul de lightgbm/xgboost), agents, streaming, reports.
+# Lot 5 bis (ML intraday, docs/ML_INTRADAY.md) : modèles à arbres comparés à la logistique de référence.
+# Hors de l'image Docker de surveillance (elle n'entraîne rien).
+ml = ["lightgbm>=4.6", "xgboost>=3.0"]
+# Groupes des lots suivants, ajoutés à leur étape : agents, streaming, reports.
 
 [project.scripts]
 csi = "crypto_signal_intelligence.cli:app"

@@ -27,9 +27,9 @@ jobs:
       # pylock.toml a été verrouillé sous Windows : mêmes versions, extraites en contraintes (comme le Dockerfile).
       - name: Installer (versions de pylock.toml)
         run: |
-          python -c "import tomllib; d = tomllib.load(open('pylock.toml', 'rb')); open('constraints.txt', 'w').write(''.join(f\"{p['name']}=={p['version']}\n\" for p in d['packages']))"
+          python -c "import tomllib; d = tomllib.load(open('pylock.toml', 'rb')); open('constraints.txt', 'w').write(''.join(f\"{p['name']}=={p['version']}\n\" for p in d['packages'] if 'version' in p))"
           python -m pip install --upgrade pip
-          python -m pip install -c constraints.txt -e ".[dev]"
+          python -m pip install -c constraints.txt -e ".[dev,ml]"
 
       - name: Tests (sans réseau)
         env:

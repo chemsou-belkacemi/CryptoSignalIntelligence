@@ -24,7 +24,7 @@ RUN groupadd --system --gid 10002 csi \
 # les MÊMES versions, extraites en contraintes (les empreintes des roues Linux ne sont pas vérifiées).
 COPY pylock.toml pyproject.toml README.md ./
 RUN python -c "import tomllib; d = tomllib.load(open('pylock.toml', 'rb')); \
-open('constraints.txt', 'w').write(''.join(f\"{p['name']}=={p['version']}\n\" for p in d['packages']))"
+open('constraints.txt', 'w').write(''.join(f\"{p['name']}=={p['version']}\n\" for p in d['packages'] if 'version' in p))"
 
 COPY config ./config
 COPY src ./src
