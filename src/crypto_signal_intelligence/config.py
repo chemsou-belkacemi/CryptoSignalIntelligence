@@ -237,7 +237,7 @@ class DerivativesSection(BaseModel):
     rest_base_url: str = "https://fapi.binance.com"
     live_cache_seconds: int = Field(300, ge=0, le=3600)
     funding_latency_seconds: float = Field(60, ge=0)
-    metrics_latency_seconds: float = Field(302, ge=0)
+    metrics_latency_seconds: float = Field(602, ge=0)
 
 
 class Settings(BaseSettings):

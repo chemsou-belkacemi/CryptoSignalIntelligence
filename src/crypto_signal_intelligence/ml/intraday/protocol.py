@@ -81,7 +81,7 @@ FEATURE_INDEX = {name: i for i, name in enumerate(ds.FEATURES)}
 # Contexte inconnu (jointure périmée ou absente) → aucune décision, comme en service (§8).
 CONTEXT_REQUIRED = ("h1_ret_24h", "h1_atr_pct", "h4_ret_6", "h4_atr_pct")
 # Modules et réglages qui DÉCIDENT : la période finale exige qu'ils soient identiques à ceux de la sélection.
-DECISION_MODULES = ("ml/engine.py", "ml/intraday/dataset.py", "ml/intraday/models.py", "ml/intraday/portfolio.py",
+DECISION_MODULES = ("ml/engine.py", "research/intervals.py", "ml/intraday/dataset.py", "ml/intraday/models.py", "ml/intraday/portfolio.py",
                     "ml/intraday/protocol.py", "ml/logistic.py", "risk/exposure.py", "features/higher_tf.py",
                     "features/indicators.py", "features/builder.py", "regimes/classifier.py", "data/quality.py",
                     "domain/market.py")

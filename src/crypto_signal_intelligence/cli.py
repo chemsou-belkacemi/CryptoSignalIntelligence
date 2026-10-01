@@ -98,6 +98,54 @@ def download(symbol: list[str] = typer.Option(None, help="Paire(s) ; défaut : t
                 console.print(f"  archives non publiées (complétées par REST) : {', '.join(summary.archives_missing)}")
 
 
+@app.command("download-derivatives")
+def download_derivatives(dataset: list[str] = typer.Option(None, "--dataset",
+                                                           help="funding | premium | metrics ; défaut : les trois"),
+                         symbol: list[str] = typer.Option(None, "--symbol", help="Paire(s) ; défaut : l'univers"),
+                         verbose: bool = False):
+    """Historique PUBLIC du marché à terme USDⓈ-M (archives vérifiées par SHA-256) : financement, prime,
+    intérêt ouvert et ratios. Information sur le positionnement ; aucun contrat n'est négocié (docs/DERIVATIVES.md)."""
+    from .derivatives.history import download as run_download
+    settings = _settings(verbose)
+    symbols = [s.upper() for s in symbol] if symbol else None
+    with console.status("marché à terme…") as status:
+        summaries = run_download(settings, datasets=dataset or None, symbols=symbols, now=_now(),
+                                 progress=lambda text: status.update(f"marché à terme : {text}"))
+    for s in summaries:
+        q = s.quality
+        console.print(f"[bold]{s.dataset} {s.symbol}[/bold] : {q.get('rows', 0)} lignes {str(q.get('first'))[:16]} → "
+                      f"{str(q.get('last'))[:16]} | archives +{s.ingested} (déjà {s.skipped}, révisées {s.revised}) "
+                      f"| absentes {len(s.missing)} | rejetées {len(s.rejected)} | trous {q.get('gaps', 0)} "
+                      f"(le plus long {q.get('largest_gap_hours')} h) | valeurs manquantes {q.get('missing_values', 0)}")
+        for line in s.rejected[:5]:
+            console.print(f"  [red]rejetée[/red] {line}")
+
+
+@app.command("screen-derivatives")
+def screen_derivatives(verbose: bool = False):
+    """Criblage du positionnement sur le marché à terme (docs/DERIVATIVES.md) : 4 conditions × 3 horizons,
+    DEVELOPMENT seulement, audit des fuites d'abord. Information ; aucun signal n'en découle."""
+    from .research.derivatives_screen import LeakAuditFailed, run
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    try:
+        with console.status("criblage du marché à terme…") as status:
+            result = run(settings, now=_now(), progress=lambda text: status.update(f"criblage : {text}"))
+    except LeakAuditFailed as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    console.rule(f"Criblage du marché à terme — {result.run_id}")
+    console.print(f"Audit des fuites : réussi ({', '.join(result.leak_audit['checked_pairs'])}) ; essais : "
+                  f"{result.n_trials} ; programme : {result.program_trials} ; seuil de coûts : {result.cost_hurdle_pct} % ; "
+                  f"niveau des IC : {result.level:.2%}")
+    for r in result.rows:
+        mark = "[green]passe[/green]" if r.beats_costs else "non"
+        console.print(f"  {r.condition} {r.horizon_h} h : {r.events} événements ({r.pairs} paires) | brut "
+                      f"{r.mean_return_pct} % | excès {r.mean_excess_pct} % {r.ci_excess_pct} | transversal "
+                      f"{r.mean_cross_excess_pct} % {r.ci_cross_excess_pct} | {mark}")
+    console.print(f"Rapport : {settings.reports_dir / result.run_id / 'summary.json'}")
+
+
 @app.command("data-quality")
 def data_quality(symbol: str = typer.Option(..., help="Paire, ex. BTCUSDT"),
                  timeframe: str = typer.Option(None, help="Défaut : timeframe de setup")):

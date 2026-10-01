@@ -58,7 +58,7 @@ RULE = SelectionRule(stability_share=0.70, min_trades=150, min_trades_per_fold=2
                      excess_check=True)
 AUDIT_PAIRS = ("BTCUSDT", "ETHUSDT", "SOLUSDT")
 AUDIT_TIMES = 4
-DECISION_MODULES = ("ml/engine.py", "ml/swing/dataset.py", "ml/swing/protocol.py", "ml/intraday/dataset.py",
+DECISION_MODULES = ("ml/engine.py", "research/intervals.py", "ml/swing/dataset.py", "ml/swing/protocol.py", "ml/intraday/dataset.py",
                     "ml/intraday/models.py", "ml/intraday/portfolio.py", "ml/intraday/protocol.py", "ml/logistic.py",
                     "risk/exposure.py", "features/higher_tf.py", "features/indicators.py", "data/quality.py",
                     "domain/market.py")

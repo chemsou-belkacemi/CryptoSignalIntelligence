@@ -198,4 +198,5 @@ rest_base_url = "https://fapi.binance.com"
 live_cache_seconds = 300          # tableau de bord : une paire relue au plus toutes les 5 min
 # Historique (recherche) : disponibilité supposée, prudente (aucune heure de publication réelle connue).
 funding_latency_seconds = 60      # financement : connu 1 min après son règlement
-metrics_latency_seconds = 302     # intérêt ouvert et ratios 5 min : connus à la fin de leur période + 2 s
+metrics_latency_seconds = 602     # metrics 5 min : l'archive date chaque valeur 5 min AVANT l'API publique
+                                  # (vérifié le 2026-10-01) ; prudence : connue 10 min + 2 s après

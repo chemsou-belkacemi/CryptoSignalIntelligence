@@ -27,10 +27,10 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from scipy.stats import t as student_t
 
 from ..config import CostScenario, Settings
 from ..research.experiments import ExperimentRegistry, git_state, new_run_id
+from ..research.intervals import calendar_mean_ci
 from ..research.protocol import FinalTestLocked
 from ..research.protocol import period as resolve_period
 from ..risk.exposure import RiskLimits
@@ -637,31 +637,6 @@ def all_trades(runs: list[FoldRun], labels: Callable[[pd.DataFrame], pd.DataFram
         frames.append(trades.assign(fold=run.fold.index))
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(
         columns=["symbol", "entry_time", "exit_time", "notional", "net", "pnl", "candidate", "fold"])
-
-
-def calendar_mean_ci(values, times, *, block_days: int, min_blocks: int = 20,
-                     level: float = 0.95) -> list[float] | None:
-    """IC d'une moyenne par trade (docs/ML_SWING.md, v2) : sommes par blocs de `block_days` jours CALENDAIRES
-    consécutifs (jours sans trade compris ; un bloc dure au moins deux fois l'horizon, donc seuls deux blocs
-    voisins partagent des positions ouvertes), moyenne = somme des gains / nombre de trades, variance robuste
-    à un retard (la covariance entre blocs voisins s'ajoute quand elle est positive et n'est jamais
-    retranchée), quantile de Student. Aucun IC sous `min_blocks` blocs AVEC trades : le critère échoue alors.
-    Sous un gain nul simulé : 2,1 à 2,4 % de bornes basses > 0 pour 2,5 % visés (tests/test_ml_swing.py)."""
-    values = np.asarray(values, dtype=float)
-    if len(values) == 0:
-        return None
-    days = pd.to_datetime(pd.Series(times), utc=True).dt.floor("D")
-    block = ((days - days.min()) // pd.Timedelta(days=1)).to_numpy(np.int64) // block_days
-    sums = np.bincount(block, weights=values)
-    counts = np.bincount(block).astype(float)
-    filled = int((counts > 0).sum())
-    if filled < max(min_blocks, 2):
-        return None
-    mean = float(sums.sum() / counts.sum())
-    u = sums - mean * counts
-    variance = (u @ u + 2 * max(0.0, float(u[1:] @ u[:-1]))) * filled / (filled - 1) / counts.sum() ** 2
-    half = float(student_t.ppf(0.5 + level / 2, filled - 1)) * math.sqrt(variance)
-    return [round(mean - half, 6), round(mean + half, 6)]
 
 
 def mean_ci(values, times, *, block_days: int, samples: int, seed: int, method: str = "bootstrap",
