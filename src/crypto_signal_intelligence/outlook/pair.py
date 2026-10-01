@@ -360,8 +360,13 @@ def pair_outlook(settings: Settings, symbol: str, horizon: str, *, now: datetime
         "data_gap_recent": bool(last["data_gap_recent"]),
         "bars_available": int(last["bars_available"]),
     }
+    # Courbe des 7 derniers jours (clôtures horaires, données déjà disponibles) pour l'affichage.
+    recent = frame[frame["decision_time"] > last["decision_time"] - pd.Timedelta(days=7)]
+    hourly = recent[(recent["decision_time"].dt.minute == 0)]
+    spark = {"times": [t.isoformat() for t in hourly["decision_time"]],
+             "closes": [round(float(v), 10) for v in hourly["close"]]}
     return {"symbol": symbol, "horizon": horizon, "horizon_label": label, "evaluated_at": moment.isoformat(),
-            "history_end": history_end, "ci_level": round(CI_LEVEL, 4), "min_blocks": MIN_BLOCKS,
+            "spark_7d": spark, "history_end": history_end, "ci_level": round(CI_LEVEL, 4), "min_blocks": MIN_BLOCKS,
             "context": context, "overview": overview, "plan": plan, "definitions": definitions(history_end),
             "costs_round_trip_pct": round(2 * (costs.fee_bps + costs.slippage_bps + costs.half_spread_bps) / 100, 3),
             "warning": f"Statistiques en échantillon (historique jusqu'au {history_end}), non validées par le "

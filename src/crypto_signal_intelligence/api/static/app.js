@@ -5,7 +5,8 @@
 const TOKEN_KEY = "csi_api_token";
 const PREFS_KEY = "csi_dashboard_prefs";
 const PARIS = new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris", dateStyle: "short", timeStyle: "short" });
-const state = { horizon: "24h", pairs: [], followLoaded: false };
+const state = { horizon: "24h", pairs: [], horizons: [], followLoaded: false, marketRun: 0 };
+const SVG = "http://www.w3.org/2000/svg";
 const COPY_LABEL = "Copier le résumé (pas un signal)";
 
 // États descriptifs : jamais une proposition d'entrer (aucun n'est affiché en vert).
@@ -168,13 +169,9 @@ async function loadPairs() {
   select.replaceChildren(...data.pairs.map((p) => el("option", { value: p.symbol, text: `${pair(p.symbol)} — données il y a ${age(p.age_minutes)}` })));
   if (prefs.symbol && data.pairs.some((p) => p.symbol === prefs.symbol)) select.value = prefs.symbol;
   state.horizon = data.horizons.some((h) => h.key === prefs.horizon) ? prefs.horizon : "24h";
-  segmented.replaceChildren(...data.horizons.map((h) => el("button", {
-    type: "button", "data-key": h.key, class: h.key === state.horizon ? "on" : "", text: h.label,
-    onclick: () => {
-      state.horizon = h.key;
-      for (const b of segmented.children) b.classList.toggle("on", b.dataset.key === h.key);
-    },
-  })));
+  state.horizons = data.horizons;
+  renderHorizonButtons(document.getElementById("market-horizons"));
+  renderHorizonButtons(segmented);
 }
 
 async function analyzePair() {
@@ -218,9 +215,24 @@ function renderPair(r) {
     strategiesCard(r), definitionsCard(r));
 }
 
+function sparkline(spark) {
+  const closes = (spark && spark.closes) || [];
+  if (closes.length < 2) return null;
+  const lo = Math.min(...closes), hi = Math.max(...closes), span = hi - lo || 1;
+  const svg = document.createElementNS(SVG, "svg");
+  svg.setAttribute("viewBox", "0 0 300 60");
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.setAttribute("class", "spark");
+  const line = document.createElementNS(SVG, "polyline");
+  line.setAttribute("points", closes.map((v, i) => `${(i / (closes.length - 1)) * 300},${58 - ((v - lo) / span) * 56}`).join(" "));
+  svg.append(line);
+  const change = closes[closes.length - 1] / closes[0] - 1;
+  return el("div", {}, svg, el("div", { class: "small muted", text: `7 derniers jours : ${pctFrac(change, 2, true)} (min ${price(lo)}, max ${price(hi)})` }));
+}
+
 function contextCard(r) {
   const c = r.context || {};
-  return card("Situation actuelle",
+  return card("Situation actuelle", sparkline(r.spark_7d),
     kv([
       ["Dernier prix (clôture 15 min)", price(c.close)],
       ["Bougie", `${when(c.decision_time)} — il y a ${age(c.data_age_minutes)}`, c.fresh ? "" : "bad"],
@@ -341,6 +353,63 @@ function definitionsCard(r) {
     el("summary", { text: "Définition de chaque chiffre" }),
     kv(Object.entries(defs).map(([k, v]) => [labels[k] || k, v])),
     el("p", { class: "muted small", text: r.cached ? "Résultat mis en cache jusqu'à la prochaine bougie." : "" })));
+}
+
+// --- onglet Marché ------------------------------------------------------------------------------------
+function setHorizon(key) {
+  state.horizon = key;
+  for (const container of [document.getElementById("horizons"), document.getElementById("market-horizons")]) {
+    for (const b of container.children) b.classList.toggle("on", b.dataset.key === key);
+  }
+}
+
+function renderHorizonButtons(target) {
+  target.replaceChildren(...state.horizons.map((h) => el("button", {
+    type: "button", "data-key": h.key, class: h.key === state.horizon ? "on" : "", text: h.label,
+    onclick: () => setHorizon(h.key),
+  })));
+}
+
+async function runMarket() {
+  const target = document.getElementById("market-result");
+  const run = ++state.marketRun;
+  const horizon = state.horizon;
+  const body = el("tbody");
+  const rows = {};
+  for (const p of state.pairs) {
+    const tr = el("tr", {}, el("td", {}, el("strong", { text: pair(p.symbol) })), el("td", { colspan: "7", class: "muted", text: "en attente…" }));
+    rows[p.symbol] = tr;
+    body.append(tr);
+  }
+  const label = (state.horizons.find((h) => h.key === horizon) || {}).label || horizon;
+  target.replaceChildren(card(`Toutes les paires — horizon ${label}`, el("table", {},
+    el("thead", {}, el("tr", {}, ["Paire", "Prix", "24 h", "Tendance · volatilité 1 h", "Hausse (fréquence)", "État du plan", "Espérance du plan", ""]
+      .map((h) => el("th", { text: h })))), body)));
+  for (const p of state.pairs) {
+    if (run !== state.marketRun) return;                       // relancé entre-temps
+    const tr = rows[p.symbol];
+    try {
+      const r = await api("/analyze-pair", { symbol: p.symbol, horizon });
+      if (run !== state.marketRun) return;
+      const plan = r.plan || {};
+      const [kind, title] = PLAN_STATES[plan.state] || ["neutral", plan.state || "?"];
+      const row = (r.overview || []).find((o) => o.horizon === horizon) || {};
+      const detail = el("button", { type: "button", class: "ghost", text: "Détail", onclick: () => {
+        document.getElementById("pair").value = p.symbol;
+        openTab("pair");
+        analyzePair();
+      } });
+      tr.replaceChildren(el("td", {}, el("strong", { text: pair(r.symbol) })), el("td", { class: "num", text: price(r.context.close) }),
+        el("td", { class: "num", text: pctUnits(r.context.ret_24h_pct) }),
+        el("td", { text: `${regime(r.context.trend_1h)} · ${regime(r.context.volatility_1h)}` }),
+        el("td", {}, pctFrac(row.p_up && row.p_up.value), el("span", { class: "small muted", text: " " + ciFrac(row.p_up && row.p_up.ci) })),
+        el("td", {}, el("span", { class: `pill ${kind === "neutral" ? "muted" : kind}`, text: title })),
+        el("td", { class: ciClass(plan.expectancy_r_ci), text: `${fmt(plan.expectancy_r, 2, true)} R` }),
+        el("td", {}, detail));
+    } catch (error) {
+      tr.replaceChildren(el("td", {}, el("strong", { text: pair(p.symbol) })), el("td", { colspan: "7", class: "error", text: error.message }));
+    }
+  }
 }
 
 // --- onglet Signal -----------------------------------------------------------------------------------
@@ -472,6 +541,7 @@ function openTab(name) {
 function start() {
   for (const tab of document.querySelectorAll(".tab")) tab.addEventListener("click", () => openTab(tab.dataset.tab));
   document.getElementById("analyze").addEventListener("click", analyzePair);
+  document.getElementById("market-run").addEventListener("click", runMarket);
   document.getElementById("evaluate").addEventListener("click", evaluateSignal);
   document.getElementById("token-save").addEventListener("click", () => {
     try { localStorage.setItem(TOKEN_KEY, document.getElementById("token").value.trim()); } catch (_err) { /* stockage bloqué */ }
@@ -485,7 +555,7 @@ function start() {
 async function boot() {
   refreshHealth();
   const params = new URLSearchParams(window.location.search);
-  const tab = { signal: "signal", suivi: "follow" }[params.get("onglet")];
+  const tab = { signal: "signal", suivi: "follow", marche: "market" }[params.get("onglet")];
   if (tab) openTab(tab);
   try {
     await loadPairs();
@@ -493,16 +563,12 @@ async function boot() {
     showError(document.getElementById("pair-result"), error);
     return;
   }
+  if (tab === "market" && params.get("lancer") === "1") runMarket();
   const wanted = (params.get("paire") || "").toUpperCase().replace("/", "");
   if (wanted && state.pairs.some((p) => p.symbol === wanted)) {
     document.getElementById("pair").value = wanted;
     const horizon = params.get("horizon");
-    if (horizon) {
-      for (const b of document.getElementById("horizons").children) {
-        if (b.dataset.key === horizon) { state.horizon = horizon; }
-        b.classList.toggle("on", b.dataset.key === state.horizon);
-      }
-    }
+    if (horizon && state.horizons.some((h) => h.key === horizon)) setHorizon(horizon);
     analyzePair();
   }
 }

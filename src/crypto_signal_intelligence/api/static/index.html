@@ -18,6 +18,7 @@
 
 <nav class="tabs" role="tablist">
   <button class="tab active" data-tab="pair" role="tab" aria-selected="true">Analyser une paire</button>
+  <button class="tab" data-tab="market" role="tab" aria-selected="false">Marché</button>
   <button class="tab" data-tab="signal" role="tab" aria-selected="false">Évaluer un signal</button>
   <button class="tab" data-tab="follow" role="tab" aria-selected="false">Suivi</button>
 </nav>
@@ -48,6 +49,21 @@
         bougie. Rien n'est publié, rien n'est envoyé à BinanceSpotManager.</p>
     </section>
     <div id="pair-result"></div>
+  </div>
+
+  <div id="tab-market" class="tabpane hidden">
+    <section class="card">
+      <div class="row wrap">
+        <div class="field">Horizon
+          <div id="market-horizons" class="segmented"></div>
+        </div>
+        <button id="market-run" class="primary">Analyser toutes les paires</button>
+      </div>
+      <p class="muted small">Toutes les paires une par une (quelques secondes chacune ; les résultats restent en
+        cache jusqu'à la bougie suivante). Même analyse que l'onglet « Analyser une paire » : un historique, pas une
+        prévision ; CSI ne propose jamais d'entrer sur cette base.</p>
+    </section>
+    <div id="market-result"></div>
   </div>
 
   <div id="tab-signal" class="tabpane hidden">
