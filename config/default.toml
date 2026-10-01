@@ -168,6 +168,16 @@ min_windows_with_trades = 3
 max_group_pnl_share = 0.6         # part maximale du PnL en R portée par une paire ou une année
 max_drawdown_r = 15
 
+[risk]
+# Limites d'exposition CENTRALISÉES (docs/ML_INTRADAY.md §5) : communes à toutes les stratégies et à
+# toutes les paires, positions déjà ouvertes comprises. Fractions du capital réalisé ; spot sans levier.
+position_fraction = 0.10          # taille d'une position
+max_positions = 5
+max_total_exposure = 0.50
+max_asset_exposure = 0.10         # par paire, toutes stratégies confondues (une position par paire)
+max_strategy_exposure = 0.50      # par stratégie
+daily_loss_limit = 0.03           # perte du jour UTC au-delà de laquelle plus aucune entrée
+
 [external]
 # Évaluation des signaux externes (groupes Telegram) : docs/EXTERNAL_SIGNALS.md. Hypothèses explicites.
 entry_window_bars = 96            # ordre LIMIT valable 24 h (comportement de BinanceSpotManager)

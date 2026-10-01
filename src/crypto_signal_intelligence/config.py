@@ -118,6 +118,16 @@ class AdmissionSection(BaseModel):
     max_drawdown_r: float = Field(15, gt=0)
 
 
+class RiskSection(BaseModel):
+    """Limites d'exposition centralisées (risk/exposure.py), en fractions du capital réalisé."""
+    position_fraction: float = Field(0.10, gt=0, le=1)
+    max_positions: int = Field(5, ge=1)
+    max_total_exposure: float = Field(0.50, gt=0, le=1)
+    max_asset_exposure: float = Field(0.10, gt=0, le=1)
+    max_strategy_exposure: float = Field(0.50, gt=0, le=1)
+    daily_loss_limit: float = Field(0.03, gt=0, le=1)
+
+
 class ExternalSection(BaseModel):
     entry_window_bars: int = Field(96, ge=1)
     max_hold_bars: int = Field(672, ge=1)
@@ -231,6 +241,7 @@ class Settings(BaseSettings):
     simulation: SimulationSection = SimulationSection()
     walk_forward: WalkForwardSection = WalkForwardSection()
     admission: AdmissionSection = AdmissionSection()
+    risk: RiskSection = RiskSection()
     external: ExternalSection = ExternalSection()
     costs: dict[str, CostScenario] = {}
     publication: PublicationSection = PublicationSection()
