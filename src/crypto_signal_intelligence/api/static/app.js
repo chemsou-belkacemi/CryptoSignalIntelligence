@@ -80,7 +80,7 @@ function savePrefs(prefs) {
   try { localStorage.setItem(PREFS_KEY, JSON.stringify(Object.assign(loadPrefs(), prefs))); } catch (_err) { /* stockage indisponible */ }
 }
 function getToken() {
-  try { return sessionStorage.getItem(TOKEN_KEY); } catch (_err) { return null; }
+  try { return localStorage.getItem(TOKEN_KEY); } catch (_err) { return null; }
 }
 
 async function api(path, body) {
@@ -470,7 +470,7 @@ function start() {
   document.getElementById("analyze").addEventListener("click", analyzePair);
   document.getElementById("evaluate").addEventListener("click", evaluateSignal);
   document.getElementById("token-save").addEventListener("click", () => {
-    try { sessionStorage.setItem(TOKEN_KEY, document.getElementById("token").value.trim()); } catch (_err) { /* onglet privé */ }
+    try { localStorage.setItem(TOKEN_KEY, document.getElementById("token").value.trim()); } catch (_err) { /* stockage bloqué */ }
     document.getElementById("token-box").classList.add("hidden");
     boot();
   });
