@@ -56,6 +56,7 @@ services:
     cpus: 0.25
 
   # API locale (lecture et évaluation seulement) : http://127.0.0.1:8503/health
+  # Tableau de bord interactif de CSI (indépendant de BSM) : http://127.0.0.1:8503/ (ce PC uniquement).
   # Pour l'interface de BinanceSpotManager : réseau Docker « csi-bridge », adresse http://csi-api:8503.
   # Jeton facultatif : CSI_API_TOKEN dans l'environnement (fichier .env à côté de ce fichier, jamais versionné).
   api:

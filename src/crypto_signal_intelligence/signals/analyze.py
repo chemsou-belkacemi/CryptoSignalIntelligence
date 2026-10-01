@@ -1,7 +1,8 @@
 """Analyse de la dernière bougie clôturée et publication éventuelle (shadow au lot 1).
 
 Même chemin de décision que le backtest : contexte → vetos → stratégie →
-niveaux → vetos → signal. Aucune exécution d'ordre.
+niveaux → vetos → signal. Aucune exécution d'ordre. `publish=False` (tableau de bord) : même
+chemin jusqu'aux niveaux et à leurs vetos, puis arrêt AVANT toute publication (rien n'est écrit).
 """
 from __future__ import annotations
 
@@ -37,6 +38,7 @@ class AnalysisOutcome:
     signal_path: str | None = None
     publication_status: str | None = None
     integration_status: str = IntegrationStatus.INTEGRATION_UNVERIFIED.value
+    levels: dict | None = None          # entrée, stop, objectifs et RR (BUY seulement)
 
 
 def build_signal(settings: Settings, *, symbol: str, strategy: Strategy, context: MarketContext,
@@ -95,10 +97,18 @@ def _nth(values, index: int):
     return values[index] if len(values) > index else None
 
 
+def _levels(levels: TradeLevels, settings: Settings) -> dict:
+    return {"entry": str(levels.entry), "stop": str(levels.stop), "targets": [str(t) for t in levels.targets],
+            "rr_gross": [str(r) for r in levels.rr_gross],
+            "net_rr_tp1_central": round(float(levels.net_rr(settings.costs["central"])), 3)}
+
+
 def analyze(settings: Settings, symbol: str, strategy_id: str, *, now: datetime,
-            inputs: dict | None = None, expected_decision_time: datetime | None = None) -> AnalysisOutcome:
+            inputs: dict | None = None, expected_decision_time: datetime | None = None,
+            publish: bool = True) -> AnalysisOutcome:
     """Analyse la dernière bougie clôturée. `inputs` : données déjà chargées (partagées entre stratégies) ;
-    `expected_decision_time` : clôture attendue (surveillance continue) — si elle manque encore, NO_TRADE."""
+    `expected_decision_time` : clôture attendue (surveillance continue) — si elle manque encore, NO_TRADE ;
+    `publish=False` : simulation (tableau de bord), rien n'est publié ni enregistré."""
     strategy = registry.build(strategy_id, settings.strategies)
     frame = decision_frame(settings, strategy, inputs if inputs is not None else load_inputs(settings, symbol))
     last = frame.tail(1).reset_index(drop=True)
@@ -122,9 +132,14 @@ def analyze(settings: Settings, symbol: str, strategy_id: str, *, now: datetime,
         levels = compute_levels(decision, settings.tick_size(symbol))
     except LevelError as exc:
         return outcome(NoTradeReason.POOR_NET_PROFILE, str(exc))
-    veto = gates.post_levels(levels, settings.costs["central"], strategy.params.min_net_rr) or gates.publication(
-        strategy.status, settings.publication.mode, exit_policy_id=decision.exit_policy_id,
-        consumer_policies=settings.publication.consumer_policies)
+    veto = gates.post_levels(levels, settings.costs["central"], strategy.params.min_net_rr)
+    if veto:
+        return outcome(*veto)
+    if not publish:
+        return AnalysisOutcome(symbol, strategy_id, context.decision_time, Action.BUY.value, None, decision.reasons,
+                               publication_status="SIMULATION", levels=_levels(levels, settings))
+    veto = gates.publication(strategy.status, settings.publication.mode, exit_policy_id=decision.exit_policy_id,
+                             consumer_policies=settings.publication.consumer_policies)
     if veto:
         return outcome(*veto)
     suspended = publication_suspended(settings)
@@ -141,4 +156,5 @@ def analyze(settings: Settings, symbol: str, strategy_id: str, *, now: datetime,
         return outcome(NoTradeReason.DUPLICATE, "un signal non expiré existe déjà pour cette paire et stratégie")
     published = signals.publish(signal, now)
     return AnalysisOutcome(symbol, strategy_id, context.decision_time, Action.BUY.value, None, decision.reasons,
-                           published.signal_id, str(published.path), published.status)
+                           published.signal_id, str(published.path), published.status,
+                           levels=_levels(levels, settings))

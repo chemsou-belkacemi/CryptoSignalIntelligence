@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from ..data.sqlite_schema import add_missing_columns
 from .schema import ExecutionEvent, parse_line
 
 COLUMNS = ("event_id", "signal_id", "event_type", "occurred_at", "environment", "producer", "symbol", "quantity",
@@ -45,9 +46,7 @@ class FeedbackStore:
                 target_index INTEGER, reason TEXT, known_signal INTEGER NOT NULL, imported_at TEXT NOT NULL,
                 source_file TEXT NOT NULL)""")
             db.execute("CREATE INDEX IF NOT EXISTS execution_events_signal ON execution_events (signal_id, occurred_at)")
-            columns = {row["name"] for row in db.execute("PRAGMA table_info(execution_events)")}
-            if "exit_policy_hash" not in columns:   # retour d'exécution v2
-                db.execute("ALTER TABLE execution_events ADD COLUMN exit_policy_hash TEXT")
+            add_missing_columns(db, "execution_events", {"exit_policy_hash": "TEXT"})   # retour d'exécution v2
             yield db
             db.commit()
         finally:

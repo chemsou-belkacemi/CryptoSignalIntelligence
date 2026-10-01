@@ -78,11 +78,11 @@ Le site n'a pas de mot de passe : il n'est **jamais** ouvert sur Internet (ports
 du serveur). On y accède par un tunnel chiffré, depuis PowerShell sur le PC :
 
 ```powershell
-ssh -N -L 8501:127.0.0.1:8501 -L 8502:127.0.0.1:8502 csi@ADRESSE
+ssh -N -L 8501:127.0.0.1:8501 -L 8502:127.0.0.1:8502 -L 8503:127.0.0.1:8503 csi@ADRESSE
 ```
 
 Laisser cette fenêtre ouverte, puis ouvrir **http://127.0.0.1:8501** (le site) et
-http://127.0.0.1:8502/dashboard.html (tableau de bord de CSI). Fermer la fenêtre ferme l'accès, pas
+http://127.0.0.1:8502/dashboard.html (tableau de bord de CSI), http://127.0.0.1:8503/ (analyse CSI). Fermer la fenêtre ferme l'accès, pas
 les programmes. Ne jamais remplacer `127.0.0.1` par `0.0.0.0` dans les `docker-compose.yml`.
 
 ## 7. Sauvegardes automatiques

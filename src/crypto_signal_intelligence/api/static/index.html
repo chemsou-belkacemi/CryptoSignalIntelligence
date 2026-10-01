@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CSI — Analyse</title>
+<link rel="stylesheet" href="/app.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <strong>CSI</strong>
+    <span class="muted">Crypto Signal Intelligence — analyse seulement, aucun ordre</span>
+  </div>
+  <div id="health" class="pill muted">surveillance : …</div>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button class="tab active" data-tab="pair" role="tab" aria-selected="true">Analyser une paire</button>
+  <button class="tab" data-tab="signal" role="tab" aria-selected="false">Évaluer un signal</button>
+  <button class="tab" data-tab="follow" role="tab" aria-selected="false">Suivi</button>
+</nav>
+
+<main>
+  <section id="token-box" class="card hidden">
+    <h2>Jeton d'accès</h2>
+    <p class="muted">L'API de CSI demande un jeton (variable CSI_API_TOKEN). Il reste dans cet onglet du navigateur.</p>
+    <div class="row">
+      <input id="token" type="password" autocomplete="off" placeholder="jeton">
+      <button id="token-save" class="primary">Utiliser</button>
+    </div>
+  </section>
+
+  <div id="tab-pair" class="tabpane">
+    <section class="card">
+      <div class="row wrap">
+        <label class="field">Paire
+          <select id="pair"></select>
+        </label>
+        <div class="field">Horizon
+          <div id="horizons" class="segmented"></div>
+        </div>
+        <button id="analyze" class="primary">Analyser</button>
+      </div>
+      <p class="muted small">CSI regarde ce qui s'est passé sur cette paire dans des conditions comparables,
+        évalue un plan de trade indicatif sur l'historique et donne l'avis de ses stratégies sur la dernière
+        bougie. Rien n'est publié, rien n'est envoyé à BinanceSpotManager.</p>
+    </section>
+    <div id="pair-result"></div>
+  </div>
+
+  <div id="tab-signal" class="tabpane hidden">
+    <section class="card">
+      <label class="field block">Texte du signal (copié depuis Telegram ou écrit à la main)
+        <textarea id="signal-text" rows="8" spellcheck="false" placeholder="PAIR: ETH/USDT&#10;ENTRY: 2500&#10;TP1: 2600&#10;SL: 2440"></textarea>
+      </label>
+      <div class="row wrap">
+        <label class="field">Source
+          <input id="signal-source" value="Manuel (tableau de bord)" maxlength="80">
+        </label>
+        <label class="check"><input id="signal-record" type="checkbox" checked> Enregistrer pour suivre son issue</label>
+        <label class="check"><input id="signal-validated" type="checkbox" checked> Je valide ce signal (ajoute la paire si elle est inconnue)</label>
+        <button id="evaluate" class="primary">Évaluer</button>
+      </div>
+    </section>
+    <div id="signal-result"></div>
+  </div>
+
+  <div id="tab-follow" class="tabpane hidden">
+    <div id="follow-result"></div>
+  </div>
+</main>
+
+<footer class="muted small">
+  Les pourcentages affichés sont des fréquences historiques, chacune définie à côté de sa valeur ; aucune
+  stratégie de CSI n'a démontré d'avantage exploitable à ce jour. Tableau de surveillance complet :
+  <a href="http://127.0.0.1:8502/dashboard.html" target="_blank" rel="noopener noreferrer">port 8502</a>.
+</footer>
+</body>
+</html>

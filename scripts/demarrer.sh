@@ -47,8 +47,9 @@ attendre_sains "$BSM" || ok=1
 cat <<'TEXTE'
 
 Depuis ton PC (PowerShell), ouvre le tunnel puis le navigateur :
-  ssh -N -L 8501:127.0.0.1:8501 -L 8502:127.0.0.1:8502 utilisateur@ADRESSE_DU_VPS
+  ssh -N -L 8501:127.0.0.1:8501 -L 8502:127.0.0.1:8502 -L 8503:127.0.0.1:8503 utilisateur@ADRESSE_DU_VPS
   Site (bot + page CSI)  : http://127.0.0.1:8501
+  Analyse CSI            : http://127.0.0.1:8503/
   Tableau de bord de CSI : http://127.0.0.1:8502/dashboard.html
 TEXTE
 [ "$ok" -eq 0 ] || echo "Note : la surveillance de CSI n'est « healthy » qu'après son premier cycle (jusqu'à ~16 min)."

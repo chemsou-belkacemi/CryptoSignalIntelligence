@@ -1,7 +1,8 @@
-"""API HTTP locale : l'interface de BinanceSpotManager (ou tout outil local) interroge CSI.
+"""API HTTP locale et tableau de bord interactif de CSI (http://127.0.0.1:8503/), indépendant de BSM.
 
 Lecture et évaluation SEULEMENT : aucune route ne crée, modifie ou annule un ordre, aucune ne
-demande de clé Binance. Routes (JSON, UTF-8) :
+demande de clé Binance. Pages : `/` (application : analyser une paire, évaluer un signal, suivi),
+`/app.js`, `/app.css`. Routes (JSON, UTF-8) :
 
     GET  /health               état de la surveillance (dernier cycle)
     GET  /strategies           dernier walk-forward de chaque stratégie (verdict, E[R], IC95)
@@ -10,6 +11,12 @@ demande de clé Binance. Routes (JSON, UTF-8) :
     GET  /execution-report     signaux publiés : backtest, prospectif et Demo séparés
     GET  /signals/generated?limit=N  derniers signaux trouvés par les stratégies de CSI (shadow)
     GET  /universe             paires configurées et paires ajoutées par le propriétaire (état)
+    GET  /pairs                paires analysables, avec la fraîcheur de leurs données
+    GET  /models               verdicts de tous les modèles de CSI (registre des expériences)
+    POST /analyze-pair         {"symbol": "ETHUSDT", "horizon": "24h"} → contexte, historique comparable,
+                               plan indicatif évalué sur le passé, avis des stratégies (simulation)
+    POST /refresh-pair         {"symbol": "ETHUSDT"} → télécharge les bougies publiques manquantes de la paire
+                               (et du contexte BTC) : la page reste utilisable sans la surveillance
     POST /evaluate             {"text": "...", "source": "groupe", "record": true, "user_validated": false}
                                → verdict expliqué ; user_validated = signal soumis à la main par le
                                propriétaire (sa validation ajoute une paire inconnue à l'univers)
@@ -18,8 +25,13 @@ Sécurité :
 - écoute sur 127.0.0.1 par défaut ; dans Docker, le port n'est publié que sur 127.0.0.1 de l'hôte ;
 - jeton facultatif `CSI_API_TOKEN` (variable d'environnement, jamais dans le code) : s'il est défini,
   chaque requête doit porter `Authorization: Bearer <jeton>` ;
-- corps limité à 16 Ko, JSON uniquement, aucune en-tête CORS (appel de serveur à serveur, pas
-  depuis un navigateur).
+- corps limité à 16 Ko, JSON uniquement, aucune en-tête CORS : seule la page servie par CSI elle-même
+  (même origine) appelle l'API depuis un navigateur ; un autre site ne peut ni lire les réponses ni
+  envoyer du JSON (pré-requête refusée) ;
+- en-tête Host contrôlé (127.0.0.1, localhost, csi-api, ou `CSI_API_ALLOWED_HOSTS`) : protège contre le
+  « DNS rebinding » ;
+- la page applique une politique de sécurité de contenu stricte (aucun script externe ni en ligne) et
+  n'insère jamais de texte reçu comme du HTML.
 """
 from __future__ import annotations
 
@@ -28,6 +40,8 @@ import logging
 import os
 import secrets
 import sqlite3
+import threading
+from collections import OrderedDict
 from collections.abc import Callable
 from contextlib import closing
 from dataclasses import asdict, is_dataclass
@@ -46,6 +60,14 @@ log = logging.getLogger(__name__)
 MAX_BODY_BYTES = 16 * 1024
 MAX_SOURCE_CHARS = 80
 TOKEN_ENV = "CSI_API_TOKEN"
+ALLOWED_HOSTS_ENV = "CSI_API_ALLOWED_HOSTS"
+DEFAULT_HOSTS = ("127.0.0.1", "localhost", "::1", "csi-api")
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+STATIC_FILES = {"/": ("index.html", "text/html; charset=utf-8"), "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+                "/app.css": ("app.css", "text/css; charset=utf-8")}
+CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
+       "frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+OUTLOOK_CACHE_SIZE = 32
 
 VERDICT_TEXT = {
     "REFUSE": "Refusé : le signal ne peut pas être évalué ou est déjà mort (voir le contrôle en échec).",
@@ -114,6 +136,11 @@ class CsiApi:
     def __init__(self, settings: Settings, *, now: Callable[[], datetime] | None = None):
         self.settings = settings
         self.now = now or (lambda: datetime.now(UTC))
+        # Une analyse de paire à la fois (mémoire du conteneur) ; résultats gardés jusqu'à la bougie suivante.
+        self._outlook_lock = threading.Lock()
+        self._outlook_cache: OrderedDict[tuple, dict] = OrderedDict()
+        self._refresh_lock = threading.Lock()
+        self.downloader: Callable[..., object] | None = None     # remplaçable dans les tests (aucun réseau)
 
     # --- lecture ---------------------------------------------------------------------------
     def health(self) -> dict:
@@ -207,6 +234,134 @@ class CsiApi:
                         "définitivement (READY une fois l'historique téléchargé) ; un signal reçu automatiquement "
                         "n'ajoute jamais rien"}
 
+    def pairs(self) -> dict:
+        """Paires analysables (configuration + ajouts prêts) et âge de leur dernière bougie."""
+        from ..data.store import CandleStore
+        from ..external.universe import universe_symbols
+        store = CandleStore(self.settings.data_dir)
+        now = self.now()
+        out = []
+        for symbol in universe_symbols(self.settings):
+            last = store.last_open_time(symbol, self.settings.data.setup_timeframe)
+            age = None if last is None else int((now - last.to_pydatetime()).total_seconds() // 60) - 15
+            out.append({"symbol": symbol, "last_candle": last.isoformat() if last is not None else None,
+                        "age_minutes": age, "configured": symbol in self.settings.data.symbols})
+        from ..outlook.pair import HORIZONS
+        return {"pairs": out, "horizons": [{"key": k, "label": label} for k, (_, label) in HORIZONS.items()]}
+
+    def models(self) -> dict:
+        """Dernier verdict de chaque modèle de CSI, tel qu'enregistré par le protocole (les backtests de
+        référence, purement descriptifs, ne portent pas de verdict et ne sont pas listés)."""
+        db_path = self.settings.experiments_db
+        if not db_path.exists():
+            return {"models": [], "program_trials": 0}
+        with closing(sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)) as db:
+            rows = db.execute("""SELECT kind, strategy, run_id, created_at, status, metrics FROM runs r
+                                 WHERE kind IN ('WALK_FORWARD', 'ML_META', 'ML_INTRADAY_SELECT',
+                                                'ML_INTRADAY_FINAL', 'SCREEN')
+                                   AND rowid = (SELECT MAX(rowid) FROM runs WHERE kind = r.kind
+                                                AND strategy = r.strategy)
+                                 ORDER BY kind, strategy""").fetchall()
+            trials = db.execute("""SELECT COALESCE(SUM(COALESCE(json_extract(metrics, '$.n_trials'), 1)), 0)
+                                   FROM runs WHERE period_label='DEVELOPMENT'""").fetchone()[0]
+        labels = {"WALK_FORWARD": "stratégie (walk-forward)", "ML_META": "méta-labeling (lot 5)",
+                  "ML_INTRADAY_SELECT": "ML intraday : sélection (lot 5 bis)",
+                  "ML_INTRADAY_FINAL": "ML intraday : période finale", "SCREEN": "criblage de familles"}
+        out = []
+        for kind, strategy, run_id, created_at, status, metrics_text in rows:
+            metrics = json.loads(metrics_text or "{}")
+            verdict = metrics.get("conclusion") or metrics.get("verdict")
+            if kind == "SCREEN":
+                passing = [r for r in metrics.get("rows", []) if r.get("beats_costs")]
+                verdict = f"{len(passing)} CONDITION(S) AU-DELÀ DES COÛTS" if passing else "AUCUNE_CONDITION_AU_DELA_DES_COUTS"
+            if status == "FAILED":
+                verdict = "ÉCHEC D'EXÉCUTION"
+            out.append({"kind": kind, "label": labels.get(kind, kind), "strategy": strategy, "run_id": run_id,
+                        "created_at": created_at, "status": status, "verdict": verdict or status})
+        return {"models": out, "program_trials": int(trials),
+                "note": "Aucun modèle n'est validé à ce jour : CSI n'annonce aucune rentabilité."}
+
+    def analyze_pair(self, payload: dict) -> dict:
+        from ..outlook.pair import HORIZONS, OutlookError, pair_outlook
+        symbol, horizon = payload.get("symbol"), payload.get("horizon", "24h")
+        if not isinstance(symbol, str) or not symbol.strip() or len(symbol) > 20 or not symbol.strip().isalnum():
+            raise ApiError(HTTPStatus.BAD_REQUEST, "champ « symbol » (ex. ETHUSDT) requis")
+        if horizon not in HORIZONS:
+            raise ApiError(HTTPStatus.BAD_REQUEST, f"horizon : un de {', '.join(HORIZONS)}")
+        from ..features.loader import load_inputs
+        from ..signals.analyze import analyze
+        from ..strategies.registry import STRATEGIES
+        symbol = symbol.strip().upper()
+        with self._outlook_lock:
+            now = self.now()
+            try:
+                inputs = load_inputs(self.settings, symbol)
+            except Exception:  # noqa: BLE001 - message clair produit par pair_outlook ci-dessous
+                inputs = None
+            last = inputs["setup"]["open_time"].iloc[-1] if inputs is not None and not inputs["setup"].empty else None
+            key = (symbol, horizon, str(last))
+            if key in self._outlook_cache:
+                self._outlook_cache.move_to_end(key)
+                return self._outlook_cache[key] | {"cached": True}
+            try:
+                result = pair_outlook(self.settings, symbol, horizon, now=now, inputs=inputs)
+            except OutlookError as exc:
+                raise ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, str(exc)) from None
+            verdicts = {s["strategy"]: s for s in self.strategies()["strategies"]}
+            strategies = []
+            for strategy_id in STRATEGIES:
+                try:
+                    out = analyze(self.settings, symbol, strategy_id, now=now, inputs=inputs, publish=False)
+                    item = {"strategy": strategy_id, "action": out.action, "reason": out.reason_code,
+                            "details": list(out.details), "levels": out.levels}
+                except Exception as exc:  # noqa: BLE001 - une stratégie en échec n'empêche pas les autres
+                    item = {"strategy": strategy_id, "action": "ERREUR", "reason": type(exc).__name__,
+                            "details": [str(exc)], "levels": None}
+                walk_forward = verdicts.get(strategy_id, {})
+                item |= {"walk_forward_verdict": walk_forward.get("verdict"),
+                         "walk_forward_expectancy_r": walk_forward.get("expectancy_r")}
+                strategies.append(item)
+            result = _jsonable(result | {"strategies": strategies,
+                                         "strategies_note": "simulation sur la dernière bougie clôturée : rien n'est "
+                                                            "publié ; stratégies rejetées par le protocole"})
+            self._outlook_cache[key] = result
+            while len(self._outlook_cache) > OUTLOOK_CACHE_SIZE:
+                self._outlook_cache.popitem(last=False)
+            return result | {"cached": False}
+
+    def refresh_pair(self, payload: dict) -> dict:
+        """Bougies manquantes de la paire (15 min, 1 h) et du contexte BTC, depuis les données PUBLIQUES de
+        Binance (client HTTP à liste blanche, aucune clé). Une mise à jour à la fois."""
+        from ..data.store import CandleStore
+        from ..external.universe import universe_symbols
+        symbol = payload.get("symbol")
+        if not isinstance(symbol, str) or not symbol.strip().isalnum() or len(symbol) > 20:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "champ « symbol » (ex. ETHUSDT) requis")
+        symbol = symbol.strip().upper()
+        if symbol not in universe_symbols(self.settings):
+            raise ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, f"{symbol} hors univers")
+        if not self._refresh_lock.acquire(blocking=False):
+            raise ApiError(HTTPStatus.CONFLICT, "une mise à jour est déjà en cours : réessayer dans un instant")
+        try:
+            from ..data.pipeline import download
+            downloader: Callable[..., object] = self.downloader or download
+            data = self.settings.data
+            for item, timeframe in ((symbol, data.setup_timeframe), (symbol, data.context_timeframe),
+                                    ("BTCUSDT", data.context_timeframe)):
+                # rest_only : seules les bougies manquantes depuis la dernière connue (comme la surveillance)
+                downloader(self.settings, item, timeframe, now=self.now(), rest_only=True)
+        except ApiError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - réseau ou Binance : message clair, rien de cassé
+            raise ApiError(HTTPStatus.BAD_GATEWAY, f"mise à jour impossible pour l'instant ({type(exc).__name__})") from None
+        finally:
+            self._refresh_lock.release()
+        with self._outlook_lock:
+            for key in [k for k in self._outlook_cache if k[0] == symbol]:
+                del self._outlook_cache[key]
+        last = CandleStore(self.settings.data_dir).last_open_time(symbol, self.settings.data.setup_timeframe)
+        return {"symbol": symbol, "last_candle": last.isoformat() if last is not None else None}
+
     # --- évaluation --------------------------------------------------------------------------
     def evaluate(self, payload: dict) -> dict:
         text = payload.get("text")
@@ -235,11 +390,16 @@ class CsiApi:
                 "/execution-report": self.execution_report, "/universe": self.universe,
                 "/signals/recent": lambda: self.recent(_int(query.get("limit", ["20"])[0])),
                 "/signals/generated": lambda: self.generated(_int(query.get("limit", ["20"])[0])),
+                "/pairs": self.pairs, "/models": self.models,
             }
             if path in routes:
                 return routes[path]()
         elif method == "POST" and path == "/evaluate":
             return self.evaluate(body or {})
+        elif method == "POST" and path == "/analyze-pair":
+            return self.analyze_pair(body or {})
+        elif method == "POST" and path == "/refresh-pair":
+            return self.refresh_pair(body or {})
         raise ApiError(HTTPStatus.NOT_FOUND, f"route inconnue : {method} {path}")
 
 
@@ -255,7 +415,22 @@ def _int(value: str) -> int:
         raise ApiError(HTTPStatus.BAD_REQUEST, "limit : entier attendu") from None
 
 
-def make_handler(api: CsiApi, token: str | None) -> type[BaseHTTPRequestHandler]:
+def allowed_hosts() -> set[str]:
+    extra = os.environ.get(ALLOWED_HOSTS_ENV, "")
+    return {*DEFAULT_HOSTS, *(h.strip().lower() for h in extra.split(",") if h.strip())}
+
+
+def _host_name(header: str | None) -> str:
+    """Nom d'hôte d'un en-tête Host, sans le port (IPv6 entre crochets accepté)."""
+    value = (header or "").strip().lower()
+    if value.startswith("["):
+        return value[1:value.find("]")] if "]" in value else value
+    return value.rsplit(":", 1)[0] if value.count(":") == 1 else value
+
+
+def make_handler(api: CsiApi, token: str | None, hosts: set[str] | None = None) -> type[BaseHTTPRequestHandler]:
+    permitted = hosts if hosts is not None else allowed_hosts()
+
     class Handler(BaseHTTPRequestHandler):
         server_version = "CSI-API/1"
         sys_version = ""
@@ -270,6 +445,20 @@ def make_handler(api: CsiApi, token: str | None) -> type[BaseHTTPRequestHandler]
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def _send_static(self, path: str) -> None:
+            name, content_type = STATIC_FILES[path]
+            data = (STATIC_DIR / name).read_bytes()
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Security-Policy", CSP)
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("X-Frame-Options", "DENY")
             self.end_headers()
             self.wfile.write(data)
 
@@ -292,9 +481,14 @@ def make_handler(api: CsiApi, token: str | None) -> type[BaseHTTPRequestHandler]
                         raise ApiError(HTTPStatus.BAD_REQUEST, "Content-Length invalide") from None
                     raw = self.rfile.read(min(length, 1 << 20)) if length else b""
                     self.close_connection = length > len(raw)
+                if _host_name(self.headers.get("Host")) not in permitted:
+                    raise ApiError(HTTPStatus.MISDIRECTED_REQUEST, "hôte non autorisé (CSI_API_ALLOWED_HOSTS)")
+                url = urlparse(self.path)
+                if method == "GET" and url.path in STATIC_FILES:   # la page elle-même ne contient aucune donnée
+                    self._send_static(url.path)
+                    return
                 if not self._authorized():
                     raise ApiError(HTTPStatus.UNAUTHORIZED, "jeton absent ou invalide")
-                url = urlparse(self.path)
                 body = None
                 if method == "POST":
                     if "application/json" not in (self.headers.get("Content-Type") or ""):
@@ -336,7 +530,7 @@ def serve(settings: Settings, *, host: str = "127.0.0.1", port: int = 8503) -> N
                     host, TOKEN_ENV)
     server = ThreadingHTTPServer((host, port), make_handler(CsiApi(settings), token))
     server.daemon_threads = True
-    log.info("API CSI (lecture et évaluation seulement) sur http://%s:%s", host, port)
+    log.info("API et tableau de bord CSI (lecture et évaluation seulement) sur http://%s:%s/", host, port)
     try:
         server.serve_forever()
     finally:

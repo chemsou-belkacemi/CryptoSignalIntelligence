@@ -150,6 +150,28 @@ tableau de bord) : `.\scripts\evaluer-signal.ps1 -Source "Nom du groupe" -Fichie
 API locale (lecture et évaluation seulement, 127.0.0.1:8503) pour l'interface de BinanceSpotManager :
 routes, sécurité et intégration prévue dans [docs/API.md](docs/API.md).
 
+## Tableau de bord interactif de CSI : <http://127.0.0.1:8503/>
+
+Indépendant de BinanceSpotManager (servi par le service `api` de CSI ; sans Docker :
+`.\.venv\Scripts\python.exe -m crypto_signal_intelligence.api`). Trois onglets :
+
+- **Analyser une paire** : choisir une paire et un horizon (1 h, 4 h, 12 h, 1 jour, 3 jours, 7 jours).
+  CSI montre la situation actuelle, ce qui s'est passé historiquement sur cette paire dans le même
+  régime 1 h (fréquence de hausse avec son IC95, gain net moyen après coûts, fourchette 10-90 %), un
+  **plan indicatif** (entrée au marché, stop à 1 σ, objectif à 1,5 σ de la volatilité de l'horizon)
+  rejoué sur l'historique avec son avis (FAVORABLE seulement si l'IC95 de l'espérance est au-dessus de
+  0), et l'avis de ses stratégies sur la dernière bougie **en simulation** (rien n'est publié).
+  Adresse directe : `http://127.0.0.1:8503/?paire=ETHUSDT&horizon=24h`. Données anciennes (surveillance
+  arrêtée) : bouton de mise à jour depuis les données publiques de Binance.
+- **Évaluer un signal** : coller un signal (Telegram ou écrit à la main) → contrôles, géométrie,
+  taux de base de la même géométrie, contexte, avis expliqué ; enregistré pour suivre son issue.
+- **Suivi** : santé de la surveillance, verdicts de tous les modèles, signaux évalués, bilan des
+  groupes, signaux trouvés par les stratégies.
+
+Chaque pourcentage est une fréquence historique définie à côté de sa valeur, jamais une promesse :
+aucune stratégie de CSI n'a démontré d'avantage exploitable à ce jour. Même analyse dans le
+terminal : `.\.venv\Scripts\python.exe -m crypto_signal_intelligence perspective ETHUSDT --horizon 24h`.
+
 ## Installation (Windows PowerShell)
 
 Python 3.12+ requis (testé avec 3.14.7). Pas besoin d'activer le venv : on appelle son python.

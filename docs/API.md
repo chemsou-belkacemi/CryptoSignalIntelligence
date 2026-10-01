@@ -23,7 +23,14 @@ demande de clé Binance. Code : `src/crypto_signal_intelligence/api/server.py`.
 | `GET /signals/generated?limit=20` | derniers signaux trouvés par les stratégies de CSI (shadow), avec leur statut de validation et `bsm_text` pour un test manuel en Demo |
 | `GET /universe` | paires configurées et paires ajoutées par le propriétaire, avec leur état |
 | `GET /execution-report` | signaux publiés : backtest, prospectif et Demo, séparés |
+| `GET /pairs` | paires analysables (configurées et ajoutées prêtes) et âge de leur dernière bougie ; horizons proposés |
+| `GET /models` | dernier verdict de chaque modèle (walk-forward, méta-labeling, ML intraday, criblage) et nombre d'essais du programme |
 | `POST /evaluate` | évalue un signal Telegram (voir ci-dessous) |
+| `POST /analyze-pair` | `{"symbol": "ETHUSDT", "horizon": "24h"}` : perspective d'une paire (contexte, historique comparable, plan indicatif évalué sur le passé, stratégies en simulation) ; une analyse à la fois, résultat gardé jusqu'à la bougie suivante |
+| `POST /refresh-pair` | `{"symbol": "ETHUSDT"}` : télécharge les bougies publiques manquantes de la paire et du contexte BTC (REST public, aucune clé) ; une mise à jour à la fois (409 sinon) |
+
+Pages (même serveur) : `/` (tableau de bord interactif), `/app.js`, `/app.css` ; elles ne contiennent
+aucune donnée et ne demandent pas le jeton, les appels qu'elles font le demandent.
 
 ### `POST /evaluate`
 
@@ -52,7 +59,12 @@ reste `REFUSE` hors univers. `GET /universe` liste les paires configurées et aj
   à côté de `docker-compose.yml`, jamais versionné). S'il est défini, chaque requête doit porter
   `Authorization: Bearer <jeton>` ; le client (BSM) lit le même jeton dans SON environnement.
 - Corps limité à 16 Ko, JSON uniquement, méthodes autres que GET/POST refusées, aucune en-tête
-  CORS : l'API est appelée par le serveur de l'interface, jamais directement par un navigateur.
+  CORS : seule la page servie par CSI elle-même (même origine) l'appelle depuis un navigateur ; un
+  autre site ne peut ni lire ses réponses ni lui envoyer du JSON.
+- En-tête `Host` contrôlé (127.0.0.1, localhost, csi-api, ou la liste `CSI_API_ALLOWED_HOSTS`) :
+  protection contre le « DNS rebinding » (une page piégée qui viserait 127.0.0.1).
+- La page applique une politique de sécurité de contenu stricte (aucun script externe ni en ligne,
+  pas d'intégration dans un cadre) et n'insère jamais un texte reçu comme du HTML.
 - Erreur interne : message générique au client, détail dans le journal de CSI seulement.
 
 ## Intégration prévue dans l'interface de BinanceSpotManager

@@ -58,6 +58,7 @@ $okBsm = Wait-Sains "BSM" $bsm
 
 Write-Host ""
 Write-Host "Ton site (bot Binance Demo + page CSI) : http://127.0.0.1:8501"
+Write-Host "Analyse CSI (paire, signal, suivi)     : http://127.0.0.1:8503/"
 Write-Host "Tableau de bord de CSI                 : http://127.0.0.1:8502/dashboard.html"
 if (-not ($okCsi -and $okBsm)) {
     Write-Host "Note : la surveillance de CSI n'est « healthy » qu'après son premier cycle (jusqu'à ~16 min)."

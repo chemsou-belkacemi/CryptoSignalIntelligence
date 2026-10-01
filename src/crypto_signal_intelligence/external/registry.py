@@ -21,6 +21,7 @@ import pandas as pd
 
 from ..config import CostScenario, Settings
 from ..data.schema import interval
+from ..data.sqlite_schema import add_missing_columns
 from ..data.store import CandleStore
 
 OUTCOMES = ("PENDING", "TP1_FIRST", "SL_FIRST", "TIMEOUT", "UNFILLED", "INVALID", "DUPLICATE")
@@ -97,10 +98,8 @@ class ExternalSignalRegistry:
                 decision_time TEXT, close REAL, verdict TEXT NOT NULL, p_tp1 REAL, base_expectancy_r REAL,
                 evaluation TEXT NOT NULL, outcome TEXT NOT NULL, outcome_r REAL, filled_at TEXT, resolved_at TEXT,
                 raw_text TEXT NOT NULL)""")
-            columns = {row["name"] for row in db.execute("PRAGMA table_info(external_signals)")}
-            for column in ("duplicate_of", "copy_of"):          # migration 2026-09-30
-                if column not in columns:
-                    db.execute(f"ALTER TABLE external_signals ADD COLUMN {column} TEXT")
+            # migration 2026-09-30, sûre en concurrence (tableau de bord : plusieurs requêtes à la fois)
+            add_missing_columns(db, "external_signals", {"duplicate_of": "TEXT", "copy_of": "TEXT"})
             yield db
             db.commit()
         finally:

@@ -472,6 +472,50 @@ def _print_evaluation(ev) -> None:
                   + (f" — enregistré {ev.record_id}" if ev.record_id else ""))
 
 
+@app.command()
+def perspective(symbol: str = typer.Argument(..., help="Paire, ex. ETHUSDT"),
+                horizon: str = typer.Option("24h", help="1h, 4h, 12h, 24h, 3j ou 7j"),
+                refresh: bool = typer.Option(True, help="Télécharge d'abord les bougies manquantes (données publiques)"),
+                verbose: bool = False):
+    """Perspective d'une paire (comme le tableau de bord) : historique comparable, plan indicatif, avis. N'exécute rien."""
+    from .data.pipeline import download as run_download
+    from .outlook.pair import HORIZONS, OutlookError, pair_outlook
+    settings = _settings(verbose)
+    symbol = symbol.upper().replace("/", "")
+    if refresh:
+        for sym, tf in ((symbol, settings.data.setup_timeframe), (symbol, settings.data.context_timeframe),
+                        ("BTCUSDT", settings.data.context_timeframe)):
+            with console.status(f"mise à jour {sym} {tf}…"):
+                run_download(settings, sym, tf, now=_now())
+    try:
+        result = pair_outlook(settings, symbol, horizon, now=_now())
+    except OutlookError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(2) from None
+    c, plan = result["context"], result["plan"]
+    console.rule(f"{symbol} — horizon {result['horizon_label']}")
+    console.print(f"Prix {c['close']} (bougie {c['decision_time'][:16]} UTC, il y a {c['data_age_minutes']} min) ; "
+                  f"tendance 1 h {c['trend_1h']}, volatilité {c['volatility_1h']} ; BTC 24 h {c['btc_ret_24h_pct']} %")
+    table = Table("horizon", "hausse (fréquence)", "IC95", "gain net moyen %", "8 cas sur 10 entre (%)", "exemples")
+    for row in result["overview"]:
+        p_up, mean = row["p_up"], row["mean_net"]
+        table.add_row(row["label"], f"{(p_up['value'] or 0) * 100:.1f} %",
+                      f"{p_up['ci95'][0] * 100:.1f} – {p_up['ci95'][1] * 100:.1f}" if p_up["ci95"] else "–",
+                      f"{(mean['value'] or 0) * 100:+.2f}",
+                      f"{(row['q10_gross'] or 0) * 100:+.1f} à {(row['q90_gross'] or 0) * 100:+.1f}",
+                      f"{row['samples']} ({'même régime' if row['regime_conditioned'] else 'tous régimes'})")
+    console.print(table)
+    if "unavailable" not in plan:
+        console.print(f"Plan indicatif (achat) : entrée ≈ {plan['entry_reference']}, stop {plan['stop']} "
+                      f"({plan['stop_pct']} %), objectif {plan['target']} (+{plan['target_pct']} %) ; dans le passé : "
+                      f"objectif d'abord {plan.get('tp_first', 0) * 100:.1f} %, stop d'abord {plan.get('sl_first', 0) * 100:.1f} %, "
+                      f"espérance {plan.get('expectancy_r')} R (IC95 {plan.get('expectancy_r_ci95')}) ; "
+                      f"réussite nécessaire {plan['breakeven_win_rate'] * 100:.1f} %")
+    color = {"FAVORABLE": "green", "DEFAVORABLE": "red"}.get(plan["verdict"], "yellow")
+    console.print(f"[bold {color}]Avis : {plan['verdict']}[/bold {color}] — {result['definitions']['verdict']}")
+    console.print(f"[dim]{result['warning']} Choix d'horizon : {', '.join(HORIZONS)}.[/dim]")
+
+
 @app.command("evaluate-signal")
 def evaluate_signal(text: str = typer.Option(None, "--text", help="Texte du signal ; sinon --file, sinon entrée standard"),
                     file: str = typer.Option(None, "--file", help="Fichier UTF-8 contenant le signal"),
