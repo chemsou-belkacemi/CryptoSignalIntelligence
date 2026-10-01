@@ -99,6 +99,11 @@ Méta-labeling logistique purgé (protocole déclaré avant exécution, [docs/ML
 trie un peu les setups de A, B et C, mais la stratégie filtrée reste perdante (−0,16 à −0,22 R par
 trade, intervalles entièrement négatifs). Verdict NOT_USEFUL pour les trois ; rien n'est branché.
 
+### Horizons longs (3 et 7 jours) : pas d'avantage non plus (2026-10-01)
+
+Les six familles D à I, criblées à 3 et 7 jours : le rendement brut dépasse les frais, mais uniquement
+par la hausse générale du marché ; l'excès sur cette dérive est nul. Détail : [docs/SCREENING.md](docs/SCREENING.md).
+
 ### Pourquoi elles perdent, et criblage des familles suivantes
 
 Avant frais, A, B et C n'ont pratiquement aucun avantage (≈ +0,01 R, −0,06 R, +0,03 R) : les coûts

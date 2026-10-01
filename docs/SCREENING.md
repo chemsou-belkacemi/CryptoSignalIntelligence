@@ -73,6 +73,24 @@ avec les conditions existantes.
   Une condition qui passe ne devient une stratégie qu'avec une fiche, un walk-forward durci et une
   confirmation sur données non vues.
 
+### Résultat (`SCREEN-20261001T015122Z-8aa8f6`, 12 essais) : rien ne passe
+
+| Condition | 72 h : excès moyen % [IC95] | 168 h : excès moyen % [IC95] |
+|---|---|---|
+| D retest de cassure | +0,08 [−0,49 ; +0,68] | +0,13 [−1,33 ; +1,72] |
+| E retour sur support | −0,10 [−0,79 ; +0,57] | −0,25 [−1,85 ; +1,30] |
+| F compression puis cassure | −0,30 [−0,94 ; +0,35] | −0,19 [−1,63 ; +1,33] |
+| H reprise du VWAP | +0,05 [−0,54 ; +0,67] | +0,05 [−1,39 ; +1,63] |
+| G force relative top 3 | +0,14 [−0,51 ; +0,78] | −0,04 [−1,47 ; +1,37] |
+| I momentum résiduel top 3 | +0,08 [−0,65 ; +0,84] | −0,23 [−1,83 ; +1,45] |
+
+- Le rendement brut moyen dépasse les frais à ces horizons (+0,3 à +1,5 %), mais c'est la **dérive du
+  marché** (hausse 2021-2025) : acheter à n'importe quel moment rapportait autant. Une fois la dérive
+  retirée, l'excès est nul, avec des intervalles très larges des deux côtés.
+- Allonger l'horizon ne crée donc pas d'avantage de **timing** avec ces conditions ; il ne fait que
+  laisser passer la tendance générale, qui n'est pas un signal.
+- Programme : 266 essais sur DEVELOPMENT.
+
 ## Historique
 
 - `SCREEN-20260930T093324Z-20101b` : premier passage, **intervalles faux** (moyenne pondérée par jour
