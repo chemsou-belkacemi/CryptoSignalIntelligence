@@ -21,7 +21,7 @@ TRADE_COLUMNS = ["symbol", "entry_time", "exit_time", "notional", "net", "pnl", 
 
 
 def run_book(candidates: pd.DataFrame, limits: RiskLimits, *, strategy: str = STRATEGY,
-             existing: tuple[Position, ...] = ()) -> tuple[pd.DataFrame, np.ndarray]:
+             existing: tuple[Position, ...] = (), step_ns: int = STEP_NS) -> tuple[pd.DataFrame, np.ndarray]:
     """Trades exécutés et statut de CHAQUE candidat (ENTER ou raison du refus par les limites).
 
     Colonnes attendues : symbol, decision_time, bars (bougies jusqu'à la sortie), net, score.
@@ -38,7 +38,7 @@ def run_book(candidates: pd.DataFrame, limits: RiskLimits, *, strategy: str = ST
     book = ExposureBook(limits, positions=list(existing))
     for i in order:
         moment = int(decision_ns[i])
-        _, reason = book.try_open(str(symbols[i]), strategy, moment, moment + int(bars[i]) * STEP_NS,
+        _, reason = book.try_open(str(symbols[i]), strategy, moment, moment + int(bars[i]) * step_ns,
                                   float(nets[i]), int(i))
         status[i] = reason or "ENTER"
     book.finish()
@@ -186,7 +186,8 @@ def buy_and_hold(daily_closes: pd.DataFrame, start, end) -> dict:
     return out
 
 
-def random_entries(pool: pd.DataFrame, count: int, limits: RiskLimits, start, end, *, draws: int, seed: int) -> dict:
+def random_entries(pool: pd.DataFrame, count: int, limits: RiskLimits, start, end, *, draws: int, seed: int,
+                   step_ns: int = STEP_NS) -> dict:
     """Distribution du Sharpe d'entrées tirées au hasard (même nombre de candidats, mêmes limites)."""
     if pool.empty or count == 0:
         return {"draws": 0, "sharpe_p50": None, "sharpe_p95": None}
@@ -194,7 +195,7 @@ def random_entries(pool: pd.DataFrame, count: int, limits: RiskLimits, start, en
     values = []
     for _ in range(draws):
         pick = pool.iloc[rng.choice(len(pool), size=min(count, len(pool)), replace=False)]
-        trades = simulate(pick.assign(score=rng.random(len(pick))), limits)
+        trades = simulate(pick.assign(score=rng.random(len(pick))), limits, step_ns=step_ns)
         value = sharpe(daily_returns(trades, start, end).to_numpy())
         values.append(value if value is not None else 0.0)
     return {"draws": draws, "sharpe_p50": round(float(np.percentile(values, 50)), 4),

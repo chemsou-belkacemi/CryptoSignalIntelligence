@@ -156,7 +156,7 @@ def tiny_prepared(n: int = 6000, symbols=("ETHUSDT", "BTCUSDT")) -> proto.Prepar
     meta = pd.concat(metas, ignore_index=True)
     meta["symbol"] = meta["symbol"].astype("category")
     return proto.Prepared(meta, np.vstack(matrices), {}, {"data_hashes": {}}, pd.DataFrame(), {"central": COSTS},
-                          pd.Timestamp("2030-01-01", tz="UTC"), list(symbols))
+                          pd.Timestamp("2030-01-01", tz="UTC"), list(symbols), proto.INTRADAY)
 
 
 def test_development_folds_are_the_seven_declared_validations():
@@ -358,15 +358,21 @@ def test_declared_trial_count_matches_the_protocol():
 # --- Protocole de bout en bout -------------------------------------------------------------------
 
 @pytest.fixture
-def small_protocol(monkeypatch, settings):
-    """Protocole complet en miniature : 2 paires, 7 mois, validations d'un mois, logistique seule."""
-    monkeypatch.setattr(proto, "SPECS", (SPECS[0],))
-    monkeypatch.setattr(proto, "MARGINS", (0.0,))
-    monkeypatch.setattr(proto, "TRAIN_MONTHS", 3)
-    monkeypatch.setattr(proto, "CALIB_MONTHS", 1)
-    monkeypatch.setattr(proto, "VALID_MONTHS", 1)
-    monkeypatch.setattr(proto, "RANDOM_DRAWS", 3)
-    monkeypatch.setattr(ds, "HORIZONS", (4,))
+def small_program(monkeypatch):
+    """Le protocole intraday en miniature (même moteur) : logistique seule, une marge, un horizon, validations
+    d'un mois après 3 mois d'entraînement."""
+    from dataclasses import replace
+
+    from crypto_signal_intelligence.ml import engine
+    small = replace(proto.INTRADAY, specs=(SPECS[0],), margins=(0.0,), horizons=(4,), train_months=3,
+                    calib_months=1, valid_months=1, first_valid_months=3, random_draws=3)
+    monkeypatch.setitem(engine.PROGRAMS, proto.STRATEGY_ID, small)
+    return small
+
+
+@pytest.fixture
+def small_protocol(settings, small_program):
+    """Protocole complet en miniature : 2 paires, 7 mois."""
     store = CandleStore(settings.data_dir)
     for i, symbol in enumerate(("BTCUSDT", "ETHUSDT")):
         store.save(canonical(4 * 24 * 212, "15m", symbol=symbol, start="2024-01-01", seed=i), symbol, "15m")
@@ -381,7 +387,8 @@ def small_protocol(monkeypatch, settings):
 def test_selection_on_noise_concludes_no_edge_and_keeps_the_final_test_locked(small_protocol):
     settings = small_protocol
     now = datetime(2026, 10, 1, tzinfo=UTC)
-    result = proto.select(settings, now=now, allow_dirty=True)      # dossier de test : pas de dépôt git
+    result = proto.select(settings, now=now, allow_dirty=True,      # dossier de test : pas de dépôt git
+                          program=proto.engine.PROGRAMS[proto.STRATEGY_ID])
     assert result.leak_audit["passed"]
     payload = result.payload
     assert payload["n_trials"] == 2 + len(proto.FAMILY_VARIANTS) + 2
@@ -405,26 +412,29 @@ def test_selection_on_noise_concludes_no_edge_and_keeps_the_final_test_locked(sm
         proto.final(settings, now=now, allow_final_test=False)
 
 
-def test_a_failed_run_is_recorded_with_its_status(small_protocol, monkeypatch):
+def test_a_failed_run_is_recorded_with_its_status(small_protocol, small_program):
+    from dataclasses import replace
     settings = small_protocol
 
     def broken(*_args, **_kwargs):
         raise RuntimeError("panne simulée")
 
-    monkeypatch.setattr(proto, "leak_audit", broken)
     with pytest.raises(RuntimeError, match="panne"):
-        proto.select(settings, now=datetime(2026, 10, 1, tzinfo=UTC), allow_dirty=True)
+        proto.select(settings, now=datetime(2026, 10, 1, tzinfo=UTC), allow_dirty=True,
+                     program=replace(small_program, leak_audit=broken))
     rows = ExperimentRegistry(settings.experiments_db).recent(5)
     assert rows[0]["status"] == "FAILED" and rows[0]["kind"] == proto.KIND_SELECT
 
 
-def test_code_must_be_committed_before_any_data_is_read(small_protocol, monkeypatch):
+def test_code_must_be_committed_before_any_data_is_read(small_protocol, small_program):
+    from dataclasses import replace
+
     def forbidden(*_args, **_kwargs):
         raise AssertionError("données lues avant le contrôle du code")
 
-    monkeypatch.setattr(proto, "prepare", forbidden)
     with pytest.raises(RuntimeError, match="non commité"):
-        proto.select(small_protocol, now=datetime(2026, 10, 1, tzinfo=UTC))
+        proto.select(small_protocol, now=datetime(2026, 10, 1, tzinfo=UTC),
+                     program=replace(small_program, prepare=forbidden))
 
 
 # --- Corrections de la relecture du 2026-10-01 (avant exécution) ---------------------------------
@@ -459,7 +469,7 @@ def prepared_with_inputs(n: int = 3000):
     meta = pd.concat(metas, ignore_index=True)
     meta["symbol"] = meta["symbol"].astype("category")
     return proto.Prepared(meta, np.vstack(matrices), inputs, {"data_hashes": {}}, pd.DataFrame(),
-                          {"central": COSTS}, pd.Timestamp("2030-01-01", tz="UTC"), list(symbols))
+                          {"central": COSTS}, pd.Timestamp("2030-01-01", tz="UTC"), list(symbols), proto.INTRADAY)
 
 
 def test_recomputed_scenario_targets_align_with_the_dataset_rows():
@@ -525,7 +535,7 @@ def test_a_failed_fold_counts_as_cash_in_the_analysis(settings, monkeypatch):
     def broken(*_args, **_kwargs):
         raise ValueError("ajustement impossible")
 
-    monkeypatch.setattr(proto, "predict_fold", broken)
+    monkeypatch.setattr(proto.engine, "predict_fold", broken)
     runs = proto.run_system(prep, proto.System("fh", 4, "logistic_l2", 0.0), folds, RiskLimits(), seed=1)
     assert [r.state for r in runs] == ["FAILED", "FAILED"]
     out = proto.aggregate(runs, settings)

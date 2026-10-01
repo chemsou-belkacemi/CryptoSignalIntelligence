@@ -1,4 +1,5 @@
-"""Modèles comparés (docs/ML_INTRADAY.md §3) : logistique de référence, LightGBM, XGBoost.
+"""Modèles comparés (docs/ML_INTRADAY.md §3, docs/ML_SWING.md §3) : logistique de référence, LightGBM,
+XGBoost, CatBoost (swing).
 
 Interface commune : `fit(spec, X, y, seed)` → objet avec `predict_proba(X)` (probabilité brute de la
 classe 1). Grilles fixées dans SPECS, sans arrêt précoce (qui consommerait des données de validation).
@@ -66,6 +67,8 @@ class _Tree:
         if self.family == "xgboost":
             import xgboost
             return np.asarray(self.booster.predict(xgboost.DMatrix(X, missing=np.nan)), dtype=float)
+        if self.family == "catboost":
+            return np.asarray(self.booster.predict_proba(X)[:, 1], dtype=float)
         return np.asarray(self.booster.predict(X), dtype=float)
 
     def save(self, path: str) -> None:
@@ -77,6 +80,8 @@ def fit(spec: ModelSpec, X: np.ndarray, y: np.ndarray, *, seed: int):
     y = np.asarray(y, dtype=np.int32)
     if len(np.unique(y)) < 2:
         raise ValueError("une seule classe dans l'entraînement")
+    if spec.family == "catboost":
+        return _fit_catboost(spec, X, y, seed=seed)
     params = dict(spec.params)
     if spec.family == "logistic":
         medians = np.nanmedian(X, axis=0) if len(X) else np.zeros(X.shape[1])
@@ -101,6 +106,17 @@ def fit(spec: ModelSpec, X: np.ndarray, y: np.ndarray, *, seed: int):
         return _Tree("xgboost", xgboost.train(native, xgboost.DMatrix(X, label=y, missing=np.nan),
                                               num_boost_round=rounds))
     raise ValueError(f"famille inconnue : {spec.family}")
+
+
+def _fit_catboost(spec: ModelSpec, X: np.ndarray, y: np.ndarray, *, seed: int):
+    import catboost
+    params = spec.params
+    model = catboost.CatBoostClassifier(depth=params["depth"], iterations=params["iterations"],
+                                        learning_rate=params["learning_rate"], l2_leaf_reg=params["l2_leaf_reg"],
+                                        random_seed=seed, thread_count=THREADS, verbose=False,
+                                        allow_writing_files=False)
+    model.fit(X, y)
+    return _Tree("catboost", model)
 
 
 def _logit(p: np.ndarray) -> np.ndarray:

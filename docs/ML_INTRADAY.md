@@ -318,3 +318,5 @@ branché, aucun signal n'est publié.
   enchaînés sans remise à l'échelle ; verrous de la période finale (consultation unique, empreintes du
   code et de la configuration, vérification 1 min réelle) ; abstention de même sévérité précisée.
 - 2026-10-01, résultats de la sélection ajoutés (§12) ; protocole inchangé, période finale non consultée.
+- 2026-10-01, moteur commun : le code du protocole est déplacé dans `ml/engine.py` (partagé avec le swing), sans changement de comportement (mêmes tests) ; l'empreinte du code qui décide change, donc une
+  consultation de la période finale intraday exigerait d'abord une nouvelle sélection (essais comptés).

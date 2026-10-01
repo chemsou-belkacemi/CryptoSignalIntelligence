@@ -304,6 +304,43 @@ def ml_evaluate(strategy: list[str] = typer.Option(None, help="Stratégie(s) ; d
                       f"{result.report_dir / 'report.md'} (aucune influence sur les signaux)\n")
 
 
+def _ml_program(protocol, label: str, stage: str, *, final_test: bool, selection_run: str | None,
+                allow_dirty: bool, verbose: bool) -> None:
+    """Sélection (DEVELOPMENT) ou estimation unique (FINAL_TEST) d'un programme ML du moteur commun."""
+    from .ml.engine import ADMISSIBLE
+    from .research.protocol import FinalTestLocked
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    if stage == "select":
+        with console.status("sélection…") as status:
+            result = protocol.select(settings, now=_now(), allow_dirty=allow_dirty,
+                                     progress=lambda text: status.update(f"{label} : {text}"))
+        payload = result.payload
+        console.rule(f"{label} — {result.run_id}")
+        console.print(f"Audit des fuites : {'réussi' if result.leak_audit['passed'] else 'ÉCHEC'} ; essais : "
+                      f"{payload['n_trials']} ; programme : {payload['program_trials']} ; systèmes stables : "
+                      f"{payload.get('stable_count')} ; admissibles : {payload['admissible_count']}")
+        for row in payload["top_systems"][:5]:
+            console.print(f"  {row['key']} : {row['positive_folds']}/{row['evaluated_folds']} validations > 0, "
+                          f"{row['trades']} trades, Sharpe médian {row['median_sharpe']}")
+        color = "green" if result.conclusion == ADMISSIBLE else "red"
+        console.print(f"[bold {color}]{result.conclusion}[/bold {color}] — rapport : {result.report_dir / 'report.md'}")
+        return
+    if stage != "final":
+        console.print("[red]Étape inconnue[/red] : select | final")
+        raise typer.Exit(2)
+    try:
+        payload = protocol.final(settings, now=_now(), allow_final_test=final_test, selection_run=selection_run,
+                                 progress=lambda text: console.print(f"[dim]{text}[/dim]"))
+    except FinalTestLocked as exc:
+        console.print(f"[yellow]Période finale non consultée :[/yellow] {exc}")
+        raise typer.Exit(3) from None
+    for c in payload["criteria"]:
+        console.print(f"  {'[green]✔[/green]' if c['passed'] else '[red]✘[/red]'} {c['number']}. {c['label']}")
+    console.print(f"[bold]Verdict : {payload['verdict']}[/bold] (consultations de la période finale : "
+                  f"{payload['final_test_consultations']})")
+
+
 @app.command("ml-intraday")
 def ml_intraday(stage: str = typer.Argument("select", help="select (DEVELOPMENT) | final (FINAL_TEST, une fois)"),
                 i_understand_final_test: bool = typer.Option(False, "--i-understand-final-test",
@@ -313,37 +350,21 @@ def ml_intraday(stage: str = typer.Argument("select", help="select (DEVELOPMENT)
                 verbose: bool = False):
     """Lot 5 bis : ML intraday (docs/ML_INTRADAY.md) — sélection glissante, puis estimation unique."""
     from .ml.intraday import protocol
-    from .research.protocol import FinalTestLocked
-    settings = _settings(verbose)
-    _heavy_job(settings)
-    if stage == "select":
-        with console.status("sélection…") as status:
-            result = protocol.select(settings, now=_now(), allow_dirty=allow_dirty,
-                                     progress=lambda text: status.update(f"ML intraday : {text}"))
-        payload = result.payload
-        console.rule(f"ML intraday — {result.run_id}")
-        console.print(f"Audit des fuites : {'réussi' if result.leak_audit['passed'] else 'ÉCHEC'} ; essais : "
-                      f"{payload['n_trials']} ; programme : {payload['program_trials']} ; systèmes admissibles : "
-                      f"{payload['admissible_count']}")
-        for row in payload["top_systems"][:5]:
-            console.print(f"  {row['key']} : {row['positive_folds']}/{row['evaluated_folds']} validations > 0, "
-                          f"{row['trades']} trades, Sharpe médian {row['median_sharpe']}")
-        color = "green" if result.conclusion == protocol.ADMISSIBLE else "red"
-        console.print(f"[bold {color}]{result.conclusion}[/bold {color}] — rapport : {result.report_dir / 'report.md'}")
-        return
-    if stage != "final":
-        console.print("[red]Étape inconnue[/red] : select | final")
-        raise typer.Exit(2)
-    try:
-        payload = protocol.final(settings, now=_now(), allow_final_test=i_understand_final_test,
-                                 selection_run=selection_run, progress=lambda text: console.print(f"[dim]{text}[/dim]"))
-    except FinalTestLocked as exc:
-        console.print(f"[yellow]Période finale non consultée :[/yellow] {exc}")
-        raise typer.Exit(3) from None
-    for c in payload["criteria"]:
-        console.print(f"  {'[green]✔[/green]' if c['passed'] else '[red]✘[/red]'} {c['number']}. {c['label']}")
-    console.print(f"[bold]Verdict : {payload['verdict']}[/bold] (consultations de la période finale : "
-                  f"{payload['final_test_consultations']})")
+    _ml_program(protocol, "ML intraday", stage, final_test=i_understand_final_test, selection_run=selection_run,
+                allow_dirty=allow_dirty, verbose=verbose)
+
+
+@app.command("ml-swing")
+def ml_swing(stage: str = typer.Argument("select", help="select (DEVELOPMENT) | final (FINAL_TEST, une fois)"),
+             i_understand_final_test: bool = typer.Option(False, "--i-understand-final-test",
+                                                          help="Consulter la période finale (enregistré)"),
+             selection_run: str = typer.Option(None, help="Sélection de référence pour `final` ; défaut : la dernière"),
+             allow_dirty: bool = typer.Option(False, help="Accepter du code non commité (essai local, enregistré)"),
+             verbose: bool = False):
+    """Lot 5 ter : ML swing de 1 à 7 jours (docs/ML_SWING.md) — sélection avec la règle v6, puis estimation unique."""
+    from .ml.swing import protocol
+    _ml_program(protocol, "ML swing", stage, final_test=i_understand_final_test, selection_run=selection_run,
+                allow_dirty=allow_dirty, verbose=verbose)
 
 
 @app.command()
