@@ -465,16 +465,25 @@ def test_models_route_also_reads_the_research_registry_read_only(settings, tmp_p
 def test_opportunities_route_reads_every_horizon_of_a_pair_once(market, monkeypatch):
     settings, now = market
     from crypto_signal_intelligence.features import loader
+    from crypto_signal_intelligence.outlook import pair as outlook_pair
+    from crypto_signal_intelligence.signals import analyze as signals_analyze
     calls = []
     real = loader.load_inputs
-    monkeypatch.setattr(loader, "load_inputs", lambda *a, **k: calls.append(a[1]) or real(*a, **k))
+
+    def counted(*a, **k):
+        calls.append(a[1])
+        return real(*a, **k)
+
+    for module in (loader, outlook_pair, signals_analyze):          # chaque module garde sa propre référence
+        monkeypatch.setattr(module, "load_inputs", counted)
     api = CsiApi(settings, now=lambda: now)
     out = api.dispatch("POST", "/opportunities/pair", {}, {"symbol": "ethusdt"})
     assert out["symbol"] == "ETHUSDT" and calls == ["ETHUSDT"]                 # historique relu une seule fois
     assert [h["horizon"] for h in out["horizons"]] == ["1h", "4h", "12h", "24h", "3j", "7j"]
     assert all(h.get("state") or h.get("error") for h in out["horizons"])
     states = {h.get("state") for h in out["horizons"]}
-    assert not states & {"FAVORABLE", "ACHAT"}                                  # états descriptifs seulement
+    assert states <= {"HISTORIQUE_POSITIF_NON_VALIDE", "AUCUN_AVANTAGE_HISTORIQUE", "HISTORIQUE_DEFAVORABLE",
+                      "INSUFFISANT", "DONNEES_ANCIENNES"}                       # états descriptifs seulement
     assert {s["strategy"] for s in out["strategies"]} and all("walk_forward_verdict" in s for s in out["strategies"])
     with pytest.raises(ApiError):
         api.dispatch("POST", "/opportunities/pair", {}, {"symbol": "DOGEUSDT"})  # hors univers

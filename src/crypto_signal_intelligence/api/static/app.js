@@ -487,7 +487,8 @@ function renderOpportunities(found, done, total) {
   const headers = ["Paire", "Horizon", "Objectif / stop atteint d'abord", "Espérance par trade", "Entrée · stop · objectif", "Cas comparables", ""];
   const positive = found.plans.filter((o) => o.state === "HISTORIQUE_POSITIF_NON_VALIDE")
     .sort((a, b) => (b.expectancy_r_ci ? b.expectancy_r_ci[0] : -9) - (a.expectancy_r_ci ? a.expectancy_r_ci[0] : -9));
-  const often = found.plans.filter((o) => isNum(o.tp_first) && o.tp_first >= TP_OFTEN && o.state !== "DONNEES_ANCIENNES")
+  const often = found.plans.filter((o) => isNum(o.tp_first) && o.tp_first >= TP_OFTEN
+      && !["DONNEES_ANCIENNES", "INSUFFISANT"].includes(o.state))
     .sort((a, b) => b.tp_first - a.tp_first);
   const buys = found.buys.map((b) => [{ node: el("strong", { text: pair(b.symbol) }) }, b.strategy,
     b.levels ? `${price(b.levels.entry)} · ${price(b.levels.stop)} · ${price(b.levels.targets[0])}` : "–",
@@ -519,6 +520,7 @@ async function runOpportunities() {
       if (run !== state.opportunitiesRun) return;
       try {
         const r = await api("/opportunities/pair", { symbol: p.symbol });
+        if (run !== state.opportunitiesRun) return;                // relancé entre-temps : on s'efface
         for (const h of r.horizons || []) {
           if (!h.error) found.plans.push({ ...h, symbol: r.symbol });
         }
@@ -528,10 +530,11 @@ async function runOpportunities() {
       } catch (_error) {
         found.errors.push(pair(p.symbol));
       }
+      if (run !== state.opportunitiesRun) return;
       renderOpportunities(found, index + 1, total);
     }
   } finally {
-    button.disabled = false;
+    if (run === state.opportunitiesRun) button.disabled = false;
   }
 }
 
@@ -681,6 +684,22 @@ async function decideAdmission(symbol, decision, button) {
   }
 }
 
+async function decideAllAdmissions(button) {
+  button.disabled = true;
+  button.textContent = "Ajout de toutes les cryptos à décider…";
+  try {
+    const out = await api("/admissions/decide-all", {});
+    const c = out.counts || {};
+    button.textContent = `Fait : ${c.AJOUTEE || 0} ajoutée(s), ${c.INDISPONIBLE || 0} indisponible(s)`;
+    await refreshAdmissions();
+    state.followLoaded = false;
+    setTimeout(() => loadFollow(true), 1500);
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = `Erreur : ${error.message}`;
+  }
+}
+
 async function runAdmissions(button) {
   button.disabled = true;
   button.textContent = "Vérification sur Binance et application du screening…";
@@ -703,6 +722,8 @@ function admissionsCard(data) {
   if (!data) return card("Univers : avis halal", el("p", { class: "muted small", text: "indisponible" }));
   const run = el("button", { type: "button", class: "primary", text: "Appliquer le screening (ajouter les favorables)" });
   run.addEventListener("click", () => runAdmissions(run));
+  const addAll = el("button", { type: "button", class: "ghost", text: "Tout ajouter (ma décision)" });
+  addAll.addEventListener("click", () => decideAllAdmissions(addAll));
   const pending = (data.pending || []).map((p) => {
     const add = el("button", { type: "button", class: "primary", text: "Ajouter" });
     const refuse = el("button", { type: "button", class: "ghost", text: "Refuser" });
@@ -716,7 +737,7 @@ function admissionsCard(data) {
   });
   return card("Univers : avis halal et décisions d'ajout",
     el("p", { class: "muted small", text: data.rule }),
-    el("div", { class: "row" }, run),
+    el("div", { class: "row" }, run, (data.pending || []).length ? addAll : null),
     el("h3", { text: `Cryptos à décider (${pending.length})` }),
     table(["Paire", "Avis", "Motif", "Ta décision"], pending, "rien à décider"),
     el("h3", { text: "Décisions" }),

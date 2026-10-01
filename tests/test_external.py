@@ -241,7 +241,8 @@ def test_evaluate_end_to_end_then_resolve_and_score_the_source(settings):
     assert ev.geometry["entry_effective"] == pytest.approx(close) and ev.base_rate.method == br.METHOD
     stale = evaluate(settings, good, source="groupe test", now=now + timedelta(hours=3))
     assert stale.verdict == "REFUSE" and stale.failed[0].label == "données fraîches"
-    foreign = evaluate(settings, text(entry, entry - atr, entry + 2 * atr, pair="PEPE/USDT"), source="autre", now=now)
+    # POL : favorable mais hors univers, sans ajout automatique (réglage par défaut) : refusée
+    foreign = evaluate(settings, text(entry, entry - atr, entry + 2 * atr, pair="POL/USDT"), source="autre", now=now)
     assert foreign.verdict == "REFUSE" and foreign.failed[0].label == "paire dans l'univers"
 
     registry = ExternalSignalRegistry(settings.external_db)

@@ -131,12 +131,22 @@ inexploitable aussi, avec un bouton pour choisir ».
   - douteuse ou inexploitable : rien n'est ajouté, et l'avis reste **EN_ATTENTE**. BinanceSpotManager
     n'exécute pas un avis EN_ATTENTE : le signal n'est donc **pas transmis**. La crypto apparaît « à
     décider ».
-- **Soumission à la main par le propriétaire.** Elle vaut toujours sa décision : la paire est ajoutée.
-  Seule exception : une crypto défavorable reste refusée. Pour lever ce refus, il faut modifier le
+- **Soumission à la main par le propriétaire.** Elle vaut toujours sa décision : la paire est ajoutée,
+  même s'il l'avait refusée auparavant par bouton (nouvelle décision, tracée). Seule exception : une
+  crypto défavorable reste refusée, par bouton comme à la main. Pour lever ce refus, il faut modifier le
   fichier des avis.
+- **Paires ajoutées avant la règle** (ancien mode test, qui acceptait tout) : la règle s'applique
+  rétroactivement. Une paire soumise à la main (motif « signal soumis à la main ») compte comme décision
+  du propriétaire. Une autre, douteuse ou inexploitable, repasse « à décider » et ses signaux restent
+  EN_ATTENTE jusqu'à la décision ; une défavorable est refusée.
+- **Crypto douteuse ou inexploitable sans paire négociable** sur Binance Spot (XMR, QNT) : « indisponible »,
+  rien à décider. Une panne de Binance pendant la vérification n'enregistre rien (« injoignable »,
+  à relancer).
 - **Notification et décision.**
   - Un badge « N cryptos à décider » s'affiche en haut du tableau de bord.
-  - Dans l'onglet Suivi, la liste « Cryptos à décider » propose deux boutons, Ajouter et Refuser.
+  - Dans l'onglet Suivi, la liste « Cryptos à décider » propose deux boutons, Ajouter et Refuser, et un
+    bouton « Tout ajouter (ma décision) » (`POST /admissions/decide-all`). Les paires USDC se décident
+    aussi.
   - La décision est tracée « par propriétaire », et la règle ne l'écrase jamais.
   - Telegram : CSI n'a pas de bot. Il lui faudrait un jeton, donc un secret, alors que CSI n'en utilise
     aucun. La notification passe par le tableau de bord. Un relais par le bot de BinanceSpotManager reste

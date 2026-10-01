@@ -19,6 +19,7 @@ demande de clé Binance. Pages : `/` (application : analyser une paire, évaluer
     POST /opportunities/pair   {"symbol": "ETHUSDT"} → les 6 horizons d'une paire (plans, fréquences, états) et l'avis
                                simulé des stratégies ; statistiques en échantillon, jamais une proposition d'entrer
     POST /admissions/decide    {"symbol": "DOGEUSDT", "decision": "add" | "refuse"} → décision du propriétaire
+    POST /admissions/decide-all  {} → « Tout ajouter » : chaque crypto à décider ajoutée par le propriétaire
     POST /analyze-pair         {"symbol": "ETHUSDT", "horizon": "24h"} → contexte, historique comparable,
                                plan indicatif évalué sur le passé, avis des stratégies (simulation)
     POST /refresh-pair         {"symbol": "ETHUSDT"} → télécharge les bougies publiques manquantes de la paire
@@ -31,9 +32,10 @@ Sécurité :
 - écoute sur 127.0.0.1 par défaut ; dans Docker, le port n'est publié que sur 127.0.0.1 de l'hôte ;
 - jeton facultatif `CSI_API_TOKEN` (variable d'environnement, jamais dans le code) : s'il est défini,
   chaque requête doit porter `Authorization: Bearer <jeton>` ;
-- corps limité à 16 Ko, JSON uniquement, aucune en-tête CORS : seule la page servie par CSI elle-même
-  (même origine) appelle l'API depuis un navigateur ; un autre site ne peut ni lire les réponses ni
-  envoyer du JSON (pré-requête refusée) ;
+- corps limité à 16 Ko, JSON uniquement (type exact `application/json`, paramètres comme charset
+  acceptés), aucune en-tête CORS, et toute requête portant une en-tête `Origin` étrangère à l'hôte est
+  refusée (403) : seule la page servie par CSI elle-même appelle l'API depuis un navigateur, un autre
+  site ne peut ni lire les réponses ni déclencher une action ;
 - en-tête Host contrôlé (127.0.0.1, localhost, csi-api, ou `CSI_API_ALLOWED_HOSTS`) : protège contre le
   « DNS rebinding » ;
 - la page applique une politique de sécurité de contenu stricte (aucun script externe ni en ligne) et
@@ -164,6 +166,7 @@ class CsiApi:
         self._derivatives_cache: dict[str, tuple[datetime, dict]] = {}
         self.futures_client: PublicHttpClient | None = None       # remplaçable dans les tests (aucun réseau)
         self.listing: Callable[..., object] | None = None          # paire négociable sur Binance (tests : sans réseau)
+        self._admissions_lock = threading.Lock()                     # un seul « Appliquer le screening » à la fois
 
     # --- lecture ---------------------------------------------------------------------------
     def health(self) -> dict:
@@ -391,17 +394,39 @@ class CsiApi:
         from collections import Counter
 
         from ..external.admission import admit_all
-        results = admit_all(self.settings, now=self.now(), lookup=self._listing())
+        if not self._admissions_lock.acquire(blocking=False):
+            raise ApiError(HTTPStatus.CONFLICT, "application du screening déjà en cours")
+        try:
+            results = admit_all(self.settings, now=self.now(), lookup=self._listing())
+        finally:
+            self._admissions_lock.release()
         return {"counts": dict(Counter(r["decision"] for r in results)), "results": results}
 
     def admissions_decide(self, payload: dict) -> dict:
-        from ..external.admission import decide
+        from ..data.http import HttpError
+        from ..external.admission import QUOTES, DefavorableRefused, decide
         symbol, decision = str(payload.get("symbol", "")).strip().upper(), payload.get("decision")
-        if not symbol.isalnum() or not symbol.endswith("USDT") or len(symbol) > 20:
-            raise ApiError(HTTPStatus.BAD_REQUEST, "champ « symbol » : une paire USDT (ex. DOGEUSDT)")
+        if not symbol.isalnum() or not symbol.endswith(QUOTES) or len(symbol) > 20:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "champ « symbol » : une paire USDT ou USDC (ex. DOGEUSDT)")
         if decision not in ("add", "refuse"):
             raise ApiError(HTTPStatus.BAD_REQUEST, "champ « decision » : add ou refuse")
-        return decide(self.settings, symbol, add=decision == "add", now=self.now(), lookup=self._listing())
+        try:
+            return decide(self.settings, symbol, add=decision == "add", now=self.now(), lookup=self._listing())
+        except DefavorableRefused as exc:
+            raise ApiError(HTTPStatus.CONFLICT, str(exc)) from None
+        except HttpError as exc:
+            raise ApiError(HTTPStatus.BAD_GATEWAY, f"Binance injoignable ({exc}) : réessayer") from None
+
+    def admissions_decide_all(self) -> dict:
+        from collections import Counter
+
+        from ..data.http import HttpError
+        from ..external.admission import decide_all_pending
+        try:
+            results = decide_all_pending(self.settings, now=self.now(), lookup=self._listing())
+        except HttpError as exc:
+            raise ApiError(HTTPStatus.BAD_GATEWAY, f"Binance injoignable ({exc}) : réessayer") from None
+        return {"counts": dict(Counter(r["decision"] for r in results)), "results": results}
 
     def derivatives(self, symbol: str) -> dict:
         """Positionnement du marché à terme pour une paire de l'univers (données publiques, cache court).
@@ -578,6 +603,8 @@ class CsiApi:
             return self.admissions_run()
         elif method == "POST" and path == "/admissions/decide":
             return self.admissions_decide(body or {})
+        elif method == "POST" and path == "/admissions/decide-all":
+            return self.admissions_decide_all()
         raise ApiError(HTTPStatus.NOT_FOUND, f"route inconnue : {method} {path}")
 
 
@@ -665,11 +692,15 @@ def make_handler(api: CsiApi, token: str | None, hosts: set[str] | None = None) 
                 if method == "GET" and url.path in STATIC_FILES:   # la page elle-même ne contient aucune donnée
                     self._send_static(url.path)
                     return
+                origin = self.headers.get("Origin")
+                if origin is not None and urlparse(origin).netloc.lower() != (self.headers.get("Host") or "").lower():
+                    raise ApiError(HTTPStatus.FORBIDDEN, "origine étrangère refusée")
                 if not self._authorized():
                     raise ApiError(HTTPStatus.UNAUTHORIZED, "jeton absent ou invalide")
                 body = None
                 if method == "POST":
-                    if "application/json" not in (self.headers.get("Content-Type") or ""):
+                    essence = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+                    if essence != "application/json":
                         raise ApiError(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, "Content-Type application/json requis")
                     if length <= 0 or length > MAX_BODY_BYTES:
                         raise ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE if length > 0 else HTTPStatus.BAD_REQUEST,

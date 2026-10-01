@@ -28,6 +28,15 @@ from .universe import UserUniverse
 
 FAVORABLE, DEFAVORABLE, DOUTEUX, INEXPLOITABLE = "FAVORABLE", "DEFAVORABLE", "DOUTEUX", "INEXPLOITABLE"
 AJOUTEE, REFUSEE, A_DECIDER, INDISPONIBLE = "AJOUTEE", "REFUSEE", "A_DECIDER", "INDISPONIBLE"
+INJOIGNABLE = "INJOIGNABLE"            # Binance injoignable pendant la vérification : rien n'est enregistré
+STATUS_LABELS = {FAVORABLE: "favorable", DEFAVORABLE: "défavorable", DOUTEUX: "douteux",
+                 INEXPLOITABLE: "inexploitable"}
+# Motif d'ajout d'une paire soumise à la main par le propriétaire (external/evaluate.py) : sa décision.
+MANUAL_REASON = "signal soumis à la main"
+
+
+class DefavorableRefused(ValueError):
+    """Ajout demandé pour une crypto défavorable : seul le fichier des avis peut lever ce refus."""
 RULE, OWNER = "règle", "propriétaire"
 QUOTES = ("USDT", "USDC")
 SUMMARIES = {"favorable": FAVORABLE, "defavorable": DEFAVORABLE, "défavorable": DEFAVORABLE, "douteux": DOUTEUX,
@@ -44,7 +53,7 @@ class Screening:
 
     def explain(self) -> str:
         detail = ", ".join(f"{code} {verdict}" for code, verdict in self.sources.items()) or "avis non détaillé"
-        return f"{self.status.lower()} ({detail}{' ; ' + self.note if self.note else ''})"
+        return f"{STATUS_LABELS.get(self.status, self.status.lower())} ({detail}{' ; ' + self.note if self.note else ''})"
 
 
 def classify(entry: dict) -> str:
@@ -156,36 +165,84 @@ class AdmissionLog:
         return entry
 
 
+def _added_by_owner(entry: dict | None) -> bool:
+    """Paire de l'univers ajouté soumise à la main par le propriétaire (sa décision, motif enregistré)."""
+    return entry is not None and str(entry.get("reason", "")).startswith(MANUAL_REASON)
+
+
 def admit(settings: Settings, symbol: str, *, now: datetime, lookup: Lookup = binance_listing) -> dict:
-    """Applique la règle à une paire (hors configuration). Une décision du propriétaire est conservée."""
+    """Applique la règle à une paire hors configuration ; une décision du propriétaire est conservée.
+
+    S'applique aussi, rétroactivement, aux paires ajoutées AVANT la règle par l'ancien mode test : une paire
+    soumise à la main compte comme décision du propriétaire ; une autre, non favorable, repasse « à décider »
+    (ses signaux restent EN_ATTENTE, external/evaluate.py), ou refusée si elle est défavorable. Une crypto qui
+    ne se négocie pas sur Binance Spot est « indisponible » : aucune décision à prendre."""
     symbol = symbol.upper()
     log = AdmissionLog(settings.external_db)
     previous = log.get(symbol)
     if previous and previous["decided_by"] == OWNER:
         return previous
     screening = screening_for(settings, symbol)
+    present = UserUniverse(settings.external_db).get(symbol)
+    if _added_by_owner(present) and screening.status != DEFAVORABLE:
+        return log.record(symbol, screening, AJOUTEE, by=OWNER, now=now,
+                          reason=f"soumise à la main par le propriétaire (avis {screening.explain()})")
     if screening.status == DEFAVORABLE:
         return log.record(symbol, screening, REFUSEE, by=RULE, now=now,
                           reason=f"défavorable au screening halal : {screening.explain()}")
+    tick: Decimal | None = None
+    if present is None:
+        try:
+            tick = lookup(settings, symbol)
+        except HttpError as exc:
+            return {"symbol": symbol, "base": screening.base, "screening": screening.status, "decision": INJOIGNABLE,
+                    "decided_by": RULE, "reason": f"Binance injoignable ({exc}) : rien n'est enregistré, à relancer",
+                    "decided_at": now.isoformat()}
+        if tick is None:
+            return log.record(symbol, screening, INDISPONIBLE, by=RULE, now=now,
+                              reason=f"{screening.explain()} ; pas de paire négociable sur Binance Spot")
     if screening.status != FAVORABLE:
+        before = " ; ajoutée avant la règle, ses signaux restent en attente" if present else ""
         return log.record(symbol, screening, A_DECIDER, by=RULE, now=now,
-                          reason=f"{screening.explain()} : à décider par le propriétaire")
-    tick = lookup(settings, symbol)
-    if tick is None:
-        return log.record(symbol, screening, INDISPONIBLE, by=RULE, now=now,
-                          reason="favorable au screening, mais pas de paire USDT négociable sur Binance Spot")
-    UserUniverse(settings.external_db).request(symbol, tick, now=now,
-                                               reason=f"screening halal favorable ({screening.explain()})")
+                          reason=f"{screening.explain()} : à décider par le propriétaire{before}")
+    if present is None and tick is not None:
+        UserUniverse(settings.external_db).request(symbol, tick, now=now,
+                                                   reason=f"screening halal favorable ({screening.explain()})")
     return log.record(symbol, screening, AJOUTEE, by=RULE, now=now,
                       reason=f"favorable au screening halal : {screening.explain()} ; ajout direct")
 
 
 def admit_all(settings: Settings, *, now: datetime, lookup: Lookup = binance_listing) -> list[dict]:
-    """Toutes les cryptos du screening, en paire USDT, hors univers de la configuration."""
+    """Toutes les cryptos du screening en paire USDT, plus les paires déjà ajoutées, hors configuration."""
     screenings, _ = load_screening(settings)
     configured = set(settings.data.symbols)
-    return [admit(settings, f"{base}USDT", now=now, lookup=lookup) for base in sorted(screenings)
-            if f"{base}USDT" not in configured]
+    symbols = {f"{base}USDT" for base in screenings} | {e["symbol"] for e in UserUniverse(settings.external_db).all()}
+    return [admit(settings, symbol, now=now, lookup=lookup) for symbol in sorted(symbols - configured)]
+
+
+def hold(settings: Settings, symbol: str, *, now: datetime, source: str) -> tuple[str, str] | None:
+    """Pour une paire DÉJÀ dans l'univers ajouté : ('refus' | 'attente', motif) si ses signaux ne doivent pas
+    être transmis, None sinon. Rattrape les paires ajoutées avant la règle par l'ancien mode test."""
+    if symbol in settings.data.symbols:
+        return None
+    log = AdmissionLog(settings.external_db)
+    decided = log.get(symbol)
+    if decided and decided["decided_by"] == OWNER:
+        return ("refus", f"{symbol} refusée par toi le {decided['decided_at'][:16]}") \
+            if decided["decision"] == REFUSEE else None
+    screening = screening_for(settings, symbol)
+    if screening.status == DEFAVORABLE:
+        if not decided:
+            log.record(symbol, screening, REFUSEE, by=RULE, now=now,
+                       reason=f"défavorable au screening halal : {screening.explain()}")
+        return "refus", f"{symbol} défavorable au screening halal ({screening.explain()}) : refusée"
+    if screening.status == FAVORABLE or _added_by_owner(UserUniverse(settings.external_db).get(symbol)):
+        return None
+    if not decided or decided["decision"] != A_DECIDER:
+        log.record(symbol, screening, A_DECIDER, by=RULE, now=now,
+                   reason=f"{screening.explain()} : ajoutée avant la règle ; signal reçu de « {source} »")
+    return "attente", (f"{symbol} : avis halal {screening.explain()} ; ajoutée avant la règle, en attente de ta "
+                       "décision (tableau de bord, onglet Suivi, « Cryptos à décider ») : signal non transmis")
 
 
 def decide(settings: Settings, symbol: str, *, add: bool, now: datetime, lookup: Lookup = binance_listing) -> dict:
@@ -197,11 +254,22 @@ def decide(settings: Settings, symbol: str, *, add: bool, now: datetime, lookup:
         UserUniverse(settings.external_db).forget(symbol)
         return log.record(symbol, screening, REFUSEE, by=OWNER, now=now,
                           reason=f"refusée par le propriétaire (avis {screening.explain()})")
-    tick = lookup(settings, symbol)
-    if tick is None:
-        return log.record(symbol, screening, INDISPONIBLE, by=OWNER, now=now,
-                          reason="acceptée par le propriétaire, mais pas de paire négociable sur Binance Spot")
-    UserUniverse(settings.external_db).request(symbol, tick, now=now,
-                                               reason=f"décision du propriétaire (avis {screening.explain()})")
+    if screening.status == DEFAVORABLE:
+        raise DefavorableRefused(f"{symbol} défavorable au screening halal ({screening.explain()}) : le refus ne se "
+                                 "lève qu'en modifiant config/halal_screening.toml")
+    present = UserUniverse(settings.external_db).get(symbol)
+    if present is None:
+        tick = lookup(settings, symbol)
+        if tick is None:
+            return log.record(symbol, screening, INDISPONIBLE, by=OWNER, now=now,
+                              reason="acceptée par le propriétaire, mais pas de paire négociable sur Binance Spot")
+        UserUniverse(settings.external_db).request(symbol, tick, now=now,
+                                                   reason=f"décision du propriétaire (avis {screening.explain()})")
     return log.record(symbol, screening, AJOUTEE, by=OWNER, now=now,
                       reason=f"acceptée par le propriétaire (avis {screening.explain()})")
+
+
+def decide_all_pending(settings: Settings, *, now: datetime, lookup: Lookup = binance_listing) -> list[dict]:
+    """« Tout ajouter » : chaque crypto à décider est ajoutée, comme décision du propriétaire."""
+    return [decide(settings, entry["symbol"], add=True, now=now, lookup=lookup)
+            for entry in AdmissionLog(settings.external_db).pending()]

@@ -14,7 +14,10 @@ import pytest
 from crypto_signal_intelligence.api.server import ApiError, CsiApi, explain, make_handler
 
 NOW = datetime(2026, 9, 30, 12, tzinfo=UTC)
-FOREIGN = "PAIR: PEPE/USDT\nENTRY 1: 0.0000100\nT1: 0.0000110\nT2: 0.0000120\nSL: 0.0000090\nPLATFORM: Binance"
+# UNI : hors univers ET défavorable au screening halal → refusé, même soumis à la main.
+FOREIGN = "PAIR: UNI/USDT\nENTRY 1: 10.000\nT1: 11.000\nT2: 12.000\nSL: 9.000\nPLATFORM: Binance"
+# POL : hors univers, favorable au screening → une soumission à la main l'ajoute.
+ACCEPTABLE = "PAIR: POL/USDT\nENTRY 1: 0.500\nT1: 0.550\nT2: 0.600\nSL: 0.450\nPLATFORM: Binance"
 
 
 @pytest.fixture
@@ -45,7 +48,7 @@ def test_evaluate_validates_input_and_refuses_pairs_outside_the_universe(api):
         assert error.value.status == HTTPStatus.BAD_REQUEST
     result = api.dispatch("POST", "/evaluate", {}, {"text": FOREIGN, "source": "Groupe A", "record": False})
     assert result["verdict"] == "REFUSE" and result["record_id"] is None
-    assert "Refusé" in result["summary_fr"] and "hors univers" in result["summary_fr"]
+    assert "Refusé" in result["summary_fr"] and "défavorable" in result["summary_fr"]
     recorded = api.dispatch("POST", "/evaluate", {}, {"text": FOREIGN, "source": "Groupe A"})
     assert recorded["record_id"]
     assert api.dispatch("GET", "/signals/recent", {}, None)["signals"][0]["source"] == "Groupe A"
@@ -57,14 +60,17 @@ def test_owner_submitted_signal_adds_its_pair_and_universe_lists_it(api, monkeyp
     from crypto_signal_intelligence.external import evaluate as evaluate_module
     monkeypatch.setattr(evaluate_module, "_binance_tick_size", lambda settings, symbol: Decimal("0.0000001"))
     with pytest.raises(ApiError):
-        api.dispatch("POST", "/evaluate", {}, {"text": FOREIGN, "source": "g", "user_validated": "oui"})
-    pending = api.dispatch("POST", "/evaluate", {}, {"text": FOREIGN, "source": "Groupe A", "user_validated": True})
+        api.dispatch("POST", "/evaluate", {}, {"text": ACCEPTABLE, "source": "g", "user_validated": "oui"})
+    refused = api.dispatch("POST", "/evaluate", {}, {"text": FOREIGN, "source": "Groupe A", "user_validated": True,
+                                                      "record": False})
+    assert refused["verdict"] == "REFUSE"                      # défavorable : même soumis à la main
+    pending = api.dispatch("POST", "/evaluate", {}, {"text": ACCEPTABLE, "source": "Groupe A", "user_validated": True})
     assert pending["verdict"] == "EN_ATTENTE" and pending["record_id"] is None
     assert "En attente" in pending["summary_fr"] and "redemander" in pending["summary_fr"]
     listing = api.dispatch("GET", "/universe", {}, None)
     assert listing["configured"] == list(api.settings.data.symbols)
-    assert [(p["symbol"], p["status"]) for p in listing["user_pairs"]] == [("PEPEUSDT", "REQUESTED")]
-    again = api.dispatch("POST", "/evaluate", {}, {"text": FOREIGN, "source": "Groupe A"})
+    assert [(p["symbol"], p["status"]) for p in listing["user_pairs"]] == [("POLUSDT", "REQUESTED")]
+    again = api.dispatch("POST", "/evaluate", {}, {"text": ACCEPTABLE, "source": "Groupe A"})
     assert again["verdict"] == "EN_ATTENTE"                    # automatique : en attente aussi, jamais ajouté deux fois
     assert api.dispatch("GET", "/signals/recent", {}, None)["signals"] == []
 
@@ -106,8 +112,11 @@ def server(settings):
     httpd.server_close()
 
 
-def call(url, *, method="GET", body: bytes | None = None, token="jeton-de-test", content_type="application/json"):
+def call(url, *, method="GET", body: bytes | None = None, token="jeton-de-test", content_type="application/json",
+         origin: str | None = None):
     request = urllib.request.Request(url, data=body, method=method)
+    if origin:
+        request.add_header("Origin", origin)
     if token:
         request.add_header("Authorization", f"Bearer {token}")
     if body is not None:
@@ -128,6 +137,11 @@ def test_http_guards(server):
     assert status == 200 and payload["verdict"] == "REFUSE"
     assert call(f"{server}/evaluate", method="POST", body=b"x" * 20_000)[0] == 413
     assert call(f"{server}/evaluate", method="POST", body=b"{}", content_type="text/plain")[0] == 415
+    # CSRF : un type « simple » contenant la sous-chaîne ne passe pas ; le charset, si.
+    assert call(f"{server}/evaluate", method="POST", body=b"{}", content_type="text/plain;application/json")[0] == 415
+    assert call(f"{server}/evaluate", method="POST", body=b"[1]", content_type="application/json; charset=utf-8")[0] == 400
+    assert call(f"{server}/health", origin="https://pirate.invalid")[0] == 403
+    assert call(f"{server}/health", origin=server)[0] == 200
     assert call(f"{server}/evaluate", method="POST", body=b"[1, 2]")[0] == 400
     assert call(f"{server}/evaluate", method="POST", body=b"pas du json")[0] == 400
     assert call(f"{server}/health", method="DELETE")[0] == 405

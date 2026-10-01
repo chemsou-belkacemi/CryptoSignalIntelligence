@@ -47,6 +47,8 @@ def market(failing: frozenset[str] = frozenset()):
         if path in ("/futures/data/globalLongShortAccountRatio", "/futures/data/topLongShortPositionRatio"):
             stamps = [HOUR_START - HOUR_MS * i for i in range(499, -1, -1)]
             ratios = list(np.linspace(1.0, 2.0, 499)) + [1.5]
+            if path.endswith("topLongShortPositionRatio"):                      # gros comptes : série distincte
+                ratios = list(np.linspace(2.0, 3.9, 499)) + [4.0]           # dernière valeur : la plus haute
             return httpx.Response(200, json=[{"symbol": "ETHUSDT", "longShortRatio": str(r),
                                               "longAccount": str(r / (1 + r)), "shortAccount": str(1 / (1 + r)),
                                               "timestamp": s} for s, r in zip(stamps, ratios, strict=True)])
@@ -85,6 +87,10 @@ def test_snapshot_describes_each_section_from_public_market_data_only():
     assert oi["value_usd"] == pytest.approx(1e9 * 1.002 ** 499, rel=1e-6)
     assert out["accounts"]["ratio"] == pytest.approx(1.5) and out["accounts"]["rank"] == pytest.approx(0.5, abs=0.01)
     assert out["accounts"]["long_share"] == pytest.approx(0.6)
+    top = out["top_positions"]
+    assert top["ratio"] == pytest.approx(4.0) and top["long_share"] == pytest.approx(0.8) and top["rank"] == 1.0
+    assert set(out["definitions"]) == {"financement", "prime", "interet_ouvert", "comptes", "gros_comptes",
+                                       "agressifs", "rang"}
     assert out["taker"]["ratio_24h"] == pytest.approx(1.0)       # l'heure en cours (achats énormes) est exclue
     assert "pas un signal" in out["note"] and set(out["definitions"]) >= {"financement", "prime", "rang"}
 

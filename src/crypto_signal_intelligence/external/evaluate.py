@@ -36,6 +36,7 @@ from .admission import (
     REFUSEE,
     RULE,
     AdmissionLog,
+    hold,
     screening_for,
 )
 from .base_rate import BaseRate, base_rate
@@ -132,10 +133,11 @@ def _binance_unreachable(label: str, symbol: str, exc: Exception) -> Check:
 
 def _universe_check(settings: Settings, symbol: str, *, source: str, now: datetime, user_validated: bool,
                     tick_size_lookup) -> Check:
-    """Paire hors configuration, selon l'avis de screening halal (règle du propriétaire, external/admission.py) :
-    favorable → ajout ; défavorable → refus ; douteuse ou inexploitable → ajout seulement sur décision du
-    propriétaire (sa soumission manuelle, ou le bouton du tableau de bord) ; reçue automatiquement, elle reste
-    EN_ATTENTE de sa décision et le signal n'est pas transmis."""
+    """Paire hors univers, selon l'avis de screening halal (règle du propriétaire, external/admission.py) :
+    défavorable → refus, même soumise à la main ; reçue automatiquement et douteuse ou inexploitable → « à
+    décider », avis EN_ATTENTE (signal non transmis) ; favorable reçue automatiquement → ajout si le mode
+    d'ajout automatique est actif ; soumise à la main → décision du propriétaire, qui l'emporte aussi sur un
+    refus qu'il avait fait par bouton."""
     label = "paire dans l'univers"
     universe = UserUniverse(settings.external_db)
     entry = universe.get(symbol)
@@ -148,23 +150,26 @@ def _universe_check(settings: Settings, symbol: str, *, source: str, now: dateti
     decided = log.get(symbol)
     owner = decided if decided and decided["decided_by"] == OWNER else None
     if owner and owner["decision"] == REFUSEE:
-        return Check(label, False, f"{symbol} refusée par toi le {owner['decided_at'][:16]} : hors univers", REFUSAL)
+        if not user_validated:
+            return Check(label, False, f"{symbol} refusée par toi le {owner['decided_at'][:16]} : hors univers",
+                         REFUSAL)
+        owner = None                         # nouvelle décision du propriétaire : sa soumission manuelle
     if screening.status == DEFAVORABLE and not (owner and owner["decision"] == AJOUTEE):
         if not decided:
             log.record(symbol, screening, REFUSEE, by=RULE, now=now,
                        reason=f"défavorable au screening halal : {screening.explain()}")
         return Check(label, False, f"{symbol} défavorable au screening halal ({screening.explain()}) : refusée",
                      REFUSAL)
-    if not (user_validated or settings.external.auto_add_pairs):
-        failure = f" ; téléchargement en échec ({entry['last_error']})" if entry and entry["status"] == FAILED else ""
-        return Check(label, False, f"{symbol} hors univers (avis halal : {screening.explain()}), aucune donnée locale"
-                     f"{failure}. La soumettre à la main (page Avis CSI) vaut validation et l'ajoute", REFUSAL)
     if not user_validated and screening.status != FAVORABLE and not (owner and owner["decision"] == AJOUTEE):
         if not owner:
             log.record(symbol, screening, A_DECIDER, by=RULE, now=now,
                        reason=f"{screening.explain()} ; signal reçu de « {source} »")
         return Check(label, False, f"{symbol} : avis halal {screening.explain()} ; en attente de ta décision "
                      "(tableau de bord, onglet Suivi, « Cryptos à décider ») : signal non transmis", PENDING)
+    if not (user_validated or settings.external.auto_add_pairs or (owner and owner["decision"] == AJOUTEE)):
+        failure = f" ; téléchargement en échec ({entry['last_error']})" if entry and entry["status"] == FAILED else ""
+        return Check(label, False, f"{symbol} hors univers (avis halal : {screening.explain()}), aucune donnée locale"
+                     f"{failure}. La soumettre à la main (page Avis CSI) vaut validation et l'ajoute", REFUSAL)
     # Soumission manuelle = validation du propriétaire (ou mode test auto_add_pairs) : ajout (ou relance)
     # après contrôle sur Binance Spot.
     try:
@@ -185,9 +190,11 @@ def _universe_check(settings: Settings, symbol: str, *, source: str, now: dateti
     universe.request(symbol, tick, reason=reason, now=now)
     if not owner:
         log.record(symbol, screening, AJOUTEE, by=OWNER if user_validated else RULE, reason=reason, now=now)
-    return Check(label, False, f"{symbol} ajoutée à l'univers sur ta validation (pas de prix {tick}) ; historique "
-                 "15m et 1h en cours de téléchargement par la surveillance (quelques minutes) : redemander l'avis "
-                 "ensuite", PENDING)
+    how = ("sur ta validation" if user_validated or owner
+           else "automatiquement, car favorable au screening halal")
+    return Check(label, False, f"{symbol} ajoutée à l'univers {how} (pas de prix {tick}) ; historique 15m et 1h "
+                 "en cours de téléchargement par la surveillance (quelques minutes) : redemander l'avis ensuite",
+                 PENDING)
 
 
 def evaluate(settings: Settings, text: str, *, source: str, now: datetime, record: bool = True,
@@ -225,6 +232,16 @@ def evaluate(settings: Settings, text: str, *, source: str, now: datetime, recor
         evaluation.checks.append(_universe_check(settings, signal.symbol, source=source, now=now,
                                                  user_validated=user_validated, tick_size_lookup=tick_size_lookup))
         return finish()
+    held = hold(settings, signal.symbol, now=now, source=source)
+    if held is not None and not (user_validated and held[0] == "attente"):
+        kind, detail = held
+        evaluation.checks.append(Check("paire dans l'univers", False, detail, REFUSAL if kind == "refus" else PENDING))
+        return finish()
+    if held is not None:                     # soumise à la main : la décision du propriétaire, tracée
+        log = AdmissionLog(settings.external_db)
+        screening = screening_for(settings, signal.symbol)
+        log.record(signal.symbol, screening, AJOUTEE, by=OWNER, now=now,
+                   reason=f"soumise à la main par le propriétaire (avis {screening.explain()})")
     evaluation.checks.append(Check("paire dans l'univers", True, signal.symbol, REFUSAL))
     previous = registry.previous(signal.content_hash)
     if previous:

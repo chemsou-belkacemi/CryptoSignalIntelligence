@@ -150,6 +150,7 @@ def test_auto_add_mode_follows_the_halal_screening_of_automatic_signals(settings
     assert automatic.verdict == "EN_ATTENTE"
     entry = UserUniverse(settings.external_db).get("QTUMUSDT")                 # QTUM : favorable au screening
     assert entry["status"] == REQUESTED and "favorable au screening halal" in entry["reason"]
+    assert "automatiquement" in automatic.failed[0].detail and "ta validation" not in automatic.failed[0].detail
     doubtful = evaluate(test_mode, SIGNAL.replace("QTUM", "DOGE"), source="g", now=NOW, user_validated=False,
                         tick_size_lookup=fake_tick)
     assert doubtful.verdict == "EN_ATTENTE" and "en attente de ta décision" in doubtful.failed[0].detail
@@ -157,6 +158,51 @@ def test_auto_add_mode_follows_the_halal_screening_of_automatic_signals(settings
     haram = evaluate(test_mode, SIGNAL.replace("QTUM", "UNI"), source="g", now=NOW, user_validated=False,
                      tick_size_lookup=fake_tick)
     assert haram.verdict == "REFUSE" and "défavorable au screening halal" in haram.failed[0].detail
+
+
+def test_owner_decisions_rule_signal_evaluation(settings):
+    """Refus par bouton → signal automatique refusé ; soumission manuelle = nouvelle décision du propriétaire ;
+    DOGE reçu automatiquement → à décider ; DOGE soumis à la main → décision du propriétaire."""
+    from crypto_signal_intelligence.external import admission as adm
+    test_mode = settings.model_copy(update={"external": settings.external.model_copy(update={"auto_add_pairs": True})})
+    adm.decide(settings, "POLUSDT", add=False, now=NOW, lookup=fake_tick)
+    refused = evaluate(test_mode, SIGNAL.replace("QTUM", "POL"), source="g", now=NOW, user_validated=False,
+                       tick_size_lookup=fake_tick)
+    assert refused.verdict == "REFUSE" and "refusée par toi" in refused.failed[0].detail
+    manual = evaluate(test_mode, SIGNAL.replace("QTUM", "POL"), source="g", now=NOW, user_validated=True,
+                      tick_size_lookup=fake_tick)
+    assert manual.verdict == "EN_ATTENTE" and "sur ta validation" in manual.failed[0].detail
+    log = adm.AdmissionLog(settings.external_db)
+    assert log.get("POLUSDT")["decision"] == adm.AJOUTEE and log.get("POLUSDT")["decided_by"] == adm.OWNER
+    doge = evaluate(test_mode, SIGNAL.replace("QTUM", "DOGE"), source="g", now=NOW, user_validated=False,
+                    tick_size_lookup=fake_tick)
+    assert doge.verdict == "EN_ATTENTE" and "DOGEUSDT" in {p["symbol"] for p in log.pending()}
+    manual_doge = evaluate(test_mode, SIGNAL.replace("QTUM", "DOGE"), source="g", now=NOW, user_validated=True,
+                           tick_size_lookup=fake_tick)
+    assert manual_doge.verdict == "EN_ATTENTE" and log.get("DOGEUSDT")["decided_by"] == adm.OWNER
+    assert "DOGEUSDT" not in {p["symbol"] for p in log.pending()}
+
+
+def test_a_defavorable_crypto_is_refused_even_when_submitted_by_hand(settings):
+    from crypto_signal_intelligence.external import admission as adm
+    uni = evaluate(settings, SIGNAL.replace("QTUM", "UNI"), source="g", now=NOW, user_validated=True,
+                   tick_size_lookup=fake_tick)
+    assert uni.verdict == "REFUSE" and "défavorable" in uni.failed[0].detail
+    assert UserUniverse(settings.external_db).get("UNIUSDT") is None
+    decided = adm.AdmissionLog(settings.external_db).get("UNIUSDT")
+    assert decided["decision"] == adm.REFUSEE and decided["decided_by"] == adm.RULE
+
+
+def test_without_auto_add_a_doubtful_automatic_signal_is_still_flagged_to_decide(settings):
+    from crypto_signal_intelligence.external import admission as adm
+    assert not settings.external.auto_add_pairs
+    doge = evaluate(settings, SIGNAL.replace("QTUM", "DOGE"), source="g", now=NOW, user_validated=False,
+                    tick_size_lookup=fake_tick)
+    assert doge.verdict == "EN_ATTENTE"
+    assert "DOGEUSDT" in {p["symbol"] for p in adm.AdmissionLog(settings.external_db).pending()}
+    automatic_favourable = evaluate(settings, SIGNAL, source="g", now=NOW, user_validated=False,
+                                    tick_size_lookup=fake_tick)                # QTUM : favorable, sans ajout auto
+    assert automatic_favourable.verdict == "REFUSE" and "La soumettre à la main" in automatic_favourable.failed[0].detail
 
 
 def test_forget_and_tick_size_errors(settings):
