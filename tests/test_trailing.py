@@ -148,6 +148,15 @@ def test_the_verdict_judges_the_owner_management(settings, monkeypatch):
             f"T3: {entry + 1.2 * atr:.2f}\nSL: {entry - 1.5 * atr:.2f}\nPLATFORM: Binance")
     judged = ev.evaluate(settings, text, source="G", now=now, record=False)
     trail = judged.trailing
+    assert judged.managements and len(judged.managements) == 8 and sum(m["owner"] for m in judged.managements) == 1
+    # Régime conditionné (cas réel de MOVR) : l'aperçu des gestions filtre aussi par régime, sans erreur.
+    from crypto_signal_intelligence.external import trailing as trailing_module
+    real_rate = trailing_module.trailing_rate
+    monkeypatch.setattr(trailing_module, "trailing_rate", lambda *a, **k: real_rate(*a, **k) | {"regime_conditioned": True})
+    conditioned = ev.evaluate(settings, text, source="G", now=now, record=False)
+    assert conditioned.trailing["regime_conditioned"] and conditioned.managements
+    assert conditioned.managements[0]["samples"] < judged.managements[0]["samples"]      # filtré par régime
+    monkeypatch.setattr(trailing_module, "trailing_rate", real_rate)
     assert trail and trail["samples"] > 0 and trail["tp_count"] == 3 and judged.base_rate is not None
     assert "RR TP1 net de coûts" not in {c.label for c in judged.failed}      # TP1 proche : pas un veto ici
     calls = []

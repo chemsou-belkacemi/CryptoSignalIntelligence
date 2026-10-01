@@ -16,6 +16,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from decimal import Decimal
 
+import numpy as np
 import pandas as pd
 
 from ..config import ExternalSection, Settings
@@ -405,9 +406,9 @@ def evaluate(settings: Settings, text: str, *, source: str, now: datetime, recor
             history_end=pd.Timestamp(development_end(settings)))
         from .trailing import showcase
         span = setup_interval * (cfg.entry_window_bars + cfg.trail_max_hold_bars)
-        mask = (frame["decision_time"] + span <= pd.Timestamp(development_end(settings))).to_numpy()
+        mask = np.array((frame["decision_time"] + span <= pd.Timestamp(development_end(settings))).to_numpy(), dtype=bool)
         if evaluation.trailing["regime_conditioned"]:
-            mask &= (frame["ctx_trend"].to_numpy() == trend) & (frame["ctx_volatility"].to_numpy() == volatility)
+            mask = mask & (frame["ctx_trend"].to_numpy() == trend) & (frame["ctx_volatility"].to_numpy() == volatility)
         evaluation.managements = showcase(
             frame, entry_offset_atr=(entry - close) / atr, stop_atr=risk / atr,
             targets_r=[(t - entry) / risk for t in targets], mask=mask, entry_window=cfg.entry_window_bars,
