@@ -322,6 +322,7 @@ Recherche (travaux lourds, DEVELOPMENT seulement ; chaque protocole est déclar�
 .venv/bin/csi screen-derivatives                 # criblage du positionnement
 .venv/bin/csi download-long --research           # bougies 1 h depuis la cotation, 40 paires de recherche
 .venv/bin/csi factors                            # lot 7 : portefeuilles hebdomadaires
+.venv/bin/csi volatility                         # lot 7 : prévision de volatilité à 1, 3 et 7 jours
 ```
 
 Tests et qualité :

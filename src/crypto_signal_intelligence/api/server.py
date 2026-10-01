@@ -92,7 +92,8 @@ MODEL_KINDS = {"WALK_FORWARD": "stratégie (walk-forward)", "ML_META": "méta-la
                "ML_SWING_FINAL": f"ML swing, {ML_HORIZON_LABELS['ML_SWING']} : période finale",
                "ML_SWING_LONG_SELECT": "ML swing long (2017-2025, 40 paires), 3 à 7 jours : sélection (lot 5 quater)",
                "ML_SWING_LONG_FINAL": "ML swing long (2017-2025, 40 paires), 3 à 7 jours : période finale",
-               "SCREEN": "criblage de familles", "FACTORS": "portefeuilles hebdomadaires (lot 7)"}
+               "SCREEN": "criblage de familles", "FACTORS": "portefeuilles hebdomadaires (lot 7)",
+               "VOLATILITY": "prévision de volatilité à 1, 3 et 7 jours (lot 7)"}
 
 VERDICT_TEXT = {
     "REFUSE": "Refusé : le signal ne peut pas être évalué ou est déjà mort (voir le contrôle en échec).",
@@ -387,6 +388,9 @@ class CsiApi:
                     verdict = "ÉCHEC D'EXÉCUTION"
                 item = {"kind": kind, "label": MODEL_KINDS[kind], "strategy": strategy, "run_id": run_id,
                         "created_at": created_at, "status": status, "verdict": verdict or status, "source": source}
+                if kind == "VOLATILITY" and verdict == "PREVISION_UTILE":
+                    item["detail"] = ("meilleure que la volatilité récente sur DEVELOPMENT : à confirmer ; ne dit rien "
+                                      "de la direction ni de la rentabilité")
                 if kind.endswith("_SELECT") and verdict == "SYSTEME_ADMISSIBLE":
                     item["detail"] = ("admissible selon la règle de sélection, en échantillon : NON validé tant que la "
                                       "période finale n'a pas été consultée (voir le rapport de sélection)")
