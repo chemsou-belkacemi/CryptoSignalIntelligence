@@ -70,10 +70,13 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' 
        "frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
 OUTLOOK_CACHE_SIZE = 32
 RESEARCH_REGISTRY_ENV = "CSI_RESEARCH_REGISTRY"
+# Horizons des programmes ML dans leurs libellés (vérifiés contre les protocoles par tests/test_ml_swing.py).
+ML_HORIZON_LABELS = {"ML_INTRADAY": "30 min à 4 h", "ML_SWING": "1 à 7 jours"}
 MODEL_KINDS = {"WALK_FORWARD": "stratégie (walk-forward)", "ML_META": "méta-labeling (lot 5)",
-               "ML_INTRADAY_SELECT": "ML intraday : sélection (lot 5 bis)",
-               "ML_INTRADAY_FINAL": "ML intraday : période finale",
-               "ML_SWING_SELECT": "ML swing : sélection (lot 5 ter)", "ML_SWING_FINAL": "ML swing : période finale",
+               "ML_INTRADAY_SELECT": f"ML intraday, {ML_HORIZON_LABELS['ML_INTRADAY']} : sélection (lot 5 bis)",
+               "ML_INTRADAY_FINAL": f"ML intraday, {ML_HORIZON_LABELS['ML_INTRADAY']} : période finale",
+               "ML_SWING_SELECT": f"ML swing, {ML_HORIZON_LABELS['ML_SWING']} : sélection (lot 5 ter)",
+               "ML_SWING_FINAL": f"ML swing, {ML_HORIZON_LABELS['ML_SWING']} : période finale",
                "SCREEN": "criblage de familles"}
 
 VERDICT_TEXT = {

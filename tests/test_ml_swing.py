@@ -503,3 +503,16 @@ def test_final_period_is_locked_for_the_whole_program_once_any_strategy_consulte
     ExperimentRegistry(settings.experiments_db).consult_final_test("MLIF-AUTRE", "ML_INTRADAY")
     with pytest.raises(FinalTestLocked, match="déjà été consultée"):
         swing.final(settings, now=datetime(2026, 10, 1, tzinfo=UTC), allow_final_test=True, program=small)
+
+
+def test_dashboard_labels_match_the_protocol_horizons():
+    from crypto_signal_intelligence.api.server import ML_HORIZON_LABELS, MODEL_KINDS
+    from crypto_signal_intelligence.ml.intraday import protocol as intraday
+
+    def span(program: engine.Program) -> tuple[pd.Timedelta, pd.Timedelta]:
+        return min(program.horizons) * program.step, max(program.horizons) * program.step
+
+    assert span(intraday.INTRADAY) == (pd.Timedelta(minutes=30), pd.Timedelta(hours=4))
+    assert span(swing.SWING) == (pd.Timedelta(days=1), pd.Timedelta(days=7))
+    assert ML_HORIZON_LABELS == {"ML_INTRADAY": "30 min à 4 h", "ML_SWING": "1 à 7 jours"}
+    assert "1 à 7 jours" in MODEL_KINDS["ML_SWING_SELECT"] and "30 min à 4 h" in MODEL_KINDS["ML_INTRADAY_SELECT"]

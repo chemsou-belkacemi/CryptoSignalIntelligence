@@ -211,8 +211,26 @@ function renderPair(r) {
   const [kind, title, text] = PLAN_STATES[plan.state] || ["neutral", plan.state || "?", ""];
   const head = banner(kind, `${pair(r.symbol)} · ${r.horizon_label} · ${title}`, text,
     el("div", { class: "small muted", text: r.warning }));
+  const forecast = el("div");
   target.replaceChildren(head, el("div", { class: "grid" }, contextCard(r), planCard(r)), overviewCard(r),
-    strategiesCard(r), definitionsCard(r));
+    strategiesCard(r), forecast, definitionsCard(r));
+  forecastCard().then((c) => forecast.replaceChildren(c), () => forecast.replaceChildren());
+}
+
+// CSI n'affiche une prévision que d'un modèle VALIDÉ hors échantillon par son protocole ; aucun ne l'est à ce jour.
+async function forecastCard() {
+  if (!state.models) state.models = await api("/models");
+  const rows = (state.models.models || []).filter((m) => /^ML_(INTRADAY|SWING)_/.test(m.kind));
+  const validated = rows.some((m) => verdictClass(m.verdict) === "ok");
+  return card("Prévision par modèle",
+    el("p", { class: validated ? "warn" : "muted", text: validated
+      ? "Un programme ML a un verdict favorable hors échantillon : lire son rapport ; ce tableau de bord n'affiche pas encore ses prévisions."
+      : "Aucun modèle de CSI n'est validé hors échantillon à ces horizons : CSI ne donne donc pas de probabilité « prédite ». "
+        + "Les fréquences ci-dessus décrivent ce qui s'est passé dans des conditions comparables, pas ce qui va se passer." }),
+    table(["Programme", "Verdict du protocole", "Date"], rows.map((m) => [m.label,
+      { node: el("span", {}, el("strong", { class: verdictClass(m.verdict), text: m.verdict || m.status }),
+        m.detail ? el("div", { class: "small muted", text: m.detail }) : null) }, when(m.created_at)]),
+    "aucun programme ML exécuté"));
 }
 
 function sparkline(spark) {
@@ -492,6 +510,7 @@ async function loadFollow(force = false) {
       api("/health"), api("/models"), api("/signals/recent?limit=15"), api("/sources"), api("/signals/generated?limit=10"), api("/universe"),
     ]);
     state.followLoaded = true;
+    state.models = models;
     const refresh = el("button", { type: "button", class: "ghost", text: "Actualiser", onclick: () => loadFollow(true) });
     target.replaceChildren(
       el("div", { class: "row" }, refresh),
