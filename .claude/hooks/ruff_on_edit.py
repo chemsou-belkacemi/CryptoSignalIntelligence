@@ -12,7 +12,9 @@ import sys
 from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parents[2]
-RUFF = PROJECT / ".venv" / "Scripts" / "ruff.exe"
+# venv Linux (.venv/bin) ou Windows (.venv/Scripts) : le premier qui existe.
+RUFF = next((p for p in (PROJECT / ".venv" / "bin" / "ruff", PROJECT / ".venv" / "Scripts" / "ruff.exe")
+             if p.exists()), None)
 
 
 def main() -> int:
@@ -28,7 +30,7 @@ def main() -> int:
         path.resolve().relative_to(PROJECT)
     except ValueError:
         return 0                                   # hors du projet : pas nos règles
-    ruff = str(RUFF) if RUFF.exists() else "ruff"
+    ruff = str(RUFF) if RUFF else "ruff"
     try:
         # Jamais de suppression automatique d'import (F401) : entre deux modifications d'un même fichier,
         # un import fraîchement ajouté n'a pas encore d'usage ; il est signalé, pas retiré.

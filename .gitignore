@@ -24,3 +24,6 @@ signals/*.sqlite3*
 
 # Réglages Claude Code propres à la machine
 .claude/settings.local.json
+
+# Contraintes pip générées depuis pylock.toml (installation Linux)
+constraints.txt

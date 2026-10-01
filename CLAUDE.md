@@ -50,19 +50,26 @@ Code, comments, docs and CLI output are in **French**. Keep new code and docs in
 
 ## Commands
 
-The venv is a **Windows** venv (`.venv/Scripts/python.exe`) and the owner uses PowerShell. From WSL, call the same executable through interop (it works, and there is no need to activate the venv):
+The owner works on **Ubuntu** (native Linux, bash). The venv is `.venv/` with Python 3.14; call its executables directly, no need to activate it. The README and some skills still show the Windows layout (`.venv\Scripts\python.exe`, PowerShell): on Linux, use `.venv/bin/...` instead.
 
 ```bash
-./.venv/Scripts/python.exe -m pytest                                   # full suite (~20 s)
-./.venv/Scripts/python.exe -m pytest tests/test_signals.py::test_name  # single test
-./.venv/Scripts/python.exe -m pytest -m "not network"                  # skip tests that need Internet
-./.venv/Scripts/ruff.exe check src tests
-./.venv/Scripts/mypy.exe                                               # configured in pyproject to check src/
-./.venv/Scripts/pyright.exe                                            # language server checks only (imports, undefined names)
-./.venv/Scripts/python.exe -m crypto_signal_intelligence <command>     # CLI (also exposed as `csi`)
+.venv/bin/python -m pytest                                   # full suite (~20 s)
+.venv/bin/python -m pytest tests/test_signals.py::test_name  # single test
+.venv/bin/python -m pytest -m "not network"                  # skip tests that need Internet
+.venv/bin/ruff check src tests
+.venv/bin/mypy                                               # configured in pyproject to check src/
+.venv/bin/pyright                                            # language server checks only (imports, undefined names)
+.venv/bin/python -m crypto_signal_intelligence <command>     # CLI (also exposed as `csi`)
 ```
 
-- Install: `pip install -r pylock.toml`, then `pip install --no-deps -e .`. Pinned versions live in `pylock.toml` (PEP 751).
+- Install on Linux (same method as the CI): `pylock.toml` (PEP 751) pins the versions but lists Windows wheels only, so turn it into constraints and let pip pick the Linux wheels:
+  ```bash
+  python3.14 -m venv .venv          # needs the apt package python3.14-venv
+  .venv/bin/python -c "import tomllib; d = tomllib.load(open('pylock.toml', 'rb')); open('constraints.txt', 'w').write(''.join(f\"{p['name']}=={p['version']}\n\" for p in d['packages'] if 'version' in p))"
+  .venv/bin/python -m pip install --upgrade pip
+  .venv/bin/python -m pip install -c constraints.txt -e ".[dev,ml]"
+  ```
+  On Windows: `pip install -r pylock.toml`, then `pip install --no-deps -e .`.
 - The CLI is Typer and lives in `cli.py`. Main commands: `doctor`, `download`, `data-quality`, `validate-causality`, `backtest`, `walk-forward`, `screen`, `analyze`, `scan`, `run --mode shadow`, `evaluate-signal`, `import-feedback`, `execution-report`, `exit-policies`, `dashboard`, `backup` / `restore`, `report`. The README lists them with examples.
 - `tests/test_bsm_contract.py` loads BSM's real `signal_parser.py` by file path, from `../BinanceSpotManager` or from `$BSM_PATH`, for example a worktree of branch `feat/csi-v2-drop`. The test skips when that file is missing. Most of the 31 skipped tests in a normal run are this contract test.
 - Test fixtures (`tests/conftest.py`) are **synthetic** random walks. They check that the code works, never how a strategy performs in the market. The `settings` fixture points `CSI_ROOT` at a temp dir and loads `config/default.toml`.

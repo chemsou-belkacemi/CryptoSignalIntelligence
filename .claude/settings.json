@@ -35,7 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR/.venv/Scripts/python.exe\" \"$CLAUDE_PROJECT_DIR/.claude/hooks/ruff_on_edit.py\"",
+            "command": "p=\"$CLAUDE_PROJECT_DIR/.venv/bin/python\"; [ -x \"$p\" ] || p=\"$CLAUDE_PROJECT_DIR/.venv/Scripts/python.exe\"; [ -x \"$p\" ] || p=python3; \"$p\" \"$CLAUDE_PROJECT_DIR/.claude/hooks/ruff_on_edit.py\"",
             "timeout": 30
           }
         ]
