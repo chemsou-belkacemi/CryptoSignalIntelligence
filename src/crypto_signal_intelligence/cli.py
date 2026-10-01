@@ -165,6 +165,28 @@ def admit_halal(verbose: bool = False):
                   "par la surveillance, une par cycle). Ce projet ne certifie rien : avis de sources publiques.")
 
 
+@app.command("download-long")
+def download_long_command(symbol: list[str] = typer.Option(None, "--symbol", help="Paire(s) ; défaut : l'univers de la configuration"),
+                          workers: int = typer.Option(6, help="Paires téléchargées en parallèle"),
+                          verbose: bool = False):
+    """Historique LONG (bougies 1 h depuis la cotation de chaque paire) dans un magasin séparé, pour la recherche
+    à basse fréquence. Les protocoles déjà exécutés gardent leur magasin (depuis 2021-01)."""
+    from .research.long_history import download_long
+    settings = _settings(verbose)
+    symbols = [s.upper() for s in symbol] if symbol else list(settings.data.symbols)
+    with console.status("historique long…") as status:
+        rows = download_long(settings, symbols, now=_now(), workers=workers,
+                             progress=lambda text: status.update(f"historique long : {text}"))
+    for r in rows:
+        if "error" in r:
+            console.print(f"[red]{r['symbol']}[/red] : {r['error']}")
+            continue
+        console.print(f"[bold]{r['symbol']}[/bold] : cotée le {r['listed']}, {r['rows']} bougies 1 h "
+                      f"{str(r['first'])[:10]} → {str(r['last'])[:16]} | archives +{r['archives']} "
+                      f"(absentes {r['archives_missing']}) | trous {r['gaps']} ({r['missing_bars']} bougies) "
+                      f"| quarantaine {r['quarantined']}")
+
+
 @app.command("data-quality")
 def data_quality(symbol: str = typer.Option(..., help="Paire, ex. BTCUSDT"),
                  timeframe: str = typer.Option(None, help="Défaut : timeframe de setup")):
