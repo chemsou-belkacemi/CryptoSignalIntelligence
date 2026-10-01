@@ -13,6 +13,17 @@ première consultation, cette période devient une validation : réserver une
 nouvelle période future pour tout test ultérieur. Le compteur est **global** : dès qu'une
 stratégie a consulté le test final, ce qu'on y a vu peut orienter les suivantes.
 
+**Note de transparence du 2026-10-01.** Pendant la mise au point du tableau de bord (perspective
+d'une paire), des statistiques descriptives calculées sur tout l'historique, période finale comprise
+mais MÉLANGÉE au reste (environ 22 % de l'échantillon, jamais isolée), ont été affichées pour ETH/USDT
+(horizons 1 h à 7 jours) et SOL/USDT (3 jours) : fréquences de hausse et résultats d'un plan générique
+d'achat (stop 1 σ, objectif 1,5 σ) par régime 1 h. Aucune stratégie, aucun système ML ni aucune
+sélection n'y a été évalué. Correctif immédiat (relecture `leak-auditor`) : le tableau de bord n'utilise
+plus que l'historique dont l'issue est connue avant la fin de DEVELOPMENT (testé en falsifiant tout ce
+qui suit). Ce regard n'est pas compté comme une consultation du test final, puisque rien n'y a été jugé ;
+le propriétaire peut décider de le compter. Défaut semblable, antérieur et non corrigé à ce jour : le
+taux de base des signaux Telegram (`external/base_rate.py`) utilise tout l'historique.
+
 Les bornes sont figées dans le code (`research/protocol.py`, `FROZEN_DEVELOPMENT_END`) : un
 `development_end` plus tardif (fichier de configuration ou `CSI_PROTOCOL__DEVELOPMENT_END`) est
 refusé au lieu de lire en silence le test final ; plus tôt reste permis.

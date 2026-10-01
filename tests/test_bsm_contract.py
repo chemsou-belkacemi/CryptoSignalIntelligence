@@ -200,3 +200,17 @@ def test_csi_and_bsm_read_the_same_telegram_signal(bsm_any, name):
         assert csi.entries == pytest.approx(list(bsm_parsed.entries))
         assert csi.targets == pytest.approx(list(bsm_parsed.targets))
         assert csi.stop == pytest.approx(bsm_parsed.stop)
+
+
+@pytest.mark.parametrize("horizon", ["1 heure", "7 jours"])
+@pytest.mark.parametrize(("symbol", "entry", "target", "stop"), [
+    ("ETHUSDT", "2500.10", "2537.60", "2462.60"), ("BTCUSDT", "64012.5", "65900", "62800.1"),
+    ("XRPUSDT", "0.5123", "0.5301", "0.5020"), ("PEPEUSDT", "0.0000100", "0.0000110", "0.0000090")])
+def test_dashboard_plan_text_is_never_read_as_a_signal_by_bsm(bsm_any, horizon, symbol, entry, target, stop):
+    """Le résumé copiable du tableau de bord (« plan indicatif ») ne doit JAMAIS devenir un ordre dans BSM,
+    quel que soit son lecteur (relecture contract-guard du 2026-10-01 : l'ancien format « PAIR: … » l'était)."""
+    from crypto_signal_intelligence.outlook.pair import plan_copy_text
+    text = plan_copy_text(symbol, horizon, entry, target, stop)
+    assert bsm_any.parse_signal(text).errors, text
+    with pytest.raises(SignalFormatError):
+        parse(text)

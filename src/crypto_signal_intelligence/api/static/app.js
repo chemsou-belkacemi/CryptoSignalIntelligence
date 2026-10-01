@@ -6,12 +6,14 @@ const TOKEN_KEY = "csi_api_token";
 const PREFS_KEY = "csi_dashboard_prefs";
 const PARIS = new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris", dateStyle: "short", timeStyle: "short" });
 const state = { horizon: "24h", pairs: [], followLoaded: false };
+const COPY_LABEL = "Copier le résumé (pas un signal)";
 
-const PLAN_VERDICTS = {
-  FAVORABLE: ["ok", "Favorable", "Dans des conditions comparables, ce plan a gagné en moyenne (IC95 entièrement au-dessus de 0). C'est un historique, pas une garantie."],
-  DEFAVORABLE: ["bad", "Défavorable", "Dans des conditions comparables, ce plan a perdu en moyenne (IC95 entièrement sous 0) : CSI ne propose pas d'entrer."],
-  INDETERMINE: ["warn", "Indéterminé", "Aucun avantage démontré (l'intervalle de confiance contient 0) : CSI ne propose pas d'entrer."],
-  INSUFFISANT: ["neutral", "Historique insuffisant", "Pas assez de moments comparables pour juger ce plan."],
+// États descriptifs : jamais une proposition d'entrer (aucun n'est affiché en vert).
+const PLAN_STATES = {
+  HISTORIQUE_POSITIF_NON_VALIDE: ["warn", "Historique positif — non validé", "Dans des conditions comparables, ce plan a gagné en moyenne, au-delà de la simple dérive passée. Statistique en échantillon, non validée par le protocole : ce n'est PAS une proposition d'entrer."],
+  AUCUN_AVANTAGE_HISTORIQUE: ["neutral", "Aucun avantage historique", "Pas d'avantage démontré dans ces conditions (intervalle corrigé contenant 0, ou simple dérive passée) : CSI ne propose pas d'entrer."],
+  HISTORIQUE_DEFAVORABLE: ["bad", "Historique défavorable", "Dans des conditions comparables, ce plan a perdu en moyenne : CSI ne propose pas d'entrer."],
+  INSUFFISANT: ["neutral", "Historique insuffisant", "Pas assez de blocs de jours indépendants (ou données récentes inutilisables) pour juger ce plan."],
   DONNEES_ANCIENNES: ["bad", "Données anciennes", "La dernière bougie est trop vieille : la surveillance de CSI tourne-t-elle ? Analyse non exploitable."],
 };
 const SIGNAL_VERDICTS = {
@@ -51,8 +53,10 @@ const price = (v) => {
 };
 const pctFrac = (v, digits = 1, signed = false) => (isNum(v) ? fmt(v * 100, digits, signed) + " %" : "–");
 const pctUnits = (v, digits = 2, signed = true) => (isNum(v) ? fmt(v, digits, signed) + " %" : "–");
-const ciFrac = (ci, digits = 1) => (Array.isArray(ci) ? `[${pctFrac(ci[0], digits)} ; ${pctFrac(ci[1], digits)}]` : "IC indisponible");
-const ciR = (ci) => (Array.isArray(ci) ? `[${fmt(ci[0], 2, true)} ; ${fmt(ci[1], 2, true)}] R` : "IC indisponible");
+const ciFrac = (ci, digits = 1) => (Array.isArray(ci) ? `[${pctFrac(ci[0], digits)} ; ${pctFrac(ci[1], digits)}]` : "(intervalle non fiable)");
+const ciR = (ci) => (Array.isArray(ci) ? `[${fmt(ci[0], 2, true)} ; ${fmt(ci[1], 2, true)}] R` : "(intervalle non fiable)");
+// Couleur seulement si l'intervalle exclut 0 ; sinon neutre (même si la moyenne est positive).
+const ciClass = (ci) => (Array.isArray(ci) ? (ci[0] > 0 ? "warn" : ci[1] < 0 ? "bad" : "muted") : "muted");
 const regime = (v) => REGIMES[v] || (v ? String(v).toLowerCase() : "–");
 const pair = (s) => (s && /USD[TC]$/.test(s) ? `${s.slice(0, -4)}/${s.slice(-4)}` : s);
 
@@ -134,7 +138,7 @@ async function copy(text, button) {
   } catch (_err) {
     button.textContent = "Copie impossible : sélectionner le texte";
   }
-  setTimeout(() => { button.textContent = "Copier le plan"; }, 2500);
+  setTimeout(() => { button.textContent = COPY_LABEL; }, 2500);
 }
 
 // --- en-tête : santé de la surveillance ------------------------------------------------------------
@@ -207,7 +211,7 @@ async function refreshPair(symbol, button) {
 function renderPair(r) {
   const target = document.getElementById("pair-result");
   const plan = r.plan || {};
-  const [kind, title, text] = PLAN_VERDICTS[plan.verdict] || ["neutral", plan.verdict || "?", ""];
+  const [kind, title, text] = PLAN_STATES[plan.state] || ["neutral", plan.state || "?", ""];
   const head = banner(kind, `${pair(r.symbol)} · ${r.horizon_label} · ${title}`, text,
     el("div", { class: "small muted", text: r.warning }));
   target.replaceChildren(head, el("div", { class: "grid" }, contextCard(r), planCard(r)), overviewCard(r),
@@ -234,7 +238,8 @@ function contextCard(r) {
     c.fresh ? null : el("div", {},
       el("p", { class: "bad small", text: "Données anciennes : la surveillance de CSI (service monitor) ne tourne pas. Mettre à jour cette paire depuis les données publiques de Binance :" }),
       el("button", { type: "button", class: "primary", text: "Mettre à jour les données", onclick: (event) => refreshPair(r.symbol, event.target) })),
-    c.context_fresh ? null : el("p", { class: "warn small", text: "Contexte 1 h trop ancien : régime inconnu, statistiques tous régimes." }));
+    c.context_fresh ? null : el("p", { class: "warn small", text: "Contexte 1 h trop ancien : régime inconnu, statistiques tous régimes." }),
+    c.data_gap_recent ? el("p", { class: "warn small", text: "Trou de données récent : indicateurs et plan non fiables." }) : null);
 }
 
 function planCard(r) {
@@ -244,28 +249,26 @@ function planCard(r) {
     el("div", { class: "level" }, el("div", { class: "label", text: "Entrée (au marché, ≈ prix actuel)" }), el("div", { class: "value", text: price(p.entry_reference) })),
     el("div", { class: "level" }, el("div", { class: "label", text: `Stop (${pctUnits(p.stop_pct)})` }), el("div", { class: "value bad", text: price(p.stop) })),
     el("div", { class: "level" }, el("div", { class: "label", text: `Objectif (${pctUnits(p.target_pct)})` }), el("div", { class: "value ok", text: price(p.target) })));
-  const text = [
-    "CSI — plan indicatif (analyse, aucune stratégie validée)",
-    `PAIR: ${pair(r.symbol)}`, `ENTRY: ${p.entry_reference} (au marché)`, `TP1: ${p.target}`, `SL: ${p.stop}`,
-    `HORIZON: ${r.horizon_label}`, `AVIS CSI: ${p.verdict}`,
-  ].join("\n");
-  const button = el("button", { type: "button", class: "ghost", text: "Copier le plan" });
-  button.addEventListener("click", () => copy(text, button));
+  // Texte produit par CSI, en prose : jamais lisible comme un signal par un bot (testé contre BSM).
+  const button = el("button", { type: "button", class: "ghost", text: COPY_LABEL });
+  button.addEventListener("click", () => copy(p.copy_text || "", button));
   return card(`Plan indicatif (achat) — horizon ${r.horizon_label}`,
     levels,
-    el("h3", { text: `Ce qu'a donné ce plan dans le passé (${p.regime_conditioned ? "même régime" : "tous régimes"})` }),
+    el("h3", { text: `Ce qu'a donné ce plan dans le passé (${p.regime_conditioned ? "même régime" : "tous régimes"}, jusqu'au ${p.history_end})` }),
     kv([
-      ["Objectif touché avant le stop", pctFrac(p.tp_first)],
+      ["Objectif dépassé avant le stop", pctFrac(p.tp_first)],
       ["Stop touché avant l'objectif", pctFrac(p.sl_first)],
       ["Ni l'un ni l'autre (sortie à l'horizon)", pctFrac(p.timeout)],
-      ["Espérance par trade", `${fmt(p.expectancy_r, 2, true)} R ${ciR(p.expectancy_r_ci95)}`,
-        isNum(p.expectancy_r) ? (p.expectancy_r > 0 ? "ok" : "bad") : ""],
+      ["Espérance par trade", `${fmt(p.expectancy_r, 2, true)} R ${ciR(p.expectancy_r_ci)}`, ciClass(p.expectancy_r_ci)],
+      ["Même plan, tous moments (dérive passée)", `${fmt(p.baseline_expectancy_r, 2, true)} R ${ciR(p.baseline_expectancy_r_ci)}`],
+      ["Écart dû aux conditions actuelles", p.regime_conditioned ? `${fmt(p.excess_r, 2, true)} R ${ciR(p.excess_r_ci)}` : "– (régime non utilisé)", ciClass(p.excess_r_ci)],
       ["Gain net moyen par trade", pctUnits(p.mean_net_pct)],
-      ["Réussite nécessaire pour ne pas perdre", `${pctFrac(p.breakeven_win_rate)} (gain/risque ${fmt(p.rr_gross, 1)}, coûts ${fmt(p.costs_in_r, 2)} R)`],
-      ["Moments comparables évalués", `${(p.samples || 0).toLocaleString("fr-FR")} (${p.sampling_stride_bars > 1 ? `une décision toutes les ${p.sampling_stride_bars} bougies de 15 min` : "chaque bougie de 15 min"})`],
+      ["Coûts aller-retour", `${fmt(r.costs_round_trip_pct, 2)} % (${fmt(p.costs_in_r, 2)} R)`],
+      ["Année la plus lourde", isNum(p.max_year_share) ? `${pctFrac(p.max_year_share, 0)} du résultat` : "–"],
+      ["Moments évalués", `${(p.samples || 0).toLocaleString("fr-FR")} · ${p.blocks || 0} blocs indépendants (${p.sampling_stride_bars > 1 ? `une décision toutes les ${p.sampling_stride_bars} bougies de 15 min` : "chaque bougie de 15 min"})`],
     ]),
     el("div", { class: "row" }, button),
-    el("p", { class: "muted small", text: "1 R = la perte si le stop est touché. Les niveaux sont arrondis au pas de cotation de la paire." }));
+    el("p", { class: "muted small", text: "1 R = la perte si le stop est touché. Niveaux arrondis au pas de cotation. Le résumé copié est une phrase, jamais un signal lisible par un bot." }));
 }
 
 function overviewCard(r) {
@@ -295,21 +298,22 @@ function overviewCard(r) {
   const lines = rows.map((o) => {
     const cells = [
       { node: el("strong", { text: o.label }) },
-      { node: el("span", {}, pctFrac(o.p_up.value), el("span", { class: "small muted", text: " " + ciFrac(o.p_up.ci95) })) },
+      { node: el("span", {}, pctFrac(o.p_up.value), el("span", { class: "small muted", text: " " + ciFrac(o.p_up.ci) })) },
+      pctFrac(o.p_up_all_moments.value),
       pctFrac(o.p_net_positive.value),
-      { node: el("span", { class: isNum(o.mean_net.value) ? (o.mean_net.value > 0 ? "ok" : "bad") : "" }, pctFrac(o.mean_net.value, 2, true),
-        el("span", { class: "small muted", text: " " + ciFrac(o.mean_net.ci95, 2) })) },
+      { node: el("span", { class: ciClass(o.mean_net.ci) }, pctFrac(o.mean_net.value, 2, true),
+        el("span", { class: "small muted", text: " " + ciFrac(o.mean_net.ci, 2) })) },
       pctFrac(o.median_gross, 2, true),
       fan(o),
-      `${o.samples.toLocaleString("fr-FR")} · ${o.regime_conditioned ? "même régime" : "tous régimes"}`,
+      `${o.samples.toLocaleString("fr-FR")} · ${o.p_up.blocks} blocs · ${o.regime_conditioned ? "même régime" : "tous régimes"}`,
     ];
     if (o.horizon === r.horizon) cells.rowClass = "selected";
     return cells;
   });
   return card("Ce qui s'est passé ensuite, dans des conditions comparables",
-    el("p", { class: "muted small", text: `Moments passés de ${pair(r.symbol)} dans le même régime 1 h (tendance ${regime(r.context.trend_1h)}, volatilité ${regime(r.context.volatility_1h)}). Coûts aller-retour : ${fmt(r.costs_round_trip_pct, 2)} %.` }),
-    table([{ label: "Horizon" }, { label: "Hausse (fréquence)" }, { label: "Gain net > 0", num: true }, { label: "Gain net moyen" },
-      { label: "Médiane", num: true }, { label: "8 cas sur 10 entre" }, { label: "Exemples" }], lines, "aucune donnée"));
+    el("p", { class: "muted small", text: `Moments passés de ${pair(r.symbol)} jusqu'au ${r.history_end} dans le même régime 1 h qu'à présent (tendance ${regime(r.context.trend_1h)}, volatilité ${regime(r.context.volatility_1h)}), sinon tous régimes (colonne Exemples). Intervalles à ${fmt(r.ci_level * 100, 1)} %, corrigés pour les 6 horizons. Coûts aller-retour : ${fmt(r.costs_round_trip_pct, 2)} %.` }),
+    table([{ label: "Horizon" }, { label: "Hausse (fréquence)" }, { label: "Hausse, tous moments", num: true }, { label: "Gain net > 0", num: true },
+      { label: "Gain net moyen" }, { label: "Médiane", num: true }, { label: "8 cas sur 10 entre" }, { label: "Exemples" }], lines, "aucune donnée"));
 }
 
 function strategiesCard(r) {
@@ -330,7 +334,9 @@ function strategiesCard(r) {
 
 function definitionsCard(r) {
   const defs = r.definitions || {};
-  const labels = { comparable: "Moments comparables", p_up: "Hausse (fréquence)", net: "Gain net", plan: "Plan indicatif", ci95: "IC95", verdict: "Avis" };
+  const labels = { historique: "Historique", comparable: "Moments comparables", p_up: "Hausse (fréquence)", p_net_positive: "Gain net > 0",
+    mean_net: "Gain net moyen", fourchette: "Médiane et fourchette", plan: "Plan indicatif", issues: "Issues du plan", esperance: "Espérance",
+    ecart: "Écart dû aux conditions actuelles", intervalle: "Intervalle", exemples: "Exemples et blocs", couts: "Coûts", etat: "État" };
   return el("section", { class: "card" }, el("details", {},
     el("summary", { text: "Définition de chaque chiffre" }),
     kv(Object.entries(defs).map(([k, v]) => [labels[k] || k, v])),
@@ -378,7 +384,7 @@ function renderSignal(e) {
     ["Ordres comparables", `${b.samples.toLocaleString("fr-FR")} remplis sur ${b.emitted.toLocaleString("fr-FR")} (${b.regime})`],
     ["Objectif 1 avant le stop", `${pctFrac(b.tp_first)} ${ciFrac(b.tp_first_ci95)}`],
     ["Stop avant l'objectif", pctFrac(b.sl_first)], ["Sortie au temps", pctFrac(b.timeout)],
-    ["Espérance par ordre rempli", `${fmt(b.expectancy_r, 2, true)} R ${ciR(b.expectancy_r_ci95)}`, b.expectancy_r > 0 ? "ok" : "bad"],
+    ["Espérance par ordre rempli", `${fmt(b.expectancy_r, 2, true)} R ${ciR(b.expectancy_r_ci95)}`, ciClass(b.expectancy_r_ci95)],
     ["Taux de remplissage de l'ordre limite", pctFrac(b.fill_rate)],
   ]) : el("p", { class: "muted", text: "aucun taux de base (signal refusé ou historique insuffisant)" });
   const c = e.context || {};

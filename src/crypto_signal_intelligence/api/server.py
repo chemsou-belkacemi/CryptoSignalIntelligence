@@ -54,6 +54,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from ..config import Settings
+from ..data.schema import interval
 
 log = logging.getLogger(__name__)
 
@@ -298,11 +299,22 @@ class CsiApi:
                 inputs = load_inputs(self.settings, symbol)
             except Exception:  # noqa: BLE001 - message clair produit par pair_outlook ci-dessous
                 inputs = None
-            last = inputs["setup"]["open_time"].iloc[-1] if inputs is not None and not inputs["setup"].empty else None
-            key = (symbol, horizon, str(last))
+            setup = inputs["setup"] if inputs is not None else None
+            last = setup["open_time"].iloc[-1] if setup is not None and not setup.empty else None
+            # La fraîcheur dépend de l'heure : elle fait partie de la clé (sinon des données vieillies
+            # resteraient présentées comme fraîches) et l'âge affiché est recalculé à chaque réponse.
+            seen = setup["available_at"].iloc[-1] if last is not None and setup is not None else None
+            age = (now - seen.to_pydatetime()) if seen is not None else None
+            fresh = age is not None and age <= self.settings.data.max_staleness_bars * interval(
+                self.settings.data.setup_timeframe)
+            key = (symbol, horizon, str(last), fresh)
             if key in self._outlook_cache:
                 self._outlook_cache.move_to_end(key)
-                return self._outlook_cache[key] | {"cached": True}
+                cached = self._outlook_cache[key]
+                context = dict(cached.get("context", {}))
+                if age is not None:
+                    context["data_age_minutes"] = int(age.total_seconds() // 60)
+                return cached | {"context": context, "cached": True}
             try:
                 result = pair_outlook(self.settings, symbol, horizon, now=now, inputs=inputs)
             except OutlookError as exc:
@@ -323,7 +335,9 @@ class CsiApi:
                 strategies.append(item)
             result = _jsonable(result | {"strategies": strategies,
                                          "strategies_note": "simulation sur la dernière bougie clôturée : rien n'est "
-                                                            "publié ; stratégies rejetées par le protocole"})
+                                                            "publié et les contrôles propres à la publication (statut "
+                                                            "de la stratégie, suspension, expiration, doublon) ne sont "
+                                                            "pas appliqués ; stratégies rejetées par le protocole"})
             self._outlook_cache[key] = result
             while len(self._outlook_cache) > OUTLOOK_CACHE_SIZE:
                 self._outlook_cache.popitem(last=False)
@@ -342,6 +356,15 @@ class CsiApi:
             raise ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, f"{symbol} hors univers")
         if not self._refresh_lock.acquire(blocking=False):
             raise ApiError(HTTPStatus.CONFLICT, "une mise à jour est déjà en cours : réessayer dans un instant")
+        from ..live.lock import InstanceAlreadyRunning, InstanceLock
+        # Même verrou que la surveillance : jamais deux processus qui réécrivent le même fichier de bougies.
+        monitor_lock = InstanceLock(self.settings.root / self.settings.live.lock_file)
+        try:
+            monitor_lock.acquire()
+        except InstanceAlreadyRunning:
+            self._refresh_lock.release()
+            raise ApiError(HTTPStatus.CONFLICT, "la surveillance de CSI tourne : elle met déjà les données à jour toutes "
+                                                "les 15 minutes") from None
         try:
             from ..data.pipeline import download
             downloader: Callable[..., object] = self.downloader or download
@@ -355,6 +378,7 @@ class CsiApi:
         except Exception as exc:  # noqa: BLE001 - réseau ou Binance : message clair, rien de cassé
             raise ApiError(HTTPStatus.BAD_GATEWAY, f"mise à jour impossible pour l'instant ({type(exc).__name__})") from None
         finally:
+            monitor_lock.release()
             self._refresh_lock.release()
         with self._outlook_lock:
             for key in [k for k in self._outlook_cache if k[0] == symbol]:

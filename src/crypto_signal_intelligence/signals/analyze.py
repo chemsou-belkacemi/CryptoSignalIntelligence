@@ -135,9 +135,10 @@ def analyze(settings: Settings, symbol: str, strategy_id: str, *, now: datetime,
     veto = gates.post_levels(levels, settings.costs["central"], strategy.params.min_net_rr)
     if veto:
         return outcome(*veto)
+    level_values = _levels(levels, settings)
     if not publish:
         return AnalysisOutcome(symbol, strategy_id, context.decision_time, Action.BUY.value, None, decision.reasons,
-                               publication_status="SIMULATION", levels=_levels(levels, settings))
+                               publication_status="SIMULATION", levels=level_values)
     veto = gates.publication(strategy.status, settings.publication.mode, exit_policy_id=decision.exit_policy_id,
                              consumer_policies=settings.publication.consumer_policies)
     if veto:
@@ -156,5 +157,4 @@ def analyze(settings: Settings, symbol: str, strategy_id: str, *, now: datetime,
         return outcome(NoTradeReason.DUPLICATE, "un signal non expiré existe déjà pour cette paire et stratégie")
     published = signals.publish(signal, now)
     return AnalysisOutcome(symbol, strategy_id, context.decision_time, Action.BUY.value, None, decision.reasons,
-                           published.signal_id, str(published.path), published.status,
-                           levels=_levels(levels, settings))
+                           published.signal_id, str(published.path), published.status, levels=level_values)

@@ -496,23 +496,26 @@ def perspective(symbol: str = typer.Argument(..., help="Paire, ex. ETHUSDT"),
     console.rule(f"{symbol} — horizon {result['horizon_label']}")
     console.print(f"Prix {c['close']} (bougie {c['decision_time'][:16]} UTC, il y a {c['data_age_minutes']} min) ; "
                   f"tendance 1 h {c['trend_1h']}, volatilité {c['volatility_1h']} ; BTC 24 h {c['btc_ret_24h_pct']} %")
-    table = Table("horizon", "hausse (fréquence)", "IC95", "gain net moyen %", "8 cas sur 10 entre (%)", "exemples")
+    table = Table("horizon", "hausse (fréquence)", "intervalle corrigé", "hausse, tous moments", "gain net moyen %",
+                  "8 cas sur 10 entre (%)", "exemples", title=f"Historique jusqu'au {result['history_end']}")
     for row in result["overview"]:
         p_up, mean = row["p_up"], row["mean_net"]
         table.add_row(row["label"], f"{(p_up['value'] or 0) * 100:.1f} %",
-                      f"{p_up['ci95'][0] * 100:.1f} – {p_up['ci95'][1] * 100:.1f}" if p_up["ci95"] else "–",
-                      f"{(mean['value'] or 0) * 100:+.2f}",
+                      f"{p_up['ci'][0] * 100:.1f} – {p_up['ci'][1] * 100:.1f}" if p_up["ci"] else "non fiable",
+                      f"{(row['p_up_all_moments']['value'] or 0) * 100:.1f} %", f"{(mean['value'] or 0) * 100:+.2f}",
                       f"{(row['q10_gross'] or 0) * 100:+.1f} à {(row['q90_gross'] or 0) * 100:+.1f}",
-                      f"{row['samples']} ({'même régime' if row['regime_conditioned'] else 'tous régimes'})")
+                      f"{row['samples']} · {p_up['blocks']} blocs ({'même régime' if row['regime_conditioned'] else 'tous régimes'})")
     console.print(table)
-    if "unavailable" not in plan:
-        console.print(f"Plan indicatif (achat) : entrée ≈ {plan['entry_reference']}, stop {plan['stop']} "
-                      f"({plan['stop_pct']} %), objectif {plan['target']} (+{plan['target_pct']} %) ; dans le passé : "
-                      f"objectif d'abord {plan.get('tp_first', 0) * 100:.1f} %, stop d'abord {plan.get('sl_first', 0) * 100:.1f} %, "
-                      f"espérance {plan.get('expectancy_r')} R (IC95 {plan.get('expectancy_r_ci95')}) ; "
-                      f"réussite nécessaire {plan['breakeven_win_rate'] * 100:.1f} %")
-    color = {"FAVORABLE": "green", "DEFAVORABLE": "red"}.get(plan["verdict"], "yellow")
-    console.print(f"[bold {color}]Avis : {plan['verdict']}[/bold {color}] — {result['definitions']['verdict']}")
+    if "unavailable" in plan:
+        console.print(f"Plan indicatif indisponible : {plan['unavailable']}")
+    else:
+        console.print(f"Plan indicatif (achat) : entrée ≈ {plan['entry_reference']}, stop {plan['stop']} ({plan['stop_pct']} %), "
+                      f"objectif {plan['target']} (+{plan['target_pct']} %) ; dans le passé : objectif d'abord "
+                      f"{plan.get('tp_first', 0) * 100:.1f} %, stop d'abord {plan.get('sl_first', 0) * 100:.1f} %, espérance "
+                      f"{plan.get('expectancy_r')} R (intervalle {plan.get('expectancy_r_ci')}), écart aux conditions "
+                      f"actuelles {plan.get('excess_r')} R (intervalle {plan.get('excess_r_ci')})")
+    color = {"HISTORIQUE_DEFAVORABLE": "red", "DONNEES_ANCIENNES": "red"}.get(plan["state"], "yellow")
+    console.print(f"[bold {color}]État : {plan['state']}[/bold {color}] — {result['definitions']['etat']}")
     console.print(f"[dim]{result['warning']} Choix d'horizon : {', '.join(HORIZONS)}.[/dim]")
 
 

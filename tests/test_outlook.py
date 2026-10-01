@@ -18,11 +18,14 @@ from crypto_signal_intelligence.config import CostScenario
 from crypto_signal_intelligence.data.store import CandleStore
 from crypto_signal_intelligence.outlook.pair import (
     HORIZONS,
+    MIN_BLOCKS,
+    POSITIVE,
     SL,
     TIMEOUT,
     TP,
     OutlookError,
     block_days_for,
+    block_interval,
     forward_returns,
     pair_outlook,
     plan_outcomes,
@@ -47,19 +50,23 @@ def bars(rows):
 FLAT = (100.0, 100.0, 100.0, 100.0)
 
 
-@pytest.mark.parametrize("case", ["objectif", "meme_bougie", "ouverture_sous_stop", "temps"])
+@pytest.mark.parametrize("case", ["objectif", "objectif_au_contact", "ouverture_au_dessus", "meme_bougie",
+                                  "ouverture_sous_stop", "temps"])
 def test_plan_outcomes_follow_the_conservative_exit_rules(case):
     # H = 4 bougies : σ_H = 1 % × 2 = 2 % → stop 98, objectif 103 pour une entrée à 100.
     paths = {
         "objectif": [FLAT, (100, 100.5, 99.5, 100), (100, 103.5, 99.9, 101)],
+        "objectif_au_contact": [FLAT, (100, 103, 99.9, 100), (100, 100.2, 99.8, 100), (100, 100.2, 99.8, 100),
+                                (100, 100.2, 99.8, 100.5)],                    # touché, pas dépassé : pas de gain
+        "ouverture_au_dessus": [FLAT, FLAT, (104, 105, 103.5, 104)],            # sortie à l'objectif, pas mieux
         "meme_bougie": [FLAT, (100, 104, 97, 100)],
         "ouverture_sous_stop": [FLAT, FLAT, (97, 97.5, 96.5, 97)],
         "temps": [FLAT, (100, 100.2, 99.8, 100), (100, 100.2, 99.8, 100), (100, 100.2, 99.8, 100), (100, 100.2, 99.8, 101)],
     }
     rows = paths[case] + [FLAT] * (8 - len(paths[case]))
     out = plan_outcomes(bars(rows), np.array([0]), 4, NO_COSTS, STEP)
-    expected = {"objectif": (TP, 103.0), "meme_bougie": (SL, 98.0), "ouverture_sous_stop": (SL, 97.0),
-                "temps": (TIMEOUT, 101.0)}[case]
+    expected = {"objectif": (TP, 103.0), "objectif_au_contact": (TIMEOUT, 100.5), "ouverture_au_dessus": (TP, 103.0),
+                "meme_bougie": (SL, 98.0), "ouverture_sous_stop": (SL, 97.0), "temps": (TIMEOUT, 101.0)}[case]
     assert out.outcome[0] == expected[0]
     assert out.net[0] == pytest.approx(expected[1] / 100 - 1)
     assert out.r[0] == pytest.approx((expected[1] / 100 - 1) / 0.02)
@@ -109,16 +116,21 @@ def test_pair_outlook_defines_its_numbers_and_rounds_levels_to_the_tick(market):
     tick = settings.data.tick_size["ETHUSDT"]
     entry, stop, target = (Decimal(plan[k]) for k in ("entry_reference", "stop", "target"))
     assert stop < entry < target and all(v % tick == 0 for v in (entry, stop, target))
-    assert plan["verdict"] in {"FAVORABLE", "DEFAVORABLE", "INDETERMINE", "INSUFFISANT"}
-    assert 0 < plan["breakeven_win_rate"] < 1 and plan["rr_gross"] == 1.5
+    assert plan["rr_gross"] == pytest.approx(float((target - entry) / (entry - stop)), abs=1e-3)
+    # 60 jours de données : moins de 30 blocs indépendants → aucun intervalle, aucun état chiffré.
+    assert plan["state"] == "INSUFFISANT" and plan["expectancy_r_ci"] is None and plan["blocks"] < MIN_BLOCKS
     assert abs(plan["tp_first"] + plan["sl_first"] + plan["timeout"] - 1) < 1e-3
-    assert {"comparable", "p_up", "net", "plan", "ci95", "verdict"} <= set(result["definitions"])
+    assert {"historique", "comparable", "p_up", "p_net_positive", "mean_net", "fourchette", "plan", "issues",
+            "esperance", "ecart", "intervalle", "exemples", "couts", "etat"} <= set(result["definitions"])
+    assert result["history_end"] == "2025-06-30" and "PAS une proposition" in result["definitions"]["etat"]
 
 
 def test_pair_outlook_flags_stale_data_and_refuses_bad_requests(market):
     settings, now = market
     stale = pair_outlook(settings, "ETHUSDT", "1h", now=now + timedelta(days=2))
-    assert not stale["context"]["fresh"] and stale["plan"]["verdict"] == "DONNEES_ANCIENNES"
+    assert not stale["context"]["fresh"] and stale["plan"]["state"] == "DONNEES_ANCIENNES"
+    earlier = pair_outlook(settings, "ETHUSDT", "1h", now=now - timedelta(days=10))   # point dans le temps
+    assert earlier["context"]["fresh"] and pd.Timestamp(earlier["context"]["decision_time"]) <= now - timedelta(days=10)
     with pytest.raises(OutlookError, match="horizon"):
         pair_outlook(settings, "ETHUSDT", "2h", now=now)
     with pytest.raises(OutlookError, match="hors univers"):
@@ -285,3 +297,150 @@ def test_models_route_lists_verdicts_but_not_descriptive_backtests(settings):
     assert [(m["kind"], m["verdict"]) for m in out["models"]] == [
         ("SCREEN", "AUCUNE_CONDITION_AU_DELA_DES_COUTS"), ("WALK_FORWARD", "REJECTED")]
     assert out["program_trials"] == 1 + 12 + 6
+
+
+def test_copied_plan_text_is_prose_with_no_signal_label(market):
+    settings, now = market
+    text = pair_outlook(settings, "ETHUSDT", "24h", now=now)["plan"]["copy_text"]
+    assert text.startswith("CSI — plan indicatif, PAS un signal") and "\n" not in text
+    import re
+    assert not re.search(r"\b(PAIR|PAIRE|ENTRY|ENTRÉE|ENTREE|TP\d?|SL|STOP|OBJECTIF|ACHAT|BUY)\s*:", text.upper())
+
+
+def test_cached_analysis_never_presents_aged_data_as_fresh(market):
+    settings, now = market
+    clock = {"now": now}
+    api = CsiApi(settings, now=lambda: clock["now"])
+    first = api.dispatch("POST", "/analyze-pair", {}, {"symbol": "ETHUSDT", "horizon": "1h"})
+    assert first["context"]["fresh"] and first["plan"]["state"] != "DONNEES_ANCIENNES"
+    clock["now"] = now + timedelta(minutes=5)
+    again = api.dispatch("POST", "/analyze-pair", {}, {"symbol": "ETHUSDT", "horizon": "1h"})
+    assert again["cached"] and again["context"]["data_age_minutes"] == first["context"]["data_age_minutes"] + 5
+    clock["now"] = now + timedelta(days=2)
+    later = api.dispatch("POST", "/analyze-pair", {}, {"symbol": "ETHUSDT", "horizon": "1h"})
+    assert later["cached"] is False and not later["context"]["fresh"]
+    assert later["plan"]["state"] == "DONNEES_ANCIENNES"
+
+
+def test_refresh_is_refused_while_the_monitor_holds_its_lock(market):
+    from crypto_signal_intelligence.live.lock import InstanceLock
+    settings, now = market
+    api = CsiApi(settings, now=lambda: now)
+    api.downloader = lambda *args, **kwargs: None
+    with InstanceLock(settings.root / settings.live.lock_file), pytest.raises(Exception) as error:
+        api.dispatch("POST", "/refresh-pair", {}, {"symbol": "ETHUSDT"})
+    assert getattr(error.value, "status", None) == 409 and "surveillance" in str(error.value)
+    assert api.dispatch("POST", "/refresh-pair", {}, {"symbol": "ETHUSDT"})["symbol"] == "ETHUSDT"
+
+
+def test_a_simulated_buy_writes_nothing_even_in_outbox_mode_and_matches_the_published_levels(settings, monkeypatch):
+    from crypto_signal_intelligence.domain.enums import Action, EntryMode
+    from crypto_signal_intelligence.domain.market import EntryIntent, StrategyResult
+    from crypto_signal_intelligence.signals import analyze as analyze_module
+    from crypto_signal_intelligence.signals.outbox import SignalRegistry
+    from crypto_signal_intelligence.strategies.donchian import DonchianVolumeBreakout
+
+    from .test_live import DECISION, store_candles
+
+    def always_buy(self, context):
+        close = float(context.setup["close"])
+        return StrategyResult(strategy_id=self.strategy_id, strategy_version=1, action=Action.BUY,
+                              setup_time=context.decision_time, regime=context.regime,
+                              entry_intent=EntryIntent(EntryMode.LIMIT, close, 10, 2),
+                              invalidation_reference=close * 0.98, exit_policy_id="FIXED_SL_ONE_TP_V1", target_r=2.0)
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("la simulation a touché la publication")
+
+    monkeypatch.setattr(DonchianVolumeBreakout, "evaluate", always_buy)
+    store_candles(settings)
+    now = DECISION + timedelta(seconds=20)
+    with monkeypatch.context() as patch:
+        patch.setattr(settings.publication, "mode", "outbox")
+        patch.setattr(SignalRegistry, "publish", forbidden)
+        patch.setattr(analyze_module, "build_signal", forbidden)
+        patch.setattr(analyze_module, "publication_suspended", forbidden)
+        patch.setattr(type(settings), "publication_dir", forbidden)
+        simulated = analyze(settings, "ETHUSDT", "DONCHIAN_VOLUME_BREAKOUT", now=now, publish=False)
+    assert simulated.action == "BUY" and simulated.publication_status == "SIMULATION" and simulated.levels
+    assert not settings.signals_db.exists() and not list(settings.root.rglob("*.txt"))
+    published = analyze(settings, "ETHUSDT", "DONCHIAN_VOLUME_BREAKOUT", now=now)
+    assert published.publication_status == "PUBLISHED" and published.levels == simulated.levels
+    signal = SignalRegistry(settings.signals_db, settings.publication_dir()).load(published.signal_id)
+    assert (str(signal.entry_1), str(signal.stop_loss), str(signal.tp_1)) == (
+        simulated.levels["entry"], simulated.levels["stop"], simulated.levels["targets"][0])
+
+
+
+def test_block_interval_needs_enough_independent_blocks_and_widens_with_the_correction():
+    rng = np.random.default_rng(4)
+    times = pd.date_range("2022-01-01", periods=600, freq="D", tz="UTC").to_numpy()
+    values = rng.normal(0.01, 0.05, 600)
+    narrow, blocks = block_interval(values, times, block_days=10, samples=800, seed=1, level=0.95)
+    wide, _ = block_interval(values, times, block_days=10, samples=800, seed=1)
+    assert blocks == 60 and wide[0] < narrow[0] < narrow[1] < wide[1]
+    assert block_interval(values[:200], times[:200], block_days=10, samples=100, seed=1) == (None, 20)
+
+
+@pytest.fixture
+def long_market(settings):
+    """800 jours, marche aléatoire à rendements indépendants AVEC dérive (aucune prévisibilité)."""
+    def build(seed: int, drift: float = 0.00005):
+        store = CandleStore(settings.data_dir)
+        days = 800
+        store.save(canonical(96 * days, "15m", symbol="ETHUSDT", start="2024-01-01", seed=seed, drift=drift),
+                   "ETHUSDT", "15m")
+        for symbol, offset in (("ETHUSDT", 1), ("BTCUSDT", 2)):
+            store.save(canonical(24 * days, "1h", symbol=symbol, start="2024-01-01", seed=seed + offset, drift=drift),
+                       symbol, "1h")
+        settings.data.symbols = ["ETHUSDT", "BTCUSDT"]
+        last = pd.Timestamp("2024-01-01", tz="UTC") + (96 * days - 1) * STEP
+        return (last + STEP + timedelta(minutes=1)).to_pydatetime()
+    return settings, build
+
+
+@pytest.mark.parametrize("seed", [21, 3])
+def test_past_drift_alone_never_reads_as_a_positive_history(long_market, seed):
+    """Relecture leak-auditor : sous une dérive constante sans prévisibilité, l'ancien avis « FAVORABLE »
+    sortait à 7 jours ; l'écart à « tous moments » et l'intervalle corrigé l'empêchent."""
+    settings, build = long_market
+    now = build(seed)
+    for horizon in ("3j", "7j"):
+        plan = pair_outlook(settings, "ETHUSDT", horizon, now=now)["plan"]
+        assert plan["state"] != POSITIVE, (seed, horizon, plan)
+
+
+def test_statistics_never_use_data_after_the_development_end(long_market):
+    """Le test final reste réservé : falsifier tout ce qui suit le 2025-06-30 ne change aucune statistique
+    « tous moments » (les statistiques du régime courant dépendent, elles, de la situation actuelle)."""
+    settings, build = long_market
+    now = build(5)
+    first = pair_outlook(settings, "ETHUSDT", "24h", now=now)
+    store = CandleStore(settings.data_dir)
+    end = pd.Timestamp("2025-06-30 23:59:59", tz="UTC")
+    for symbol, timeframe in (("ETHUSDT", "15m"), ("ETHUSDT", "1h"), ("BTCUSDT", "1h")):
+        frame = store.load(symbol, timeframe)
+        later = frame["open_time"] > end                                  # seulement ce qui suit la fin
+        for column in ("open", "high", "low", "close"):
+            frame.loc[later, column] = frame.loc[later, column] * 1.7
+        store.save(frame, symbol, timeframe)
+    second = pair_outlook(settings, "ETHUSDT", "24h", now=now)
+    assert first["history_end"] == "2025-06-30"
+    for a, b in zip(first["overview"], second["overview"], strict=True):
+        assert a["p_up_all_moments"] == b["p_up_all_moments"], a["horizon"]
+    assert first["plan"]["baseline_expectancy_r"] == second["plan"]["baseline_expectancy_r"]
+
+
+def test_stale_btc_context_and_a_recent_data_gap_are_reported(market):
+    settings, now = market
+    store = CandleStore(settings.data_dir)
+    btc = store.load("BTCUSDT", "1h")
+    store.save(btc[btc["open_time"] < btc["open_time"].max() - pd.Timedelta(days=4)], "BTCUSDT", "1h")
+    result = pair_outlook(settings, "ETHUSDT", "4h", now=now)
+    assert result["context"]["btc_ret_24h_pct"] is None
+    setup = store.load("ETHUSDT", "15m")
+    cut = setup["open_time"].max() - pd.Timedelta(hours=3)
+    store.save(setup[(setup["open_time"] < cut - pd.Timedelta(hours=5)) | (setup["open_time"] >= cut)], "ETHUSDT", "15m")
+    gap = pair_outlook(settings, "ETHUSDT", "4h", now=now)
+    assert gap["context"]["data_gap_recent"] and "trou" in gap["plan"]["unavailable"]
+    assert gap["plan"]["state"] == "INSUFFISANT" and "copy_text" not in gap["plan"]
