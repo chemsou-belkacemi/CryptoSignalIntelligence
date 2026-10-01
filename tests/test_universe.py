@@ -142,13 +142,21 @@ def test_download_failures_are_counted_then_the_pair_is_retried_on_manual_submis
     assert silent["failed"][0]["attempts"] == 1 and "aucune bougie" in silent["failed"][0]["error"]
 
 
-def test_auto_add_mode_adds_pairs_even_from_automatic_signals(settings):
-    """Mode test explicite : un signal automatique ajoute la paire, le motif dit qu'il n'y a pas eu de validation."""
+def test_auto_add_mode_follows_the_halal_screening_of_automatic_signals(settings):
+    """Mode d'ajout automatique : une crypto favorable au screening est ajoutée ; une crypto douteuse reste en
+    attente de la décision du propriétaire (signal non transmis) ; une crypto défavorable est refusée."""
     test_mode = settings.model_copy(update={"external": settings.external.model_copy(update={"auto_add_pairs": True})})
     automatic = evaluate(test_mode, SIGNAL, source="g", now=NOW, user_validated=False, tick_size_lookup=fake_tick)
     assert automatic.verdict == "EN_ATTENTE"
-    entry = UserUniverse(settings.external_db).get("QTUMUSDT")
-    assert entry["status"] == REQUESTED and "sans validation manuelle" in entry["reason"]
+    entry = UserUniverse(settings.external_db).get("QTUMUSDT")                 # QTUM : favorable au screening
+    assert entry["status"] == REQUESTED and "favorable au screening halal" in entry["reason"]
+    doubtful = evaluate(test_mode, SIGNAL.replace("QTUM", "DOGE"), source="g", now=NOW, user_validated=False,
+                        tick_size_lookup=fake_tick)
+    assert doubtful.verdict == "EN_ATTENTE" and "en attente de ta décision" in doubtful.failed[0].detail
+    assert UserUniverse(settings.external_db).get("DOGEUSDT") is None              # rien n'est ajouté
+    haram = evaluate(test_mode, SIGNAL.replace("QTUM", "UNI"), source="g", now=NOW, user_validated=False,
+                     tick_size_lookup=fake_tick)
+    assert haram.verdict == "REFUSE" and "défavorable au screening halal" in haram.failed[0].detail
 
 
 def test_forget_and_tick_size_errors(settings):

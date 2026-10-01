@@ -13,12 +13,16 @@
     <strong>CSI</strong>
     <span class="muted">Crypto Signal Intelligence — analyse seulement, aucun ordre</span>
   </div>
-  <div id="health" class="pill muted">surveillance : …</div>
+  <div class="row">
+    <button id="admissions-badge" type="button" class="pill warn hidden" title="Cryptos à décider (onglet Suivi)"></button>
+    <div id="health" class="pill muted">surveillance : …</div>
+  </div>
 </header>
 
 <nav class="tabs" role="tablist">
   <button class="tab active" data-tab="pair" role="tab" aria-selected="true">Analyser une paire</button>
   <button class="tab" data-tab="market" role="tab" aria-selected="false">Marché</button>
+  <button class="tab" data-tab="opportunities" role="tab" aria-selected="false">Opportunités</button>
   <button class="tab" data-tab="signal" role="tab" aria-selected="false">Évaluer un signal</button>
   <button class="tab" data-tab="follow" role="tab" aria-selected="false">Suivi</button>
 </nav>
@@ -64,6 +68,20 @@
         prévision ; CSI ne propose jamais d'entrer sur cette base.</p>
     </section>
     <div id="market-result"></div>
+  </div>
+
+  <div id="tab-opportunities" class="tabpane hidden">
+    <section class="card">
+      <div class="row wrap">
+        <button id="opportunities-run" class="primary">Analyser toutes les paires (1 h à 7 jours)</button>
+      </div>
+      <p class="muted small">CSI relit chaque paire de l'univers à tous les horizons (environ 20 secondes par paire) et
+        liste les plans dont l'historique est positif dans des conditions comparables, ceux où l'objectif a été atteint
+        avant le stop dans au moins la moitié des cas comparables, et les achats simulés de ses stratégies. Ce sont des
+        fréquences passées, en échantillon, non validées : aucune n'est une proposition d'entrer, et aucune stratégie de
+        CSI n'a démontré d'avantage. Rien n'est publié, rien n'est envoyé à BinanceSpotManager.</p>
+    </section>
+    <div id="opportunities-result"></div>
   </div>
 
   <div id="tab-signal" class="tabpane hidden">

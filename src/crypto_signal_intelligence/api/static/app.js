@@ -5,7 +5,7 @@
 const TOKEN_KEY = "csi_api_token";
 const PREFS_KEY = "csi_dashboard_prefs";
 const PARIS = new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris", dateStyle: "short", timeStyle: "short" });
-const state = { horizon: "24h", pairs: [], horizons: [], followLoaded: false, marketRun: 0 };
+const state = { horizon: "24h", pairs: [], horizons: [], followLoaded: false, marketRun: 0, opportunitiesRun: 0 };
 const SVG = "http://www.w3.org/2000/svg";
 const COPY_LABEL = "Copier le résumé (pas un signal)";
 
@@ -462,6 +462,79 @@ async function runMarket() {
   }
 }
 
+// --- onglet Opportunités ------------------------------------------------------------------------------
+const TP_OFTEN = 0.5;   // « objectif souvent atteint » : au moins la moitié des cas comparables (filtre d'affichage)
+
+function opportunityRow(o) {
+  const detail = el("button", { type: "button", class: "ghost", text: "Détail", onclick: () => {
+    document.getElementById("pair").value = o.symbol;
+    setHorizon(o.horizon);
+    openTab("pair");
+    analyzePair();
+  } });
+  const copyButton = el("button", { type: "button", class: "ghost", text: "Copier (pas un signal)" });
+  copyButton.addEventListener("click", () => copy(o.copy_text || "", copyButton));
+  return [{ node: el("strong", { text: pair(o.symbol) }) }, o.label || o.horizon,
+    `${pctFrac(o.tp_first)} / ${pctFrac(o.sl_first)}`,
+    { node: el("span", { class: ciClass(o.expectancy_r_ci), text: `${fmt(o.expectancy_r, 2, true)} R ${ciR(o.expectancy_r_ci)}` }) },
+    o.entry_reference ? `${price(Number(o.entry_reference))} · ${price(Number(o.stop))} · ${price(Number(o.target))}` : (o.unavailable || "–"),
+    `${(o.samples || 0).toLocaleString("fr-FR")} · ${o.blocks || 0} blocs`,
+    { node: el("div", { class: "row" }, detail, o.copy_text ? copyButton : null) }];
+}
+
+function renderOpportunities(found, done, total) {
+  const target = document.getElementById("opportunities-result");
+  const headers = ["Paire", "Horizon", "Objectif / stop atteint d'abord", "Espérance par trade", "Entrée · stop · objectif", "Cas comparables", ""];
+  const positive = found.plans.filter((o) => o.state === "HISTORIQUE_POSITIF_NON_VALIDE")
+    .sort((a, b) => (b.expectancy_r_ci ? b.expectancy_r_ci[0] : -9) - (a.expectancy_r_ci ? a.expectancy_r_ci[0] : -9));
+  const often = found.plans.filter((o) => isNum(o.tp_first) && o.tp_first >= TP_OFTEN && o.state !== "DONNEES_ANCIENNES")
+    .sort((a, b) => b.tp_first - a.tp_first);
+  const buys = found.buys.map((b) => [{ node: el("strong", { text: pair(b.symbol) }) }, b.strategy,
+    b.levels ? `${price(b.levels.entry)} · ${price(b.levels.stop)} · ${price(b.levels.targets[0])}` : "–",
+    { node: el("span", { class: "bad", text: b.walk_forward_verdict || "jamais évaluée" }) }]);
+  target.replaceChildren(
+    banner("warn", done < total ? `Analyse en cours : ${done} / ${total} paires` : `Analyse terminée : ${total} paires, ${found.plans.length} plans`,
+      "Fréquences passées dans des conditions comparables, en échantillon, non validées : ce ne sont ni des signaux ni des propositions d'entrer.",
+      el("div", { class: "small muted", text: found.errors.length ? `Paires illisibles : ${found.errors.join(", ")}` : "" })),
+    card(`Historique positif, non validé (${positive.length})`,
+      el("p", { class: "muted small", text: "Dans des conditions comparables, ce plan a gagné en moyenne, au-delà de la simple dérive passée (intervalle corrigé au-dessus de 0). Statistique en échantillon, jamais validée par le protocole." }),
+      table(headers, positive.map(opportunityRow), "aucun plan à historique positif pour l'instant")),
+    card(`Objectif atteint avant le stop dans au moins ${pctFrac(TP_OFTEN, 0)} des cas comparables (${often.length})`,
+      el("p", { class: "muted small", text: "Fréquence passée, pas une probabilité : un objectif souvent atteint peut aller avec des pertes plus grosses que les gains ; regarder l'espérance et son intervalle." }),
+      table(headers, often.map(opportunityRow), "aucun plan à ce niveau pour l'instant")),
+    card(`Achats simulés des stratégies de CSI (${buys.length})`,
+      el("p", { class: "muted small", text: "Simulation sur la dernière bougie close ; stratégies rejetées par le protocole (aucun avantage démontré)." }),
+      table(["Paire", "Stratégie", "Entrée · stop · objectif", "Verdict du protocole"], buys, "aucun achat simulé")));
+}
+
+async function runOpportunities() {
+  const run = ++state.opportunitiesRun;
+  const button = document.getElementById("opportunities-run");
+  button.disabled = true;
+  const found = { plans: [], buys: [], errors: [] };
+  const total = state.pairs.length;
+  renderOpportunities(found, 0, total);
+  try {
+    for (const [index, p] of state.pairs.entries()) {
+      if (run !== state.opportunitiesRun) return;
+      try {
+        const r = await api("/opportunities/pair", { symbol: p.symbol });
+        for (const h of r.horizons || []) {
+          if (!h.error) found.plans.push({ ...h, symbol: r.symbol });
+        }
+        for (const s of r.strategies || []) {
+          if (s.action === "BUY") found.buys.push({ ...s, symbol: r.symbol });
+        }
+      } catch (_error) {
+        found.errors.push(pair(p.symbol));
+      }
+      renderOpportunities(found, index + 1, total);
+    }
+  } finally {
+    button.disabled = false;
+  }
+}
+
 // --- onglet Signal -----------------------------------------------------------------------------------
 async function evaluateSignal() {
   const button = document.getElementById("evaluate");
@@ -538,8 +611,9 @@ async function loadFollow(force = false) {
   if (state.followLoaded && !force) return;
   busy(target, "Chargement…");
   try {
-    const [health, models, recent, sources, generated, universe] = await Promise.all([
+    const [health, models, recent, sources, generated, universe, admissions] = await Promise.all([
       api("/health"), api("/models"), api("/signals/recent?limit=15"), api("/sources"), api("/signals/generated?limit=10"), api("/universe"),
+      refreshAdmissions(),
     ]);
     state.followLoaded = true;
     state.models = models;
@@ -562,6 +636,7 @@ async function loadFollow(force = false) {
           { node: el("span", {}, el("strong", { class: verdictClass(m.verdict), text: m.verdict || m.status }),
             m.detail ? el("div", { class: "small muted", text: m.detail }) : null) }, when(m.created_at), m.source]),
         "aucun modèle évalué")),
+      admissionsCard(admissions),
       card("Signaux évalués récemment", table(["Reçu", "Source", "Paire", "Entrée · stop · TP1", "Avis", "Issue", "R"],
         (recent.signals || []).map((x) => [when(x.received_at), x.source, pair(x.symbol), `${price(x.entry)} · ${price(x.stop)} · ${price(x.tp1)}`,
           x.verdict, x.outcome || "en cours", fmt(x.outcome_r, 2, true)]), "aucun signal évalué")),
@@ -576,6 +651,76 @@ async function loadFollow(force = false) {
   } catch (error) {
     showError(target, error);
   }
+}
+
+// --- univers : avis halal et décisions d'ajout ---------------------------------------------------------
+async function refreshAdmissions() {
+  const badge = document.getElementById("admissions-badge");
+  try {
+    const data = await api("/admissions");
+    const count = (data.pending || []).length;
+    badge.textContent = `${count} crypto${count > 1 ? "s" : ""} à décider`;
+    badge.classList.toggle("hidden", count === 0);
+    return data;
+  } catch (_error) {
+    badge.classList.add("hidden");
+    return null;
+  }
+}
+
+async function decideAdmission(symbol, decision, button) {
+  button.disabled = true;
+  try {
+    await api("/admissions/decide", { symbol, decision });
+    state.followLoaded = false;
+    await refreshAdmissions();
+    await loadFollow(true);
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = `Erreur : ${error.message}`;
+  }
+}
+
+async function runAdmissions(button) {
+  button.disabled = true;
+  button.textContent = "Vérification sur Binance et application du screening…";
+  try {
+    const out = await api("/admissions/run", {});
+    const c = out.counts || {};
+    button.textContent = `Fait : ${c.AJOUTEE || 0} ajoutée(s), ${c.REFUSEE || 0} refusée(s), ${c.A_DECIDER || 0} à décider, ${c.INDISPONIBLE || 0} indisponible(s)`;
+    await refreshAdmissions();
+    state.followLoaded = false;
+    setTimeout(() => loadFollow(true), 1500);
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = `Erreur : ${error.message}`;
+  }
+}
+
+const ADMISSION_LABELS = { AJOUTEE: ["ok", "ajoutée"], REFUSEE: ["bad", "refusée"], INDISPONIBLE: ["muted", "indisponible sur Binance"], A_DECIDER: ["warn", "à décider"] };
+
+function admissionsCard(data) {
+  if (!data) return card("Univers : avis halal", el("p", { class: "muted small", text: "indisponible" }));
+  const run = el("button", { type: "button", class: "primary", text: "Appliquer le screening (ajouter les favorables)" });
+  run.addEventListener("click", () => runAdmissions(run));
+  const pending = (data.pending || []).map((p) => {
+    const add = el("button", { type: "button", class: "primary", text: "Ajouter" });
+    const refuse = el("button", { type: "button", class: "ghost", text: "Refuser" });
+    add.addEventListener("click", () => decideAdmission(p.symbol, "add", add));
+    refuse.addEventListener("click", () => decideAdmission(p.symbol, "refuse", refuse));
+    return [{ node: el("strong", { text: pair(p.symbol) }) }, p.screening.toLowerCase(), p.reason, { node: el("div", { class: "row" }, add, refuse) }];
+  });
+  const decisions = (data.decisions || []).map((d) => {
+    const [kind, label] = ADMISSION_LABELS[d.decision] || ["muted", d.decision];
+    return [pair(d.symbol), { node: el("span", { class: `pill ${kind}`, text: label }) }, d.decided_by, d.reason, when(d.decided_at)];
+  });
+  return card("Univers : avis halal et décisions d'ajout",
+    el("p", { class: "muted small", text: data.rule }),
+    el("div", { class: "row" }, run),
+    el("h3", { text: `Cryptos à décider (${pending.length})` }),
+    table(["Paire", "Avis", "Motif", "Ta décision"], pending, "rien à décider"),
+    el("h3", { text: "Décisions" }),
+    table(["Paire", "Décision", "Par", "Motif", "Date"], decisions, "aucune décision pour l'instant"));
 }
 
 // --- navigation et démarrage ---------------------------------------------------------------------------
@@ -593,20 +738,24 @@ function start() {
   for (const tab of document.querySelectorAll(".tab")) tab.addEventListener("click", () => openTab(tab.dataset.tab));
   document.getElementById("analyze").addEventListener("click", analyzePair);
   document.getElementById("market-run").addEventListener("click", runMarket);
+  document.getElementById("opportunities-run").addEventListener("click", runOpportunities);
   document.getElementById("evaluate").addEventListener("click", evaluateSignal);
   document.getElementById("token-save").addEventListener("click", () => {
     try { localStorage.setItem(TOKEN_KEY, document.getElementById("token").value.trim()); } catch (_err) { /* stockage bloqué */ }
     document.getElementById("token-box").classList.add("hidden");
     boot();
   });
+  document.getElementById("admissions-badge").addEventListener("click", () => openTab("follow"));
   boot();
   setInterval(refreshHealth, 60000);
+  setInterval(refreshAdmissions, 300000);
 }
 
 async function boot() {
   refreshHealth();
+  refreshAdmissions();
   const params = new URLSearchParams(window.location.search);
-  const tab = { signal: "signal", suivi: "follow", marche: "market" }[params.get("onglet")];
+  const tab = { signal: "signal", suivi: "follow", marche: "market", opportunites: "opportunities" }[params.get("onglet")];
   if (tab) openTab(tab);
   try {
     await loadPairs();
@@ -615,6 +764,7 @@ async function boot() {
     return;
   }
   if (tab === "market" && params.get("lancer") === "1") runMarket();
+  if (tab === "opportunities" && params.get("lancer") === "1") runOpportunities();
   const wanted = (params.get("paire") || "").toUpperCase().replace("/", "");
   if (wanted && state.pairs.some((p) => p.symbol === wanted)) {
     document.getElementById("pair").value = wanted;

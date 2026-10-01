@@ -25,6 +25,10 @@ demande de clé Binance. Code : `src/crypto_signal_intelligence/api/server.py`.
 | `GET /execution-report` | signaux publiés : backtest, prospectif et Demo, séparés |
 | `GET /pairs` | paires analysables (configurées et ajoutées prêtes) et âge de leur dernière bougie ; horizons proposés |
 | `GET /models` | dernier verdict de chaque modèle (walk-forward, méta-labeling, ML intraday, criblage) et nombre d'essais du programme |
+| `GET /admissions` | avis halal consignés (config/halal_screening.toml) et décisions d'ajout des paires : ajoutées, refusées, indisponibles, à décider ([UNIVERSE.md](UNIVERSE.md)) |
+| `POST /admissions/run` | applique le screening : favorables ajoutées (paire USDT négociable), défavorables refusées, douteuses ou inexploitables à décider |
+| `POST /admissions/decide` | `{"symbol": "DOGEUSDT", "decision": "add" \| "refuse"}` : décision du propriétaire, prioritaire et tracée |
+| `POST /opportunities/pair` | `{"symbol": "ETHUSDT"}` : les 6 horizons d'une paire en un passage (état du plan, objectif ou stop atteint d'abord, espérance, niveaux) et l'avis simulé des stratégies ; statistiques en échantillon, jamais une proposition d'entrer |
 | `GET /derivatives?symbol=X` | positionnement du moment sur le marché à terme USDⓈ-M (financement, prime, intérêt ouvert, ratios) avec le rang de chaque valeur dans son historique récent ; données publiques, relues au plus toutes les 5 min ; information seulement ([DERIVATIVES.md](DERIVATIVES.md)) |
 | `POST /evaluate` | évalue un signal Telegram (voir ci-dessous) |
 | `POST /analyze-pair` | `{"symbol": "ETHUSDT", "horizon": "24h"}` : perspective d'une paire (contexte, historique comparable, plan indicatif évalué sur le passé, stratégies en simulation) ; une analyse à la fois, résultat gardé jusqu'à la bougie suivante |

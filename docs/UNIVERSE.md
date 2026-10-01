@@ -100,6 +100,53 @@ BinanceSpotManager) n'ajoutent jamais de paire : personne ne les a validés.
   Consulter : `universe` (ou `GET /universe` de l'API) ; retirer : `universe --forget PAIRE`.
 - **Ajout automatique de toute paire** (`[external] auto_add_pairs`, ou `CSI_EXTERNAL__AUTO_ADD_PAIRS` ; Docker : `CSI_AUTO_ADD_PAIRS`) : toute paire soumise est ajoutée, même par un signal reçu automatiquement, **sans validation du propriétaire** ; le motif enregistré le dit. **Activé par défaut dans Docker depuis le 2026-10-01, par choix du propriétaire** ; `CSI_AUTO_ADD_PAIRS=false` dans le `.env` de CSI pour revenir à la règle stricte (seule sa soumission manuelle vaut validation).
 
+## Admission selon l'avis halal (règle du propriétaire, 2026-10-01)
+
+Demande du propriétaire : « ajoute toutes ces cryptos favorables avec de l'USDT ; favorable : ajout
+direct ; défavorable : refus ; douteux : ne se transmet pas directement, il doit me notifier ; avis
+inexploitable aussi, avec un bouton pour choisir ».
+
+- **Avis.** `config/halal_screening.toml` reprend, crypto par crypto, les avis consignés ci-dessus : trois
+  sources relevées le 2026-09-30, avec l'avis par source ou le résumé de ce document. Une crypto absente
+  du fichier est « inexploitable ». Ce projet ne certifie rien.
+- **Statut**, déduit mécaniquement (`external/admission.py`) :
+
+  | Statut | Condition | Ce que fait CSI |
+  |---|---|---|
+  | FAVORABLE | halal pour au moins 2 sources, aucune douteuse ni haram | ajout direct de la paire USDT, si elle se négocie sur Binance Spot |
+  | DEFAVORABLE | haram pour une source au moins | refus |
+  | DOUTEUX | douteuse pour une source au moins, ou avis contradictoires | à décider par le propriétaire |
+  | INEXPLOITABLE | moins de 2 sources, ou screening non consigné | à décider par le propriétaire |
+
+- **Ajout en masse.**
+  - Commande : `admit-halal`, ou le bouton « Appliquer le screening » de l'onglet Suivi du tableau de
+    bord.
+  - Elle s'applique aux cryptos du fichier, hors configuration, en paire USDT.
+  - Une paire ajoutée suit le cycle habituel : la surveillance télécharge son historique, une paire par
+    cycle, puis la paire devient prête.
+  - Une crypto favorable sans paire négociable est « indisponible ».
+- **Signal reçu automatiquement** (relève Telegram de BinanceSpotManager), pour une crypto hors univers :
+  - favorable : ajoutée ;
+  - défavorable : refusée (avis REFUSE) ;
+  - douteuse ou inexploitable : rien n'est ajouté, et l'avis reste **EN_ATTENTE**. BinanceSpotManager
+    n'exécute pas un avis EN_ATTENTE : le signal n'est donc **pas transmis**. La crypto apparaît « à
+    décider ».
+- **Soumission à la main par le propriétaire.** Elle vaut toujours sa décision : la paire est ajoutée.
+  Seule exception : une crypto défavorable reste refusée. Pour lever ce refus, il faut modifier le
+  fichier des avis.
+- **Notification et décision.**
+  - Un badge « N cryptos à décider » s'affiche en haut du tableau de bord.
+  - Dans l'onglet Suivi, la liste « Cryptos à décider » propose deux boutons, Ajouter et Refuser.
+  - La décision est tracée « par propriétaire », et la règle ne l'écrase jamais.
+  - Telegram : CSI n'a pas de bot. Il lui faudrait un jeton, donc un secret, alors que CSI n'en utilise
+    aucun. La notification passe par le tableau de bord. Un relais par le bot de BinanceSpotManager reste
+    possible plus tard, sur demande.
+- **Où.** Table `pair_admissions` de `signals/external.sqlite3`, à côté de `user_pairs`. API :
+  `GET /admissions`, `POST /admissions/run`, `POST /admissions/decide` (docs/API.md).
+- Ces paires servent à l'évaluation des signaux, au tableau de bord et à la surveillance des signaux
+  externes. Elles n'entrent pas dans les protocoles de recherche, qui gardent l'univers de la
+  configuration.
+
 ## Modifier l'univers
 
 1. Ajouter ou retirer la paire dans `[data].symbols` et son pas de prix dans `[data.tick_size]`

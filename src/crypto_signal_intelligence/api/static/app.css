@@ -52,6 +52,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-sp
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; font-variant-numeric: tabular-nums; }
 .pill { display: inline-block; padding: 2px 10px; border-radius: 12px; border: 1px solid currentColor; font-size: 12px; white-space: nowrap; }
+button.pill { background: transparent; cursor: pointer; font: inherit; font-size: 12px; }
 .ok { color: var(--ok); } .warn { color: var(--warn); } .bad { color: var(--bad); } .muted { color: var(--muted); }
 .small { font-size: 12px; }
 .banner { border-radius: 10px; padding: 12px 16px; margin-top: 12px; border: 1px solid var(--line); }

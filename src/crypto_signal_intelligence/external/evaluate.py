@@ -27,6 +27,17 @@ from ..features.loader import MissingData, load_inputs
 from ..levels.engine import TradeLevels
 from ..research.protocol import development_end
 from ..signals.schema import gross_rr
+from .admission import (
+    A_DECIDER,
+    AJOUTEE,
+    DEFAVORABLE,
+    FAVORABLE,
+    OWNER,
+    REFUSEE,
+    RULE,
+    AdmissionLog,
+    screening_for,
+)
 from .base_rate import BaseRate, base_rate
 from .parser import ExternalSignal, parse
 from .registry import ExternalSignalRegistry
@@ -121,18 +132,39 @@ def _binance_unreachable(label: str, symbol: str, exc: Exception) -> Check:
 
 def _universe_check(settings: Settings, symbol: str, *, source: str, now: datetime, user_validated: bool,
                     tick_size_lookup) -> Check:
-    """Paire hors configuration : ajout sur validation du propriétaire, demande en cours, ou refus."""
+    """Paire hors configuration, selon l'avis de screening halal (règle du propriétaire, external/admission.py) :
+    favorable → ajout ; défavorable → refus ; douteuse ou inexploitable → ajout seulement sur décision du
+    propriétaire (sa soumission manuelle, ou le bouton du tableau de bord) ; reçue automatiquement, elle reste
+    EN_ATTENTE de sa décision et le signal n'est pas transmis."""
     label = "paire dans l'univers"
     universe = UserUniverse(settings.external_db)
     entry = universe.get(symbol)
     if entry is not None and entry["status"] == REQUESTED:
-        return Check(label, False, f"{symbol} ajoutée à l'univers sur validation du propriétaire le "
-                     f"{entry['requested_at'][:16]} ; historique en cours de téléchargement par la surveillance "
-                     "(quelques minutes) : redemander l'avis ensuite", PENDING)
+        return Check(label, False, f"{symbol} ajoutée à l'univers le {entry['requested_at'][:16]} ; historique en "
+                     "cours de téléchargement par la surveillance (quelques minutes) : redemander l'avis ensuite",
+                     PENDING)
+    screening = screening_for(settings, symbol)
+    log = AdmissionLog(settings.external_db)
+    decided = log.get(symbol)
+    owner = decided if decided and decided["decided_by"] == OWNER else None
+    if owner and owner["decision"] == REFUSEE:
+        return Check(label, False, f"{symbol} refusée par toi le {owner['decided_at'][:16]} : hors univers", REFUSAL)
+    if screening.status == DEFAVORABLE and not (owner and owner["decision"] == AJOUTEE):
+        if not decided:
+            log.record(symbol, screening, REFUSEE, by=RULE, now=now,
+                       reason=f"défavorable au screening halal : {screening.explain()}")
+        return Check(label, False, f"{symbol} défavorable au screening halal ({screening.explain()}) : refusée",
+                     REFUSAL)
     if not (user_validated or settings.external.auto_add_pairs):
         failure = f" ; téléchargement en échec ({entry['last_error']})" if entry and entry["status"] == FAILED else ""
-        return Check(label, False, f"{symbol} hors univers (docs/UNIVERSE.md) : non screenée, aucune donnée locale"
+        return Check(label, False, f"{symbol} hors univers (avis halal : {screening.explain()}), aucune donnée locale"
                      f"{failure}. La soumettre à la main (page Avis CSI) vaut validation et l'ajoute", REFUSAL)
+    if not user_validated and screening.status != FAVORABLE and not (owner and owner["decision"] == AJOUTEE):
+        if not owner:
+            log.record(symbol, screening, A_DECIDER, by=RULE, now=now,
+                       reason=f"{screening.explain()} ; signal reçu de « {source} »")
+        return Check(label, False, f"{symbol} : avis halal {screening.explain()} ; en attente de ta décision "
+                     "(tableau de bord, onglet Suivi, « Cryptos à décider ») : signal non transmis", PENDING)
     # Soumission manuelle = validation du propriétaire (ou mode test auto_add_pairs) : ajout (ou relance)
     # après contrôle sur Binance Spot.
     try:
@@ -148,9 +180,11 @@ def _universe_check(settings: Settings, symbol: str, *, source: str, now: dateti
         return _binance_unreachable(label, symbol, exc)
     except Exception as exc:  # noqa: BLE001 - réseau : ni refus ni ajout, à redemander
         return _binance_unreachable(label, symbol, exc)
-    reason = (f"signal soumis à la main (source « {source} »)" if user_validated
-              else f"mode test auto_add_pairs, sans validation manuelle (source « {source} »)")
+    reason = (f"signal soumis à la main (source « {source} » ; avis halal {screening.explain()})" if user_validated
+              else f"favorable au screening halal ({screening.explain()}) ; signal reçu de « {source} »")
     universe.request(symbol, tick, reason=reason, now=now)
+    if not owner:
+        log.record(symbol, screening, AJOUTEE, by=OWNER if user_validated else RULE, reason=reason, now=now)
     return Check(label, False, f"{symbol} ajoutée à l'univers sur ta validation (pas de prix {tick}) ; historique "
                  "15m et 1h en cours de téléchargement par la surveillance (quelques minutes) : redemander l'avis "
                  "ensuite", PENDING)

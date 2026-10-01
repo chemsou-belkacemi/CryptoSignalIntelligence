@@ -148,6 +148,23 @@ def screen_derivatives(verbose: bool = False):
     console.print(f"Rapport : {settings.reports_dir / result.run_id / 'summary.json'}")
 
 
+@app.command("admit-halal")
+def admit_halal(verbose: bool = False):
+    """Applique le screening halal (config/halal_screening.toml) aux paires USDT hors configuration : favorables
+    ajoutées, défavorables refusées, douteuses ou inexploitables à décider (tableau de bord, onglet Suivi)."""
+    from collections import Counter
+
+    from .external.admission import admit_all
+    settings = _settings(verbose)
+    with console.status("vérification des paires sur Binance Spot…"):
+        results = admit_all(settings, now=_now())
+    for r in results:
+        color = {"AJOUTEE": "green", "REFUSEE": "red", "A_DECIDER": "yellow"}.get(r["decision"], "dim")
+        console.print(f"  [{color}]{r['decision']}[/{color}] {r['symbol']} — {r['reason']}")
+    console.print(f"Bilan : {dict(Counter(r['decision'] for r in results))} (les paires ajoutées sont téléchargées "
+                  "par la surveillance, une par cycle). Ce projet ne certifie rien : avis de sources publiques.")
+
+
 @app.command("data-quality")
 def data_quality(symbol: str = typer.Option(..., help="Paire, ex. BTCUSDT"),
                  timeframe: str = typer.Option(None, help="Défaut : timeframe de setup")):

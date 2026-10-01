@@ -14,6 +14,11 @@ demande de clé Binance. Pages : `/` (application : analyser une paire, évaluer
     GET  /pairs                paires analysables, avec la fraîcheur de leurs données
     GET  /models               verdicts de tous les modèles de CSI (registre des expériences)
     GET  /derivatives?symbol=X positionnement du marché à terme (données publiques, information seulement)
+    GET  /admissions           avis halal des cryptos et décisions d'ajout (dont celles à décider)
+    POST /admissions/run       applique le screening : favorables ajoutées, défavorables refusées, autres à décider
+    POST /opportunities/pair   {"symbol": "ETHUSDT"} → les 6 horizons d'une paire (plans, fréquences, états) et l'avis
+                               simulé des stratégies ; statistiques en échantillon, jamais une proposition d'entrer
+    POST /admissions/decide    {"symbol": "DOGEUSDT", "decision": "add" | "refuse"} → décision du propriétaire
     POST /analyze-pair         {"symbol": "ETHUSDT", "horizon": "24h"} → contexte, historique comparable,
                                plan indicatif évalué sur le passé, avis des stratégies (simulation)
     POST /refresh-pair         {"symbol": "ETHUSDT"} → télécharge les bougies publiques manquantes de la paire
@@ -158,6 +163,7 @@ class CsiApi:
         self._derivatives_lock = threading.Lock()
         self._derivatives_cache: dict[str, tuple[datetime, dict]] = {}
         self.futures_client: PublicHttpClient | None = None       # remplaçable dans les tests (aucun réseau)
+        self.listing: Callable[..., object] | None = None          # paire négociable sur Binance (tests : sans réseau)
 
     # --- lecture ---------------------------------------------------------------------------
     def health(self) -> dict:
@@ -315,6 +321,87 @@ class CsiApi:
         return {"models": out, "program_trials": trials.get("surveillance", 0),
                 "research_program_trials": trials.get("recherche"),
                 "note": "Aucun modèle n'est validé à ce jour : CSI n'annonce aucune rentabilité."}
+
+    def pair_opportunities(self, payload: dict) -> dict:
+        """Une paire à tous les horizons, historique relu une seule fois : pour chaque horizon l'état du plan
+        indicatif, la fréquence passée d'objectif atteint avant le stop, l'espérance et ses niveaux ; puis l'avis
+        simulé des stratégies (rejetées par le protocole). Description de l'historique en échantillon, non validée :
+        le tableau de bord le dit, et ce n'est jamais une proposition d'entrer."""
+        from ..external.universe import universe_symbols
+        from ..features.loader import load_inputs
+        from ..outlook.pair import HORIZONS, OutlookError, pair_outlook
+        from ..signals.analyze import analyze
+        from ..strategies.registry import STRATEGIES
+        symbol = str(payload.get("symbol", "")).strip().upper()
+        if not symbol.isalnum() or symbol not in universe_symbols(self.settings):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "champ « symbol » : une paire de l'univers (ex. ETHUSDT)")
+        with self._outlook_lock:
+            now = self.now()
+            try:
+                inputs = load_inputs(self.settings, symbol)
+            except Exception as exc:  # noqa: BLE001 - message clair pour le tableau de bord
+                raise ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, f"données de {symbol} illisibles ({exc})") from None
+            horizons: list[dict] = []
+            context: dict = {}
+            for key in HORIZONS:
+                try:
+                    result = pair_outlook(self.settings, symbol, key, now=now, inputs=inputs)
+                except OutlookError as exc:
+                    horizons.append({"horizon": key, "error": str(exc)})
+                    continue
+                context = result.get("context", context)
+                plan = result.get("plan", {})
+                horizons.append({"horizon": key, "label": plan.get("label"), "state": plan.get("state"),
+                                 **{k: plan.get(k) for k in ("tp_first", "sl_first", "timeout", "expectancy_r",
+                                                             "expectancy_r_ci", "excess_r_ci", "entry_reference",
+                                                             "stop", "target", "rr_gross", "samples", "blocks",
+                                                             "regime_conditioned", "copy_text", "unavailable")}})
+            verdicts = {s["strategy"]: s for s in self.strategies()["strategies"]}
+            strategies = []
+            for strategy_id in STRATEGIES:
+                try:
+                    out = analyze(self.settings, symbol, strategy_id, now=now, inputs=inputs, publish=False)
+                    item = {"strategy": strategy_id, "action": out.action, "reason": out.reason_code,
+                            "levels": out.levels}
+                except Exception as exc:  # noqa: BLE001 - une stratégie en échec n'empêche pas les autres
+                    item = {"strategy": strategy_id, "action": "ERREUR", "reason": type(exc).__name__, "levels": None}
+                strategies.append(item | {"walk_forward_verdict": verdicts.get(strategy_id, {}).get("verdict")})
+        return _jsonable({"symbol": symbol, "context": {k: context.get(k) for k in ("close", "fresh", "data_age_minutes",
+                                                                                      "trend_1h", "volatility_1h")},
+                          "horizons": horizons, "strategies": strategies})
+
+    def admissions(self) -> dict:
+        """Avis halal (sources publiques relevées, aucune certification) et décisions d'ajout des paires."""
+        from ..external.admission import A_DECIDER, AdmissionLog, load_screening
+        screenings, checked_on = load_screening(self.settings)
+        rows = AdmissionLog(self.settings.external_db).all()
+        return {"checked_on": checked_on, "screened": len(screenings),
+                "pending": [r for r in rows if r["decision"] == A_DECIDER],
+                "decisions": [r for r in rows if r["decision"] != A_DECIDER],
+                "rule": "favorable au screening halal (2 sources sur 3 au moins, aucune douteuse ni haram) : ajout "
+                        "direct de la paire USDT ; défavorable (haram pour une source) : refus ; douteuse ou "
+                        "inexploitable : à décider par toi, signal non transmis en attendant. Avis relevés le "
+                        f"{checked_on} (config/halal_screening.toml) ; ce projet ne certifie rien."}
+
+    def _listing(self):
+        from ..external.admission import binance_listing
+        return self.listing or binance_listing
+
+    def admissions_run(self) -> dict:
+        from collections import Counter
+
+        from ..external.admission import admit_all
+        results = admit_all(self.settings, now=self.now(), lookup=self._listing())
+        return {"counts": dict(Counter(r["decision"] for r in results)), "results": results}
+
+    def admissions_decide(self, payload: dict) -> dict:
+        from ..external.admission import decide
+        symbol, decision = str(payload.get("symbol", "")).strip().upper(), payload.get("decision")
+        if not symbol.isalnum() or not symbol.endswith("USDT") or len(symbol) > 20:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "champ « symbol » : une paire USDT (ex. DOGEUSDT)")
+        if decision not in ("add", "refuse"):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "champ « decision » : add ou refuse")
+        return decide(self.settings, symbol, add=decision == "add", now=self.now(), lookup=self._listing())
 
     def derivatives(self, symbol: str) -> dict:
         """Positionnement du marché à terme pour une paire de l'univers (données publiques, cache court).
@@ -475,6 +562,7 @@ class CsiApi:
                 "/signals/generated": lambda: self.generated(_int(query.get("limit", ["20"])[0])),
                 "/pairs": self.pairs, "/models": self.models,
                 "/derivatives": lambda: self.derivatives(query.get("symbol", [""])[0]),
+                "/admissions": self.admissions,
             }
             if path in routes:
                 return routes[path]()
@@ -484,6 +572,12 @@ class CsiApi:
             return self.analyze_pair(body or {})
         elif method == "POST" and path == "/refresh-pair":
             return self.refresh_pair(body or {})
+        elif method == "POST" and path == "/opportunities/pair":
+            return self.pair_opportunities(body or {})
+        elif method == "POST" and path == "/admissions/run":
+            return self.admissions_run()
+        elif method == "POST" and path == "/admissions/decide":
+            return self.admissions_decide(body or {})
         raise ApiError(HTTPStatus.NOT_FOUND, f"route inconnue : {method} {path}")
 
 

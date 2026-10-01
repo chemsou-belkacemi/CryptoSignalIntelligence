@@ -1,0 +1,84 @@
+# Avis de screening halal relevés le 2026-09-30 sur trois sources publiques (docs/UNIVERSE.md).
+# CE PROJET NE CERTIFIE LA CONFORMITÉ D'AUCUN ACTIF : la décision finale appartient au propriétaire.
+#
+# Avis par source : halal | douteux | haram | ambigu (contradictoire sur une même page : ni pour ni contre).
+# Quand docs/UNIVERSE.md ne donne qu'un résumé, `resume` le reprend tel quel.
+# Statut CSI, déduit mécaniquement (external/admission.py) :
+#   FAVORABLE     halal pour au moins 2 sources, aucune douteuse ni haram   → ajout direct (paire USDT)
+#   DEFAVORABLE   haram pour au moins une source                            → refus
+#   DOUTEUX       douteuse pour au moins une source, ou avis contradictoires → décision du propriétaire
+#   INEXPLOITABLE moins de 2 sources, ou screening non consigné             → décision du propriétaire
+# Une crypto absente de ce fichier est INEXPLOITABLE.
+
+checked_on = "2026-09-30"
+
+[sources]
+HS = "HalalSignalz — crypto pass list (Crypto Shariah Screening Framework), juin 2026"
+SB = "SharifBot — halal coins (AAOIFI Shariah Standard 17), sept. 2026"
+IFG = "Islamic Finance Guru — crypto (analyse maison), non datée"
+
+[assets]
+# Univers de la configuration (16 paires retenues)
+BTC = { HS = "halal", SB = "halal", IFG = "halal" }
+ETH = { HS = "halal", SB = "halal", IFG = "halal" }
+SOL = { HS = "halal", SB = "halal", IFG = "ambigu" }
+XRP = { HS = "halal", SB = "halal", IFG = "halal" }
+NEAR = { HS = "halal", SB = "halal", IFG = "halal" }
+AVAX = { HS = "halal", SB = "halal" }
+HBAR = { HS = "halal", SB = "halal", IFG = "halal" }
+LINK = { HS = "halal", SB = "halal" }
+XLM = { HS = "halal", SB = "halal", IFG = "halal" }
+ADA = { HS = "halal", SB = "halal", IFG = "halal" }
+TRX = { SB = "halal", IFG = "halal", note = "écosystème de jeux d'argent selon certains avis" }
+FIL = { HS = "halal", SB = "halal", IFG = "halal" }
+ALGO = { HS = "halal", SB = "halal", IFG = "halal" }
+DOT = { HS = "halal", SB = "halal", IFG = "halal" }
+ATOM = { HS = "halal", SB = "halal", IFG = "halal" }
+ETC = { SB = "halal", IFG = "halal" }
+
+# Exclues de la configuration pour historique trop court : screening favorable sur 3 sources
+POL = { HS = "halal", SB = "halal", IFG = "halal" }
+RENDER = { HS = "halal", SB = "halal", IFG = "halal" }
+# Historique trop court, screening non détaillé dans docs/UNIVERSE.md
+APT = { resume = "inexploitable", note = "screening non consigné (exclue pour historique trop court)" }
+ARB = { resume = "inexploitable", note = "screening non consigné (exclue pour historique trop court)" }
+SUI = { resume = "inexploitable", note = "screening non consigné (exclue pour historique trop court)" }
+TIA = { resume = "inexploitable", note = "screening non consigné (exclue pour historique trop court)" }
+OP = { resume = "inexploitable", note = "screening non consigné (exclue pour historique trop court)" }
+
+# Exclues pour liquidité < 5 M$ le 2026-09-30 « malgré un screening favorable »
+XTZ = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
+VET = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
+IOTA = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
+THETA = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
+NEO = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
+EGLD = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
+AR = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
+KSM = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
+ONE = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
+ZIL = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
+QTUM = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
+MINA = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
+FLOW = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
+STX = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
+GRT = { resume = "favorable", note = "liquidité faible le 2026-09-30" }
+
+# Screening insuffisant ou avis négatif
+LTC = { resume = "inexploitable", note = "une seule source" }
+BCH = { resume = "inexploitable", note = "une seule source" }
+BNB = { SB = "douteux" }
+ICP = { SB = "douteux" }
+QNT = { SB = "douteux" }
+ZEC = { SB = "douteux" }
+DASH = { SB = "douteux" }
+SEI = { SB = "douteux" }
+ROSE = { SB = "douteux" }
+FET = { SB = "douteux" }
+UNI = { IFG = "haram" }
+DOGE = { resume = "douteux", note = "une source, ou avis contradictoires" }
+SHIB = { resume = "douteux", note = "une source, ou avis contradictoires" }
+PEPE = { resume = "douteux", note = "une source, ou avis contradictoires" }
+XMR = { resume = "douteux", note = "une source, ou avis contradictoires" }
+AAVE = { IFG = "haram", note = "intérêt / produits synthétiques" }
+MKR = { IFG = "haram", note = "intérêt / produits synthétiques" }
+ENA = { IFG = "haram", note = "intérêt / produits synthétiques" }

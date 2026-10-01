@@ -170,7 +170,7 @@ routes, sécurité et intégration prévue dans [docs/API.md](docs/API.md).
 ## Tableau de bord interactif de CSI : <http://127.0.0.1:8503/>
 
 Indépendant de BinanceSpotManager (servi par le service `api` de CSI ; sans Docker :
-`.\.venv\Scripts\python.exe -m crypto_signal_intelligence.api`). Quatre onglets :
+`.\.venv\Scripts\python.exe -m crypto_signal_intelligence.api`). Cinq onglets :
 
 - **Analyser une paire** : choisir une paire et un horizon (1 h, 4 h, 12 h, 1 jour, 3 jours, 7 jours).
   CSI montre :
@@ -191,11 +191,24 @@ Indépendant de BinanceSpotManager (servi par le service `api` de CSI ; sans Doc
   (surveillance arrêtée), un bouton les met à jour depuis les données publiques de Binance.
 - **Marché** : toutes les paires à l'horizon choisi (prix, 24 h, régime, fréquence de hausse, état du plan),
   avec un bouton Détail ; adresse directe `http://127.0.0.1:8503/?onglet=marche&lancer=1`.
+- **Opportunités** : un bouton analyse toutes les paires de l'univers à tous les horizons (environ
+  20 s par paire) et liste trois choses :
+  - les plans à historique positif (non validé) ;
+  - les plans dont l'objectif a été atteint avant le stop dans au moins la moitié des cas comparables ;
+  - les achats simulés des stratégies.
+
+  Ce sont des fréquences passées, jamais des propositions d'entrer. Adresse directe :
+  `http://127.0.0.1:8503/?onglet=opportunites&lancer=1`.
 - **Évaluer un signal** : coller un signal (Telegram ou écrit à la main) → contrôles, géométrie,
   taux de base de la même géométrie, contexte, avis expliqué ; enregistré pour suivre son issue.
-- **Suivi** : santé de la surveillance, verdicts de tous les modèles (registre de la surveillance et registre
-  de recherche du PC, monté en lecture seule), signaux évalués, bilan des groupes, signaux trouvés par les
-  stratégies.
+- **Suivi** :
+  - santé de la surveillance ;
+  - verdicts de tous les modèles (registre de la surveillance, et registre de recherche du PC monté en
+    lecture seule) ;
+  - **univers par avis halal** : bouton « Appliquer le screening », liste « Cryptos à décider » avec ses
+    boutons Ajouter et Refuser ; un badge en haut de page signale ce qui attend ta décision
+    ([docs/UNIVERSE.md](docs/UNIVERSE.md)) ;
+  - signaux évalués, bilan des groupes, signaux trouvés par les stratégies.
 
 Chaque pourcentage est une fréquence historique définie à côté de sa valeur, jamais une promesse :
 aucune stratégie de CSI n'a démontré d'avantage exploitable à ce jour. Même analyse dans le
