@@ -104,6 +104,13 @@ trade, intervalles entièrement négatifs). Verdict NOT_USEFUL pour les trois ; 
 Les six familles D à I, criblées à 3 et 7 jours : le rendement brut dépasse les frais, mais uniquement
 par la hausse générale du marché ; l'excès sur cette dérive est nul. Détail : [docs/SCREENING.md](docs/SCREENING.md).
 
+### ML intraday (lot 5 bis) : admissible selon la règle, mais aucun avantage démontré (2026-10-01)
+
+LightGBM, XGBoost et logistique sur 15 min + contexte 1 h/4 h, 224 essais déclarés avant exécution :
+14 systèmes passent la règle de stabilité, mais le retenu reste à +0,05 % par trade avec un IC95 qui
+contient 0, devient négatif en coûts défavorables et sans le 1 % des meilleurs trades, et doit tout à
+2022. La période finale n'est pas consultée. Détail : [docs/ML_INTRADAY.md §12](docs/ML_INTRADAY.md).
+
 ### Pourquoi elles perdent, et criblage des familles suivantes
 
 Avant frais, A, B et C n'ont pratiquement aucun avantage (≈ +0,01 R, −0,06 R, +0,03 R) : les coûts

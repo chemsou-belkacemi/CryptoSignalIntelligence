@@ -264,6 +264,35 @@ commité **avant** son exécution, et ses essais sont comptés. Ordre prévu :
    données, commit) reste archivée et **revient automatiquement** si la surveillance (§8) suspend le
    nouveau système dans ses 4 premières semaines.
 
+## 12. Résultats de la sélection (2026-10-01, `MLI-20261001T025936Z-0fab30`)
+
+Exécution unique du protocole v5 sur DEVELOPMENT (code commité `c7bbbd9`, 50 min, pic mémoire 3,7 Go) :
+audit des fuites réussi (aucun écart, mutation 4 h détectée), 224 essais comptés (programme : 490).
+
+- **Conclusion du protocole : `SYSTEME_ADMISSIBLE`** — 14 systèmes sur 216 satisfont la règle de
+  stabilité (Sharpe > 0 dans 5 validations sur 7, au moins 200 trades). Retenu (meilleur Sharpe médian) :
+  `fh_H4_lgbm_leaves63_n500_m10bp_tout` (horizon fixe 1 h, LightGBM 63 feuilles × 500 arbres, marge 0,10 %,
+  au bord de la grille). Aucune famille de variables ni le méta-filtre n'ont été conservés.
+- **Mais les mesures déclarées (§6) montrent qu'aucun avantage n'est démontré**, dès les validations :
+  rendement enchaîné +7,4 % en 3,5 ans, Sharpe 0,30 (IC95 [−0,93 ; +1,41]) ; gain moyen par trade
+  +0,05 % (IC95 [−0,14 % ; +0,26 %]) ; **−0,04 % sans le 1 % des meilleurs trades** ; **−0,03 % en coûts
+  défavorables** ; une paire porte 63 % du gain ; tout le résultat vient de 2022 (+17,7 %), 2024 perd
+  (−18,5 % sur 1 117 trades) ; trois des cinq validations positives n'ont que 14 à 47 trades (bruit).
+  Le modèle classe un peu mieux que le hasard (AUC 0,55 à 0,63, Brier meilleur que le taux de base), mais
+  ce pouvoir ne survit pas de façon fiable aux coûts. Les critères 1, 4, 5 et 6 du §7 échoueraient déjà
+  sur les validations.
+- **Période finale : NON consultée.** La vérification en bougies 1 min (obligatoire avant) n'est pas
+  implémentée ; et consulter le test final avec un système qui échoue déjà aux critères en validation le
+  consommerait presque sûrement pour un REJECTED. Recommandation : le garder vierge pour un candidat plus
+  solide ; la décision appartient au propriétaire.
+- **Leçon pour le prochain protocole** (à déclarer AVANT toute nouvelle exécution, jamais appliquée à
+  celle-ci) : la règle de stabilité doit exiger un nombre minimal de trades PAR validation (une validation
+  à 14 trades ne compte pas), et les critères de concentration et de coûts défavorables doivent entrer
+  dans la sélection, pas seulement dans l'estimation finale.
+
+Conclusion à retenir : **aucune stratégie testée ne démontre encore un avantage exploitable** ; rien n'est
+branché, aucun signal n'est publié.
+
 ## Historique
 
 - 2026-10-01, v1 (commit 69f7f6c) : version initiale, avant toute exécution.
@@ -288,3 +317,4 @@ commité **avant** son exécution, et ses essais sont comptés. Ordre prévu :
   contexte 1 h / 4 h connu (comme en service) ; étalonnage minimal de 200 lignes déclaré ; plis
   enchaînés sans remise à l'échelle ; verrous de la période finale (consultation unique, empreintes du
   code et de la configuration, vérification 1 min réelle) ; abstention de même sévérité précisée.
+- 2026-10-01, résultats de la sélection ajoutés (§12) ; protocole inchangé, période finale non consultée.
