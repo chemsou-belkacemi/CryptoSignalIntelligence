@@ -17,6 +17,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from ..config import CostScenario, Settings
@@ -33,46 +34,69 @@ def new_external_id(now: datetime) -> str:
     return f"EXT-{now:%Y%m%dT%H%M%SZ}-{uuid.uuid4().hex[:6].upper()}"
 
 
+def limit_fill(opens: np.ndarray, lows: np.ndarray, *, entry: float, entry_window: int,
+               market_cost: float) -> tuple[int, float, bool] | None:
+    """Remplissage d'un achat limite : (bougie, prix obtenu, « au contact ») ou None s'il n'est pas rempli.
+    Ouverture sous la limite : exécuté à l'ouverture (plafonné à la limite) ; sinon seulement si le plus bas
+    passe STRICTEMENT sous la limite (un simple contact ne garantit rien)."""
+    for k in range(min(entry_window, len(opens))):
+        if opens[k] <= entry:
+            return k, min(opens[k] * (1 + market_cost), entry), False
+        if lows[k] < entry:
+            return k, entry, True
+    return None
+
+
 def replay(bars: pd.DataFrame, *, entry: float, stop: float, target: float, entry_window: int, max_hold: int,
-           costs: CostScenario) -> tuple[str, float | None, datetime | None]:
-    """(issue, R net, heure de remplissage) sur des bougies clôturées postérieures à la décision."""
+           costs: CostScenario, stop_close_bars: int = 0) -> tuple[str, float | None, datetime | None]:
+    """(issue, R net, heure de remplissage) sur des bougies clôturées postérieures à la décision.
+
+    `stop_close_bars` = 0 : stop au contact (convention du registre et du taux de base). Sinon le stop ne joue
+    qu'à la CLÔTURE d'une bougie de `stop_close_bars` bougies de base sous le stop (règle écrite dans certains
+    signaux, « Stop: 0.0739 (4h) ») : vente au marché à cette clôture, la perte peut alors dépasser 1 R."""
     if bars.empty:
         return "PENDING", None, None
     opens, highs, lows, closes = (bars[k].to_numpy(float) for k in ("open", "high", "low", "close"))
     times = [t.to_pydatetime() for t in bars["open_time"]]
     fee = costs.fee_bps / 1e4
     market_cost = (costs.slippage_bps + costs.half_spread_bps) / 1e4
-    fill: tuple[int, float, bool] | None = None
-    for k in range(min(entry_window, len(bars))):
-        if opens[k] <= entry:
-            fill = (k, min(opens[k] * (1 + market_cost), entry), False)
-            break
-        if lows[k] < entry:  # un simple contact ne garantit rien : pénétration stricte requise
-            fill = (k, entry, True)
-            break
+    fill = limit_fill(opens, lows, entry=entry, entry_window=entry_window, market_cost=market_cost)
     if fill is None:
         return ("UNFILLED" if len(bars) >= entry_window else "PENDING"), None, None
     start, price, touched = fill
     risk = entry - stop
     outcome: str | None = None
     exit_price: float | None = None
-    if not touched and opens[start] <= stop:  # ouverture sous le stop : stop-market aussitôt, au marché
-        outcome, exit_price = "SL_FIRST", opens[start] * (1 - market_cost)
     last = min(start + max_hold, len(bars))
-    for k in range(start, last if outcome is None else start):
-        first = k == start
-        if not first and opens[k] <= stop:
-            outcome, exit_price = "SL_FIRST", opens[k] * (1 - market_cost)  # gap : jamais « au prix du stop »
-            break
-        if not first and opens[k] > target:
-            outcome, exit_price = "TP1_FIRST", target
-            break
-        if lows[k] <= stop:
-            outcome, exit_price = "SL_FIRST", stop * (1 - market_cost)
-            break
-        if highs[k] > target and not (first and touched):  # le plus haut a pu précéder l'entrée
-            outcome, exit_price = "TP1_FIRST", target
-            break
+    if stop_close_bars > 0:
+        step = bars["open_time"].diff().dropna().min() if len(bars) > 1 else pd.Timedelta(minutes=15)
+        block = step * stop_close_bars
+        closes_block = (((bars["open_time"] + step) - pd.Timestamp(0, tz="UTC")) % block == pd.Timedelta(0)).to_numpy()
+        for k in range(start, last):
+            first = k == start
+            if (opens[k] > target and not first) or (highs[k] > target and not (first and touched)):
+                outcome, exit_price = "TP1_FIRST", target
+                break
+            if closes_block[k] and closes[k] < stop:
+                outcome, exit_price = "SL_FIRST", closes[k] * (1 - market_cost)
+                break
+    else:
+        if not touched and opens[start] <= stop:  # ouverture sous le stop : stop-market aussitôt, au marché
+            outcome, exit_price = "SL_FIRST", opens[start] * (1 - market_cost)
+        for k in range(start, last if outcome is None else start):
+            first = k == start
+            if not first and opens[k] <= stop:
+                outcome, exit_price = "SL_FIRST", opens[k] * (1 - market_cost)  # gap : jamais « au prix du stop »
+                break
+            if not first and opens[k] > target:
+                outcome, exit_price = "TP1_FIRST", target
+                break
+            if lows[k] <= stop:
+                outcome, exit_price = "SL_FIRST", stop * (1 - market_cost)
+                break
+            if highs[k] > target and not (first and touched):  # le plus haut a pu précéder l'entrée
+                outcome, exit_price = "TP1_FIRST", target
+                break
     if outcome is None:
         if len(bars) < start + max_hold:
             return "PENDING", None, times[start]

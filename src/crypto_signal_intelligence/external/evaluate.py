@@ -39,14 +39,22 @@ from .admission import (
     hold,
     screening_for,
 )
+from .audit import latest_history
 from .base_rate import BaseRate, base_rate
-from .parser import ExternalSignal, parse
+from .parser import ExternalSignal, group_of, parse
+from .record import source_record
 from .registry import ExternalSignalRegistry
 from .universe import FAILED, REQUESTED, UserUniverse, tick_size_for, universe_symbols
 
 # EN_ATTENTE : paire ajoutée par le propriétaire, historique en cours de téléchargement (non enregistré).
 VERDICTS = ("REFUSE", "DEFAVORABLE", "INDETERMINE", "FAVORABLE", "EN_ATTENTE")
 REFUSAL, VETO, PENDING = "refus", "veto", "attente"
+STOP_CHECK, RR_CHECK = "distance du stop", "RR TP1 net de coûts"
+# Vetos de GÉOMÉTRIE : ils jugent le signal « à l'aveugle ». Un groupe prouvé en direct a obtenu ses résultats
+# avec ces géométries-là : la preuve mesurée l'emporte sur l'a priori. Les autres contrôles restent bloquants.
+GEOMETRY_CHECKS = (STOP_CHECK, RR_CHECK)
+BASIS_GROUP, BASIS_GEOMETRY = "groupe", "geometrie"
+GENERIC_SOURCE = "telegram"
 
 
 @dataclass(frozen=True)
@@ -71,6 +79,8 @@ class ExternalEvaluation:
     source_stats: dict | None = None
     decision_time: datetime | None = None
     record_id: str | None = None
+    verdict_basis: str = ""                  # « groupe » (preuve en direct) ou « geometrie » (taux de base) si FAVORABLE
+    source_proof: dict | None = None         # bilan en direct du groupe : résolus, jours, prouvé ou non
 
     @property
     def failed(self) -> list[Check]:
@@ -81,7 +91,8 @@ class ExternalEvaluation:
                 "verdict": self.verdict, "checks": [asdict(c) for c in self.checks], "warnings": self.warnings,
                 "context": self.context, "geometry": self.geometry,
                 "base_rate": self.base_rate.to_dict() if self.base_rate else None,
-                "source_stats": self.source_stats,
+                "source_stats": self.source_stats, "verdict_basis": self.verdict_basis,
+                "source_proof": self.source_proof,
                 "decision_time": self.decision_time.isoformat() if self.decision_time else None}
 
 
@@ -99,21 +110,26 @@ def _age(delta: timedelta) -> str:
     return f"{minutes // 60} h {minutes % 60:02d}" if minutes >= 60 else f"{minutes} min"
 
 
-def _verdict(evaluation: ExternalEvaluation, cfg: ExternalSection) -> str:
+def _verdict(evaluation: ExternalEvaluation, cfg: ExternalSection) -> tuple[str, str]:
+    """(avis, fondement). Un groupe PROUVÉ EN DIRECT rend l'avis favorable, sauf refus ou signal périmé : ses
+    résultats mesurés l'emportent sur les vetos de géométrie et sur le taux de base."""
     failed = evaluation.failed
     if any(c.kind == PENDING for c in failed):
-        return "EN_ATTENTE"
+        return "EN_ATTENTE", ""
     if any(c.kind == REFUSAL for c in failed):
-        return "REFUSE"
-    if failed:
-        return "DEFAVORABLE"
+        return "REFUSE", ""
+    proven = bool(evaluation.source_proof and evaluation.source_proof.get("proven"))
+    if [c for c in failed if not (proven and c.label in GEOMETRY_CHECKS)]:
+        return "DEFAVORABLE", ""
+    if proven and evaluation.geometry:
+        return "FAVORABLE", BASIS_GROUP
     rate = evaluation.base_rate
     if rate is None or rate.samples < cfg.min_base_rate_samples or rate.expectancy_r_ci95 is None:
-        return "INDETERMINE"
+        return "INDETERMINE", ""
     low, high = rate.expectancy_r_ci95
     if high <= 0:
-        return "DEFAVORABLE"
-    return "FAVORABLE" if low > 0 else "INDETERMINE"
+        return "DEFAVORABLE", ""
+    return ("FAVORABLE", BASIS_GEOMETRY) if low > 0 else ("INDETERMINE", "")
 
 
 def _binance_tick_size(settings: Settings, symbol: str) -> Decimal:
@@ -202,15 +218,32 @@ def evaluate(settings: Settings, text: str, *, source: str, now: datetime, recor
     """`user_validated` : signal soumis à la main par le propriétaire (sa validation ajoute une paire
     inconnue à l'univers). Un signal reçu automatiquement n'ajoute jamais rien."""
     signal = parse(text)
+    if source.strip().lower().startswith(GENERIC_SOURCE):
+        # BinanceSpotManager nomme « telegram <id> » un chat sans nom déclaré ; quand plusieurs groupes y sont
+        # transférés, le nom écrit en tête du signal donne à chacun son propre bilan.
+        source = group_of(text) or source
     evaluation = ExternalEvaluation(source=source, evaluated_at=now, signal=signal)
     evaluation.warnings.extend(signal.warnings)
     registry = ExternalSignalRegistry(settings.external_db)
     stats = registry.source_stats(source)
     evaluation.source_stats = stats[0] if stats else None
+    live = source_record(registry, source, seed=settings.protocol.seed)
+    history = latest_history(settings, source, now=now)
+    if live is not None and live.proven:
+        evaluation.source_proof = {"proven": True, "basis": "direct", "proof": live.proof, "resolved": live.resolved,
+                                   "days": live.days, "r_mean": live.r_real, "r_ci95": live.r_ci95}
+    elif history is not None and history.get("proven"):
+        evaluation.source_proof = {"proven": True, "basis": "historique", "proof": history["text"],
+                                   "resolved": history["resolved"], "days": history["days"],
+                                   "r_mean": history["r_mean"], "r_ci95": history["r_ci95"],
+                                   "generated_at": history.get("generated_at")}
+    elif live is not None or history is not None:
+        texts = [x for x in (live.proof if live else "", history["text"] if history else "") if x]
+        evaluation.source_proof = {"proven": False, "basis": "", "proof": " ; ".join(texts)}
     cfg = settings.external
 
     def finish() -> ExternalEvaluation:
-        evaluation.verdict = _verdict(evaluation, cfg)
+        evaluation.verdict, evaluation.verdict_basis = _verdict(evaluation, cfg)
         if record and evaluation.verdict != "EN_ATTENTE":   # réévalué et enregistré une fois les données prêtes
             rate = evaluation.base_rate
             evaluation.record_id = registry.record(
@@ -305,7 +338,7 @@ def evaluate(settings: Settings, text: str, *, source: str, now: datetime, recor
         evaluation.warnings.append(f"entrée {entry:g} au-dessus du marché : exécution immédiate vers {close:g}, "
                                    "géométrie calculée sur ce prix")
     stop_atr = (effective - stop) / atr
-    evaluation.checks.append(Check("distance du stop", cfg.min_stop_atr <= stop_atr <= cfg.max_stop_atr,
+    evaluation.checks.append(Check(STOP_CHECK, cfg.min_stop_atr <= stop_atr <= cfg.max_stop_atr,
                                    f"{stop_atr:.2f} ATR14 ({(effective - stop) / effective * 100:.2f} % sous l'entrée "
                                    f"obtenue) ; admis {cfg.min_stop_atr:g} à {cfg.max_stop_atr:g} ATR"))
     tick = tick_size_for(settings, signal.symbol)
@@ -320,7 +353,7 @@ def evaluate(settings: Settings, text: str, *, source: str, now: datetime, recor
                          target_weights=(weight,) * len(d_targets), rr_gross=rr, entry_premium_bps=Decimal(0),
                          tick_size=tick)
     net = levels.net_rr(settings.costs["central"], 0)
-    evaluation.checks.append(Check("RR TP1 net de coûts", net >= cfg.min_net_rr,
+    evaluation.checks.append(Check(RR_CHECK, net >= cfg.min_net_rr,
                                    f"RR brut TP1 {rr[0]} (recalculé sur l'entrée obtenue), net en coûts centraux "
                                    f"{net:.2f} ; minimum {cfg.min_net_rr:g}"))
     evaluation.geometry = {

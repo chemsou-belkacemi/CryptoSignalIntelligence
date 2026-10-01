@@ -69,6 +69,9 @@ from ..data.schema import interval
 log = logging.getLogger(__name__)
 
 MAX_BODY_BYTES = 16 * 1024
+# Un historique de groupe exporté de Telegram (texte seul, extrait par la page) dépasse vite 16 Ko.
+ROUTE_BODY_LIMITS = {"/sources/history": 8 * 1024 * 1024}
+MAX_AUDIT_ROWS = 400                    # lignes de détail renvoyées à la page (le rapport complet est écrit)
 MAX_SOURCE_CHARS = 80
 TOKEN_ENV = "CSI_API_TOKEN"
 ALLOWED_HOSTS_ENV = "CSI_API_ALLOWED_HOSTS"
@@ -125,7 +128,11 @@ def explain(evaluation: dict) -> str:
     """Résumé en français d'une évaluation, chaque chiffre avec sa définition."""
     verdict = evaluation.get("verdict", "")
     failed = [c for c in evaluation.get("checks", []) if not c.get("ok")]
-    if verdict == "DEFAVORABLE" and not failed:
+    proof = evaluation.get("source_proof") or {}
+    if verdict == "FAVORABLE" and evaluation.get("verdict_basis") == "groupe":
+        parts = [f"Favorable : ce groupe est {proof.get('proof', 'prouvé en direct')}. Ses résultats mesurés "
+                 "l'emportent sur les vetos de géométrie ; ce n'est pas une garantie pour CE signal."]
+    elif verdict == "DEFAVORABLE" and not failed:
         parts = ["Défavorable : aucun veto, mais la même géométrie perd en moyenne dans ce régime (IC95 ≤ 0)."]
     elif verdict == "DEFAVORABLE":
         parts = ["Défavorable : un veto est déclenché."]
@@ -144,10 +151,21 @@ def explain(evaluation: dict) -> str:
             f"{rate['tp_first'] * 100:.0f} % ont touché le TP1 avant le stop ; espérance "
             f"{rate['expectancy_r']:+.2f} R par ordre rempli{ci_text}. C'est un historique, pas la "
             "probabilité que CE signal réussisse.")
+    geometry = evaluation.get("geometry") or {}
+    ratio = geometry.get("rr_net_tp1_central")
+    if ratio is not None and ratio > -1:
+        needed = 1 / (1 + ratio) if ratio > 0 else 1.0
+        seen = f" ; l'historique comparable en donne {rate['tp_first'] * 100:.0f} %" if rate and rate.get("samples") else ""
+        parts.append(
+            f"Gagner souvent ne suffit pas : TP1 est à +{geometry.get('tp1_pct')} % et le stop à "
+            f"−{geometry.get('stop_pct')} %, donc un stop coûte {1 / ratio:.1f} fois ce que rapporte un TP1. Il faut "
+            f"atteindre TP1 dans plus de {needed * 100:.0f} % des cas pour gagner de l'argent{seen}."
+            if ratio > 0 else "Après coûts, TP1 ne rapporte rien : ce signal ne peut pas être gagnant sur TP1 seul.")
     stats = evaluation.get("source_stats")
     if stats and stats.get("evaluated"):
         parts.append(f"Groupe « {evaluation.get('source')} » : {stats['evaluated']} signal(s) évalué(s), "
-                     f"{stats.get('resolved') or 0} résolu(s) ; bilan détaillé dans /sources.")
+                     f"{stats.get('resolved') or 0} résolu(s)" + (f" ; {proof['proof']}" if proof.get("proof") else "")
+                     + " ; bilan détaillé dans /sources.")
     return " ".join(parts)
 
 
@@ -168,6 +186,8 @@ class CsiApi:
         self.futures_client: PublicHttpClient | None = None       # remplaçable dans les tests (aucun réseau)
         self.listing: Callable[..., object] | None = None          # paire négociable sur Binance (tests : sans réseau)
         self._admissions_lock = threading.Lock()                     # un seul « Appliquer le screening » à la fois
+        self._history_lock = threading.Lock()                        # un seul bilan d'historique à la fois
+        self.audit_bars: Callable[..., object] | None = None        # bougies du bilan (tests : sans réseau)
 
     # --- lecture ---------------------------------------------------------------------------
     def health(self) -> dict:
@@ -203,6 +223,56 @@ class CsiApi:
         records = source_records(ExternalSignalRegistry(self.settings.external_db), seed=self.settings.protocol.seed)
         return {"sources": _jsonable(records), "min_resolved": MIN_RESOLVED, "min_days": MIN_DAYS,
                 "rule": f"aucune conclusion avant {MIN_RESOLVED} signaux résolus sur au moins {MIN_DAYS} jours"}
+
+    def sources_history(self) -> dict:
+        """Dernière preuve sur historique de chaque groupe importé (avis lié au groupe)."""
+        from ..external.audit import latest_history
+        from ..external.registry import ExternalSignalRegistry
+        db_path = self.settings.external_db
+        if not db_path.exists():
+            return {"groups": []}
+        with ExternalSignalRegistry(db_path).connect() as db:
+            db.execute("""CREATE TABLE IF NOT EXISTS source_history (source TEXT NOT NULL, generated_at TEXT NOT NULL,
+                          proven INTEGER NOT NULL, proof TEXT NOT NULL)""")
+            names = [row[0] for row in db.execute("SELECT DISTINCT source FROM source_history ORDER BY source")]
+        now = self.now()
+        groups = [{"source": name} | (latest_history(self.settings, name, now=now) or {}) for name in names]
+        return {"groups": groups}
+
+    def sources_history_run(self, payload: dict) -> dict:
+        """Bilan d'un groupe sur son historique exporté de Telegram : rejoue chaque signal (bougies publiques),
+        enregistre la preuve de chaque groupe et renvoie le bilan. Mesure d'une source externe, aucun ordre."""
+        from ..external.audit import (
+            ALL,
+            CONVENTION_LABELS,
+            audit,
+            market_bars,
+            read_telegram_export,
+            save_history,
+            write_report,
+        )
+        export, weights = payload.get("export"), payload.get("weights", "early")
+        if weights not in ("early", "equal"):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "champ « weights » : early ou equal")
+        try:
+            items = read_telegram_export(export)
+        except ValueError as exc:
+            raise ApiError(HTTPStatus.BAD_REQUEST, f"export Telegram illisible : {exc}") from None
+        if not items:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "aucun message texte dans cet export")
+        if not self._history_lock.acquire(blocking=False):
+            raise ApiError(HTTPStatus.CONFLICT, "un bilan d'historique est déjà en cours : réessayer dans une minute")
+        try:
+            now = self.now()
+            bars = self.audit_bars or market_bars(self.settings, now=now)
+            report = audit(self.settings, items, now=now, weights=weights, bars_for=bars)
+            save_history(self.settings, report)
+            directory = write_report(self.settings, report)
+        finally:
+            self._history_lock.release()
+        rows = [asdict(r) for r in report.rows if r.status == "OK"][-MAX_AUDIT_ROWS:]
+        return {"summary": report.summary, "notes": report.notes, "conventions": CONVENTION_LABELS, "all": ALL,
+                "rows": rows, "report": directory.name, "messages": len(report.rows)}
 
     def recent(self, limit: int) -> dict:
         from ..external.registry import ExternalSignalRegistry
@@ -597,7 +667,7 @@ class CsiApi:
                 "/signals/generated": lambda: self.generated(_int(query.get("limit", ["20"])[0])),
                 "/pairs": self.pairs, "/models": self.models,
                 "/derivatives": lambda: self.derivatives(query.get("symbol", [""])[0]),
-                "/admissions": self.admissions,
+                "/admissions": self.admissions, "/sources/history": self.sources_history,
             }
             if path in routes:
                 return routes[path]()
@@ -615,6 +685,8 @@ class CsiApi:
             return self.admissions_decide(body or {})
         elif method == "POST" and path == "/admissions/decide-all":
             return self.admissions_decide_all(body or {})
+        elif method == "POST" and path == "/sources/history":
+            return self.sources_history_run(body or {})
         raise ApiError(HTTPStatus.NOT_FOUND, f"route inconnue : {method} {path}")
 
 
@@ -687,6 +759,7 @@ def make_handler(api: CsiApi, token: str | None, hosts: set[str] | None = None) 
             try:
                 raw = b""
                 length = 0
+                limit = ROUTE_BODY_LIMITS.get(urlparse(self.path).path.rstrip("/"), MAX_BODY_BYTES)
                 if method == "POST":
                     # Corps lu AVANT toute réponse (bornée à 1 Mo) : répondre sans l'avoir lu fait couper la
                     # connexion par le système (Windows), et le client ne reçoit jamais le code d'erreur.
@@ -694,7 +767,7 @@ def make_handler(api: CsiApi, token: str | None, hosts: set[str] | None = None) 
                         length = max(0, int(self.headers.get("Content-Length") or 0))
                     except ValueError:
                         raise ApiError(HTTPStatus.BAD_REQUEST, "Content-Length invalide") from None
-                    raw = self.rfile.read(min(length, 1 << 20)) if length else b""
+                    raw = self.rfile.read(min(length, max(limit, 1 << 20))) if length else b""
                     self.close_connection = length > len(raw)
                 if _host_name(self.headers.get("Host")) not in permitted:
                     raise ApiError(HTTPStatus.MISDIRECTED_REQUEST, "hôte non autorisé (CSI_API_ALLOWED_HOSTS)")
@@ -712,9 +785,9 @@ def make_handler(api: CsiApi, token: str | None, hosts: set[str] | None = None) 
                     essence = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
                     if essence != "application/json":
                         raise ApiError(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, "Content-Type application/json requis")
-                    if length <= 0 or length > MAX_BODY_BYTES:
+                    if length <= 0 or length > limit:
                         raise ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE if length > 0 else HTTPStatus.BAD_REQUEST,
-                                       f"corps JSON requis, {MAX_BODY_BYTES} octets au plus")
+                                       f"corps JSON requis, {limit} octets au plus")
                     try:
                         body = json.loads(raw.decode("utf-8"))
                     except (UnicodeDecodeError, json.JSONDecodeError):

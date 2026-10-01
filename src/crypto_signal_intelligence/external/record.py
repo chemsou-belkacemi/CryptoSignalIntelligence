@@ -24,6 +24,10 @@ from .registry import ExternalSignalRegistry
 
 MIN_RESOLVED = 20
 MIN_DAYS = 10
+# Preuve en direct d'un groupe (docs/EXTERNAL_SIGNALS.md, « Avis lié au groupe ») : plus exigeante que la simple
+# conclusion, parce que le bilan est relu à chaque signal (regards répétés).
+PROOF_RESOLVED = 30
+PROOF_DAYS = 15
 RESOLVED = ("TP1_FIRST", "SL_FIRST", "TIMEOUT")
 
 
@@ -44,6 +48,10 @@ class SourceRecord:
     edge_r: float | None
     edge_ci95: tuple[float, float] | None
     conclusion: str
+    r_ci95: tuple[float, float] | None = None      # IC95 du R réalisé (mêmes blocs d'un jour que l'écart)
+    days: int = 0                                  # jours de réception distincts des signaux résolus
+    proven: bool = False                           # preuve en direct : voir `proof`
+    proof: str = ""
 
 
 def source_records(registry: ExternalSignalRegistry, *, samples: int = 2000, seed: int = 20260930) -> list[SourceRecord]:
@@ -61,9 +69,23 @@ def source_records(registry: ExternalSignalRegistry, *, samples: int = 2000, see
         edges = np.array([r["outcome_r"] - r["base_expectancy_r"] for r in with_base], dtype=float)
         edge = round(float(edges.mean()), 4) if len(edges) else None
         ci, days = None, 0
+        times = np.array([r["received_at"] for r in with_base])
         if len(edges) >= MIN_RESOLVED:
-            times = np.array([r["received_at"] for r in with_base])
             ci, days = day_block_ci95(edges, times, block_days=1, samples=samples, seed=seed, min_blocks=MIN_DAYS)
+        realized = np.array([r["outcome_r"] for r in with_base], dtype=float)
+        r_ci, _ = (day_block_ci95(realized, times, block_days=1, samples=samples, seed=seed, min_blocks=MIN_DAYS)
+                   if len(realized) >= MIN_RESOLVED else (None, 0))
+        distinct_days = len({str(t)[:10] for t in times})
+        enough = len(edges) >= PROOF_RESOLVED and distinct_days >= PROOF_DAYS
+        proven = bool(enough and ci is not None and ci[0] > 0 and r_ci is not None and r_ci[0] > 0)
+        if proven:
+            proof = (f"prouvé en direct : {len(edges)} signaux résolus sur {distinct_days} jours, gain moyen et écart "
+                     "au taux de base tous deux positifs (IC95 > 0)")
+        elif not enough:
+            proof = (f"preuve en direct : {len(edges)}/{PROOF_RESOLVED} signaux résolus, "
+                     f"{distinct_days}/{PROOF_DAYS} jours")
+        else:
+            proof = "non prouvé : le gain moyen ou l'écart au taux de base n'est pas positif avec certitude (IC95)"
         if resolved < MIN_RESOLVED:
             conclusion = f"trop peu de signaux résolus ({resolved} < {MIN_RESOLVED}) : aucune conclusion"
         elif len(edges) < MIN_RESOLVED:
@@ -86,5 +108,11 @@ def source_records(registry: ExternalSignalRegistry, *, samples: int = 2000, see
             tp1_base=round(float(np.mean(base_tp1)), 4) if base_tp1 else None,
             r_real=round(float(np.mean([r["outcome_r"] for r in rows])), 4) if rows else None,
             r_base=round(float(np.mean([r["base_expectancy_r"] for r in with_base])), 4) if with_base else None,
-            edge_r=edge, edge_ci95=ci, conclusion=conclusion))
+            edge_r=edge, edge_ci95=ci, conclusion=conclusion, r_ci95=r_ci, days=distinct_days, proven=proven,
+            proof=proof))
     return records
+
+
+def source_record(registry: ExternalSignalRegistry, source: str, *, seed: int = 20260930) -> SourceRecord | None:
+    """Bilan d'UNE source (None si elle n'a encore rien d'enregistré)."""
+    return next((r for r in source_records(registry, seed=seed) if r.source == source), None)

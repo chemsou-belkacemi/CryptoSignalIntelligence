@@ -7,6 +7,7 @@ import sys
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 import pandas as pd
 import typer
@@ -738,6 +739,63 @@ def resolve_signals(refresh: bool = typer.Option(True, help="Met à jour les don
             with console.status(f"mise à jour {sym}…"):
                 run_download(settings, sym, settings.data.setup_timeframe, now=now)
     console.print(resolve_pending(settings, registry, now=_now()))
+
+
+@app.command("audit-telegram")
+def audit_telegram(file: str = typer.Option(None, "--file", help="Export JSON de Telegram Desktop (result.json)"),
+                   bsm_inbox: str = typer.Option(None, "--bsm-inbox", help="Boîte signals.sqlite3 de BinanceSpotManager (messages reçus en direct)"),
+                   source: str = typer.Option("", help="Nom du groupe si l'export ou le texte ne le donne pas"),
+                   weights: str = typer.Option("early", help="Parts vendues à chaque objectif : early | equal"),
+                   verbose: bool = False):
+    """Bilan mesuré d'un groupe Telegram sur son historique : chaque signal passé est rejoué sur les bougies
+    publiques, selon trois conventions (TP1 au contact, stop à la clôture du signal, tous les objectifs comme BSM).
+    Mesure d'une source externe : aucun ordre, aucune promesse pour le prochain signal."""
+    from .external.audit import (
+        ALL,
+        CONVENTION_LABELS,
+        CONVENTIONS,
+        audit,
+        read_bsm_inbox,
+        read_telegram_export,
+        save_history,
+        write_report,
+    )
+    settings = _settings(verbose)
+    if bool(file) == bool(bsm_inbox):
+        console.print("[red]Donner --file (export Telegram) OU --bsm-inbox (boîte de BinanceSpotManager).[/red]")
+        raise typer.Exit(2)
+    try:
+        if file:
+            with open(file, encoding="utf-8") as handle:
+                items = read_telegram_export(json.load(handle))
+        else:
+            items = read_bsm_inbox(Path(bsm_inbox))
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Historique illisible :[/red] {exc}")
+        raise typer.Exit(2) from None
+    with console.status("rejeu des signaux…") as status:
+        report = audit(settings, items, now=_now(), source=source, weights=weights,
+                       progress=lambda text: status.update(f"rejeu : {text}"))
+    for name, block in report.summary.items():
+        console.rule(f"{'Tous les groupes' if name == ALL else name} — {block['messages']} message(s)")
+        console.print(f"Statuts : {block['statuts']}" + (
+            f" ; TP1 moyen +{block['tp1_pct_moyen']} %, stop moyen −{block['stop_pct_moyen']} % : il faut "
+            f"{block['part_tp1_pour_etre_a_zero']:.0%} de TP1 pour être à zéro, avant frais" if "tp1_pct_moyen" in block else ""))
+        for convention in CONVENTIONS:
+            c = block["conventions"][convention]
+            detail = (f"{c['part_gagnants']:.0%} gagnants, R moyen {c['r_moyen']:+.2f} (total {c['r_total']:+.1f} R), "
+                      f"IC95 {c['ic95'] or 'indisponible'}" if c["resolus"] else "aucun signal résolu")
+            if "r_moyen_avec_ouvertes" in c:
+                detail += f" ; avec les positions ouvertes au dernier prix : R moyen {c['r_moyen_avec_ouvertes']:+.2f} (provisoire)"
+            console.print(f"  [bold]{CONVENTION_LABELS[convention]}[/bold] : {c['resolus']} résolus, {c['en_cours']} en "
+                          f"cours, {c['non_remplis']} non remplis | {detail}\n    → {c['conclusion']}")
+        proof = block["preuve"]
+        console.print(("[green]" if proof["proven"] else "[yellow]") + f"Avis lié au groupe : {proof['text']}"
+                      + ("[/green]" if proof["proven"] else "[/yellow]"))
+    for note in report.notes:
+        console.print(f"[dim]- {note}[/dim]")
+    save_history(settings, report)
+    console.print(f"Rapport : {write_report(settings, report)}")
 
 
 @app.command()

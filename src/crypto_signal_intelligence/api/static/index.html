@@ -99,6 +99,26 @@
       </div>
     </section>
     <div id="signal-result"></div>
+    <section class="card">
+      <h2>Bilan d'un groupe sur son historique</h2>
+      <p class="muted small">Dans Telegram Desktop : ouvrir le groupe, menu ⋮ → « Exporter l'historique du chat »,
+        décocher photos et vidéos, format <strong>JSON</strong>, puis choisir ici le fichier <code>result.json</code>.
+        CSI rejoue chaque signal passé sur les bougies publiques de Binance, exactement comme le bot l'aurait joué.
+        Le fichier ne quitte pas ce PC : seul le texte des messages est envoyé à CSI.</p>
+      <div class="row wrap">
+        <label class="field">Export Telegram (result.json)
+          <input id="history-file" type="file" accept=".json,application/json">
+        </label>
+        <label class="field">Ventes aux objectifs
+          <select id="history-weights">
+            <option value="early">davantage aux premiers objectifs (comme le bot)</option>
+            <option value="equal">parts égales</option>
+          </select>
+        </label>
+        <button id="history-run" class="primary">Mesurer le groupe</button>
+      </div>
+    </section>
+    <div id="history-result"></div>
   </div>
 
   <div id="tab-follow" class="tabpane hidden">

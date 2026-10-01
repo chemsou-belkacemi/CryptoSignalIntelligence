@@ -97,6 +97,59 @@ Regards répétés : le bilan est recalculé à chaque signal. Décider de faire
 première fois que l'intervalle passe au-dessus de 0 augmente le risque de faux positif ; une
 conclusion ne vaut que si elle tient ensuite, sur des signaux reçus après cette décision.
 
+## Historique d'un groupe (bilan sans attendre)
+
+Attendre 20 signaux résolus prend des semaines. Un groupe a déjà un passé : CSI peut le rejouer.
+
+- **Tableau de bord**, onglet « Évaluer un signal », carte « Bilan d'un groupe sur son historique » :
+  choisir le fichier `result.json` d'un export de Telegram Desktop (ouvrir le groupe, menu ⋮ →
+  « Exporter l'historique du chat », sans photos ni vidéos, format JSON). Seul le texte des messages
+  est envoyé à CSI.
+- **Terminal** : `csi audit-telegram --file result.json`, ou `csi audit-telegram --bsm-inbox
+  <signals.sqlite3 de BinanceSpotManager>` pour les messages que le bot a reçus en direct.
+
+Chaque signal est rejoué sur les bougies 15 min **clôturées après sa publication** (heure exacte
+`date_unixtime` de l'export), avec les coûts du scénario central, de trois façons affichées côte à
+côte :
+
+| Façon | Règle |
+|---|---|
+| TP1 au contact | convention de CSI : entrée 1, sortie à TP1 ou au stop touché, 7 jours au plus |
+| Stop à la clôture | la même, mais le stop ne joue qu'à la clôture d'une bougie de l'unité écrite dans le signal (« Stop: 0.0739 (4h) ») ; vente à cette clôture, la perte peut dépasser 1 R |
+| Comme le bot | entrée 1, tous les objectifs, stop fixe, sans sortie temporelle (politique `BSM_MARKET_TP_FIXED_SL_V2`) ; parts vendues « early » (5/15, 4/15… comme le réglage du bot) ou égales ; une position encore ouverte est valorisée au dernier prix, en **provisoire** tant qu'elle a moins de 30 jours |
+
+Sont écartés et comptés à part : messages illisibles, doublons (même signal sous 7 jours), signaux
+déjà morts (prix au stop), déjà joués (prix à TP1) ou périmés (entrée > 3 % au-dessus du prix) au
+moment de la publication, paires sans bougies publiques. Les pictogrammes ajoutés après coup
+(« ENTRY 1 ✅ ») ne rendent plus un signal illisible : écarter les signaux réussis et décorés
+fausserait le bilan contre le groupe.
+
+Le bilan affiche aussi la part de TP1 qu'il faut atteindre pour être à zéro avant frais,
+1 / (1 + gain/risque) : avec un TP1 à +4 % et un stop à −11 %, il faut 73 % de réussite. **Gagner
+souvent ne veut pas dire gagner de l'argent.**
+
+## Avis lié au groupe
+
+Un groupe **prouvé** rend son signal FAVORABLE (fondement « groupe »), même si la géométrie seule
+serait défavorable (stop large, TP1 proche) : ses résultats mesurés l'emportent sur l'a priori.
+Les refus (données, univers, signal mort ou joué) et le veto « entrée déjà dépassée » restent
+bloquants. La preuve est par groupe (le nom écrit en tête du signal, ou le nom donné à la source).
+
+| Preuve | Critères (tous) |
+|---|---|
+| En direct (registre de CSI) | au moins 30 signaux résolus sur 15 jours ; IC95 du R réalisé **et** IC95 de l'écart au taux de base entièrement > 0 |
+| Sur historique (export ou boîte du bot) | au moins 50 signaux résolus sur 20 jours, mesurés **comme le bot** ; IC95 du R net moyen entièrement > 0 ; au plus 10 % de messages supprimés ; valable 30 jours (refaire l'export ensuite) |
+
+Messages supprimés : Telegram numérote les messages d'un chat sans trou. Un numéro absent de l'export
+est un message supprimé (ou non exporté). Un groupe qui efface ses pertes laisse donc des trous, et
+sa preuve est refusée. Les messages reçus en direct par le bot n'ont pas ce biais.
+
+Ce que la preuve ne dit pas : que le prochain signal gagnera, ni que le groupe continuera. Une
+preuve sur historique ne retire pas la dérive du marché (en marché haussier, beaucoup d'achats
+gagnent) ; la preuve en direct, elle, exige aussi de battre le taux de base. Cette mesure porte sur
+une source externe : elle ne compte pas dans les essais de recherche de CSI et n'utilise que des
+bougies publiques.
+
 ## Limites
 
 - Simulation sur OHLCV : un prix qui touche l'entrée n'est pas la preuve d'un remplissage
@@ -116,6 +169,10 @@ conclusion ne vaut que si elle tient ensuite, sur des signaux reçus après cett
 
 ## Historique
 
+- 2026-10-01 : bilan d'un groupe sur son historique (`audit-telegram`, carte du tableau de bord,
+  `POST /sources/history`), stop à la clôture de bougie écrit dans le signal, avis lié au groupe
+  (preuve en direct ou sur historique), nom du groupe lu en tête du signal quand la source est
+  générique (« telegram <id> »), pictogrammes ignorés dans les lignes de prix.
 - 2026-10-01 : taux de base `LIMIT_ALIGNED_V3` : seuls les ordres dont la fenêtre complète se termine
   avant la fin de DEVELOPMENT comptent (champ `history_end`). Une paire cotée après cette date n'a
   pas de taux de base (avis indéterminé). Les évaluations antérieures gardent leur méthode

@@ -168,6 +168,14 @@ qui est ajoutée définitivement (avis `EN_ATTENTE` le temps de télécharger l'
 normal) ; un signal reçu automatiquement n'ajoute jamais rien. Liste et état : `universe`
 ([docs/UNIVERSE.md](docs/UNIVERSE.md)).
 
+### Mesurer un groupe tout de suite
+
+Onglet « Évaluer un signal » du tableau de bord : importer l'export JSON de Telegram Desktop d'un
+groupe. CSI rejoue tous ses signaux passés, comme le bot les aurait joués, et dit s'il est prouvé
+(assez de signaux, gain moyen positif avec certitude, peu de messages supprimés). Un groupe prouvé
+rend ses signaux FAVORABLES. Terminal : `csi audit-telegram --file result.json`. Détail :
+[docs/EXTERNAL_SIGNALS.md](docs/EXTERNAL_SIGNALS.md).
+
 ## Univers de paires
 
 16 paires USDT depuis le 2026-09-30 : BTC, ETH et 14 paires retenues par un screening halal croisé

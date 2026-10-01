@@ -600,6 +600,72 @@ function renderSignal(e) {
       + (stats ? `Source « ${e.source} » : ${stats.evaluated || 0} signal(s) évalué(s), ${stats.resolved || 0} résolu(s).` : "") }));
 }
 
+// --- bilan d'un groupe sur son historique (export Telegram) ---------------------------------------------
+function flattenTelegramText(text) {
+  if (typeof text === "string") return text;
+  if (Array.isArray(text)) return text.map((part) => (typeof part === "string" ? part : (part && part.text) || "")).join("");
+  return "";
+}
+
+function slimExport(data) {
+  // Seul le nécessaire part vers CSI : numéros (pour repérer les messages supprimés), heure, texte, modification.
+  const chats = data && data.chats && Array.isArray(data.chats.list) ? data.chats.list : [data];
+  return { chats: { list: chats.map((chat) => ({ name: chat && chat.name, id: chat && chat.id,
+    messages: ((chat && chat.messages) || []).map((m) => (m && m.type === "message" ? {
+      id: m.id, type: m.type, date_unixtime: m.date_unixtime, text: flattenTelegramText(m.text),
+      ...(m.edited_unixtime ? { edited_unixtime: m.edited_unixtime } : {}),
+      ...(m.forwarded_from ? { forwarded_from: m.forwarded_from } : {}),
+    } : { id: m && m.id, type: m && m.type })) })) } };
+}
+
+async function runHistory() {
+  const button = document.getElementById("history-run");
+  const target = document.getElementById("history-result");
+  const file = document.getElementById("history-file").files[0];
+  if (!file) { target.replaceChildren(el("p", { class: "error", text: "Choisir d'abord le fichier result.json de l'export." })); return; }
+  button.disabled = true;
+  busy(target, "Lecture de l'export, puis rejeu de chaque signal sur les bougies de Binance (une à quelques minutes)…");
+  try {
+    let data;
+    try { data = JSON.parse(await file.text()); } catch (_err) { throw new Error("ce fichier n'est pas un JSON (choisir le format JSON à l'export)"); }
+    renderHistory(await api("/sources/history", { export: slimExport(data), weights: document.getElementById("history-weights").value }));
+  } catch (error) {
+    showError(target, error);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function renderHistory(result) {
+  const target = document.getElementById("history-result");
+  const labels = result.conventions || {};
+  const cards = Object.entries(result.summary || {}).map(([name, b]) => {
+    const proof = b.preuve || {};
+    const rows = Object.entries(b.conventions || {}).map(([key, c]) => [labels[key] || key, c.resolus, c.en_cours,
+      c.resolus ? pctFrac(c.part_gagnants) : "–", c.resolus ? `${fmt(c.r_moyen, 2, true)} R` : "–",
+      c.r_moyen_avec_ouvertes !== undefined ? `${fmt(c.r_moyen_avec_ouvertes, 2, true)} R` : "–",
+      c.ic95 ? ciR(c.ic95) : "–", c.conclusion]);
+    const deleted = b.messages_supprimes_part;
+    return card(name === result.all ? "Tous les groupes" : name,
+      el("p", { class: proof.proven ? "ok" : "warn", text: (proof.proven ? "✔ " : "• ") + (proof.text || "") }),
+      el("p", { class: "muted small", text: `${b.messages} message(s) : ${Object.entries(b.statuts || {}).map(([k, v]) => `${k.toLowerCase().replace("_", " ")} ${v}`).join(", ")}`
+        + (b.tp1_pct_moyen !== undefined ? ` · TP1 moyen +${fmt(b.tp1_pct_moyen, 2)} %, stop moyen −${fmt(b.stop_pct_moyen, 2)} % : il faut ${pctFrac(b.part_tp1_pour_etre_a_zero)} de TP1 atteints pour être à zéro, avant frais` : "")
+        + (deleted !== null && deleted !== undefined ? ` · messages supprimés dans la numérotation : ${pctFrac(deleted)}` : "") }),
+      table(["Façon de jouer le signal", { label: "Résolus", num: true }, { label: "En cours", num: true }, { label: "Gagnants", num: true },
+        { label: "R moyen", num: true }, { label: "Avec positions ouvertes", num: true }, "IC95", "Conclusion"], rows, "aucun signal mesuré"));
+  });
+  const detail = (result.rows || []).slice(-60).reverse().map((r) => [when(r.received_at), r.group, pair(r.symbol),
+    `−${fmt(r.stop_pct, 2)} % / +${fmt(r.tp1_pct, 2)} %`, ...["tp1_contact", "tp1_regle_du_signal", "echelle_bsm"].map((k) => {
+      const o = (r.outcomes || {})[k] || {};
+      return o.r === null || o.r === undefined ? (o.issue || "–") : `${o.issue} ${fmt(o.r, 2, true)} R`;
+    })]);
+  target.replaceChildren(...cards,
+    card("Derniers signaux rejoués", table(["Publié", "Groupe", "Paire", "Stop / TP1", "TP1 au contact", "Stop à la clôture", "Comme le bot"], detail, "aucun signal lisible"),
+      el("ul", { class: "list muted small" }, (result.notes || []).map((n) => el("li", { text: n }))),
+      el("p", { class: "muted small", text: `Rapport complet : reports/${result.report}/ (${result.messages} messages lus).` })));
+  state.followLoaded = false;
+}
+
 // --- onglet Suivi --------------------------------------------------------------------------------------
 function verdictClass(verdict) {
   const v = String(verdict || "");
@@ -780,6 +846,7 @@ function start() {
   document.getElementById("market-run").addEventListener("click", runMarket);
   document.getElementById("opportunities-run").addEventListener("click", runOpportunities);
   document.getElementById("evaluate").addEventListener("click", evaluateSignal);
+  document.getElementById("history-run").addEventListener("click", runHistory);
   document.getElementById("token-save").addEventListener("click", () => {
     try { localStorage.setItem(TOKEN_KEY, document.getElementById("token").value.trim()); } catch (_err) { /* stockage bloqué */ }
     document.getElementById("token-box").classList.add("hidden");

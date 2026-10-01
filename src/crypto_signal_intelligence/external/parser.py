@@ -46,11 +46,37 @@ def normalize(text: str) -> str:
     text = unicodedata.normalize("NFKC", text).upper()
     text = re.sub(r"[0-9]️?⃣", "", text)  # émojis « 1️⃣ » devant les objectifs
     text = text.replace("‎", "").replace("‏", "")
+    # Pictogrammes N'IMPORTE OÙ dans la ligne (« T1: 0.0259 📉 (1.92%) », « ENTRY 1 ✅: 0.0254 » ajouté après
+    # coup par le groupe) : ils ne portent aucun prix. Les retirer ne devine rien ; les flèches « → » restent.
+    text = "".join(ch for ch in text if unicodedata.category(ch) not in ("So", "Sk") and ch != "\u200d")
     return text.replace("**", "").replace("️", "")
 
 
 def content_hash(text: str) -> str:
-    return hashlib.sha256(" ".join(normalize(text).split()).encode()).hexdigest()
+    """Empreinte du texte normalisé : insensible à la casse, aux espaces (y compris autour des « : ») et aux
+    pictogrammes, pour qu'un signal redécoré après coup (« ENTRY 1 ✅: ») reste reconnu comme le même."""
+    return hashlib.sha256(re.sub(r"\s*:\s*", ":", " ".join(normalize(text).split())).encode()).hexdigest()
+
+
+def group_of(text: str) -> str:
+    """Nom du groupe écrit en tête d'un signal transféré (première ligne lisible qui n'est pas un champ). Seulement
+    pour un texte qui ressemble à un signal : une entrée et un stop ou un objectif ; sinon « » (un simple message
+    n'est pas un nom de groupe)."""
+    upper_text = normalize(text)
+    if not (re.search(r"\bENTRY", upper_text) and re.search(r"\b(?:SL|STOP|TP\s*\d?|T\d|TARGET)", upper_text)):
+        return ""
+    for line in text.splitlines():
+        name = "".join(ch if unicodedata.category(ch)[0] in "LN" or ch in " /'&.-" else " "
+                       for ch in unicodedata.normalize("NFKC", line))
+        name = " ".join(name.split()).strip(" -/.'&")
+        if not name:
+            continue
+        upper = name.upper()
+        if re.match(r"(PAIR|COIN|ENTRY|BUY|SELL|LONG|SHORT|TP|SL|STOP|TARGET|PLATFORM)\b", upper) or \
+                re.fullmatch(r"[A-Z0-9]+\s*/\s*(USDT|USDC|USD)", upper):
+            return ""
+        return name[:60]
+    return ""
 
 
 def parse(raw: str) -> ExternalSignal:
