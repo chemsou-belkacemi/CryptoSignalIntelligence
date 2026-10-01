@@ -160,7 +160,9 @@ Premier résultat positif du programme, sur ce qu'on attendait : prévoir **l'am
 des 1, 3 et 7 prochains jours. LightGBM (1 et 3 jours) et HAR + BTC (7 jours) battent la règle
 « volatilité des 7 derniers jours » sur les 7 années et presque toutes les paires, avec un intervalle
 corrigé de Bonferroni. Cela sert à dimensionner les positions et à placer stops et objectifs ; cela ne
-dit rien de la direction ni de la rentabilité. Détail : [docs/VOLATILITY.md §12](docs/VOLATILITY.md).
+dit rien de la direction ni de la rentabilité. **En service** : chaque jour, le tableau de bord donne le
+mouvement typique attendu de chaque paire à 1, 3 et 7 jours (onglets Marché et Analyser une paire, et
+distances TP1 / stop d'un signal évalué). Détail : [docs/VOLATILITY.md §12-13](docs/VOLATILITY.md).
 
 ### Pourquoi elles perdent, et criblage des familles suivantes
 

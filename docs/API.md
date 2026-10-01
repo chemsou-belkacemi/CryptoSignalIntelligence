@@ -31,6 +31,7 @@ demande de clé Binance. Code : `src/crypto_signal_intelligence/api/server.py`.
 | `POST /admissions/decide` | `{"symbol": "DOGEUSDT", "decision": "add" \| "refuse"}` : décision du propriétaire, prioritaire et tracée |
 | `POST /opportunities/pair` | `{"symbol": "ETHUSDT"}` : les 6 horizons d'une paire en un passage (état du plan, objectif ou stop atteint d'abord, espérance, niveaux) et l'avis simulé des stratégies ; statistiques en échantillon, jamais une proposition d'entrer |
 | `GET /derivatives?symbol=X` | positionnement du moment sur le marché à terme USDⓈ-M (financement, prime, intérêt ouvert, ratios) avec le rang de chaque valeur dans son historique récent ; données publiques, relues au plus toutes les 5 min ; information seulement ([DERIVATIVES.md](DERIVATIVES.md)) |
+| `GET /volatility`, `GET /volatility?symbol=X` | volatilité prévue du jour : mouvement typique attendu à 1, 3 et 7 jours par paire, comparé aux 7 derniers jours ; ampleur seulement, jamais le sens ([VOLATILITY.md §13](VOLATILITY.md)) |
 | `POST /evaluate` | évalue un signal Telegram (voir ci-dessous) ; champs `verdict_basis` (« groupe » ou « geometrie ») et `source_proof` |
 | `POST /sources/history` | `{"export": <export Telegram Desktop, texte seul>, "weights": "early" \| "equal"}` : rejoue l'historique d'un groupe, enregistre sa preuve ([EXTERNAL_SIGNALS.md](EXTERNAL_SIGNALS.md)) ; 8 Mo au plus, un bilan à la fois (409 sinon) |
 | `GET /sources/history` | dernière preuve sur historique de chaque groupe importé |

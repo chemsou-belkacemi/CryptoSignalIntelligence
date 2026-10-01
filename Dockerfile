@@ -28,7 +28,9 @@ open('constraints.txt', 'w').write(''.join(f\"{p['name']}=={p['version']}\n\" fo
 
 COPY config ./config
 COPY src ./src
-RUN pip install -c constraints.txt . \
+# libgomp1 : bibliothèque OpenMP dont LightGBM a besoin (volatilité prévue, docs/VOLATILITY.md §13).
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 && rm -rf /var/lib/apt/lists/*
+RUN pip install -c constraints.txt ".[forecast]" \
     && mkdir -p /srv/csi \
     && chown -R csi:csi /srv/csi
 

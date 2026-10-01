@@ -194,6 +194,11 @@ class UserPairWorker:
             result = {"error": f"{type(exc).__name__}: {exc}"}
         if not isinstance(result, dict) or result.get("processed") or result.get("error"):
             self.last = result                       # on garde le dernier téléchargement réel, pas les tours à vide
+        try:                                         # volatilité prévue du jour (information, jamais bloquante)
+            from ..outlook.volatility import ensure
+            ensure(self.settings, now=self.clock())
+        except Exception:  # noqa: BLE001
+            log.exception("volatilité prévue")
         return result
 
     def _loop(self) -> None:

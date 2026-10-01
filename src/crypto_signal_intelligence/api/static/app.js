@@ -213,12 +213,56 @@ function renderPair(r) {
     el("div", { class: "small muted", text: r.warning }));
   const futures = el("div");
   const forecast = el("div");
-  target.replaceChildren(head, el("div", { class: "grid" }, contextCard(r), planCard(r)), futures, overviewCard(r),
+  const moves = el("div");
+  target.replaceChildren(head, el("div", { class: "grid" }, contextCard(r), planCard(r)), moves, futures, overviewCard(r),
     strategiesCard(r), forecast, definitionsCard(r));
+  volatilityCard(r.symbol).then((c) => moves.replaceChildren(c), () => moves.replaceChildren());
   futures.replaceChildren(card("Marché à terme — positionnement du moment", el("p", { class: "muted small", text: "Lecture des données publiques du marché à terme…" })));
   derivativesCard(r.symbol).then((c) => futures.replaceChildren(c), (error) => futures.replaceChildren(
     card("Marché à terme — positionnement du moment", el("p", { class: "muted small", text: `Indisponible : ${error.message}` }))));
   forecastCard().then((c) => forecast.replaceChildren(c), () => forecast.replaceChildren());
+}
+
+// Volatilité prévue : l'AMPLEUR attendue à 1, 3 et 7 jours (modèles retenus par le protocole), jamais le sens.
+const VOL_HORIZONS = [["1", "1 jour"], ["3", "3 jours"], ["7", "7 jours"]];
+const moveText = (h) => (h && isNum(h.move_pct) ? `±${fmt(h.move_pct, 2)} %` : "–");
+const calmText = (h) => {
+  if (!h || !isNum(h.ratio)) return "";
+  if (h.ratio >= 1.15) return `plus agité que ces 7 derniers jours (×${fmt(h.ratio, 2)})`;
+  if (h.ratio <= 0.87) return `plus calme que ces 7 derniers jours (×${fmt(h.ratio, 2)})`;
+  return "comme ces 7 derniers jours";
+};
+
+async function volatilityCard(symbol) {
+  const d = await api(`/volatility?symbol=${encodeURIComponent(symbol)}`);
+  const title = "Ampleur attendue — prévision de volatilité";
+  if (!d.available) return card(title, el("p", { class: "muted small", text: d.reason || "indisponible" }));
+  const f = d.forecast || {};
+  if (!f.available) return card(title, el("p", { class: "muted small", text: `Pas de prévision pour cette paire : ${f.reason || "indisponible"}.` }));
+  return card(title,
+    table(["Horizon", { label: "Mouvement typique attendu", num: true }, { label: "Ces 7 derniers jours", num: true }, "Lecture"],
+      VOL_HORIZONS.map(([key, label]) => { const h = f.horizons[key]; return [label, moveText(h), h && isNum(h.recent_move_pct) ? `±${fmt(h.recent_move_pct, 2)} %` : "–", calmText(h)]; }), "aucune prévision"),
+    el("p", { class: "muted small", text: `${d.note} Prévision du ${when(d.origin)}, refaite chaque jour.` }));
+}
+
+async function loadVolatility() {
+  const target = document.getElementById("volatility-result");
+  if (!target || state.volatilityLoaded) return;
+  busy(target, "Prévisions du jour…");
+  try {
+    const d = await api("/volatility");
+    state.volatilityLoaded = true;
+    if (!d.available) { target.replaceChildren(card("Prévisions du jour — ampleur attendue", el("p", { class: "muted", text: d.reason }))); return; }
+    const rows = Object.entries(d.pairs || {}).filter(([, f]) => f.available)
+      .sort((a, b) => ((b[1].horizons["1"] || {}).move_pct || 0) - ((a[1].horizons["1"] || {}).move_pct || 0))
+      .map(([symbol, f]) => [{ node: el("strong", { text: pair(symbol) }) }, ...VOL_HORIZONS.map(([key]) => moveText(f.horizons[key])), calmText(f.horizons["1"])]);
+    const missing = Object.values(d.pairs || {}).filter((f) => !f.available).length;
+    target.replaceChildren(card(`Prévisions du jour — ampleur attendue (${rows.length} paires)`,
+      el("p", { class: "muted small", text: `${d.note} Prévision du ${when(d.origin)}.` + (missing ? ` ${missing} paire(s) sans prévision (historique trop court ou données manquantes).` : "") }),
+      table(["Paire", { label: "1 jour", num: true }, { label: "3 jours", num: true }, { label: "7 jours", num: true }, "Demain par rapport à ces 7 derniers jours"], rows, "aucune prévision")));
+  } catch (error) {
+    showError(target, error);
+  }
 }
 
 // Marché à terme : données PUBLIQUES de positionnement, information seulement (aucune décision, aucun contrat).
@@ -573,6 +617,8 @@ function renderSignal(e) {
     ["Écart au dernier prix", pctUnits(g.deviation_pct)], ["Stop", `${price(g.stop)} (${pctUnits(-g.stop_pct)}, ${fmt(g.stop_atr, 2)} ATR)`],
     ["Objectifs", (g.targets || []).map(price).join(" · ")], ["Objectif 1", pctUnits(g.tp1_pct)],
     ["Gain/risque brut", (g.rr_gross || []).map((x) => fmt(x, 2)).join(" · ")], ["Gain/risque net TP1 (coûts centraux)", fmt(g.rr_net_tp1_central, 2)],
+    ...Object.entries(e.volatility || {}).map(([days, m]) => [`Ampleur prévue sur ${days} j : ±${fmt(m.move_pct, 2)} %`,
+      `TP1 à ${fmt(m.tp1_moves, 2)} fois ce mouvement · stop à ${fmt(m.stop_moves, 2)} fois`]),
   ]) : el("p", { class: "muted", text: "géométrie non calculée (voir les contrôles)" });
   const b = e.base_rate;
   const base = b && b.samples ? kv([
@@ -843,6 +889,7 @@ function openTab(name) {
   }
   for (const pane of document.querySelectorAll(".tabpane")) pane.classList.toggle("hidden", pane.id !== `tab-${name}`);
   if (name === "follow") loadFollow();
+  if (name === "market") loadVolatility();
 }
 
 function start() {

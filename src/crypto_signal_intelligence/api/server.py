@@ -164,6 +164,13 @@ def explain(evaluation: dict) -> str:
             f"−{geometry.get('stop_pct')} %, donc un stop coûte {1 / ratio:.1f} fois ce que rapporte un TP1. Il faut "
             f"atteindre TP1 dans plus de {needed * 100:.0f} % des cas pour gagner de l'argent{seen}."
             if ratio > 0 else "Après coûts, TP1 ne rapporte rien : ce signal ne peut pas être gagnant sur TP1 seul.")
+    moves = evaluation.get("volatility") or {}
+    if moves:
+        key = "3" if "3" in moves else next(iter(moves))
+        m = moves[key]
+        parts.append(f"Ampleur prévue : sur {key} jour(s), la paire bouge typiquement de ±{m['move_pct']} % (prévision de "
+                     f"volatilité, sans direction) ; TP1 est à {m['tp1_moves']} fois ce mouvement, le stop à "
+                     f"{m['stop_moves']} fois.")
     stats = evaluation.get("source_stats")
     if stats and stats.get("evaluated"):
         parts.append(f"Groupe « {evaluation.get('source')} » : {stats['evaluated']} signal(s) évalué(s), "
@@ -226,6 +233,26 @@ class CsiApi:
         records = source_records(ExternalSignalRegistry(self.settings.external_db), seed=self.settings.protocol.seed)
         return {"sources": _jsonable(records), "min_resolved": MIN_RESOLVED, "min_days": MIN_DAYS,
                 "rule": f"aucune conclusion avant {MIN_RESOLVED} signaux résolus sur au moins {MIN_DAYS} jours"}
+
+    def volatility(self, symbol: str = "") -> dict:
+        """Volatilité prévue du jour (ampleur attendue à 1, 3 et 7 jours), calculée une fois par jour par la
+        surveillance ; calculée ici seulement si elle manque. Information : aucune décision n'en dépend."""
+        from ..outlook.volatility import ensure
+        try:
+            current = ensure(self.settings, now=self.now())
+        except Exception as exc:  # noqa: BLE001 - données absentes, modèle indisponible
+            log.warning("volatilité prévue indisponible : %s", exc)
+            current = None
+        if current is None:
+            return {"available": False, "reason": "prévision pas encore calculée (données ou modèle indisponibles)"}
+        symbol = symbol.strip().upper()
+        if symbol:
+            entry = current["pairs"].get(symbol)
+            if entry is None:
+                raise ApiError(HTTPStatus.BAD_REQUEST, "paire sans prévision de volatilité")
+            return {"available": True, "origin": current["origin"], "note": current["note"], "symbol": symbol,
+                    "model_names": current["model_names"], "forecast": entry}
+        return {"available": True} | current
 
     def sources_history(self) -> dict:
         """Dernière preuve sur historique de chaque groupe importé (avis lié au groupe)."""
@@ -674,6 +701,7 @@ class CsiApi:
                 "/pairs": self.pairs, "/models": self.models,
                 "/derivatives": lambda: self.derivatives(query.get("symbol", [""])[0]),
                 "/admissions": self.admissions, "/sources/history": self.sources_history,
+                "/volatility": lambda: self.volatility(query.get("symbol", [""])[0]),
             }
             if path in routes:
                 return routes[path]()

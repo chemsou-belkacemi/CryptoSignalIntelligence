@@ -254,6 +254,26 @@ Ce que ce résultat permet, et ce qu'il ne permet pas :
 - c'est une sélection sur DEVELOPMENT (15 comparaisons sur des données en partie déjà parcourues) :
   sa confirmation sur la période finale réservée reste à décider par le propriétaire.
 
+## 13. En service (2026-10-01)
+
+La prévision est branchée, comme **information** : aucune décision de CSI n'en dépend.
+
+- `outlook/volatility.py` : une fois par jour (10 minutes après 00:00 UTC), la surveillance calcule pour
+  chaque paire de l'univers le **mouvement typique attendu** à 1, 3 et 7 jours, avec les modèles retenus
+  ci-dessus (LightGBM à 1 et 3 jours, HAR + BTC à 7 jours), réajustés le 1er de chaque mois comme dans le
+  protocole. Même code que la recherche ; les bougies sont celles du magasin de la surveillance, jusqu'à
+  maintenant. Résultat dans `state/volatility.json`.
+- « Mouvement typique » = écart-type prévu du rendement sur la période (racine de la variance réalisée
+  prévue), en %. Il dit l'ampleur, jamais le sens.
+- Pas de prévision, et c'est écrit, pour une paire de moins de 400 jours d'historique, sans bougie de
+  23:00, ou avec un trou récent : jamais de valeur de remplacement.
+- Tableau de bord : carte « Ampleur attendue » dans l'analyse d'une paire, tableau « Prévisions du
+  jour » dans l'onglet Marché, et, pour un signal évalué, TP1 et stop exprimés en nombre de mouvements
+  prévus. API : `GET /volatility` et `GET /volatility?symbol=X`.
+- Rappel : résultat utile sur DEVELOPMENT, non confirmé sur la période finale. Les modèles en service
+  apprennent aussi des données récentes (après 2025-06) ; cela ne consulte pas la période finale au sens
+  du protocole (aucune mesure d'erreur n'y est faite).
+
 ## Historique
 
 - 2026-10-01, v1 : protocole déclaré avant toute exécution.

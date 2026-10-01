@@ -79,6 +79,7 @@ class ExternalEvaluation:
     source_stats: dict | None = None
     decision_time: datetime | None = None
     record_id: str | None = None
+    volatility: dict | None = None           # TP1 et stop en « mouvements typiques prévus » (information)
     verdict_basis: str = ""                  # « groupe » (preuve en direct) ou « geometrie » (taux de base) si FAVORABLE
     source_proof: dict | None = None         # bilan en direct du groupe : résolus, jours, prouvé ou non
 
@@ -92,6 +93,7 @@ class ExternalEvaluation:
                 "context": self.context, "geometry": self.geometry,
                 "base_rate": self.base_rate.to_dict() if self.base_rate else None,
                 "source_stats": self.source_stats, "verdict_basis": self.verdict_basis,
+                "volatility": self.volatility,
                 "source_proof": self.source_proof,
                 "decision_time": self.decision_time.isoformat() if self.decision_time else None}
 
@@ -363,6 +365,9 @@ def evaluate(settings: Settings, text: str, *, source: str, now: datetime, recor
         "tp1_pct": round((targets[0] / effective - 1) * 100, 3),
         "rr_gross": [float(x) for x in rr], "rr_net_tp1_central": round(net, 3),
     }
+    from ..outlook.volatility import distances, for_symbol
+    evaluation.volatility = distances(for_symbol(settings, signal.symbol), tp1_pct=evaluation.geometry["tp1_pct"],
+                                      stop_pct=evaluation.geometry["stop_pct"])
     # Taux de base : le MÊME ordre limite que la résolution (écart au prix, fenêtre, stop et cible fixes
     # par rapport à la limite), rejoué à chaque bougie du passé.
     evaluation.base_rate = base_rate(frame, stop_atr=(entry - stop) / atr, target_r=(targets[0] - entry) / (entry - stop),
