@@ -98,10 +98,7 @@ BinanceSpotManager) n'ajoutent jamais de paire : personne ne les a validés.
   dans les walk-forwards, qui gardent l'univers de la configuration.
 - Où : table `user_pairs` de `signals/external.sqlite3` (état Docker : volume `csi-state`).
   Consulter : `universe` (ou `GET /universe` de l'API) ; retirer : `universe --forget PAIRE`.
-- **Mode test** (`[external] auto_add_pairs = true`, ou `CSI_EXTERNAL__AUTO_ADD_PAIRS=true` ; Docker :
-  `CSI_AUTO_ADD_PAIRS=true` dans le `.env` de CSI) : toute paire soumise est ajoutée, même par un signal
-  reçu automatiquement, **sans validation du propriétaire** ; le motif enregistré le dit. À réserver aux
-  essais : en mode normal, seule la soumission manuelle vaut validation.
+- **Ajout automatique de toute paire** (`[external] auto_add_pairs`, ou `CSI_EXTERNAL__AUTO_ADD_PAIRS` ; Docker : `CSI_AUTO_ADD_PAIRS`) : toute paire soumise est ajoutée, même par un signal reçu automatiquement, **sans validation du propriétaire** ; le motif enregistré le dit. **Activé par défaut dans Docker depuis le 2026-10-01, par choix du propriétaire** ; `CSI_AUTO_ADD_PAIRS=false` dans le `.env` de CSI pour revenir à la règle stricte (seule sa soumission manuelle vaut validation).
 
 ## Modifier l'univers
 

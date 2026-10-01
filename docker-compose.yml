@@ -15,8 +15,9 @@ x-app: &app
   volumes:
     - csi-state:/srv/csi
   environment:
-    # Mode test de l'univers (docs/UNIVERSE.md) : CSI_AUTO_ADD_PAIRS=true dans .env (à côté de ce fichier).
-    CSI_EXTERNAL__AUTO_ADD_PAIRS: ${CSI_AUTO_ADD_PAIRS:-false}
+    # Univers : toute paire soumise est ajoutée (choix du propriétaire, 2026-10-01, docs/UNIVERSE.md) ;
+    # CSI_AUTO_ADD_PAIRS=false dans .env pour revenir à « seule la soumission manuelle ajoute une paire ».
+    CSI_EXTERNAL__AUTO_ADD_PAIRS: ${CSI_AUTO_ADD_PAIRS:-true}
   restart: unless-stopped
   # Limites : la surveillance tient dans ~500 Mo ; les travaux lourds passent par `tools`.
   mem_limit: 1g
@@ -67,7 +68,7 @@ services:
       - csi-state:/srv/csi          # écriture : les évaluations sont enregistrées puis résolues par monitor
     environment:
       CSI_API_TOKEN: ${CSI_API_TOKEN:-}
-      CSI_EXTERNAL__AUTO_ADD_PAIRS: ${CSI_AUTO_ADD_PAIRS:-false}
+      CSI_EXTERNAL__AUTO_ADD_PAIRS: ${CSI_AUTO_ADD_PAIRS:-true}
     command: ["python", "-m", "crypto_signal_intelligence.api", "--host", "0.0.0.0", "--port", "8503"]
     ports:
       - "127.0.0.1:${CSI_API_PORT:-8503}:8503"
