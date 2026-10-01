@@ -170,16 +170,22 @@ routes, sécurité et intégration prévue dans [docs/API.md](docs/API.md).
 ## Tableau de bord interactif de CSI : <http://127.0.0.1:8503/>
 
 Indépendant de BinanceSpotManager (servi par le service `api` de CSI ; sans Docker :
-`.\.venv\Scripts\python.exe -m crypto_signal_intelligence.api`). Trois onglets :
+`.\.venv\Scripts\python.exe -m crypto_signal_intelligence.api`). Quatre onglets :
 
 - **Analyser une paire** : choisir une paire et un horizon (1 h, 4 h, 12 h, 1 jour, 3 jours, 7 jours).
-  CSI montre la situation actuelle, ce qui s'est passé historiquement sur cette paire dans le même
-  régime 1 h (fréquence de hausse avec son IC95, gain net moyen après coûts, fourchette 10-90 %), un
-  **plan indicatif** (entrée au marché, stop à 1 σ, objectif à 1,5 σ de la volatilité de l'horizon)
-  rejoué sur l'historique avec son avis (FAVORABLE seulement si l'IC95 de l'espérance est au-dessus de
-  0), et l'avis de ses stratégies sur la dernière bougie **en simulation** (rien n'est publié).
-  Adresse directe : `http://127.0.0.1:8503/?paire=ETHUSDT&horizon=24h`. Données anciennes (surveillance
-  arrêtée) : bouton de mise à jour depuis les données publiques de Binance.
+  CSI montre :
+  - la situation actuelle ;
+  - ce qui s'est passé historiquement sur cette paire dans le même régime 1 h : fréquence de hausse
+    avec son IC, gain net moyen après coûts, fourchette 10-90 % ;
+  - un **plan indicatif** (entrée au marché, stop à 1 σ, objectif à 1,5 σ de la volatilité de
+    l'horizon), rejoué sur l'historique. Son état est descriptif (« Historique positif — non validé »
+    au mieux), jamais une proposition d'entrer ;
+  - l'avis de ses stratégies sur la dernière bougie, **en simulation** : rien n'est publié ;
+  - la carte **Prévision par modèle**, qui donne les verdicts des programmes ML. Aucun n'étant validé
+    hors échantillon, CSI ne donne pas de probabilité « prédite ».
+
+  Adresse directe : `http://127.0.0.1:8503/?paire=ETHUSDT&horizon=24h`. Si les données sont anciennes
+  (surveillance arrêtée), un bouton les met à jour depuis les données publiques de Binance.
 - **Marché** : toutes les paires à l'horizon choisi (prix, 24 h, régime, fréquence de hausse, état du plan),
   avec un bouton Détail ; adresse directe `http://127.0.0.1:8503/?onglet=marche&lancer=1`.
 - **Évaluer un signal** : coller un signal (Telegram ou écrit à la main) → contrôles, géométrie,
