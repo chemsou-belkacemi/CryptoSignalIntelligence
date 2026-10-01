@@ -121,6 +121,17 @@ transversale ; horizons de 1 à 7 jours ; 136 essais déclarés avant exécution
 
 Détail : [docs/ML_SWING.md §7](docs/ML_SWING.md).
 
+### Positionnement du marché à terme : aucune piste (2026-10-01)
+
+Données publiques du marché à terme USDⓈ-M (financement, prime, intérêt ouvert, ratios de comptes),
+quatre conditions déclarées avant exécution, horizons de 1 à 7 jours, 12 essais.
+- Aucun intervalle de l'excès (corrigé de Bonferroni) n'est entièrement au-dessus de 0.
+- Les estimations positives des conditions contraires ne sont pas une preuve ; l'excès entre paires
+  est nul, et plusieurs résultats à 7 jours tiennent à une seule année.
+- Programme : 638 essais. La période finale n'est pas consultée.
+
+Détail : [docs/DERIVATIVES.md](docs/DERIVATIVES.md).
+
 ### Pourquoi elles perdent, et criblage des familles suivantes
 
 Avant frais, A, B et C n'ont pratiquement aucun avantage (≈ +0,01 R, −0,06 R, +0,03 R) : les coûts

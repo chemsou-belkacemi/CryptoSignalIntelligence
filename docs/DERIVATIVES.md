@@ -203,12 +203,51 @@ n'est donc **pas** un résultat « au-delà des coûts » : c'est une idée à c
 - La dérive d'une paire est calculée sur des décisions qui comprennent les événements eux-mêmes. L'excès
   en est atténué, ce qui va dans le sens prudent.
 
-## Suite
+## Résultats du criblage (2026-10-01)
 
-1. Fin du téléchargement de l'historique, puis `download-derivatives --dataset premium` pour reprendre
-   les jours absents (après les metrics : les deux écrivent dans le même registre). Ensuite, contrôle de
-   la qualité de chaque paire : zéros, sauts de la grille horaire, début des séries.
-2. Exécution unique, puis résultats ci-dessous, quels qu'ils soient.
+Exécution unique `SCREEN-20261001T111500Z-60702b` (protocole v3, code `a1e0a49`, données
+téléchargées et contrôlées avant l'exécution) : **AUCUNE_PISTE**. 12 essais ; le programme en compte
+désormais 638 sur DEVELOPMENT. Audit des fuites réussi sur BTC, ETH et SOL : 0 écart, 3 mutations
+détectées. La période finale n'est pas consultée.
+
+| Condition | Excès 1 j [IC 99,58 %] | Excès 3 j | Excès 7 j | Transversal 7 j |
+|---|---|---|---|---|
+| FUNDING_LOW | +0,18 % [−0,20 ; +0,56] | +0,48 % [−0,58 ; +1,54] | +0,61 % [−1,61 ; +2,83] | −0,09 % |
+| PREMIUM_DISCOUNT | −0,01 % [−0,46 ; +0,45] | +0,23 % [−0,97 ; +1,43] | +0,27 % [−1,99 ; +2,53] | −0,02 % |
+| OI_FLUSH | +0,50 % [−0,18 ; +1,17] | +0,73 % [−0,85 ; +2,31] | +0,89 % [−2,33 ; +4,10] | +0,36 % |
+| ACCOUNTS_SHORT | +0,51 % [−0,26 ; +1,27] | +1,18 % [−0,91 ; +3,28] | +2,15 % [−2,64 ; +6,95] | +0,70 % |
+
+Lecture :
+- Au niveau corrigé de Bonferroni (99,58 %), **aucun intervalle de l'excès n'est entièrement au-dessus
+  de 0**.
+- Les estimations ponctuelles de l'excès sont positives aux trois horizons pour FUNDING_LOW, OI_FLUSH
+  et ACCOUNTS_SHORT (de +0,18 % à +2,15 %), ainsi que pour PREMIUM_DISCOUNT à 3 et 7 jours (+0,23 %
+  et +0,27 %). Celle de PREMIUM_DISCOUNT à 1 jour est quasi nulle (−0,01 %). Ces estimations
+  positives des conditions contraires (comptes vendeurs, purge de l'intérêt ouvert) **ne sont pas une
+  preuve**. Les confirmer sur DEVELOPMENT serait du post hoc ; seule une observation prospective
+  (shadow) ou la période finale pourrait le faire.
+- L'excès transversal (rendement moins la moyenne des autres paires au même instant) va de −0,09 % à
+  +0,70 %. Il est plus faible que l'excès sur la dérive de la paire, et aucun de ses intervalles
+  n'exclut 0 : rien ne montre une sélection entre paires.
+- Concentration : pour 5 des 12 lignes, une seule année porte plus de 60 % de la somme des excès. Ce
+  sont les quatre conditions à 7 jours (FUNDING_LOW 78 %, ACCOUNTS_SHORT 64 %, OI_FLUSH 126 %,
+  PREMIUM_DISCOUNT 214 %) et PREMIUM_DISCOUNT à 3 jours (122 %). Une part au-dessus de 100 % signifie
+  que la somme des autres années est négative.
+- Rien ici n'annonce une rentabilité. L'information de positionnement ne démontre pas d'avantage sur
+  DEVELOPMENT, comme les bougies seules avant elle.
+
+**Vérification indépendante (2026-10-01).**
+- Recalcul de OI_FLUSH et ACCOUNTS_SHORT à 24 h, sans le code du criblage : 7 361 et 16 172
+  événements, contre 7 338 et 16 174, avec des excès qui diffèrent de moins de 0,003 point. Une fois
+  alignés sur les choix du code, les chiffres sont identiques.
+- Cause des 23 événements OI_FLUSH en plus : le code exige aussi 24 heures Spot contiguës pour le
+  rendement Spot **passé** de 24 h. Ces événements tombent autour du trou Spot du 2023-03-24. Ce choix
+  est désormais écrit ici.
+- Registre, niveau des IC, blocs, règle et empreintes des données : conformes. Aucune donnée
+  postérieure au 2025-06-30 n'a été lue.
+
+Les conditions restent dans le tableau de bord comme simple description (carte « Marché à terme »).
+Aucun signal n'en découle.
 
 ## Historique
 
@@ -236,3 +275,6 @@ n'est donc **pas** un résultat « au-delà des coûts » : c'est une idée à c
   - Qualité de chaque série enregistrée avec le résultat ; limites supplémentaires déclarées.
   - Tests : zéro de contrats et du ratio de comptes, gigue négative, début et fin des séries, prime
     incomplète, effet prix exclu.
+- 2026-10-01 : **résultats** de l'exécution unique `SCREEN-20261001T111500Z-60702b` : AUCUNE_PISTE
+  (12 essais, programme 638). Vérification indépendante conforme. Précision écrite après coup, sans
+  changer le calcul : la contiguïté Spot vaut aussi pour le rendement passé de 24 h d'OI_FLUSH.
