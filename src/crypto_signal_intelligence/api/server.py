@@ -120,7 +120,8 @@ def explain(evaluation: dict) -> str:
         ci_text = f", IC95 [{ci[0]:+.2f} ; {ci[1]:+.2f}] R" if ci else ", sans intervalle fiable"
         parts.append(
             f"Taux de base : sur {rate['samples']} ordres de même géométrie pris à l'aveugle "
-            f"({'même régime' if rate.get('regime_conditioned') else 'tous régimes'}), "
+            f"({'même régime' if rate.get('regime_conditioned') else 'tous régimes'}"
+            f"{', historique jusqu’au ' + rate['history_end'] if rate.get('history_end') else ''}), "
             f"{rate['tp_first'] * 100:.0f} % ont touché le TP1 avant le stop ; espérance "
             f"{rate['expectancy_r']:+.2f} R par ordre rempli{ci_text}. C'est un historique, pas la "
             "probabilité que CE signal réussisse.")

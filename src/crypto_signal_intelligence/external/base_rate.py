@@ -13,6 +13,11 @@ EXACTEMENT l'ordre que la résolution d'un signal réel simule (external/registr
   `horizon` bougies ; ordres non remplis = UNFILLED (0 R, hors statistiques de trades) ;
 - R net rapporté au risque prévu (limite − stop), frais et glissement compris.
 
+Version 3 (2026-10-01) : seuls les ordres dont la fenêtre complète (entrée + horizon) se termine avant
+la fin de DEVELOPMENT comptent (`history_end`) ; la période suivante reste réservée au test final de la
+recherche (docs/PROTOCOL.md). Une paire cotée après cette date n'a donc pas de taux de base (avis
+indéterminé, faute d'historique).
+
 Ce taux mesure ce que la géométrie, le type d'ordre et le régime donnent SANS aucune sélection. Ce
 n'est pas la probabilité qu'un signal précis réussisse : l'apport d'une source se lit dans l'écart
 entre ses résultats réels, résolus avec les mêmes règles, et ce taux. Les entrées successives se
@@ -31,7 +36,7 @@ from ..backtest.metrics import day_block_ci95
 from ..config import CostScenario
 
 TP, SL, TIMEOUT = 1, -1, 0
-METHOD = "LIMIT_ALIGNED_V2"
+METHOD = "LIMIT_ALIGNED_V3"
 MIN_BLOCKS = 10
 
 
@@ -55,6 +60,7 @@ class BaseRate:
     block_days: int = 0
     blocks: int = 0
     method: str = METHOD
+    history_end: str | None = None     # fin de l'historique utilisé (fin de DEVELOPMENT)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -168,12 +174,20 @@ def blind_limit_outcomes(frame: pd.DataFrame, *, entry_offset: float, stop_atr: 
 
 def base_rate(frame: pd.DataFrame, *, stop_atr: float, target_r: float, horizon: int, costs: CostScenario,
               trend: str, volatility: str, min_samples: int, seed: int, bootstrap_samples: int = 2000,
-              entry_offset: float = 0.0, entry_window: int = 1, bar_minutes: int = 15) -> BaseRate:
+              entry_offset: float = 0.0, entry_window: int = 1, bar_minutes: int = 15,
+              history_end: pd.Timestamp | None = None) -> BaseRate:
     """Taux de base dans le régime (tendance, volatilité) courant, s'il fournit assez d'ordres remplis
-    ET un intervalle ; sinon sur tous les régimes (signalé)."""
+    ET un intervalle ; sinon sur tous les régimes (signalé). `history_end` : seuls les ordres dont la
+    fenêtre complète se termine avant cette date comptent."""
     block_days = max(1, math.ceil(horizon * bar_minutes / 1440))
+    historical: np.ndarray | None = None
+    if history_end is not None:
+        span = pd.Timedelta(minutes=bar_minutes) * (entry_window + horizon)
+        historical = (frame["decision_time"] + span <= pd.Timestamp(history_end)).to_numpy()
 
     def run(mask: np.ndarray | None) -> tuple[BlindOutcomes, tuple[float, float] | None, int]:
+        if historical is not None:
+            mask = historical if mask is None else (mask & historical)
         blind = blind_limit_outcomes(frame, entry_offset=entry_offset, stop_atr=stop_atr, target_r=target_r,
                                      entry_window=entry_window, horizon=horizon, costs=costs, mask=mask)
         ci, blocks = day_block_ci95(blind.r, blind.times, block_days=block_days, samples=bootstrap_samples,
@@ -192,11 +206,13 @@ def base_rate(frame: pd.DataFrame, *, stop_atr: float, target_r: float, horizon:
     assert blind is not None
     samples = len(blind.r)
     regime = f"{trend}/{volatility}" if conditioned else "tous régimes"
+    end_text = f"{pd.Timestamp(history_end):%Y-%m-%d}" if history_end is not None else None
     fill_rate = round(blind.filled / blind.emitted, 4) if blind.emitted else 0.0
     if samples == 0:
         return BaseRate(0, 0.0, 0.0, 0.0, 0.0, 0.0, None, horizon, conditioned, regime, emitted=blind.emitted,
                         fill_rate=fill_rate, entry_window_bars=entry_window,
-                        entry_offset_pct=round(entry_offset * 100, 4), block_days=block_days, blocks=blocks)
+                        entry_offset_pct=round(entry_offset * 100, 4), block_days=block_days, blocks=blocks,
+                        history_end=end_text)
     tp_ci, _ = day_block_ci95((blind.outcome == TP).astype(float), blind.times, block_days=block_days,
                               samples=bootstrap_samples, seed=seed)
     return BaseRate(
@@ -206,4 +222,4 @@ def base_rate(frame: pd.DataFrame, *, stop_atr: float, target_r: float, horizon:
         ambiguous=round(float(blind.ambiguous.mean()), 4), expectancy_r=round(float(blind.r.mean()), 4),
         expectancy_r_ci95=ci, horizon_bars=horizon, regime_conditioned=conditioned, regime=regime,
         emitted=blind.emitted, fill_rate=fill_rate, tp_first_ci95=tp_ci, entry_window_bars=entry_window,
-        entry_offset_pct=round(entry_offset * 100, 4), block_days=block_days, blocks=blocks)
+        entry_offset_pct=round(entry_offset * 100, 4), block_days=block_days, blocks=blocks, history_end=end_text)

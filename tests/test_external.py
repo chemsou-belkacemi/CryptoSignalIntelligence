@@ -339,3 +339,25 @@ def test_source_record_needs_signals_spread_over_several_days(settings):
         registry.mark(sid, "TP1_FIRST", 1.9, t0, t0 + timedelta(hours=5))
     record = source_records(registry)[0]
     assert record.edge_ci95 is None and "concentrés" in record.conclusion
+
+
+
+def test_base_rate_never_uses_orders_resolved_after_the_development_end():
+    """Version 3 : le test final de la recherche reste réservé ; falsifier tout ce qui suit la fin de
+    l'historique ne change rien au taux de base."""
+    candles = canonical(3000, vol=0.006)
+    frame = candles[["open_time", "open", "high", "low", "close"]].assign(
+        decision_time=candles["open_time"] + pd.Timedelta(minutes=15),
+        atr14=ind.atr(candles["high"], candles["low"], candles["close"]), ctx_trend="BULL", ctx_volatility="NORMAL")
+    end = frame["decision_time"].iloc[2000]
+    kwargs = dict(stop_atr=1.5, target_r=2, horizon=8, costs=FREE, trend="BULL", volatility="NORMAL", min_samples=50,
+                  seed=1, bootstrap_samples=200, entry_offset=0.0, entry_window=4, history_end=end)
+    first = br.base_rate(frame, **kwargs)
+    later = frame["open_time"] > end
+    falsified = frame.copy()
+    for column in ("open", "high", "low", "close"):
+        falsified.loc[later, column] = falsified.loc[later, column] * 1.5
+    assert br.base_rate(falsified, **kwargs) == first
+    assert first.history_end == f"{end:%Y-%m-%d}" and first.method == "LIMIT_ALIGNED_V3"
+    everything = br.base_rate(frame, **{**kwargs, "history_end": None})
+    assert everything.emitted > first.emitted

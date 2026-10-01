@@ -36,11 +36,12 @@ L'avis combine trois choses, dans cet ordre :
    calculés sur l'**entrée réellement obtenue** : un achat limite placé au-dessus du marché
    s'exécute tout de suite, au prix du marché.
 2. **Contexte** : tendance, volatilité et liquidité 1h, RSI, rendement 24 h de BTC. Descriptif.
-3. **Taux de base historique** (méthode `LIMIT_ALIGNED_V2`) : sur la même paire, à **chaque**
+3. **Taux de base historique** (méthode `LIMIT_ALIGNED_V3`) : sur la même paire, à **chaque**
    bougie de l'historique (donc sans aucune sélection), on place le **même ordre limite** que le
    signal (même écart au dernier prix, même stop en ATR, même cible en R, même fenêtre de
    24 h), résolu avec **exactement** les règles de `resolve-signals` (vérifié par un test
-   d'équivalence). Dans le même régime 1h quand l'échantillon suffit, sinon sur tous les
+   d'équivalence), **jusqu'à la fin de DEVELOPMENT seulement** (2025-06-30 : la période suivante
+   reste réservée au test final de la recherche). Dans le même régime 1h quand l'échantillon suffit, sinon sur tous les
    régimes (signalé) : taux de remplissage, part des cas où TP1 est atteint avant le stop parmi
    les ordres remplis (avec intervalle), part des stops, part des « ni l'un ni l'autre » à
    l'horizon (`max_hold_bars`, 7 jours), et espérance nette en R par ordre rempli avec
@@ -115,6 +116,10 @@ conclusion ne vaut que si elle tient ensuite, sur des signaux reçus après cett
 
 ## Historique
 
+- 2026-10-01 : taux de base `LIMIT_ALIGNED_V3` : seuls les ordres dont la fenêtre complète se termine
+  avant la fin de DEVELOPMENT comptent (champ `history_end`). Une paire cotée après cette date n'a
+  pas de taux de base (avis indéterminé). Les évaluations antérieures gardent leur méthode
+  (champ `method`).
 - 2026-09-30 : taux de base `LIMIT_ALIGNED_V2`. Avant, il supposait une entrée au marché à chaque
   bougie alors que la résolution place un ordre limite : l'écart « réalisé − base » d'un groupe
   mélangeait son apport et l'effet du type d'ordre. L'intervalle exigeait 10 blocs de 672 entrées

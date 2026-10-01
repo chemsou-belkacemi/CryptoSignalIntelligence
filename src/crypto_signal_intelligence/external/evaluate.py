@@ -16,6 +16,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from decimal import Decimal
 
+import pandas as pd
+
 from ..config import ExternalSection, Settings
 from ..data.http import RETRYABLE_STATUS, HttpError, PublicHttpClient
 from ..data.rest import fetch_tick_size
@@ -23,6 +25,7 @@ from ..data.schema import interval
 from ..features.builder import SetupFeatureParams, build_decision_frame
 from ..features.loader import MissingData, load_inputs
 from ..levels.engine import TradeLevels
+from ..research.protocol import development_end
 from ..signals.schema import gross_rr
 from .base_rate import BaseRate, base_rate
 from .parser import ExternalSignal, parse
@@ -283,5 +286,6 @@ def evaluate(settings: Settings, text: str, *, source: str, now: datetime, recor
                                      volatility=volatility, min_samples=cfg.min_base_rate_samples,
                                      seed=settings.protocol.seed, bootstrap_samples=settings.protocol.bootstrap_samples,
                                      entry_offset=entry / close - 1, entry_window=cfg.entry_window_bars,
-                                     bar_minutes=int(setup_interval.total_seconds() // 60))
+                                     bar_minutes=int(setup_interval.total_seconds() // 60),
+                                     history_end=pd.Timestamp(development_end(settings)))
     return finish()
