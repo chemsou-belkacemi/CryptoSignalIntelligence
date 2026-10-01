@@ -164,9 +164,10 @@ class LiveSection(BaseModel):
     context_tail_bars: int = Field(1500, ge=300)          # ≈ 62 jours de 1h
     lock_file: str = "state/run.lock"
     status_file: str = "state/run_status.json"
-    # Plafond mémoire des travaux lourds (backtest, walk-forward, screen) sous Windows (point 4) :
-    # un walk-forward sur 16 paires pèse ≈ 1 Go ; 3 Go laissent de la marge sans menacer un PC de 7,7 Go.
-    heavy_job_max_memory_mb: int = Field(3000, ge=0, le=65536)   # 0 = pas de plafond
+    # Plafond de mémoire ENGAGÉE des travaux lourds (backtest, walk-forward, screen, ml-evaluate) sous Windows
+    # (point 4). Mesuré le 2026-10-01 : 16 paires chargées puis simulées = 3,6 Go engagés pour ≈ 1 Go de RAM
+    # réellement utilisée (réservations des allocateurs) ; 6 Go laissent de la marge et arrêtent un emballement.
+    heavy_job_max_memory_mb: int = Field(6000, ge=0, le=65536)   # 0 = pas de plafond
 
 
 class NewsSourceConfig(BaseModel):

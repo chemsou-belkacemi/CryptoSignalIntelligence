@@ -21,6 +21,7 @@ Ce n'est PAS une simulation de portefeuille.
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -30,7 +31,7 @@ import pandas as pd
 from ..config import CostScenario
 from ..domain.enums import Action, NoTradeReason
 from ..features.context import iter_contexts
-from ..levels.engine import LevelError, compute_levels
+from ..levels.engine import LevelError, TradeLevels, compute_levels
 from ..strategies.base import Strategy
 from ..validation import gates
 from .exits import OpenPosition, exit_policy, gross_return, pnl_per_unit
@@ -94,11 +95,15 @@ class SimulationResult:
 
 def simulate(frame: pd.DataFrame, symbol: str, strategy: Strategy, rules: SimulationRules, *,
              start: datetime | None = None, end: datetime | None = None,
-             decisions_end: datetime | None = None) -> SimulationResult:
+             decisions_end: datetime | None = None,
+             decision_filter: Callable[[datetime, TradeLevels], bool] | None = None) -> SimulationResult:
     """`frame` : tableau de décisions (features + contexte) d'UNE paire, trié.
 
     Décisions entre `start` et `decisions_end` (défaut : `end`) ; les prix sont lus
     jusqu'à `end`, pour qu'un trade décidé dans une fenêtre de test puisse se terminer.
+    `decision_filter(decision_time, niveaux)` : filtre supplémentaire (modèle du lot 5) appliqué
+    après tous les vetos, au même endroit que le ferait la surveillance ; un setup refusé est
+    NO_TRADE « ML_FILTER » et laisse la paire libre pour le setup suivant.
     """
     if end is not None:
         # Aucune donnée postérieure à la période : les trades à cheval sont CENSORED.
@@ -231,6 +236,9 @@ def simulate(frame: pd.DataFrame, symbol: str, strategy: Strategy, rules: Simula
         veto = gates.post_levels(levels, costs, rules.min_net_rr)
         if veto:
             result.no_trade[veto[0].value] += 1
+            continue
+        if decision_filter is not None and not decision_filter(context.decision_time, levels):
+            result.no_trade["ML_FILTER"] += 1
             continue
         active_from = k + 1 + costs.extra_entry_delay_bars
         pending = {

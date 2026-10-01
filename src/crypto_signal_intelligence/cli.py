@@ -125,12 +125,22 @@ def data_quality(symbol: str = typer.Option(..., help="Paire, ex. BTCUSDT"),
 
 def _heavy_job(settings) -> None:
     """Travail lourd (point 4) : priorité CPU basse et plafond mémoire, pour ne pas gêner `run` ni le PC."""
-    from .live.priority import heavy_job
+    import atexit
+
+    from .live.priority import heavy_job, peak_memory_mb
     limit = settings.live.heavy_job_max_memory_mb
     applied = heavy_job(limit)
     if applied["memory_limited"]:
-        console.print(f"[dim]Travail lourd : priorité basse, mémoire plafonnée à {limit} Mo "
+        console.print(f"[dim]Travail lourd : priorité basse, mémoire engagée plafonnée à {limit} Mo "
                       "(live.heavy_job_max_memory_mb).[/dim]")
+
+    def report_peak() -> None:
+        peak = peak_memory_mb()
+        if peak:
+            console.print(f"[dim]Pic mémoire : {peak['committed_peak_mb']} Mo engagés (plafond {limit or 'aucun'}), "
+                          f"{peak['ram_peak_mb']} Mo en RAM.[/dim]")
+
+    atexit.register(report_peak)
 
 
 def _strategies(requested: list[str] | None) -> list[str]:

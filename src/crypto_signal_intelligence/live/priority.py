@@ -79,6 +79,35 @@ def limit_memory(max_mb: int) -> bool:
         return False
 
 
+def peak_memory_mb() -> dict[str, int] | None:
+    """Pics de mémoire du processus courant (Windows) : engagée (ce que compte le plafond) et en RAM."""
+    if sys.platform != "win32":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class Counters(ctypes.Structure):
+            _fields_ = [("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD),
+                        ("PeakWorkingSetSize", ctypes.c_size_t), ("WorkingSetSize", ctypes.c_size_t),
+                        ("QuotaPeakPagedPoolUsage", ctypes.c_size_t), ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                        ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t), ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                        ("PagefileUsage", ctypes.c_size_t), ("PeakPagefileUsage", ctypes.c_size_t)]
+
+        counters = Counters()
+        counters.cb = ctypes.sizeof(counters)
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+        psapi = ctypes.windll.psapi  # type: ignore[attr-defined]
+        psapi.GetProcessMemoryInfo.argtypes = (ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD)
+        if not psapi.GetProcessMemoryInfo(kernel32.GetCurrentProcess(), ctypes.byref(counters), counters.cb):
+            return None
+        return {"committed_peak_mb": counters.PeakPagefileUsage // 2**20,
+                "ram_peak_mb": counters.PeakWorkingSetSize // 2**20}
+    except (OSError, AttributeError):
+        return None
+
+
 def heavy_job(max_mb: int) -> dict[str, bool]:
     """Bride le processus courant pour un travail lourd : priorité basse et plafond mémoire."""
     return {"priority_lowered": lower_priority(), "memory_limited": limit_memory(max_mb)}
