@@ -18,6 +18,11 @@ la fin de DEVELOPMENT comptent (`history_end`) ; la période suivante reste rés
 recherche (docs/PROTOCOL.md). Une paire cotée après cette date n'a donc pas de taux de base (avis
 indéterminé, faute d'historique).
 
+Version 4 (2026-10-02) : l'écart entre la limite et le dernier prix peut être exprimé en ATR
+(`entry_offset_atr`), comme le stop et la cible. En % fixe (V3), une limite placée loin AU-DESSUS du prix (signal
+reçu après une baisse : achat aussitôt au marché) mettait, dans les périodes calmes de l'historique, le stop
+au-dessus du prix d'achat : stops immédiats et taux de base faussement désastreux.
+
 Ce taux mesure ce que la géométrie, le type d'ordre et le régime donnent SANS aucune sélection. Ce
 n'est pas la probabilité qu'un signal précis réussisse : l'apport d'une source se lit dans l'écart
 entre ses résultats réels, résolus avec les mêmes règles, et ce taux. Les entrées successives se
@@ -36,7 +41,7 @@ from ..backtest.metrics import day_block_ci95
 from ..config import CostScenario
 
 TP, SL, TIMEOUT = 1, -1, 0
-METHOD = "LIMIT_ALIGNED_V3"
+METHOD = "LIMIT_ALIGNED_V4"
 MIN_BLOCKS = 10
 
 
@@ -57,6 +62,7 @@ class BaseRate:
     tp_first_ci95: tuple[float, float] | None = None
     entry_window_bars: int = 0
     entry_offset_pct: float = 0.0
+    entry_offset_atr: float | None = None   # écart limite − dernier prix en ATR (V4), None : en % (`entry_offset_pct`)
     block_days: int = 0
     blocks: int = 0
     method: str = METHOD
@@ -78,7 +84,7 @@ class BlindOutcomes:
 
 def blind_limit_outcomes(frame: pd.DataFrame, *, entry_offset: float, stop_atr: float, target_r: float,
                          entry_window: int, horizon: int, costs: CostScenario,
-                         mask: np.ndarray | None = None) -> BlindOutcomes:
+                         mask: np.ndarray | None = None, entry_offset_atr: float | None = None) -> BlindOutcomes:
     """Ordres limites aveugles, résolus comme `replay` (voir la docstring du module)."""
     opens, highs, lows, closes = (frame[k].to_numpy(float) for k in ("open", "high", "low", "close"))
     atr = frame["atr14"].to_numpy(float)
@@ -92,7 +98,7 @@ def blind_limit_outcomes(frame: pd.DataFrame, *, entry_offset: float, stop_atr: 
     if mask is not None:
         eligible &= np.asarray(mask, dtype=bool)
     idx = np.flatnonzero(eligible)
-    limit = closes[idx] * (1 + entry_offset)
+    limit = (closes[idx] + entry_offset_atr * atr[idx]) if entry_offset_atr is not None else closes[idx] * (1 + entry_offset)
     stop = limit - stop_atr * atr[idx]
     keep = stop > 0
     idx, limit, stop = idx[keep], limit[keep], stop[keep]
@@ -175,6 +181,7 @@ def blind_limit_outcomes(frame: pd.DataFrame, *, entry_offset: float, stop_atr: 
 def base_rate(frame: pd.DataFrame, *, stop_atr: float, target_r: float, horizon: int, costs: CostScenario,
               trend: str, volatility: str, min_samples: int, seed: int, bootstrap_samples: int = 2000,
               entry_offset: float = 0.0, entry_window: int = 1, bar_minutes: int = 15,
+              entry_offset_atr: float | None = None,
               history_end: pd.Timestamp | None = None) -> BaseRate:
     """Taux de base dans le régime (tendance, volatilité) courant, s'il fournit assez d'ordres remplis
     ET un intervalle ; sinon sur tous les régimes (signalé). `history_end` : seuls les ordres dont la
@@ -188,7 +195,8 @@ def base_rate(frame: pd.DataFrame, *, stop_atr: float, target_r: float, horizon:
     def run(mask: np.ndarray | None) -> tuple[BlindOutcomes, tuple[float, float] | None, int]:
         if historical is not None:
             mask = historical if mask is None else (mask & historical)
-        blind = blind_limit_outcomes(frame, entry_offset=entry_offset, stop_atr=stop_atr, target_r=target_r,
+        blind = blind_limit_outcomes(frame, entry_offset=entry_offset, entry_offset_atr=entry_offset_atr,
+                                     stop_atr=stop_atr, target_r=target_r,
                                      entry_window=entry_window, horizon=horizon, costs=costs, mask=mask)
         ci, blocks = day_block_ci95(blind.r, blind.times, block_days=block_days, samples=bootstrap_samples,
                                     seed=seed)
@@ -211,7 +219,8 @@ def base_rate(frame: pd.DataFrame, *, stop_atr: float, target_r: float, horizon:
     if samples == 0:
         return BaseRate(0, 0.0, 0.0, 0.0, 0.0, 0.0, None, horizon, conditioned, regime, emitted=blind.emitted,
                         fill_rate=fill_rate, entry_window_bars=entry_window,
-                        entry_offset_pct=round(entry_offset * 100, 4), block_days=block_days, blocks=blocks,
+                        entry_offset_pct=round(entry_offset * 100, 4), entry_offset_atr=entry_offset_atr, block_days=block_days,
+                        blocks=blocks,
                         history_end=end_text)
     tp_ci, _ = day_block_ci95((blind.outcome == TP).astype(float), blind.times, block_days=block_days,
                               samples=bootstrap_samples, seed=seed)
@@ -222,4 +231,5 @@ def base_rate(frame: pd.DataFrame, *, stop_atr: float, target_r: float, horizon:
         ambiguous=round(float(blind.ambiguous.mean()), 4), expectancy_r=round(float(blind.r.mean()), 4),
         expectancy_r_ci95=ci, horizon_bars=horizon, regime_conditioned=conditioned, regime=regime,
         emitted=blind.emitted, fill_rate=fill_rate, tp_first_ci95=tp_ci, entry_window_bars=entry_window,
-        entry_offset_pct=round(entry_offset * 100, 4), block_days=block_days, blocks=blocks, history_end=end_text)
+        entry_offset_pct=round(entry_offset * 100, 4), entry_offset_atr=entry_offset_atr, block_days=block_days,
+                        blocks=blocks, history_end=end_text)

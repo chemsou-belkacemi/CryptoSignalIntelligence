@@ -167,8 +167,8 @@ def replay_trailing(bars: pd.DataFrame, *, entry: float, stop: float, targets: l
 
 
 def blind_trailing(frame: pd.DataFrame, *, entry_offset: float, stop_atr: float, target_rs: list[float],
-                   entry_window: int, horizon: int, costs: CostScenario,
-                   mask: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
+                   entry_window: int, horizon: int, costs: CostScenario, mask: np.ndarray | None = None,
+                   entry_offset_atr: float | None = None) -> tuple[np.ndarray, np.ndarray]:
     """Ordres aveugles de même géométrie à chaque bougie de `frame` (comme le taux de base TP1) : limite à
     close × (1 + écart), stop à `stop_atr` ATR sous la limite, objectifs à `target_rs` R au-dessus. Renvoie les R
     des ordres remplis et terminés, et leur instant de décision."""
@@ -180,7 +180,7 @@ def blind_trailing(frame: pd.DataFrame, *, entry_offset: float, stop_atr: float,
     if mask is not None:
         eligible &= np.asarray(mask, dtype=bool)
     idx = np.flatnonzero(eligible)
-    limit = closes[idx] * (1 + entry_offset)
+    limit = (closes[idx] + entry_offset_atr * atr[idx]) if entry_offset_atr is not None else closes[idx] * (1 + entry_offset)
     stop = limit - stop_atr * atr[idx]
     keep = stop > 0
     idx, limit, stop = idx[keep], limit[keep], stop[keep]
@@ -192,6 +192,7 @@ def blind_trailing(frame: pd.DataFrame, *, entry_offset: float, stop_atr: float,
 
 
 def trailing_rate(frame: pd.DataFrame, *, entry_offset: float, stop_atr: float, target_rs: list[float], trend: str,
+                  entry_offset_atr: float | None = None,
                   volatility: str, entry_window: int, horizon: int, costs: CostScenario, min_samples: int, seed: int,
                   bootstrap_samples: int, bar_minutes: int = 15, history_end: pd.Timestamp | None = None) -> dict:
     """Taux de base de la gestion « stop suiveur » : mêmes ordres aveugles que le taux de base TP1 (même régime
@@ -209,7 +210,8 @@ def trailing_rate(frame: pd.DataFrame, *, entry_offset: float, stop_atr: float, 
     def run(mask):
         if historical is not None:
             mask = historical if mask is None else (mask & historical)
-        r, times = blind_trailing(frame, entry_offset=entry_offset, stop_atr=stop_atr, target_rs=target_rs,
+        r, times = blind_trailing(frame, entry_offset=entry_offset, entry_offset_atr=entry_offset_atr,
+                                  stop_atr=stop_atr, target_rs=target_rs,
                                   entry_window=entry_window, horizon=horizon, costs=costs, mask=mask)
         ci, blocks = day_block_ci95(r, times, block_days=block_days, samples=bootstrap_samples, seed=seed)
         return r, ci, blocks

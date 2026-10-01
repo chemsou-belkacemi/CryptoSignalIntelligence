@@ -388,14 +388,15 @@ def evaluate(settings: Settings, text: str, *, source: str, now: datetime, recor
                                      horizon=cfg.max_hold_bars, costs=settings.costs["central"], trend=trend,
                                      volatility=volatility, min_samples=cfg.min_base_rate_samples,
                                      seed=settings.protocol.seed, bootstrap_samples=settings.protocol.bootstrap_samples,
-                                     entry_offset=entry / close - 1, entry_window=cfg.entry_window_bars,
+                                     entry_offset=entry / close - 1, entry_offset_atr=(entry - close) / atr,
+                                     entry_window=cfg.entry_window_bars,
                                      bar_minutes=int(setup_interval.total_seconds() // 60),
                                      history_end=pd.Timestamp(development_end(settings)))
     if trailing:
         from .trailing import trailing_rate, used_targets
         risk = entry - stop
         evaluation.trailing = trailing_rate(
-            frame, entry_offset=entry / close - 1, stop_atr=risk / atr,
+            frame, entry_offset=entry / close - 1, entry_offset_atr=(entry - close) / atr, stop_atr=risk / atr,
             target_rs=[(t - entry) / risk for t in used_targets(targets, cfg.tp_count)], trend=trend,
             volatility=volatility, entry_window=cfg.entry_window_bars, horizon=cfg.trail_max_hold_bars,
             costs=settings.costs["central"], min_samples=cfg.min_base_rate_samples, seed=settings.protocol.seed,

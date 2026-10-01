@@ -396,7 +396,7 @@ def test_base_rate_never_uses_orders_resolved_after_the_development_end():
     for column in ("open", "high", "low", "close"):
         falsified.loc[later, column] = falsified.loc[later, column] * 1.5
     assert br.base_rate(falsified, **kwargs) == first
-    assert first.history_end == f"{end:%Y-%m-%d}" and first.method == "LIMIT_ALIGNED_V3"
+    assert first.history_end == f"{end:%Y-%m-%d}" and first.method == "LIMIT_ALIGNED_V4"
     everything = br.base_rate(frame, **{**kwargs, "history_end": None})
     assert everything.emitted > first.emitted
 
@@ -413,3 +413,31 @@ def test_sell_at_a_target_is_a_take_profit_and_telegram_bold_is_ignored():
                   "*PAIR:* BTC/USDT\n*SHORT*\nENTRY 1: 84000\nT1: 80000\nSL: 90000"):
         assert parse(short).direction == "SELL" and parse(short).errors, short
     assert not parse(INCRYPTO.replace("T1: 2.9  📉 SELL", "T1: 2.9 OR 2.95")).ok      # toujours aucun prix deviné
+
+
+def test_a_limit_above_the_market_scales_with_atr_and_never_puts_the_stop_above_the_fill():
+    """Signal reçu après une baisse : entrée 1 à +2,3 % du prix (achat aussitôt au marché), stop à 1,2 ATR sous
+    l'entrée. En % fixe (V3), dans une période calme (ATR 1 %), la limite +2,3 % mettait le stop AU-DESSUS du
+    prix d'achat : stop immédiat. En ATR (V4), l'écart suit la volatilité : le stop reste sous le prix d'achat."""
+    rng = np.random.default_rng(4)
+    n = 3000
+    close = 100 * np.exp(np.cumsum(rng.normal(0, 0.002, n)))
+    opens = np.r_[100.0, close[:-1]]
+    frame = pd.DataFrame({"open": opens, "high": np.maximum(opens, close) * 1.001, "low": np.minimum(opens, close) * 0.999,
+                          "close": close, "atr14": close * 0.01,
+                          "decision_time": pd.date_range("2024-01-01", periods=n, freq="15min", tz="UTC")})
+    common = dict(stop_atr=1.2, target_r=0.25, entry_window=4, horizon=96, costs=FREE)
+    percent = br.blind_limit_outcomes(frame, entry_offset=0.023, **common)
+    in_atr = br.blind_limit_outcomes(frame, entry_offset=0.0, entry_offset_atr=0.5, **common)
+    assert (percent.outcome == br.SL).mean() > 0.95                        # V3 : stop au-dessus de l'achat
+    assert (in_atr.outcome == br.SL).mean() < 0.9 and (in_atr.outcome == br.TP).mean() > 0.1
+    # Même résolution que `replay` pour un ordre, prix absolus recalculés à la main.
+    i = 1500
+    limit = close[i] + 0.5 * close[i] * 0.01
+    stop = limit - 1.2 * close[i] * 0.01
+    after = frame.iloc[i + 1:].assign(open_time=frame["decision_time"].iloc[i + 1:]).reset_index(drop=True)
+    outcome, r, _ = replay(after, entry=limit, stop=stop, target=limit + 0.25 * (limit - stop), entry_window=4,
+                           max_hold=96, costs=FREE)
+    pos = int(np.flatnonzero(in_atr.times == frame["decision_time"].to_numpy()[i])[0])
+    assert {br.TP: "TP1_FIRST", br.SL: "SL_FIRST", br.TIMEOUT: "TIMEOUT"}[in_atr.outcome[pos]] == outcome
+    assert in_atr.r[pos] == pytest.approx(r, abs=1e-4)

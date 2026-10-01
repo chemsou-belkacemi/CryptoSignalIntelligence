@@ -187,6 +187,11 @@ bougies publiques.
 
 ## Historique
 
+- 2026-10-02 : taux de base `LIMIT_ALIGNED_V4` : l'écart entre l'entrée et le dernier prix est mesuré en ATR,
+  comme le stop et la cible. En % fixe, un signal reçu après une baisse (entrée au-dessus du prix, achat aussitôt
+  au marché) plaçait, dans les périodes calmes de l'historique, le stop au-dessus du prix d'achat : stops
+  immédiats et taux de base faussement mauvais (constaté sur MOVR : 94 % de stops). Gestion « stop suiveur »
+  jugée par défaut.
 - 2026-10-01 : bilan d'un groupe sur son historique (`audit-telegram`, carte du tableau de bord,
   `POST /sources/history`), stop à la clôture de bougie écrit dans le signal, avis lié au groupe
   (preuve en direct ou sur historique), nom du groupe lu en tête du signal quand la source est
