@@ -55,10 +55,16 @@ def test_manual_signal_adds_the_pair_then_becomes_evaluable_once_data_is_ready(s
     automatic = evaluate(settings, SIGNAL, source="Suhaib", now=NOW, user_validated=False)
     assert automatic.verdict == "EN_ATTENTE" and registry.recent() == []
 
-    def downloader(settings_, symbol, timeframe, *, now, **_):
+    rechecks = []
+
+    def downloader(settings_, symbol, timeframe, *, now, recheck_archives=False, **_):
+        rechecks.append((timeframe, recheck_archives))
         store_pair(settings_, symbol)
 
     outcome = download_pending(settings, now=NOW + timedelta(minutes=1), downloader=downloader)
+    # Première fois : aucune bougie stockée, archives revérifiées (reprise sûre après un arrêt) ;
+    # le 1h est déjà là quand on y arrive (store_pair écrit les deux) : pas de revérification inutile.
+    assert rechecks == [("15m", True), ("1h", False)]
     assert outcome["ready"] == ["QTUMUSDT"] and outcome["failed"] == []
     assert universe.get("QTUMUSDT")["status"] == READY and "QTUMUSDT" in universe_symbols(settings)
 
@@ -77,7 +83,8 @@ def test_automatic_signal_never_adds_a_pair_and_unknown_pair_is_refused(settings
 
     def lookup(settings_, symbol):
         calls.append(symbol)
-        raise RuntimeError("HTTP 400")
+        from crypto_signal_intelligence.data.http import HttpError
+        raise HttpError("HTTP 400 : Invalid symbol", 400)
 
     automatic = evaluate(settings, SIGNAL, source="g", now=NOW, user_validated=False, tick_size_lookup=lookup)
     assert automatic.verdict == "REFUSE" and "vaut validation" in automatic.failed[0].detail
@@ -86,6 +93,27 @@ def test_automatic_signal_never_adds_a_pair_and_unknown_pair_is_refused(settings
     unknown = evaluate(settings, SIGNAL, source="g", now=NOW, user_validated=True, tick_size_lookup=lookup)
     assert unknown.verdict == "REFUSE" and "introuvable sur Binance Spot" in unknown.failed[0].detail
     assert calls == ["QTUMUSDT"] and UserUniverse(settings.external_db).all() == []
+
+
+def test_binance_outage_is_neither_a_refusal_nor_an_addition(settings):
+    """Panne réseau ou 5xx/429 : avis en attente, rien d'enregistré ; seul un 400 de Binance vaut « introuvable »."""
+    from crypto_signal_intelligence.data.http import HttpError
+
+    def outage(settings_, symbol):
+        raise HttpError("Erreur réseau (ConnectTimeout) sur /api/v3/exchangeInfo")
+
+    def overloaded(settings_, symbol):
+        raise HttpError("HTTP 503", 503)
+
+    def invalid(settings_, symbol):
+        raise HttpError("HTTP 400 : Invalid symbol", 400)
+
+    for lookup in (outage, overloaded):
+        result = evaluate(settings, SIGNAL, source="g", now=NOW, user_validated=True, tick_size_lookup=lookup)
+        assert result.verdict == "EN_ATTENTE" and "impossible pour l'instant" in result.failed[0].detail
+        assert result.record_id is None and UserUniverse(settings.external_db).all() == []
+    refused = evaluate(settings, SIGNAL, source="g", now=NOW, user_validated=True, tick_size_lookup=invalid)
+    assert refused.verdict == "REFUSE" and "introuvable sur Binance Spot (HTTP 400)" in refused.failed[0].detail
 
 
 def test_download_failures_are_counted_then_the_pair_is_retried_on_manual_submission(settings):

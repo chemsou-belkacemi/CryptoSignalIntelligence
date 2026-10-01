@@ -277,18 +277,21 @@ def test_cycle_refreshes_ready_owner_pairs_without_analysing_them(settings):
     def downloader(settings_, symbol, timeframe, *, now, **kwargs):
         fetched.append((symbol, timeframe, kwargs.get("rest_only")))
 
-    report = scan_cycle(settings, now=DECISION + timedelta(seconds=20), decision_close=DECISION,
-                        downloader=downloader, sleep=lambda s: None)
+    clock = FakeClock(DECISION + timedelta(seconds=20))
+    report = scan_cycle(settings, now=clock(), decision_close=DECISION, downloader=downloader,
+                        clock=clock, sleep=clock.sleep)
     assert ("QTUMUSDT", "15m", True) in fetched and ("QTUMUSDT", "1h", True) in fetched
     assert all(o.symbol != "QTUMUSDT" for o in report.outcomes)          # aucune stratégie sur cette paire
     assert not any("QTUMUSDT" in m for m in report.missing_after_wait)   # jamais attendue
 
 
-def test_monitor_downloads_owner_added_pairs_between_cycles(settings):
-    """Une paire ajoutée par le propriétaire est téléchargée après le cycle (archives), puis READY."""
+def test_owner_pairs_are_downloaded_by_a_separate_worker_never_by_the_cycle_loop(settings):
+    """Le téléchargement complet d'une paire ajoutée (minutes) se fait hors de la boucle : celle-ci ne
+    l'attend jamais ; le fil séparé la passe READY et l'état publié en garde la trace."""
     from decimal import Decimal
 
     from crypto_signal_intelligence.external.universe import UserUniverse
+    from crypto_signal_intelligence.live.scanner import UserPairWorker
 
     store_candles(settings)
     universe = UserUniverse(settings.external_db)
@@ -303,9 +306,28 @@ def test_monitor_downloads_owner_added_pairs_between_cycles(settings):
         CandleStore(settings_.data_dir).save(
             canonical(300, timeframe, symbol=symbol, start="2024-01-01", seed=9), symbol, timeframe)
 
+    class NotStarted(UserPairWorker):                            # fil jamais lancé : on observe la boucle seule
+        def start(self):
+            self.started = True
+
+    worker = NotStarted(settings, downloader=downloader, clock=clock)
     cycles = run_forever(settings, clock=clock, sleep=clock.sleep, max_cycles=1, downloader=downloader,
-                         news_collector=lambda s, now: None, signal_resolver=lambda s, now: {})
-    assert cycles == 1 and full_downloads == [("QTUMUSDT", "15m"), ("QTUMUSDT", "1h")]
-    assert universe.get("QTUMUSDT")["status"] == "READY"
-    status = json.loads((settings.root / settings.live.status_file).read_text(encoding="utf-8"))
-    assert status["last_universe_download"]["ready"] == ["QTUMUSDT"]
+                         news_collector=lambda s, now: None, signal_resolver=lambda s, now: {},
+                         user_pair_worker=worker)
+    assert cycles == 1 and worker.started and full_downloads == []   # la boucle n'a rien téléchargé
+    assert universe.get("QTUMUSDT")["status"] == "REQUESTED"
+
+    result = worker.run_once()                                  # ce que fait le fil, de façon déterministe
+    assert full_downloads == [("QTUMUSDT", "15m"), ("QTUMUSDT", "1h")] and result["ready"] == ["QTUMUSDT"]
+    assert universe.get("QTUMUSDT")["status"] == "READY" and worker.last == result
+    assert worker.run_once() == {"processed": [], "ready": [], "failed": []} and worker.last == result
+
+
+def test_user_pair_worker_thread_starts_and_stops(settings):
+    from crypto_signal_intelligence.live.scanner import UserPairWorker
+    calls = []
+    worker = UserPairWorker(settings, downloader=lambda *a, **k: calls.append(a), clock=lambda: DECISION,
+                            interval_seconds=0.01)
+    worker.start()
+    worker.stop(timeout=5)
+    assert not worker._thread.is_alive()

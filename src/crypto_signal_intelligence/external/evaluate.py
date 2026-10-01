@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 from ..config import ExternalSection, Settings
-from ..data.http import PublicHttpClient
+from ..data.http import RETRYABLE_STATUS, HttpError, PublicHttpClient
 from ..data.rest import fetch_tick_size
 from ..data.schema import interval
 from ..features.builder import SetupFeatureParams, build_decision_frame
@@ -110,6 +110,12 @@ def _binance_tick_size(settings: Settings, symbol: str) -> Decimal:
         client.close()
 
 
+def _binance_unreachable(label: str, symbol: str, exc: Exception) -> Check:
+    """Binance injoignable pendant la vérification : ce n'est ni un refus de la paire ni un ajout (non enregistré)."""
+    return Check(label, False, f"vérification de {symbol} sur Binance impossible pour l'instant ({type(exc).__name__}) : "
+                 "paire ni refusée ni ajoutée, redemander l'avis dans un moment", PENDING)
+
+
 def _universe_check(settings: Settings, symbol: str, *, source: str, now: datetime, user_validated: bool,
                     tick_size_lookup) -> Check:
     """Paire hors configuration : ajout sur validation du propriétaire, demande en cours, ou refus."""
@@ -128,9 +134,17 @@ def _universe_check(settings: Settings, symbol: str, *, source: str, now: dateti
     # après contrôle sur Binance Spot.
     try:
         tick = (tick_size_lookup or _binance_tick_size)(settings, symbol)
-    except Exception as exc:  # noqa: BLE001 - paire inconnue ou réseau : refus explicite, jamais un ajout aveugle
+    except (StopIteration, KeyError, ValueError) as exc:
         return Check(label, False, f"{symbol} introuvable sur Binance Spot ({type(exc).__name__}) : non ajoutée",
                      REFUSAL)
+    except HttpError as exc:
+        if exc.status is not None and 400 <= exc.status < 500 and exc.status not in RETRYABLE_STATUS:
+            # Binance répond 400 (« Invalid symbol ») pour une paire qui n'existe pas.
+            return Check(label, False, f"{symbol} introuvable sur Binance Spot (HTTP {exc.status}) : non ajoutée",
+                         REFUSAL)
+        return _binance_unreachable(label, symbol, exc)
+    except Exception as exc:  # noqa: BLE001 - réseau : ni refus ni ajout, à redemander
+        return _binance_unreachable(label, symbol, exc)
     reason = (f"signal soumis à la main (source « {source} »)" if user_validated
               else f"mode test auto_add_pairs, sans validation manuelle (source « {source} »)")
     universe.request(symbol, tick, reason=reason, now=now)

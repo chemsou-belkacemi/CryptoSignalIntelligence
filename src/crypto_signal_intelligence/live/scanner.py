@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 from collections import Counter
 from collections.abc import Callable
@@ -37,9 +38,6 @@ from .lock import InstanceLock
 
 log = logging.getLogger(__name__)
 Downloader = Callable[..., object]
-# Téléchargement d'une paire ajoutée (archives 15m + 1h, ≈ 2 à 4 min) : seulement s'il reste ce délai
-# avant la clôture suivante, pour ne jamais retarder un cycle d'analyse.
-USER_PAIR_DOWNLOAD_MARGIN = timedelta(minutes=6)
 
 
 def last_close(now: datetime, step: timedelta) -> datetime:
@@ -170,9 +168,46 @@ def _resolve_external_signals(settings: Settings, *, now: datetime) -> dict:
     return resolve_pending(settings, ExternalSignalRegistry(settings.external_db), now=now)
 
 
-def _download_user_pairs(settings: Settings, *, now: datetime, downloader: Downloader) -> dict:
-    from ..external.universe import download_pending
-    return download_pending(settings, now=now, downloader=downloader)
+class UserPairWorker:
+    """Télécharge l'historique des paires ajoutées par le propriétaire dans un fil SÉPARÉ (point 4).
+
+    Le téléchargement complet d'une paire (archives 15m + 1h) dure plusieurs minutes : fait dans la
+    boucle de surveillance, il lui ferait manquer des clôtures. Ici, la boucle n'attend jamais ; les
+    fusions de séries restent sérialisées par le verrou du pipeline (une à la fois, mémoire).
+    """
+
+    def __init__(self, settings: Settings, *, downloader: Downloader, clock: Callable[[], datetime],
+                 interval_seconds: float = 30.0):
+        self.settings, self.downloader, self.clock = settings, downloader, clock
+        self.interval_seconds = interval_seconds
+        self.last: object = None
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def run_once(self) -> object:
+        from ..external.universe import download_pending
+        try:
+            result: object = download_pending(self.settings, now=self.clock(), downloader=self.downloader)
+        except Exception as exc:  # noqa: BLE001 - jamais bloquant, toujours tracé
+            log.exception("téléchargement des paires ajoutées")
+            result = {"error": f"{type(exc).__name__}: {exc}"}
+        if not isinstance(result, dict) or result.get("processed") or result.get("error"):
+            self.last = result                       # on garde le dernier téléchargement réel, pas les tours à vide
+        return result
+
+    def _loop(self) -> None:
+        while not self._stop.is_set():
+            self.run_once()
+            self._stop.wait(self.interval_seconds)
+
+    def start(self) -> None:
+        self._thread = threading.Thread(target=self._loop, name="csi-user-pairs", daemon=True)
+        self._thread.start()
+
+    def stop(self, timeout: float = 5.0) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout)
 
 
 def write_status(path: Path, report: CycleReport, *, cycles: int, started_at: datetime,
@@ -203,69 +238,76 @@ def run_forever(settings: Settings, *, clock: Callable[[], datetime] = lambda: d
                 max_cycles: int | None = None, on_cycle: Callable[[CycleReport], None] | None = None,
                 downloader: Downloader = download,
                 news_collector: Callable[..., object] | None = None,
-                signal_resolver: Callable[..., object] | None = None) -> int:
+                signal_resolver: Callable[..., object] | None = None,
+                user_pair_worker: UserPairWorker | None = None) -> int:
     """Surveillance jusqu'à l'arrêt (Ctrl+C) ou `max_cycles`. Retourne le nombre de cycles effectués.
 
     Les actualités (mode observe) sont collectées APRÈS l'analyse de chaque cycle, quand l'intervalle
     configuré est écoulé : une source lente ou en panne ne retarde jamais l'analyse des bougies.
-    Les paires ajoutées par le propriétaire (external/universe.py) sont téléchargées de même après le
-    cycle, une par cycle, seulement s'il reste au moins USER_PAIR_DOWNLOAD_MARGIN avant la clôture suivante.
+    Les paires ajoutées par le propriétaire (external/universe.py) sont téléchargées par un fil séparé
+    (UserPairWorker) : la boucle ne l'attend jamais.
     """
+    worker = user_pair_worker or UserPairWorker(settings, downloader=downloader, clock=clock)
     if news_collector is None and settings.news.mode != "off":
         from ..news.collector import collect as news_collector
     if signal_resolver is None:
         signal_resolver = _resolve_external_signals
-    last_news: datetime | None = None
-    step = interval(settings.data.setup_timeframe)
-    grace = timedelta(seconds=settings.live.grace_seconds)
     started_at = clock()
-    cycles = 0
     with InstanceLock(settings.root / settings.live.lock_file):
         # Reprise : publications interrompues terminées, .tmp orphelins supprimés, registre conservé.
         counts = SignalRegistry(settings.signals_db, settings.publication_dir()).reconcile()
         log.info("démarrage : réconciliation du registre %s", counts)
         _refresh_dashboard(settings, clock())       # visible dès le démarrage (« pas prêt » avant le 1er cycle)
-        while not should_stop():
-            target = next_close(clock() - grace, step) + grace
-            while (remaining := (target - clock()).total_seconds()) > 0:
-                if should_stop():
-                    return cycles
-                sleep(min(remaining, 1.0))
-            report = scan_cycle(settings, now=clock(), decision_close=target - grace, downloader=downloader,
-                                clock=clock, sleep=sleep)
-            cycles += 1
-            news_note = None
-            if news_collector is not None and (last_news is None or clock() - last_news
-                                               >= timedelta(minutes=settings.news.collect_every_minutes)):
-                try:
-                    collected = news_collector(settings, now=clock())
-                    news_note = {"new": getattr(collected, "new", None), "failed": getattr(collected, "failed", None)}
-                except Exception as exc:  # noqa: BLE001 - les news n'arrêtent jamais la surveillance
-                    log.exception("collecte des actualités")
-                    news_note = {"error": f"{type(exc).__name__}: {exc}"}
-                last_news = clock()
-            # Signaux Telegram évalués : résolus avec les bougies déjà stockées (aucun appel réseau).
+        worker.start()
+        try:
+            return _cycles(settings, clock=clock, sleep=sleep, should_stop=should_stop, max_cycles=max_cycles,
+                           on_cycle=on_cycle, downloader=downloader, news_collector=news_collector,
+                           signal_resolver=signal_resolver, worker=worker, started_at=started_at)
+        finally:
+            worker.stop()
+
+
+def _cycles(settings: Settings, *, clock: Callable[[], datetime], sleep: Callable[[float], None],
+            should_stop: Callable[[], bool], max_cycles: int | None, on_cycle: Callable[[CycleReport], None] | None,
+            downloader: Downloader, news_collector: Callable[..., object] | None,
+            signal_resolver: Callable[..., object], worker: UserPairWorker, started_at: datetime) -> int:
+    last_news: datetime | None = None
+    step = interval(settings.data.setup_timeframe)
+    grace = timedelta(seconds=settings.live.grace_seconds)
+    cycles = 0
+    while not should_stop():
+        target = next_close(clock() - grace, step) + grace
+        while (remaining := (target - clock()).total_seconds()) > 0:
+            if should_stop():
+                return cycles
+            sleep(min(remaining, 1.0))
+        report = scan_cycle(settings, now=clock(), decision_close=target - grace, downloader=downloader,
+                            clock=clock, sleep=sleep)
+        cycles += 1
+        news_note = None
+        if news_collector is not None and (last_news is None or clock() - last_news
+                                           >= timedelta(minutes=settings.news.collect_every_minutes)):
             try:
-                resolution = signal_resolver(settings, now=clock())
-            except Exception as exc:  # noqa: BLE001 - la résolution n'arrête jamais la surveillance
-                log.exception("résolution des signaux externes")
-                resolution = {"error": f"{type(exc).__name__}: {exc}"}
-            # Paires ajoutées par le propriétaire : historique téléchargé ici, une paire par cycle, hors analyse.
-            universe_note: object = None
-            if next_close(clock(), step) - clock() >= USER_PAIR_DOWNLOAD_MARGIN:
-                try:
-                    universe_note = _download_user_pairs(settings, now=clock(), downloader=downloader)
-                except Exception as exc:  # noqa: BLE001 - jamais bloquant
-                    log.exception("téléchargement des paires ajoutées")
-                    universe_note = {"error": f"{type(exc).__name__}: {exc}"}
-            write_status(settings.root / settings.live.status_file, report, cycles=cycles, started_at=started_at,
-                         news=news_note, external=resolution, universe=universe_note)
-            log.info("cycle %s : %s ; publiés %s ; erreurs %s ; durées %s", report.decision_close.isoformat(),
-                     report.counts(), len(report.published()), len(report.errors), report.timings)
-            _refresh_dashboard(settings, clock())
-            if on_cycle:
-                on_cycle(report)
-            if max_cycles is not None and cycles >= max_cycles:
-                break
+                collected = news_collector(settings, now=clock())
+                news_note = {"new": getattr(collected, "new", None), "failed": getattr(collected, "failed", None)}
+            except Exception as exc:  # noqa: BLE001 - les news n'arrêtent jamais la surveillance
+                log.exception("collecte des actualités")
+                news_note = {"error": f"{type(exc).__name__}: {exc}"}
+            last_news = clock()
+        # Signaux Telegram évalués : résolus avec les bougies déjà stockées (aucun appel réseau).
+        try:
+            resolution = signal_resolver(settings, now=clock())
+        except Exception as exc:  # noqa: BLE001 - la résolution n'arrête jamais la surveillance
+            log.exception("résolution des signaux externes")
+            resolution = {"error": f"{type(exc).__name__}: {exc}"}
+        write_status(settings.root / settings.live.status_file, report, cycles=cycles, started_at=started_at,
+                     news=news_note, external=resolution, universe=worker.last)
+        log.info("cycle %s : %s ; publiés %s ; erreurs %s ; durées %s", report.decision_close.isoformat(),
+                 report.counts(), len(report.published()), len(report.errors), report.timings)
+        _refresh_dashboard(settings, clock())
+        if on_cycle:
+            on_cycle(report)
+        if max_cycles is not None and cycles >= max_cycles:
+            break
     return cycles
 

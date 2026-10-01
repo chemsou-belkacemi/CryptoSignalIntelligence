@@ -137,7 +137,11 @@ def download_pending(settings: Settings, *, now: datetime, downloader=None, limi
         result["processed"].append(symbol)
         try:
             for timeframe in (settings.data.setup_timeframe, settings.data.context_timeframe):
-                downloader(settings, symbol, timeframe, now=now)
+                # Aucune bougie stockée alors que des archives ont pu être inscrites au registre (arrêt pendant
+                # un téléchargement précédent) : les revérifier, sinon elles seraient sautées et l'historique
+                # resterait tronqué.
+                fresh = store.last_open_time(symbol, timeframe) is None
+                downloader(settings, symbol, timeframe, now=now, recheck_archives=fresh)
                 if store.last_open_time(symbol, timeframe) is None:
                     raise RuntimeError(f"aucune bougie {timeframe} stockée après téléchargement")
             universe.mark_ready(symbol, now=now)
