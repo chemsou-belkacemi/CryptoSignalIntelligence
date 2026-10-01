@@ -528,7 +528,7 @@ function renderSignal(e) {
 function verdictClass(verdict) {
   const v = String(verdict || "");
   if (/^(VALIDATED|USEFUL_OOS)/.test(v)) return "ok";
-  if (/^SYSTEME_ADMISSIBLE|^[1-9]\d* CONDITION/.test(v)) return "warn";            // en échantillon : jamais vert
+  if (/^SYSTEME_ADMISSIBLE|^[1-9]\d* (CONDITION|PISTE)/.test(v)) return "warn";    // en échantillon : jamais vert
   if (/REJECTED|NOT_USEFUL|AUCUN|ÉCHEC|INCONCLUSIVE/.test(v)) return "bad";
   return "muted";
 }

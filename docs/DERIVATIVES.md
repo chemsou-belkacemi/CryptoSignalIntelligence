@@ -69,11 +69,30 @@ La même heure du 2026-09-29 a été comparée entre l'archive journalière et l
 - **achats/ventes agressifs** : la valeur archivée à T est celle de l'API à T, et couvre la période qui
   commence à T, donc elle n'est connue qu'à T + 5 min.
 
-D'où l'hypothèse retenue, doublement prudente : une valeur archivée à T n'est utilisable qu'à
-T + 10 min + 2 s. Un contrôle interne ne peut pas détecter une hypothèse fausse sur la donnée brute ; il
-détecte une erreur de code (voir les mutations ci-dessous). Cette vérification externe en tient lieu.
+**Changement de convention (relecture indépendante, 2026-10-01).** La relecture a comparé, de 2021 à
+2026, le prix implicite de l'intérêt ouvert (valeur / nombre de contrats) au prix Spot 15 min. Le décalage
+n'est pas uniforme :
+- jusqu'en 2024-02, la valeur archivée à T est relevée vers T ;
+- depuis 2024-03, elle est relevée vers T + 5 à 6 min.
 
-## Criblage (protocole v1, déclaré le 2026-10-01 avant toute exécution)
+Pour les ratios de comptes, la vérification n'est possible qu'en 2026.
+
+D'où l'hypothèse retenue, prudente dans les deux cas : une valeur archivée à T n'est utilisable qu'à
+T + 10 min + 2 s. À la décision, la valeur lue a donc été relevée au plus tard environ 9 minutes avant,
+ce qui laisse cette marge au délai de publication de l'API, qui n'est pas mesuré. Un contrôle interne ne
+peut pas détecter une hypothèse fausse sur la donnée brute ; il détecte une erreur de code (voir les
+mutations ci-dessous). Ces vérifications externes en tiennent lieu.
+
+**Défauts des archives officielles, traités sans rien inventer**
+- **Intérêt ouvert à zéro** : par exemple 485 lignes pour BTC, dont une semaine en juillet 2024. Ces
+  valeurs, et tout ratio nul ou négatif, deviennent manquantes. Sinon elles créeraient de faux
+  « effondrements » de −100 %.
+- **Jours absents des fichiers mensuels de prime** : 2021-07-01, du 24 au 27 juillet 2021, 2022-10-02…
+  Ils sont repris de l'archive journalière officielle du même jour, publiée et vérifiée.
+- **Valeurs figées** : l'intérêt ouvert de BTC reste constant pendant 16 h le 2021-05-21. Ce n'est pas
+  détecté ; c'est une limite déclarée.
+
+## Criblage (protocole v2, déclaré le 2026-10-01 avant toute exécution)
 
 Commande : `screen-derivatives`. Code : `research/derivatives_screen.py`, `derivatives/features.py`.
 
@@ -83,7 +102,13 @@ Commande : `screen-derivatives`. Code : `research/derivatives_screen.py`, `deriv
 
 **Données et décisions**
 - Les 16 paires, période DEVELOPMENT seulement (jusqu'au 2025-06-30). Le test final réservé n'est pas
-  lu, et toutes les séries sont coupées à cette date.
+  lu, et toutes les séries sont coupées à cette date (un test le vérifie en falsifiant tout ce qui suit).
+- **Données complètes exigées.** Chaque paire doit avoir ses trois séries :
+  - financement et prime commencés au plus tard le 2021-04-01 ;
+  - metrics commencées au plus tard le 2022-01-01 ;
+  - toutes poursuivies jusqu'à 2 jours avant la fin de DEVELOPMENT.
+
+  Sinon : refus, aucun essai enregistré. Les empreintes des séries lues sont enregistrées.
 - Décision toutes les 4 h, à la clôture des bougies Spot 1 h (00:00, 04:00… UTC).
 - Entrée à l'ouverture de la bougie suivante, sortie à la clôture de t+H, H ∈ {1 j, 3 j, 7 j}. Aucun stop
   ni objectif. Une fenêtre Spot non contiguë n'a pas de rendement.
@@ -94,6 +119,11 @@ Commande : `screen-derivatives`. Code : `research/derivatives_screen.py`, `deriv
   - metrics : 30 min sur une grille horaire, la grille elle-même jointe avec 1 h au plus.
 - Seuils : 10e centile de la variable sur les **90 jours précédents**, valeur courante exclue. Il faut au
   moins 60 jours d'historique ; sinon la condition n'est pas évaluable.
+- Financement :
+  - ramené à son équivalent sur 8 h (taux × 8 / intervalle en heures), car SOL a eu des intervalles de
+    2 h et 4 h en 2022-11 ;
+  - heures de règlement arrondies à la minute avant la fenêtre de 72 h, sinon leur gigue de quelques
+    millisecondes y ferait entrer un 10e règlement.
 
 **Conditions (4), toutes de sens contraire au positionnement, effet attendu : excès positif**
 
@@ -111,31 +141,42 @@ archives depuis 2021-12, plus 60 jours d'historique (BTC : plus tôt).
 - **Excès** : rendement de l'événement − moyenne des rendements de la même paire aux décisions où la
   condition est évaluable. La même période de données sert donc de référence : la hausse de 2021 ne se
   compare pas à 2022.
-- **Excès transversal** (diagnostic, non exigé) : rendement − moyenne de toutes les paires évaluables au
-  même instant. Il sépare la sélection entre paires de l'effet de moment commun à tout le marché.
+- **Excès transversal** (diagnostic, non exigé) : rendement − moyenne des **autres** paires évaluables au
+  même instant, avec au moins 5 autres paires, sinon non défini. Il sépare la sélection entre paires de
+  l'effet de moment commun à tout le marché.
 - **IC** : Student sur sommes par blocs de jours calendaires (au moins 2 × H et 10 jours, soit 10, 10 et
   14 jours), variance robuste à un retard, au moins 20 blocs avec événements. Niveau corrigé de
   Bonferroni pour les 12 essais : 1 − 0,05/12 ≈ 99,58 %, bilatéral.
-- Également rapportés : nombre d'événements, de paires et de jours, part des paires et des années à
-  excès positif.
+- Également rapportés :
+  - nombre d'événements, de paires et de jours ;
+  - IC du rendement brut ;
+  - part des paires et des années à excès positif ;
+  - concentration : part de la somme des excès portée par la paire et par l'année les plus lourdes.
 
-**Règle.** « Passe » = rendement brut moyen > 0,26 % ET borne basse de l'IC de l'excès > 0.
+**Règle.** Une condition est une **« piste »** si toutes ces conditions sont réunies :
+- rendement brut moyen > 0,26 % ;
+- borne basse de l'IC de l'excès > 0 ;
+- aucune paire ni aucune année ne porte plus de 60 % de la somme des excès.
+
+Le premier critère est une estimation ponctuelle, que la seule dérive franchit à 3 et 7 jours. Une piste
+n'est donc **pas** un résultat « au-delà des coûts » : c'est une idée à confirmer. Verdict enregistré :
+« N PISTE(S) À CONFIRMER » ou « AUCUNE_PISTE ».
 
 **Essais.** 4 conditions × 3 horizons = **12 essais**, ajoutés aux 626 du programme.
 
 **Audit des fuites, exécuté avant tout résultat** (sinon aucun résultat n'est produit) :
-- sur BTC, ETH et SOL, 3 décisions aux heures de règlement du financement (00:00, 08:00, 16:00), les
-  variables recalculées avec les seules données disponibles, puis avec un futur falsifié, doivent être
-  identiques au calcul complet ;
+- sur BTC, ETH **et** SOL, tous trois exigés, 3 décisions aux heures de règlement du financement
+  (00:00, 08:00, 16:00) : les variables recalculées avec les seules données disponibles, puis avec un
+  futur falsifié, doivent être identiques au calcul complet ;
 - trois mutations doivent être détectées, chacune par les variables de sa famille : chaque table
   dérivée se croit disponible à l'horodatage brut de la donnée (règlement, ouverture de la bougie,
   heure d'archive).
 
 **Lecture déclarée.**
-- Aucune condition ne passe : pas d'avantage démontré par cette information. Il sera écrit tel quel.
-- Une condition qui passe reste une **piste** : un criblage, sur données déjà vues, avec 638 essais au
-  programme. Elle ne deviendrait une stratégie qu'avec une fiche, un walk-forward, puis une confirmation
-  sur des données jamais consultées (test final réservé, ou observation prospective en shadow).
+- Aucune piste : pas d'avantage démontré par cette information. Ce sera écrit tel quel.
+- Une piste : un criblage, sur données déjà vues, avec 638 essais au programme. Elle ne deviendrait une
+  stratégie qu'avec une fiche, un walk-forward, puis une confirmation sur des données jamais consultées
+  (test final réservé, ou observation prospective en shadow).
 - Un excès positif mais un excès transversal nul signalerait un effet de moment commun au marché ; il
   serait rapporté comme tel.
 
@@ -146,12 +187,16 @@ archives depuis 2021-12, plus 60 jours d'historique (BTC : plus tôt).
   tiennent compte, mais une dépendance plus longue que deux blocs rend l'IC trop étroit (simulation du
   ML swing).
 - Les regards déjà portés sur le financement du moment dans le tableau de bord ne sont pas des essais.
+- Le calibrage de l'IC a été simulé à 95 %, pas au niveau corrigé de 99,58 %. La correction de Bonferroni
+  ne porte que sur ces 12 essais, pas sur les 638 du programme.
+- Valeurs figées des archives non détectées (exemple ci-dessus).
+- La dérive d'une paire est calculée sur des décisions qui comprennent les événements eux-mêmes. L'excès
+  en est atténué, ce qui va dans le sens prudent.
 
 ## Suite
 
-1. Téléchargement de l'historique (archives vérifiées par SHA-256), puis contrôle de qualité.
-2. Relecture indépendante du code du criblage, puis exécution unique, puis résultats ci-dessous, quels
-   qu'ils soient.
+1. Fin du téléchargement de l'historique, puis contrôle de la qualité de chaque paire.
+2. Exécution unique, puis résultats ci-dessous, quels qu'ils soient.
 
 ## Historique
 
@@ -159,3 +204,14 @@ archives depuis 2021-12, plus 60 jours d'historique (BTC : plus tôt).
   publique du marché à terme ; couverture des archives vérifiée.
 - 2026-10-01, v1 : historique (`download-derivatives`), horodatage des archives vérifié contre l'API,
   protocole du criblage déclaré avant toute exécution.
+- 2026-10-01, v2 : **avant toute exécution**, après relecture indépendante (aucune fuite trouvée dans les
+  jointures, fenêtres et rendements ; 12 essais inchangés).
+  - Données : intérêt ouvert et ratios nuls ou négatifs rendus manquants ; jours absents des fichiers
+    mensuels de prime repris des archives journalières ; convention des metrics corrigée (changement de
+    2024-03, marge de +10 min inchangée).
+  - Variables : financement ramené à 8 h ; fenêtre de 72 h insensible à la gigue des règlements.
+  - Exécution : données complètes exigées, audit exigé sur les trois paires, empreintes enregistrées.
+  - Mesures : excès transversal sans la paire elle-même ; concentration par paire et par année (60 %
+    au plus) dans la règle ; IC du rendement brut ; « passe » renommé « piste ».
+  - Tests : coupure DEVELOPMENT, données incomplètes, niveau et blocs de l'IC, chaque critère de la
+    règle, zéros, gigue, valeur courante exclue des seuils metrics.

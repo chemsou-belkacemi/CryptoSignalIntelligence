@@ -134,3 +134,33 @@ def test_quality_reports_gaps_without_filling_them():
     frame = pd.DataFrame({"time": times.to_numpy(), "available_at": times.to_numpy(), "close": 1.0})
     report = h.quality("premium", frame)
     assert report["rows"] == 8 and report["gaps"] == 1 and report["largest_gap_hours"] == 3.0
+
+
+def test_zero_or_negative_open_interest_and_ratios_become_missing_and_are_counted(settings):
+    text = metrics_csv(date(2024, 1, 1)).splitlines()
+    text[5] = text[5].replace(",100,1000000,", ",0,0,")                  # intérêt ouvert nul (archives officielles)
+    text[6] = text[6].replace(",1.1,0.9", ",-1.0,0.9")                   # ratio négatif
+    frame = h.parse("metrics", zipped("m.zip", "\n".join(text)), settings)
+    assert frame["oi"].isna().sum() == 1 and frame["oi_value"].isna().sum() == 1
+    assert frame["accounts_ratio"].isna().sum() == 1 and frame["taker_ratio"].notna().all()
+    stored = frame.copy()
+    stored.loc[10, "oi_value"] = 0.0                                     # série déjà stockée avec un zéro
+    report = h.quality("metrics", stored)
+    assert report["invalid_values"] == 1 and report["missing_values"] == 2
+
+
+def test_days_missing_from_a_monthly_archive_are_taken_from_the_daily_archive(settings):
+    settings.data.history_start = date(2024, 1, 1)
+    premium = h.DATASETS["premium"]
+    hours = premium_csv(pd.Timestamp("2024-01-01", tz="UTC"), 31 * 24).splitlines()
+    month = "\n".join(line for i, line in enumerate(hours) if not 14 * 24 <= i < 15 * 24)   # 15 janvier absent
+    files = {premium.path("BTCUSDT", "monthly", "2024-01"): zipped("p.zip", month),
+             premium.path("BTCUSDT", "daily", "2024-01-15"): zipped("p.zip", premium_csv(
+                 pd.Timestamp("2024-01-15", tz="UTC"), 24))}
+    client = PublicHttpClient.futures_archives("https://a.invalid", transport=httpx.MockTransport(FakeArchives(files)),
+                                               retries=1, sleep=lambda _s: None)
+    out = h.download(settings, datasets=["premium"], symbols=["BTCUSDT"], now=datetime(2024, 2, 1, 12, tzinfo=UTC),
+                     client=client)
+    stored = h.DerivativesStore(settings.data_dir).load("premium", "BTCUSDT")
+    assert len(stored) == 31 * 24 and out[0].quality["gaps"] == 0 and out[0].ingested == 2
+    assert h.incomplete_days(stored, h.STEPS["premium"], date(2024, 2, 1)) == []

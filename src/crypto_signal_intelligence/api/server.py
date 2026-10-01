@@ -297,7 +297,7 @@ class CsiApi:
             for kind, strategy, run_id, created_at, status, metrics_text in rows:
                 metrics = json.loads(metrics_text or "{}")
                 verdict = metrics.get("conclusion") or metrics.get("verdict")
-                if kind == "SCREEN":
+                if kind == "SCREEN" and not metrics.get("verdict"):
                     passing = [r for r in metrics.get("rows", []) if r.get("beats_costs")]
                     verdict = (f"{len(passing)} CONDITION(S) AU-DELÀ DES COÛTS" if passing
                                else "AUCUNE_CONDITION_AU_DELA_DES_COUTS")

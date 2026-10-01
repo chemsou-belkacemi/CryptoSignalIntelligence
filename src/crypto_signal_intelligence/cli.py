@@ -125,13 +125,13 @@ def download_derivatives(dataset: list[str] = typer.Option(None, "--dataset",
 def screen_derivatives(verbose: bool = False):
     """Criblage du positionnement sur le marché à terme (docs/DERIVATIVES.md) : 4 conditions × 3 horizons,
     DEVELOPMENT seulement, audit des fuites d'abord. Information ; aucun signal n'en découle."""
-    from .research.derivatives_screen import LeakAuditFailed, run
+    from .research.derivatives_screen import IncompleteData, LeakAuditFailed, run
     settings = _settings(verbose)
     _heavy_job(settings)
     try:
         with console.status("criblage du marché à terme…") as status:
             result = run(settings, now=_now(), progress=lambda text: status.update(f"criblage : {text}"))
-    except LeakAuditFailed as exc:
+    except (LeakAuditFailed, IncompleteData) as exc:
         console.print(f"[red]Aucun résultat :[/red] {exc}")
         raise typer.Exit(3) from None
     console.rule(f"Criblage du marché à terme — {result.run_id}")
@@ -139,10 +139,12 @@ def screen_derivatives(verbose: bool = False):
                   f"{result.n_trials} ; programme : {result.program_trials} ; seuil de coûts : {result.cost_hurdle_pct} % ; "
                   f"niveau des IC : {result.level:.2%}")
     for r in result.rows:
-        mark = "[green]passe[/green]" if r.beats_costs else "non"
+        mark = "[yellow]piste[/yellow]" if r.lead else "non"
         console.print(f"  {r.condition} {r.horizon_h} h : {r.events} événements ({r.pairs} paires) | brut "
-                      f"{r.mean_return_pct} % | excès {r.mean_excess_pct} % {r.ci_excess_pct} | transversal "
-                      f"{r.mean_cross_excess_pct} % {r.ci_cross_excess_pct} | {mark}")
+                      f"{r.mean_return_pct} % {r.ci_return_pct} | excès {r.mean_excess_pct} % {r.ci_excess_pct} | "
+                      f"transversal {r.mean_cross_excess_pct} % {r.ci_cross_excess_pct} | concentration paire "
+                      f"{r.max_pair_share}, année {r.max_year_share} | {mark}")
+    console.print("Une piste n'est pas un avantage : criblage sur données déjà vues (docs/DERIVATIVES.md).")
     console.print(f"Rapport : {settings.reports_dir / result.run_id / 'summary.json'}")
 
 

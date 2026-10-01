@@ -6,9 +6,13 @@ un contenu différent est signalée). Chaque ligne porte `available_at`, HYPOTH�
 l'heure de téléchargement :
 - financement : connu `funding_latency_seconds` après son règlement ;
 - prime (bougies 1 h) : fin de l'heure + latence des bougies Spot ;
-- metrics (5 min) : l'archive date chaque valeur 5 min AVANT l'API publique (vérifié le 2026-10-01) ; connue
-  `metrics_latency_seconds` (10 min + 2 s) après son horodatage d'archive.
-Aucune donnée n'est inventée : une archive absente est comptée, jamais comblée.
+- metrics (5 min) : connue `metrics_latency_seconds` (10 min + 2 s) après son horodatage d'archive. La
+  convention des archives a changé : jusqu'en 2024-02, la valeur archivée à T est relevée vers T ; depuis
+  2024-03, vers T + 5 à 6 min (comparaison avec l'API et avec le prix implicite intérêt ouvert / contrats,
+  2026-10-01). 10 min + 2 s reste prudent dans les deux cas.
+Aucune donnée n'est inventée : une archive absente est comptée, jamais comblée ; un jour absent d'une archive
+mensuelle est repris de l'archive JOURNALIÈRE officielle du même jour quand elle existe. Une valeur d'intérêt
+ouvert ou de ratio nulle ou négative (il y en a dans les archives officielles) devient manquante.
 """
 from __future__ import annotations
 
@@ -149,6 +153,12 @@ def _number(series: pd.Series) -> np.ndarray:
     return pd.to_numeric(series, errors="coerce").to_numpy(float)
 
 
+def positive(values: np.ndarray) -> np.ndarray:
+    """Intérêt ouvert et ratios : strictement positifs par nature ; zéro ou négatif = valeur manquante."""
+    values = np.asarray(values, dtype=float)
+    return np.where(values > 0, values, np.nan)
+
+
 def parse(dataset: str, content: bytes, settings: Settings) -> pd.DataFrame:
     """Archive → lignes datées (`time`) avec `available_at` selon l'hypothèse déclarée du jeu de données."""
     raw = read_csv(content)
@@ -166,7 +176,8 @@ def parse(dataset: str, content: bytes, settings: Settings) -> pd.DataFrame:
         if missing:
             raise ValueError(f"colonnes metrics absentes : {sorted(missing)}")
         time = pd.Series(pd.to_datetime(raw["create_time"], utc=True).dt.as_unit("ns"))
-        frame = pd.DataFrame({"time": time, **{name: _number(raw[col]) for col, name in METRICS_COLUMNS.items()}})
+        frame = pd.DataFrame({"time": time, **{name: positive(_number(raw[col])) for col, name in
+                                               METRICS_COLUMNS.items()}})
         latency = pd.Timedelta(seconds=settings.derivatives.metrics_latency_seconds)
     else:
         raise ValueError(f"jeu de données inconnu : {dataset}")
@@ -199,9 +210,11 @@ class DerivativesStore:
 
 
 def quality(dataset: str, frame: pd.DataFrame) -> dict:
-    """Lignes, période, trous (aucun comblement) et valeurs manquantes."""
+    """Lignes, période, trous (aucun comblement), valeurs manquantes et, pour les metrics, valeurs nulles ou
+    négatives (invalides : ignorées par les variables)."""
     if frame.empty:
-        return {"rows": 0, "first": None, "last": None, "gaps": 0, "largest_gap_hours": None, "missing_values": 0}
+        return {"rows": 0, "first": None, "last": None, "gaps": 0, "largest_gap_hours": None, "missing_values": 0,
+                "invalid_values": 0}
     times = frame["time"].reset_index(drop=True)
     spacing = times.diff()
     if dataset == "funding":
@@ -210,9 +223,21 @@ def quality(dataset: str, frame: pd.DataFrame) -> dict:
     else:
         gaps = (spacing.iloc[1:] > STEPS[dataset] * 1.5).to_numpy()
     values = frame.drop(columns=["time", "available_at"])
+    invalid = (values[list(METRICS_COLUMNS.values())] <= 0).any(axis=1).sum() if dataset == "metrics" else 0
     return {"rows": int(len(frame)), "first": times.iloc[0].isoformat(), "last": times.iloc[-1].isoformat(),
             "gaps": int(gaps.sum()), "largest_gap_hours": round(float(spacing.max() / pd.Timedelta(hours=1)), 2),
-            "missing_values": int(values.isna().any(axis=1).sum())}
+            "missing_values": int(values.isna().any(axis=1).sum()), "invalid_values": int(invalid)}
+
+
+def incomplete_days(frame: pd.DataFrame, step: pd.Timedelta, today: date) -> list[date]:
+    """Jours (UTC, passés) entre le premier et le dernier jour stockés auxquels il manque des lignes."""
+    if frame.empty:
+        return []
+    days = frame["time"].dt.floor("D")
+    counts = days.value_counts()
+    expected = int(pd.Timedelta(days=1) / step)
+    span = pd.date_range(days.min(), min(days.max(), pd.Timestamp(today, tz="UTC") - pd.Timedelta(days=1)), freq="D")
+    return [day.date() for day in span if counts.get(day, 0) < expected]
 
 
 @dataclass
@@ -292,6 +317,23 @@ def download(settings: Settings, *, datasets: list[str] | None = None, symbols: 
                 pending = fallback
             merged = (store.merge(dataset, symbol, pd.concat(frames, ignore_index=True)) if frames
                       else store.load(dataset, symbol))
+            if dataset in STEPS and "monthly" in DATASETS[dataset].granularities:
+                # Jours absents d'une archive mensuelle : l'archive journalière officielle du même jour, si publiée.
+                patches = [Ref(dataset, symbol, "daily", day) for day in incomplete_days(merged, STEPS[dataset], today)]
+                patches = [ref for ref in patches if registry.get(ref.path) is None]
+                extra = []
+                with ThreadPoolExecutor(WORKERS) as pool:
+                    for ref, sha, content, reason in pool.map(lambda r: _fetch(client, r), patches):
+                        if reason:
+                            summary.rejected.append(f"{ref.filename} ({reason})")
+                        elif sha is not None and content is not None:
+                            frame = parse(dataset, content, settings)
+                            extra.append(frame)
+                            ingested.append((ref.path, sha, len(frame)))
+                        else:
+                            summary.missing.append(ref.filename)
+                if extra:
+                    merged = store.merge(dataset, symbol, pd.concat(extra, ignore_index=True))
             for path, sha, rows in ingested:
                 summary.revised += registry.record(path, sha, "auto", rows)
             summary.ingested = len(ingested)

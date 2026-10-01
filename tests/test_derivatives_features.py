@@ -88,3 +88,41 @@ def test_declared_conditions_need_every_input_and_their_own_rule():
     assert list(events) == [True, False, False]                         # baisse de l'intérêt ouvert ET du prix
     assert not fx.condition_masks(frame, "ACCOUNTS_SHORT")[1].any()    # strictement sous le centile
     assert len(fx.CONDITIONS) == 4
+
+
+def test_a_zero_open_interest_never_creates_a_flush():
+    spot, funding, premium, metrics = synthetic(seed=5)
+    hour = START + pd.Timedelta(days=110, hours=8)
+    zero = metrics["time"] == hour - pd.Timedelta(minutes=15)          # dernière ligne lue à la décision de 08:00
+    metrics.loc[zero, "oi_value"] = 0.0
+    grid = fx.metrics_grid(metrics).set_index("available_at")
+    assert np.isnan(grid.loc[hour, "oi_change_24h"]) and np.isnan(grid.loc[hour + pd.Timedelta(hours=24), "oi_change_24h"])
+    frame = fx.decision_frame(spot, funding, premium, metrics).set_index("decision_time")
+    for moment in (hour, hour + pd.Timedelta(hours=24)):
+        row = frame.loc[[moment]].reset_index()
+        assert not fx.condition_masks(row, "OI_FLUSH")[1].any()
+
+
+def test_funding_window_holds_nine_settlements_whatever_the_jitter_and_is_per_eight_hours():
+    _, funding, _, _ = synthetic(seed=6)
+    jittered = funding.assign(time=funding["time"] + pd.to_timedelta(
+        np.random.default_rng(1).integers(0, 50, len(funding)), unit="ms"))
+    jittered["available_at"] = jittered["time"] + pd.Timedelta(seconds=60)
+    exact, noisy = fx.funding_table(funding), fx.funding_table(jittered)
+    np.testing.assert_allclose(noisy["funding_3d"].to_numpy(), exact["funding_3d"].to_numpy())
+    assert exact["funding_3d"].iloc[-1] == pytest.approx(funding["rate"].iloc[-9:].mean())   # 9 règlements
+    four_hours = funding.assign(interval_hours=4.0)                     # même taux par règlement, toutes les 4 h
+    assert fx.funding_table(four_hours)["funding_3d"].iloc[-1] == pytest.approx(2 * funding["rate"].iloc[-9:].mean())
+
+
+def test_metrics_thresholds_never_include_the_current_value():
+    _, _, _, metrics = synthetic(seed=7)
+    base = fx.metrics_grid(metrics)
+    last_hour = base["available_at"].iloc[-1]
+    read = metrics.index[metrics["available_at"] <= last_hour][-1]          # ligne lue à la dernière heure
+    shocked = metrics.copy()
+    shocked.loc[read, "accounts_ratio"] = 0.01                              # valeur extrême
+    after = fx.metrics_grid(shocked)
+    assert after["accounts_ratio"].iloc[-1] == 0.01                         # la grille la lit bien
+    assert after["accounts_q10"].iloc[-1] == base["accounts_q10"].iloc[-1]
+    assert after["oi_change_24h_q10"].iloc[-1] == base["oi_change_24h_q10"].iloc[-1]
