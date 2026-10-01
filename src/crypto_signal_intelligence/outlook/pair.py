@@ -341,6 +341,16 @@ def pair_outlook(settings: Settings, symbol: str, horizon: str, *, now: datetime
         state = POSITIVE
     else:
         state = NO_EDGE
+    plan["state_history"] = state                      # état d'après l'historique (celui que le suivi enregistre)
+    from .tracking import LIVE_PROVEN, live_status
+    try:
+        live = live_status(settings, horizon, state)
+    except Exception:  # noqa: BLE001 - suivi illisible : l'état historique reste affiché
+        live = None
+    if live is not None:
+        plan["live"] = live
+        if state == POSITIVE and live["proven"] and fresh:
+            state = LIVE_PROVEN                            # les plans de ce type ont gagné EN DIRECT (données jamais vues)
     plan["state"] = state
 
     btc_fresh = _fresh_context(last, "btc_")

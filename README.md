@@ -186,6 +186,13 @@ qui est ajoutée définitivement (avis `EN_ATTENTE` le temps de télécharger l'
 normal) ; un signal reçu automatiquement n'ajoute jamais rien. Liste et état : `universe`
 ([docs/UNIVERSE.md](docs/UNIVERSE.md)).
 
+### Suivi en direct des plans
+
+Chaque jour, CSI enregistre le plan indicatif de chaque paire (1, 3 et 7 jours) et le suit sur les bougies qui
+arrivent ensuite. Un plan ne peut devenir « Favorable — prouvé en direct » qu'après au moins 50 plans de même type
+terminés sur 20 jours, avec un intervalle de confiance entièrement positif : une preuve sur des données que personne
+n'avait vues. Onglet Suivi, carte « Suivi en direct des plans indicatifs ».
+
 ### Mesurer un groupe tout de suite
 
 Onglet « Évaluer un signal » du tableau de bord : importer l'export JSON de Telegram Desktop d'un

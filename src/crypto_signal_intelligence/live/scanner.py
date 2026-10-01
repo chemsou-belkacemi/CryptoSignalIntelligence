@@ -199,6 +199,11 @@ class UserPairWorker:
             ensure(self.settings, now=self.clock())
         except Exception:  # noqa: BLE001
             log.exception("volatilité prévue")
+        try:                                         # suivi en direct des plans (fil séparé, une fois par jour)
+            from ..outlook.tracking import start_daily
+            start_daily(self.settings, now=self.clock())
+        except Exception:  # noqa: BLE001
+            log.exception("suivi des plans")
         return result
 
     def _loop(self) -> None:

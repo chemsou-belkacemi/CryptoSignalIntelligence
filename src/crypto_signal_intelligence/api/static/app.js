@@ -15,6 +15,7 @@ const PLAN_STATES = {
   AUCUN_AVANTAGE_HISTORIQUE: ["neutral", "Aucun avantage historique", "Pas d'avantage démontré dans ces conditions (intervalle corrigé contenant 0, ou simple dérive passée) : CSI ne propose pas d'entrer."],
   HISTORIQUE_DEFAVORABLE: ["bad", "Historique défavorable", "Dans des conditions comparables, ce plan a perdu en moyenne : CSI ne propose pas d'entrer."],
   INSUFFISANT: ["neutral", "Historique insuffisant", "Pas assez de blocs de jours indépendants (ou données récentes inutilisables) pour juger ce plan."],
+  FAVORABLE_PROUVE_EN_DIRECT: ["ok", "Favorable — prouvé en direct", "Les plans de ce type (même horizon, historique positif) ont gagné EN DIRECT, sur des données que personne n'avait vues au moment du plan : au moins 50 plans sur 20 jours, intervalle de confiance entièrement positif. Ce n'est pas une garantie pour CE plan."],
   DONNEES_ANCIENNES: ["bad", "Données anciennes", "La dernière bougie est trop vieille : la surveillance de CSI tourne-t-elle ? Analyse non exploitable."],
 };
 const SIGNAL_VERDICTS = {
@@ -373,6 +374,9 @@ function planCard(r) {
       ["Année la plus lourde", isNum(p.max_year_share) ? `${pctFrac(p.max_year_share, 0)} du résultat` : "–"],
       ["Moments évalués", `${(p.samples || 0).toLocaleString("fr-FR")} · ${p.blocks || 0} blocs indépendants (${p.sampling_stride_bars > 1 ? `une décision toutes les ${p.sampling_stride_bars} bougies de 15 min` : "chaque bougie de 15 min"})`],
     ]),
+    p.live ? el("p", { class: p.live.proven ? "ok" : "muted small", text: `Suivi en direct des plans de ce type (${p.live.label}, état « ${(PLAN_STATES[p.live.state] || [, p.live.state])[1]} ») : `
+      + (p.live.resolved ? `${p.live.resolved} terminés, R moyen ${fmt(p.live.r_mean, 2, true)} ${ciR(p.live.ic95)}, ${pctFrac(p.live.win_share)} gagnants` : "aucun encore terminé")
+      + ` — ${p.live.progress}.` }) : null,
     el("div", { class: "row" }, button),
     el("p", { class: "muted small", text: "1 R = la perte si le stop est touché. Niveaux arrondis au pas de cotation. Le résumé copié est une phrase, jamais un signal lisible par un bot." }));
 }
@@ -745,9 +749,9 @@ async function loadFollow(force = false) {
   if (state.followLoaded && !force) return;
   busy(target, "Chargement…");
   try {
-    const [health, models, recent, sources, generated, universe, admissions, history] = await Promise.all([
+    const [health, models, recent, sources, generated, universe, admissions, history, plans] = await Promise.all([
       api("/health"), api("/models"), api("/signals/recent?limit=15"), api("/sources"), api("/signals/generated?limit=10"), api("/universe"),
-      refreshAdmissions(), api("/sources/history"),
+      refreshAdmissions(), api("/sources/history"), api("/plans/live"),
     ]);
     state.followLoaded = true;
     state.models = models;
@@ -771,6 +775,13 @@ async function loadFollow(force = false) {
             m.detail ? el("div", { class: "small muted", text: m.detail }) : null) }, when(m.created_at), m.source]),
         "aucun modèle évalué")),
       admissionsCard(admissions),
+      card("Suivi en direct des plans indicatifs",
+        el("p", { class: "muted small", text: `Chaque jour, le plan de chaque paire (1, 3 et 7 jours) est enregistré puis suivi sur les bougies qui arrivent ensuite : des données que personne n'avait vues. ${plans.rule || ""}.` }),
+        table(["Horizon", "État au moment du plan", { label: "Enregistrés", num: true }, { label: "Terminés", num: true }, { label: "R moyen", num: true }, "IC95", { label: "Gagnants", num: true }, "Preuve"],
+          (plans.groups || []).map((g) => [g.label, (PLAN_STATES[g.state] || [, g.state])[1], g.recorded, g.resolved,
+            g.resolved ? `${fmt(g.r_mean, 2, true)} R` : "–", ciR(g.ic95), g.resolved ? pctFrac(g.win_share) : "–",
+            { node: el("span", { class: g.proven ? "ok" : "muted", text: g.proven ? "prouvé en direct" : g.progress }) }]),
+          "aucun plan encore enregistré : le premier passage a lieu chaque jour après 00:10 UTC")),
       card("Groupes Telegram : avis lié au groupe",
         el("p", { class: "muted small", text: "Un groupe prouvé (en direct, ou sur son historique importé depuis l'onglet « Évaluer un signal ») rend ses signaux favorables malgré une géométrie défavorable. Preuve sur historique valable 30 jours." }),
         table(["Groupe", "Preuve sur historique", "Importé le"], (history.groups || []).map((g) => [g.source,

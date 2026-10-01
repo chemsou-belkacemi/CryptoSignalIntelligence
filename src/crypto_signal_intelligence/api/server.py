@@ -263,6 +263,11 @@ class CsiApi:
                     "model_names": current["model_names"], "forecast": entry}
         return {"available": True} | current
 
+    def plans_live(self) -> dict:
+        """Suivi EN DIRECT des plans indicatifs : bilan par horizon et état au moment de l'enregistrement."""
+        from ..outlook.tracking import summary
+        return summary(self.settings, samples=self.settings.protocol.bootstrap_samples, seed=self.settings.protocol.seed)
+
     def sources_history(self) -> dict:
         """Dernière preuve sur historique de chaque groupe importé (avis lié au groupe)."""
         from ..external.audit import latest_history
@@ -711,6 +716,7 @@ class CsiApi:
                 "/derivatives": lambda: self.derivatives(query.get("symbol", [""])[0]),
                 "/admissions": self.admissions, "/sources/history": self.sources_history,
                 "/volatility": lambda: self.volatility(query.get("symbol", [""])[0]),
+                "/plans/live": self.plans_live,
             }
             if path in routes:
                 return routes[path]()
