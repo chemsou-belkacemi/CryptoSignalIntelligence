@@ -246,6 +246,35 @@ def walk_forward(strategy: list[str] = typer.Option(None, help="Stratégie(s) ; 
                       f"rapport : {result.report_dir / 'report.md'}\n")
 
 
+@app.command("ml-evaluate")
+def ml_evaluate(strategy: list[str] = typer.Option(None, help="Stratégie(s) ; défaut : toutes"),
+                verbose: bool = False):
+    """Lot 5 : un modèle logistique sait-il trier les setups d'une stratégie, hors échantillon ? (docs/ML.md)"""
+    from .ml.meta import run
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    for name in _strategies(strategy):
+        with console.status(f"{name}…") as status:
+            result = run(settings, name, now=_now(), progress=lambda text, n=name: status.update(f"{n} : {text}"))
+        oos = result.oos
+        console.rule(f"Méta-labeling {name} — {result.run_id}")
+        for w in result.windows:
+            console.print(f"  {w['test_start'][:10]} → {w['test_end'][:10]} : entraînement {w['train_trades']}, "
+                          f"test {w['test_trades']}" + (f", AUC {w['test_auc']:.3f}, gardés {w['kept_share']:.0%}"
+                                                        if w.get("test_auc") is not None else
+                                                        f" ({w.get('skipped', '')})"))
+        if oos.get("trades"):
+            console.print(f"  Agrégat : {oos['trades']} trades, AUC {oos['auc']}, Brier {oos['brier_model']} contre "
+                          f"{oos['brier_base_rate']} (taux de base) ; E[R] tous {oos['expectancy_r_all']}, gardés "
+                          f"{oos['expectancy_r_kept']} ({oos['kept_share']:.0%})")
+        for c in result.criteria:
+            mark = "[green]✔[/green]" if c["passed"] else "[red]✘[/red]"
+            console.print(f"  {mark} {c['number']}. {c['label']} — {c['detail']}")
+        color = "green" if result.verdict == "USEFUL_OOS" else "red" if result.verdict == "NOT_USEFUL" else "yellow"
+        console.print(f"[bold {color}]Verdict : {result.verdict}[/bold {color}] — rapport : "
+                      f"{result.report_dir / 'report.md'} (aucune influence sur les signaux)\n")
+
+
 @app.command()
 def screen(verbose: bool = False):
     """Criblage brut des familles D à I (période DEVELOPMENT) : avantage après dérive et au-delà des coûts ?"""
