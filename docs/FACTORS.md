@@ -183,6 +183,48 @@ Sans audit réussi, aucun résultat n'est produit et aucun essai n'est enregistr
 - **Audit des fuites.** Il compare des poids et une simulation, pas toutes les mesures ; aux
   décisions où un régime est en USDT, les poids nuls ne prouvent rien pour cet essai.
 
+## 10. Résultats (exécution unique du 2026-10-01)
+
+Exécution `FACT-20261001T192318Z-2ff650`, code du commit `6a68808` (arbre propre), 365 décisions du
+2018-07-02 au 2025-06-23, audit des fuites réussi (30 décisions, 20 portefeuilles, simulation),
+aucun ordre perdu. Programme : **656 essais** ; période finale non consultée.
+
+**Verdict : AUCUNE_PISTE.** Aucun des 18 essais n'a un intervalle de l'écart de Sharpe entièrement
+au-dessus de 0 (critère 1).
+
+| Référence | Rendement annualisé | Sharpe | Perte maximale |
+|---|---|---|---|
+| EW (toutes les paires éligibles) | +30 % | 0,74 | −82 % |
+| BTC acheté-conservé | +50 % | 0,96 | −77 % |
+
+| Essai | Sharpe | Écart | IC de l'écart (99,86 %) | Validations | Perte max. | Investi |
+|---|---|---|---|---|---|---|
+| DUAL_MOM28 | 1,11 | +0,37 | [−0,40 ; +1,20] | 6/7 | −67 % | 55 % |
+| REGIME_MOM28 | 1,08 | +0,33 | [−0,38 ; +1,10] | 3/7 | −64 % | 55 % |
+| TSMOM_L28 | 1,06 | +0,31 | [−0,29 ; +0,93] | 4/7 | −48 % | 64 % |
+| MOM_L14_K5 | 0,99 | +0,25 | [−0,25 ; +0,69] | 5/7 | −90 % | 100 % |
+| TSMOM_L56 | 0,98 | +0,24 | [−0,48 ; +0,95] | 4/7 | −56 % | 62 % |
+| REGIME_SMA100 | 0,91 | +0,16 | [−0,66 ; +0,95] | 4/7 | −71 % | 56 % |
+| REGIME_HMM | 0,57 | −0,18 | [−0,75 ; +0,35] | 1/7 | −77 % | 84 % |
+| REVERSAL_K5 | 0,30 | −0,45 | [−0,94 ; −0,01] | 2/7 | −92 % | 100 % |
+
+(Les 10 autres essais : écarts de −0,09 à +0,19, tous avec un intervalle contenant 0 ; détail dans
+`reports/FACT-20261001T192318Z-2ff650/summary.json`.)
+
+Lecture, sans en tirer de règle :
+- **DUAL_MOM28** remplit tous les critères sauf le premier : meilleur Sharpe dans 6 validations sur
+  7, positif en scénario défavorable et sans sa meilleure validation, perte maximale moindre. Son
+  intervalle reste très large ; c'est exactement le cas qu'une sélection parmi 18 essais produit
+  par hasard. Ce n'est pas une piste au sens du protocole.
+- Les filtres de tendance (H2 à H4) **réduisent nettement la perte maximale** (−48 % à −71 % contre
+  −82 %) en restant 40 à 45 % du temps en USDT ; ce protocole ne teste pas cette réduction comme
+  critère, et elle n'est donc pas démontrée non plus.
+- Le classement pur (H1) garde toute la volatilité des altcoins (pertes maximales de −87 à −92 %).
+- **REVERSAL_K5** (acheter les plus fortes baisses de la semaine) fait moins bien que la référence,
+  avec un intervalle entièrement sous 0.
+- Rien de tout cela ne peut être confirmé sans données jamais consultées : la période finale reste
+  réservée, et une nouvelle hypothèse inspirée de ces chiffres serait un nouvel essai.
+
 ## Historique
 
 - 2026-10-01, v1 : version initiale, avant toute exécution.

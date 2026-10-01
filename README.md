@@ -132,7 +132,7 @@ quatre conditions déclarées avant exécution, horizons de 1 à 7 jours, 12 ess
 
 Détail : [docs/DERIVATIVES.md](docs/DERIVATIVES.md).
 
-### Lot 7 — portefeuilles hebdomadaires : protocole déclaré, pas encore exécuté (2026-10-01)
+### Lot 7 — portefeuilles hebdomadaires : aucune piste (2026-10-01)
 
 Changement de question : au lieu de prédire chaque mouvement, comparer un portefeuille rééquilibré
 **une fois par semaine** à sa référence (toutes les paires éligibles à parts égales, ou BTC conservé).
@@ -144,7 +144,9 @@ Changement de question : au lieu de prédire chaque mouvement, comparer un porte
 - Une « piste » ne serait pas un avantage démontré : il faudrait encore la confirmer sur des données
   jamais consultées.
 
-Détail : [docs/FACTORS.md](docs/FACTORS.md). Résultat : à venir.
+Résultat (exécution unique, 18 essais, programme 656) : **aucune piste**. Aucun essai ne bat sa
+référence avec un intervalle entièrement positif. Les filtres de tendance réduisent la perte maximale
+(−48 à −71 % contre −82 %) sans gain de Sharpe démontré. Détail : [docs/FACTORS.md §10](docs/FACTORS.md).
 
 ### Pourquoi elles perdent, et criblage des familles suivantes
 
