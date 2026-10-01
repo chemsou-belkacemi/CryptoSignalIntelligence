@@ -132,6 +132,20 @@ quatre conditions déclarées avant exécution, horizons de 1 à 7 jours, 12 ess
 
 Détail : [docs/DERIVATIVES.md](docs/DERIVATIVES.md).
 
+### Lot 7 — portefeuilles hebdomadaires : protocole déclaré, pas encore exécuté (2026-10-01)
+
+Changement de question : au lieu de prédire chaque mouvement, comparer un portefeuille rééquilibré
+**une fois par semaine** à sa référence (toutes les paires éligibles à parts égales, ou BTC conservé).
+- 18 règles fixes, écrites avant toute exécution : classement par momentum, régimes « investi ou USDT »
+  (moyennes mobiles, momentum, chaîne de Markov cachée), tendance par paire, exposition selon la
+  volatilité, faible volatilité, retournement.
+- Historique long : bougies 1 h depuis la cotation de chaque paire (BTC et ETH depuis août 2017),
+  univers de recherche de 40 paires, appartenance mesurée à la date.
+- Une « piste » ne serait pas un avantage démontré : il faudrait encore la confirmer sur des données
+  jamais consultées.
+
+Détail : [docs/FACTORS.md](docs/FACTORS.md). Résultat : à venir.
+
 ### Pourquoi elles perdent, et criblage des familles suivantes
 
 Avant frais, A, B et C n'ont pratiquement aucun avantage (≈ +0,01 R, −0,06 R, +0,03 R) : les coûts
@@ -162,18 +176,27 @@ Binance Spot. Règle, sources, exclusions et limites : [docs/UNIVERSE.md](docs/U
 projet ne certifie rien ; la liste se modifie dans `config/default.toml`. Les résultats du lot 2
 ci-dessus portent sur BTC + ETH seulement.
 
-## Dans Docker Desktop
+## Dans Docker
 
-```powershell
-.\scripts\docker-init.ps1      # surveillance shadow + tableau de bord : http://127.0.0.1:8502/dashboard.html
+Sous Ubuntu (Docker Engine et le plugin `docker-compose-v2`) :
+
+```bash
+docker network create csi-bridge      # une seule fois : réseau partagé avec BinanceSpotManager
+docker compose up -d --build          # surveillance shadow, API et tableau de bord : http://127.0.0.1:8503/
+docker compose ps                     # tout doit être « healthy »
 ```
 
-Détails (état séparé du dossier local, démarrage automatique, arrêt) : [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+Tout démarrer d'un coup (CSI puis le bot) : `./scripts/demarrer.sh`, ou `./scripts/demarrer.sh --reconstruire`
+après une mise à jour du code. Sous Windows (Docker Desktop) : `.\scripts\docker-init.ps1` et
+`.\scripts\demarrer.ps1`.
 
-Tout démarrer d'un coup (CSI puis le bot) : `.\scripts\demarrer.ps1`. Serveur 24 h/24 (VPS) : [docs/VPS.md](docs/VPS.md) (installation, migration des données, accès par tunnel SSH, sauvegardes).
+Détails (état séparé du dossier local, démarrage automatique, arrêt) : [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+Serveur 24 h/24 (VPS) : [docs/VPS.md](docs/VPS.md) (installation, migration des données, accès par tunnel
+SSH, sauvegardes).
 
 Évaluer un signal Telegram dans l'état Docker (résolu ensuite automatiquement, bilan par groupe au
-tableau de bord) : `.\scripts\evaluer-signal.ps1 -Source "Nom du groupe" -Fichier signal.txt`.
+tableau de bord) : le plus simple est l'onglet « Évaluer un signal » du tableau de bord ; sous Windows,
+`.\scripts\evaluer-signal.ps1 -Source "Nom du groupe" -Fichier signal.txt`.
 
 API locale (lecture et évaluation seulement, 127.0.0.1:8503) pour l'interface de BinanceSpotManager :
 routes, sécurité et intégration prévue dans [docs/API.md](docs/API.md).
@@ -181,7 +204,7 @@ routes, sécurité et intégration prévue dans [docs/API.md](docs/API.md).
 ## Tableau de bord interactif de CSI : <http://127.0.0.1:8503/>
 
 Indépendant de BinanceSpotManager (servi par le service `api` de CSI ; sans Docker :
-`.\.venv\Scripts\python.exe -m crypto_signal_intelligence.api`). Cinq onglets :
+`.venv/bin/python -m crypto_signal_intelligence.api`). Cinq onglets :
 
 - **Analyser une paire** : choisir une paire et un horizon (1 h, 4 h, 12 h, 1 jour, 3 jours, 7 jours).
   CSI montre :
@@ -223,65 +246,80 @@ Indépendant de BinanceSpotManager (servi par le service `api` de CSI ; sans Doc
 
 Chaque pourcentage est une fréquence historique définie à côté de sa valeur, jamais une promesse :
 aucune stratégie de CSI n'a démontré d'avantage exploitable à ce jour. Même analyse dans le
-terminal : `.\.venv\Scripts\python.exe -m crypto_signal_intelligence perspective ETHUSDT --horizon 24h`.
+terminal : `.venv/bin/csi perspective ETHUSDT --horizon 24h`.
 
-## Installation (Windows PowerShell)
+## Installation (Ubuntu)
 
-Python 3.12+ requis (testé avec 3.14.7). Pas besoin d'activer le venv : on appelle son python.
+Python 3.14 (paquet `python3.14-venv`). Pas besoin d'activer le venv : on appelle ses programmes.
+`pylock.toml` (PEP 751) fige les versions mais ne liste que des roues Windows : sous Linux, on en tire des
+contraintes et pip choisit les roues Linux (même méthode que la CI).
 
-```powershell
-cd C:\Users\chams\Downloads\BinanceSpotManager\CryptoSignalIntelligence
-py -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
-# Versions exactes et hashes figés (PEP 751, fonction expérimentale de pip 26) :
-.\.venv\Scripts\python.exe -m pip install -r pylock.toml
-.\.venv\Scripts\python.exe -m pip install --no-deps -e .
+```bash
+cd ~/BinanceSpotManager/CryptoSignalIntelligence
+python3.14 -m venv .venv
+.venv/bin/python -c "import tomllib; d = tomllib.load(open('pylock.toml', 'rb')); open('constraints.txt', 'w').write(''.join(f\"{p['name']}=={p['version']}\n\" for p in d['packages'] if 'version' in p))"
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install -c constraints.txt -e ".[dev,ml]"
 ```
 
-Vérifié le 2026-09-30 dans un environnement neuf (Python 3.14.7) : installation depuis
-`pylock.toml` puis 55 tests réussis (lot 1). Lot 2 : 81 tests réussis dans ce même environnement,
-sans nouvelle dépendance. Régénérer le verrou : voir `pip lock` dans l'historique git.
+Sous Windows (PowerShell) : `py -m venv .venv`, `.\.venv\Scripts\python.exe -m pip install -r pylock.toml`,
+puis `.\.venv\Scripts\python.exe -m pip install --no-deps -e .` ; les commandes ci-dessous s'écrivent alors
+`.\.venv\Scripts\python.exe -m crypto_signal_intelligence <commande>`.
 
 ## Commandes
 
-```powershell
-.\.venv\Scripts\python.exe -m crypto_signal_intelligence doctor
-.\.venv\Scripts\python.exe -m crypto_signal_intelligence download                      # toutes les paires, 15m+1h, depuis 2021
-.\.venv\Scripts\python.exe -m crypto_signal_intelligence download --symbol BTCUSDT --timeframe 15m
-.\.venv\Scripts\python.exe -m crypto_signal_intelligence data-quality --symbol BTCUSDT
-.\.venv\Scripts\python.exe -m crypto_signal_intelligence validate-causality --symbol ETHUSDT
-.\.venv\Scripts\python.exe -m crypto_signal_intelligence backtest --strategy DONCHIAN_VOLUME_BREAKOUT
-.\.venv\Scripts\python.exe -m crypto_signal_intelligence walk-forward                  # les 3 stratégies, verdict
-.\.venv\Scripts\python.exe -m crypto_signal_intelligence walk-forward --strategy RANGE_REENTRY
-.\.venv\Scripts\python.exe -m crypto_signal_intelligence screen                        # criblage brut des familles D à I
-.\.venv\Scripts\python.exe -m crypto_signal_intelligence analyze --mode shadow         # toutes les stratégies
-.\.venv\Scripts\python.exe -m crypto_signal_intelligence analyze --symbol BTCUSDT --strategy EMA_PULLBACK_CONTINUATION
-.\.venv\Scripts\python.exe -m crypto_signal_intelligence evaluate-signal --source "Suhaib" --file signal.txt
-.\.venv\Scripts\python.exe -m crypto_signal_intelligence resolve-signals               # issues des signaux évalués
-.\.venv\Scripts\python.exe -m crypto_signal_intelligence sources                       # bilan par groupe Telegram
-.\.venv\Scripts\python.exe -m crypto_signal_intelligence universe                      # paires configurées + ajoutées par toi
-.\.venv\Scripts\python.exe -m crypto_signal_intelligence import-feedback --file feedback.jsonl   # retour Demo du bot
-.\.venv\Scripts\python.exe -m crypto_signal_intelligence execution-report              # backtest / prospectif / Demo + écarts
-.\.venv\Scripts\python.exe -m crypto_signal_intelligence exit-policies                 # politiques de sortie et empreintes
-.\.venv\Scripts\python.exe -m crypto_signal_intelligence scan                          # un cycle : 16 paires × stratégies, shadow
-.\.venv\Scripts\python.exe -m crypto_signal_intelligence run --mode shadow             # surveillance continue (Ctrl+C pour arrêter)
-.\.venv\Scripts\python.exe -m crypto_signal_intelligence news-sources --check          # vérifie les sources d'actualités
-.\.venv\Scripts\python.exe -m crypto_signal_intelligence news --hours 24                # actualités (observe : sans influence)
-.\.venv\Scripts\python.exe -m crypto_signal_intelligence dashboard --open              # tableau de bord HTML (state/dashboard.html)
-.\.venv\Scripts\python.exe -m crypto_signal_intelligence backup                        # sauvegarde vérifiée de l'état (backups/)
-.\.venv\Scripts\python.exe -m crypto_signal_intelligence restore --file backups\<archive>.zip --yes   # puis publication-resume
-.\.venv\Scripts\python.exe -m crypto_signal_intelligence report                        # liste des expériences
-.\.venv\Scripts\python.exe -m crypto_signal_intelligence report --run-id <IDENTIFIANT>
-.\.venv\Scripts\python.exe -m crypto_signal_intelligence signals-reconcile
+```bash
+.venv/bin/csi doctor
+.venv/bin/csi download                           # toutes les paires, 15m+1h, depuis 2021
+.venv/bin/csi download --symbol BTCUSDT --timeframe 15m
+.venv/bin/csi data-quality --symbol BTCUSDT
+.venv/bin/csi validate-causality --symbol ETHUSDT
+.venv/bin/csi backtest --strategy DONCHIAN_VOLUME_BREAKOUT
+.venv/bin/csi walk-forward                       # les 3 stratégies, verdict
+.venv/bin/csi walk-forward --strategy RANGE_REENTRY
+.venv/bin/csi screen                             # criblage brut des familles D à I
+.venv/bin/csi analyze --mode shadow              # toutes les stratégies
+.venv/bin/csi analyze --symbol BTCUSDT --strategy EMA_PULLBACK_CONTINUATION
+.venv/bin/csi perspective ETHUSDT --horizon 24h  # ce qui s'est passé dans des conditions comparables
+.venv/bin/csi evaluate-signal --source "Suhaib" --file signal.txt
+.venv/bin/csi resolve-signals                    # issues des signaux évalués
+.venv/bin/csi sources                            # bilan par groupe Telegram
+.venv/bin/csi universe                           # paires configurées + ajoutées par toi
+.venv/bin/csi admit-halal                        # applique le screening halal aux paires hors configuration
+.venv/bin/csi import-feedback --file feedback.jsonl   # retour Demo du bot
+.venv/bin/csi execution-report                   # backtest / prospectif / Demo + écarts
+.venv/bin/csi exit-policies                      # politiques de sortie et empreintes
+.venv/bin/csi scan                               # un cycle : paires × stratégies, shadow
+.venv/bin/csi run --mode shadow                  # surveillance continue (Ctrl+C pour arrêter)
+.venv/bin/csi news-sources --check               # vérifie les sources d'actualités
+.venv/bin/csi news --hours 24                    # actualités (observe : sans influence)
+.venv/bin/csi dashboard --open                   # tableau de bord HTML (state/dashboard.html)
+.venv/bin/csi backup                             # sauvegarde vérifiée de l'état (backups/)
+.venv/bin/csi restore --file backups/<archive>.zip --yes   # puis publication-resume
+.venv/bin/csi report                             # liste des expériences
+.venv/bin/csi report --run-id <IDENTIFIANT>
+.venv/bin/csi signals-reconcile
+```
+
+Recherche (travaux lourds, DEVELOPMENT seulement ; chaque protocole est déclaré avant son exécution) :
+
+```bash
+.venv/bin/csi ml-evaluate                        # lot 5 : méta-labeling des setups
+.venv/bin/csi ml-intraday select                 # lot 5 bis : ML intraday
+.venv/bin/csi ml-swing select                    # lot 5 ter : ML swing
+.venv/bin/csi download-derivatives               # historique public du marché à terme
+.venv/bin/csi screen-derivatives                 # criblage du positionnement
+.venv/bin/csi download-long --research           # bougies 1 h depuis la cotation, 40 paires de recherche
+.venv/bin/csi factors                            # lot 7 : portefeuilles hebdomadaires
 ```
 
 Tests et qualité :
 
-```powershell
-.\.venv\Scripts\python.exe -m pytest
-.\.venv\Scripts\ruff.exe check src tests
-.\.venv\Scripts\mypy.exe
-.\.venv\Scripts\pyright.exe            # imports et noms introuvables (types : mypy)
+```bash
+.venv/bin/python -m pytest
+.venv/bin/ruff check src tests
+.venv/bin/mypy
+.venv/bin/pyright                # imports et noms introuvables (types : mypy)
 ```
 
 Les fixtures de test sont **synthétiques** : elles vérifient le code, jamais une performance de marché.

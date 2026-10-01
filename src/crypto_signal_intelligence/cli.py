@@ -167,13 +167,16 @@ def admit_halal(verbose: bool = False):
 
 @app.command("download-long")
 def download_long_command(symbol: list[str] = typer.Option(None, "--symbol", help="Paire(s) ; défaut : l'univers de la configuration"),
+                          research: bool = typer.Option(False, "--research", help="L'univers de recherche figé (40 paires, research/universe.py)"),
                           workers: int = typer.Option(6, help="Paires téléchargées en parallèle"),
                           verbose: bool = False):
     """Historique LONG (bougies 1 h depuis la cotation de chaque paire) dans un magasin séparé, pour la recherche
     à basse fréquence. Les protocoles déjà exécutés gardent leur magasin (depuis 2021-01)."""
     from .research.long_history import download_long
+    from .research.universe import RESEARCH_UNIVERSE
     settings = _settings(verbose)
-    symbols = [s.upper() for s in symbol] if symbol else list(settings.data.symbols)
+    symbols = ([s.upper() for s in symbol] if symbol else
+               list(RESEARCH_UNIVERSE) if research else list(settings.data.symbols))
     with console.status("historique long…") as status:
         rows = download_long(settings, symbols, now=_now(), workers=workers,
                              progress=lambda text: status.update(f"historique long : {text}"))
@@ -185,6 +188,42 @@ def download_long_command(symbol: list[str] = typer.Option(None, "--symbol", hel
                       f"{str(r['first'])[:10]} → {str(r['last'])[:16]} | archives +{r['archives']} "
                       f"(absentes {r['archives_missing']}) | trous {r['gaps']} ({r['missing_bars']} bougies) "
                       f"| quarantaine {r['quarantined']}")
+
+
+@app.command("factors")
+def factors_command(verbose: bool = False):
+    """Portefeuilles hebdomadaires (docs/FACTORS.md) : 18 règles fixes face à leur référence, sur l'historique long,
+    DEVELOPMENT seulement, audit des fuites d'abord. Mesure seulement : aucun signal ni ordre n'en découle."""
+    from .research.factors import IncompleteData, LeakAuditFailed, run
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    try:
+        with console.status("portefeuilles hebdomadaires…") as status:
+            result = run(settings, now=_now(), progress=lambda text: status.update(f"portefeuilles : {text}"))
+    except (LeakAuditFailed, IncompleteData) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    console.rule(f"Portefeuilles hebdomadaires — {result.run_id}")
+    coverage = result.coverage
+    console.print(f"Audit des fuites : réussi ({len(result.leak_audit['decisions'])} décisions, "
+                  f"{result.leak_audit['trials_checked']} portefeuilles) ; {coverage['decisions']} décisions du "
+                  f"{coverage['first'][:10]} au {coverage['last'][:10]} ; essais : {result.n_trials} ; programme : "
+                  f"{result.program_trials} ; niveau des IC : {result.level:.2%}")
+    for key, b in result.benchmarks.items():
+        console.print(f"  référence {key} : rendement annualisé {b['annual_return']}, Sharpe {b['sharpe']}, perte "
+                      f"maximale {b['max_drawdown']} | défavorable : Sharpe {b['adverse']['sharpe']}")
+    table = Table("Essai", "Réf.", "Sharpe", "Écart", "IC de l'écart", "Validations", "Défavorable", "Perte max.",
+                  "Investi", "Piste")
+    for r in result.rows:
+        table.add_row(r["key"], r["benchmark"], f"{r['sharpe']:.2f}", f"{r['sharpe_diff']:+.2f}",
+                      str(r["sharpe_diff_ci"]), f"{r['folds_better']}/7", f"{r['adverse_sharpe_diff']:+.2f}",
+                      f"{r['max_drawdown']:.0%} (réf. {r['benchmark_max_drawdown']:.0%})",
+                      f"{r['invested_share']:.0%}", "[yellow]à confirmer[/yellow]" if r["lead"] else "non")
+    console.print(table)
+    console.print(f"[bold]Verdict : {result.verdict}[/bold]")
+    console.print("Une piste n'est pas un avantage démontré : 18 variantes comparées sur des données déjà parcourues, "
+                  "univers de survivantes (docs/FACTORS.md §7 et §9).")
+    console.print(f"Rapport : {settings.reports_dir / result.run_id / 'summary.json'}")
 
 
 @app.command("data-quality")

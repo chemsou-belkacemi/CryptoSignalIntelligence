@@ -1,6 +1,6 @@
 # Preuves de livraison (point 22 du cahier des charges)
 
-Mise à jour : 2026-09-30. Quatre statuts seulement :
+Mise à jour : 2026-10-01. Quatre statuts seulement :
 
 - **TESTÉ** : implémenté, et vérifié par des tests exécutés (et sur données réelles quand c'est indiqué) ;
 - **NON VÉRIFIÉ** : implémenté, mais jamais exécuté dans les conditions réelles visées ;
@@ -9,7 +9,7 @@ Mise à jour : 2026-09-30. Quatre statuts seulement :
 
 Un logiciel livré ne signifie pas qu'une stratégie est validée pour être utilisée : les trois
 stratégies actuelles sont **REJECTED** hors échantillon (README). Vérification de la suite :
-`pytest`, `ruff check src tests` et `mypy` sur tout le paquet (62 fichiers), le 2026-09-30.
+`pytest`, `ruff check src tests` et `mypy` sur tout le paquet, sous Ubuntu, le 2026-10-01.
 
 ## Données, recherche, signaux
 
@@ -71,6 +71,8 @@ stratégies actuelles sont **REJECTED** hors échantillon (README). Vérificatio
 | Onglet Opportunités du tableau de bord : toutes les paires à tous les horizons, plans à historique positif, objectif souvent atteint avant le stop, achats simulés | TESTÉ | `POST /opportunities/pair` (historique relu une fois par paire), `tests/test_outlook.py` ; statistiques en échantillon, jamais une proposition d'entrer |
 | Données publiques du marché à terme USDⓈ-M (positionnement : financement, prime, intérêt ouvert, ratios acheteurs/vendeurs), information seulement | TESTÉ (valeurs du moment dans le tableau de bord) ; criblage EXÉCUTÉ : AUCUNE_PISTE (`SCREEN-20261001T111500Z-60702b`, 12 essais, programme 638, vérifié indépendamment) | liste blanche publique étendue, routes d'ordres et de compte du marché à terme refusées (`tests/test_data.py`), `derivatives/live.py`, `GET /derivatives`, carte « Marché à terme », `tests/test_derivatives.py` ; vérifié sur les données publiques réelles le 2026-10-01 ([DERIVATIVES.md](DERIVATIVES.md)) |
 | ML swing (lot 5 ter) : bougies 1 h, décisions toutes les 4 h, horizons 1 à 7 jours, logistique / LightGBM / XGBoost / CatBoost, coupe transversale, règle d'admission stricte v6 | EXÉCUTÉ (sélection) : AUCUN_AVANTAGE_DEMONTRE ; période finale NON consultée | sélection `MLS-20261001T085521Z-a04c71` du 2026-10-01 (136 essais, programme 626) : aucun système stable, même sans les minimums par validation ; AUC médiane 0,51, Brier skill négatif dans 87 % des cas ([ML_SWING.md §7](ML_SWING.md)) ; protocole v3 déclaré avant exécution après deux relectures indépendantes ([ML_SWING.md](ML_SWING.md)), moteur commun `ml/engine.py`, `ml-swing select`, `tests/test_ml_swing.py` (cibles, causalité et mutations 4 h / 1 jour, règle v6 et chacun de ses refus, IC calculé à la main, excès sur le marché, cache, verrou commun de la période finale, bout en bout) |
+| Historique long : bougies 1 h depuis la cotation de chaque paire, magasin séparé `long_history/` (les protocoles déjà exécutés gardent le leur) | TESTÉ | `research/long_history.py`, `download-long --research`, `tests/test_long_history.py` ; téléchargement réel le 2026-10-01 : 40 paires de recherche (BTC et ETH depuis le 2017-08-17), archives vérifiées par SHA-256, 290 Mo |
+| Portefeuilles hebdomadaires (lot 7) : 18 règles fixes (classement, régimes dont HMM, tendance par paire, exposition selon la volatilité, faible volatilité, retournement) face à leur référence, univers de 40 paires à la date | TESTÉ (code) ; protocole déclaré, **pas encore exécuté** | [FACTORS.md](FACTORS.md) commité avant exécution ; `research/factors.py`, `research/universe.py`, commande `factors`, `tests/test_factors.py` (panneau, éligibilité, poids, HMM filtré, simulation calculée à la main, aucun levier, IC apparié, chaque critère de la règle, audit des fuites, rien lu après DEVELOPMENT) ; 59 versions cassées du module toutes détectées par les tests |
 | Limites d'exposition centralisées (toutes stratégies, toutes paires, positions ouvertes comprises) | TESTÉ (simulation) | `risk/exposure.py`, section `[risk]` ; `test_exposure_limits_*`, `test_daily_loss_*` ; pas encore branché sur la publication (aucune stratégie validée) |
 | Surveillance d'un modèle en service (âge, données, dégradation, calibration ; positions conservées) | TESTÉ (fonctions) | `ml/intraday/monitor.py`, `test_monitor_suspends_new_entries_but_keeps_existing_positions` ; rien en service |
 | Agents IA, budget, cache, recontrôle après réponse lente (points 17-18) | NON IMPLÉMENTÉ | lot 6 ; aucun appel payant n'existe |
