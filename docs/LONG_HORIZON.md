@@ -163,6 +163,41 @@ le reste est inchangé. Commité avant la première exécution.
 **Budget : 3 essais au plus** (A, A + filtres si le funding s'active assez, B), comptés dans le registre au
 moment de l'exécution (716 essais avant, selon le registre).
 
+## 11. Résultats de la version 2 (essai LONG-20261002T155625Z-967d85, 2026-10-02)
+
+Exécuté une fois, après audit des fuites réussi (mutation détectée), code commité (1c60f86), univers : les 40 paires
+de recherche, toutes admises par le screening ; 338 décisions du 2019-01-07 au 2025-06-23 ; **3 essais consommés
+(programme : 716 → 719)**. Le filtre funding s'active 5,6 % du temps : l'essai « A + filtres » a été lancé. B a
+fait 13 sélections.
+
+| Modèle (central) | Rendement/an | Vol. | Sharpe | Sharpe déflaté | Perte max | Transactions | Frais | Exposition |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| A | +21,5 % | 29 % | 0,81 | 0,12 | −41 % | 425 | 10,5 % | 32 % |
+| A + funding | +20,6 % | 28 % | 0,81 | 0,12 | −42 % | 453 | 10,3 % | 31 % |
+| STATIQUE A (référence) | +18,4 % | 26 % | 0,78 | 0,12 | −46 % | 498 | 3,6 % | 30 % |
+| Buy-and-hold du panier (information) | +36,7 % | 78 % | 0,79 | 0,13 | −88 % | 498 | 20,7 % | 94 % |
+| B | +72,7 % | 76 % | 1,08 | 0,33 | −69 % | 105 | 23,4 % | 100 % |
+| STATIQUE B (référence) | +79,8 % | 83 % | 1,10 | 0,35 | −72 % | 95 | 26,1 % | 100 % |
+| BTC conservé (information) | +66,1 % | 61 % | 1,14 | 0,40 | −77 % | 1 | 0,1 % | 100 % |
+
+**Verdicts : A, A + funding et B sont `NON_INTERESSANT`** face à leur référence statique, en central comme en
+défavorable :
+- A : écart de Sharpe +0,04, intervalle [−0,58 ; +0,64] (contient 0) ; perte max −41 % contre −46 % : pas réduite
+  à 60 % de celle de la référence ; 5 validations annuelles sur 7 plus favorables. Le rendement est comparable
+  (121 % de la référence) : A fait ce que fait son exposition moyenne, pas mieux.
+- A + funding : même tableau (écart +0,03, [−0,62 ; +0,66]).
+- B : écart de Sharpe −0,02, [−0,30 ; +0,28] ; perte −69 % contre −72 %. Le stop à −25 % n'a pas réduit la
+  perte ; B sans stop fait légèrement mieux que B.
+- Face au buy-and-hold du panier (information), A réduit la perte max de −88 % à −41 % : c'est le mécanisme déjà
+  observé au lot 7 (une exposition réduite réduit la perte), que la référence statique reproduit à 30 %
+  d'exposition. Aucune découverte.
+
+Conséquences : **aucun modèle n'est « intéressant » ; B n'est pas retenu pour le suivi en direct**. Le suivi en
+direct de A (test F5_MODELE_A, docs/FORWARD_TESTS.md) vérifie son comportement réel et l'effet du feu tricolore
+(phase 8) ; il ne valide rien, et l'allocation statique y est jouée à l'exposition moyenne de A ici mesurée
+(32,25 %). Le Sharpe déflaté reste très bas (0,12 à 0,35 avec 719 essais) : comme écrit avant l'exécution, il
+n'est pas un critère atteignable.
+
 ## Historique
 
 - 2026-10-02 : proposition, en attente de validation ; aucun code, aucun résultat.

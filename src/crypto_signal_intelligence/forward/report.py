@@ -89,6 +89,23 @@ def markdown(report: dict) -> str:
         if "stop" in item:
             lines.append(f"ARRÊTÉ : {item['stop']['reason']}.")
         stats = item["stats"]
+        if "light_share" in stats:                            # F5 : modèle A en direct, feu tricolore, statique
+            lines += [f"Décisions hebdomadaires : {stats['decisions']} ; jours valorisés : {stats['days']} ; feu : "
+                      f"{stats['light_days']} ; actifs rouges : {stats['red_assets'] or 'aucun'} ; conformité : "
+                      f"{stats['conformity']['status']} ({stats['conformity']['decisions']} décisions recalculées, "
+                      f"{len(stats['conformity']['mismatches'])} écart(s)) ; exposition statique : {stats['static_exposure']}.", "",
+                      "| Coûts | Portefeuille | Jours | Rendement | Vol. annualisée | Perte max | Transactions | Frais | Exposition |",
+                      "|---|---|---|---|---|---|---|---|---|"]
+            for scenario, variants in stats["scenarios"].items():
+                for variant, s in variants.items():
+                    if not isinstance(s, dict):
+                        continue
+                    lines.append(f"| {scenario} | {variant} | {s.get('days', 0)} | {_fmt(s.get('return'), True)} | "
+                                 f"{_fmt(s.get('volatility_annual'), True)} | {_fmt(s.get('max_drawdown'), True)} | "
+                                 f"{s.get('trades', '—')} | {s.get('fees_pct', '—')} % | {_fmt(s.get('exposure'), True)} |")
+                lines.append(f"| {scenario} | A + feu − A | | {_fmt(variants.get('A_FEU_minus_A'), True)} | | | | | |")
+            lines += ["", "Suivi du comportement : aucune validation sur 3 mois.", f"Verdict : **{stats['verdict']}**.", ""]
+            continue
         if "providers" in stats:                              # F4 : signaux Telegram en direct, par fournisseur
             lines += [f"Messages : {stats['signals']} (joués : {stats['decisions']} ; comptés : {stats['counted']}, "
                       f"{stats['by_status']}) ; en attente : {stats['pending']} ; non mesurables : {stats['unplayable']} ; "

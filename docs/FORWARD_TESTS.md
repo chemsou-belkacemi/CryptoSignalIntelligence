@@ -506,6 +506,84 @@ celle du propriétaire, pas celle de l'analyste ; les placebos partagent la géo
 1 min (ordre des prix dans la minute inconnu) ; une paire sans bougies 1 min (retrait de la cote) finit en trou ;
 12 semaines ne valident rien.
 
+## F5_MODELE_A : modèle A en direct (lot 8 v2), avec et sans feu tricolore, contre l'allocation statique
+
+Phases 2 (suivi en direct) et 8 (feu tricolore) de la mission du 2026-10-02. Le backtest du lot 8 v2
+(`docs/LONG_HORIZON.md` §11, essai LONG-20261002T155625Z-967d85) a jugé A, A + funding et B `NON_INTERESSANT` :
+ce suivi vérifie le **comportement réel** de A et l'effet du feu, il ne valide rien et ne décide d'aucune mise en
+production. B n'est pas suivi (non retenu).
+
+**Hypothèse.** Descriptive : les décisions hebdomadaires de A en direct sont reproduites exactement à partir de
+leurs entrées journalisées (conformité), et l'effet du feu tricolore (A + feu moins A) ainsi que la part de jours
+rouges, orange et verts sont mesurés sur 12 semaines. Aucun seuil de performance : sur 3 mois, A fait peu de
+transactions et un écart de rendement ne prouverait rien.
+
+**Événements et règles.**
+- **Univers** : paires de l'univers de recherche (40) admises par la liste halal figée au démarrage.
+- **Décision de A** : chaque lundi, au premier passage après 00:10 UTC, sur les bougies 1 h closes avant lundi
+  00:00 (journées, éligibilité par volume passé, votes à 4, 12 et 26 semaines, panier BTC, ETH + 3 plus liquides)
+  et la volatilité prévue à 7 jours du jour (prévision quotidienne de CSI, `outlook/volatility`, σ̂ annualisée =
+  mouvement à 7 jours × √(365/7)) : poids 1/5 × min(1, 0,50 / σ̂) pour un actif à au moins 2 votes sur 3. Les
+  règles sont celles de `research/long_horizon` (v2) ; ce code de recherche n'est pas gelé : son empreinte est
+  inscrite dans chaque décision, avec celle du modèle de volatilité.
+- **Exécution** : à l'ouverture de la bougie 1 h de 01:00 du lundi, au premier passage après 01:10 ; bande de
+  tolérance de 5 points (un actif n'est échangé que si son poids s'écarte de la cible de plus de 5 points ou s'il
+  entre ou sort) ; frais du modèle commun, central et défavorable, par côté.
+- **Feu du jour**, calculé au premier passage après 01:10 sur des informations connues à 00:00 UTC :
+  - ROUGE si décision de la Fed, CPI ou NFP américain **le jour UTC même** (calendrier FIGÉ dans
+    `forward/light.py`, sources : calendrier FOMC et calendriers du BLS relevés le 2026-10-02) ; ou prévision à
+    7 jours de BTC dans les 10 % les plus hauts de ses 365 derniers jours (historique recalculé au démarrage avec
+    les mêmes modèles, puis complété chaque jour ; rang inconnu sans 100 valeurs) ; ou financement moyen 7 jours
+    du perpétuel BTC (relevé F0_DERIVES) au-dessus de 0,05 % par 8 h ; ou USDT ou USDC à plus de 0,5 % de sa
+    parité (relevé F0_DONNEES, dernière valeur) ;
+  - ROUGE pour un actif : titre d'annonce Binance « Binance Will Delist … » citant son code (catalogue
+    Delisting de l'API publique des annonces ; contrats à terme et retraits de paires exclus) ;
+  - ORANGE (si pas rouge) : samedi ou dimanche UTC ; dernier vendredi du mois ; maintenance ou mise à niveau
+    annoncée par Binance pour le jour même ou le lendemain (catalogue Maintenance) ;
+  - VERT sinon. Les entrées (rang, financement, parités, titres lus, erreurs de source) sont journalisées avec le feu.
+- **Trois portefeuilles simulés**, valorisés chaque jour à l'ouverture de 01:00 (actif sans prix du jour : valeur
+  conservée, aucun échange) :
+  - `A` : les cibles du lundi, avec la bande ;
+  - `A_FEU` : le lundi vert, les cibles de A ; un jour ROUGE : aucune entrée, positions réduites de moitié le
+    premier jour rouge d'une série (pas de nouvelle réduction les jours rouges suivants) ; un jour ORANGE : aucun
+    échange, positions conservées ; retour aux cibles de A au premier lundi vert ; actif rouge : vendu en entier ;
+  - `STATIQUE` : 32,25 % du portefeuille (exposition moyenne de A dans l'essai cité) répartis à parts égales
+    entre les membres du panier de la semaine, échangé seulement quand la composition change.
+
+**Paramètres** (figés dans le code, `forward/f5.py` et `forward/light.py`) :
+
+| Paramètre | Valeur |
+|---|---|
+| Décision / exécution | lundi 00:00 UTC (passage après 00:10) / ouverture de 01:00 (passage après 01:10) |
+| Modèle | vote 2 sur 3 (28, 84, 182 jours), σ_cible 0,50, panier 5, bande 0,05 |
+| Feu : volatilité | 10 % les plus hauts sur 365 jours |
+| Feu : financement | > 0,05 % par 8 h, moyenne 7 jours |
+| Feu : parité | > 0,5 % |
+| Feu : calendrier | 11 dates figées (NFP, CPI, Fed) d'octobre 2026 à janvier 2027 |
+| Rouge | réduction de moitié le premier jour, aucune entrée |
+| Exposition statique | 0,3225 (essai LONG-20261002T155625Z-967d85, scénario central) |
+| Gel | modules f5, light, costs, registry, journal, outlook.volatility ; magasin de bougies ; paires de la configuration |
+
+**Métrique.** Par scénario de frais et par portefeuille : rendement total, volatilité annualisée des rendements
+quotidiens, perte maximale, transactions, frais, exposition ; écart de rendement A + feu − A ; part de jours
+rouges, orange, verts et leurs raisons ; actifs rouges ; conformité : chaque décision recalculée à partir de ses
+entrées journalisées (votes, σ̂, panier) doit redonner ses poids.
+
+**Seuil de décision.** Aucun seuil de performance. À la date d'évaluation : `SUIVI_TERMINE_CONFORME` si 100 %
+des décisions sont reproduites, sinon `SUIVI_TERMINE_NON_CONFORME` (avec les semaines en écart). Les mesures sont
+rapportées telles quelles, avec la mention « 3 mois ne valident rien ».
+
+**Date d'évaluation.** 84 jours après le démarrage (revue intermédiaire à 42 jours) ; verdict le lendemain de la
+dernière valorisation, inscrit une fois au journal.
+
+**Nombre d'événements attendu.** 12 décisions hebdomadaires, 84 valorisations, 8 jours rouges certains par le
+calendrier (plus les jours de volatilité, financement ou parité), environ 24 jours de week-end orange.
+
+**Limites déclarées.** Ouvertures de 01:00 sans impact de marché ; feu calculé sur des relevés quotidiens
+(parité : dernière valeur, non intrajournalière) ; annonces lues par leurs titres seulement ; le calendrier macro
+figé ne suit pas un changement de date du BLS ou de la Fed ; le code de recherche n'est pas gelé (empreinte par
+décision) ; 12 semaines, aucune validation.
+
 ## Démarrages
 
 Historique des démarrages et des arrêts. Cette section est hors empreinte : on y ajoute, on n'y modifie rien.
