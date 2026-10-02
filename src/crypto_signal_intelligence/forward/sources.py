@@ -26,6 +26,7 @@ ALLOWED = {
     "api.kraken.com": ("/0/public/Ticker",),
     "www.bitstamp.net": ("/api/v2/ticker/",),
     "www.okx.com": ("/api/v5/public/liquidation-orders",),
+    "api.nasdaq.com": ("/api/quote/NDX/historical",),
 }
 # Indice dollar (ICE) : formule publique, à partir des taux de référence de la BCE (pas la cotation ICE elle-même).
 DXY_CONSTANT = 50.14348112
@@ -103,17 +104,36 @@ def fetch_fear_greed(client: PublicSources, *, now: datetime) -> dict:
             "day": pd.Timestamp(int(rows[0]["timestamp"]), unit="s", tz="UTC").date().isoformat()}
 
 
-def fetch_nasdaq100(client: PublicSources, *, now: datetime) -> dict:
-    """Clôtures du Nasdaq 100 (FRED, série NASDAQ100) sur les 60 derniers jours : la corrélation 30 jours avec BTC
-    est calculée à partir de cet extrait et des bougies Binance."""
-    since = (pd.Timestamp(now) - pd.Timedelta(days=60)).date().isoformat()
+def _nasdaq_from_fred(client: PublicSources, since: str) -> list[list]:
     text = client.get("https://fred.stlouisfed.org/graph/fredgraph.csv", {"id": "NASDAQ100", "cosd": since},
-                      timeout=90.0).decode()                        # FRED répond parfois lentement
+                      timeout=45.0).decode()
     rows = [r for r in csv.reader(io.StringIO(text))][1:]
-    closes = [[d, _number(v)] for d, v in rows if v not in ("", ".")]
-    if not closes:
-        raise SourceError("Nasdaq 100 vide")
-    return {"closes": closes, "last": closes[-1]}
+    return [[d, _number(v)] for d, v in rows if v not in ("", ".")]
+
+
+def _nasdaq_from_exchange(client: PublicSources, since: str) -> list[list]:
+    payload = client.get_json("https://api.nasdaq.com/api/quote/NDX/historical",
+                              {"assetclass": "index", "fromdate": since, "limit": "100"})
+    rows = (((payload or {}).get("data") or {}).get("tradesTable") or {}).get("rows") or []
+    closes = [[pd.Timestamp(r["date"]).date().isoformat(), _number(str(r["close"]).replace(",", ""))] for r in rows]
+    return sorted(closes)
+
+
+def fetch_nasdaq100(client: PublicSources, *, now: datetime) -> dict:
+    """Clôtures du Nasdaq 100 sur les 60 derniers jours : FRED (série NASDAQ100), sinon l'API publique de Nasdaq
+    (même indice, source notée). La corrélation 30 jours avec BTC est calculée à partir de cet extrait."""
+    since = (pd.Timestamp(now) - pd.Timedelta(days=60)).date().isoformat()
+    errors = []
+    for name, read in (("FRED", _nasdaq_from_fred), ("Nasdaq", _nasdaq_from_exchange)):
+        try:
+            closes = read(client, since)
+        except (SourceError, KeyError, TypeError, ValueError) as exc:
+            errors.append(f"{name} : {exc}")
+            continue
+        if closes:
+            return {"closes": closes, "last": closes[-1], "source": name}
+        errors.append(f"{name} : vide")
+    raise SourceError("Nasdaq 100 indisponible (" + " ; ".join(errors) + ")")
 
 
 def dxy_from_ecb(rates: dict[str, float]) -> float:

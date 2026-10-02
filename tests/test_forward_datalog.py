@@ -31,6 +31,9 @@ def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"data": [{"value": "72", "value_classification": "Greed", "timestamp": "1790899200"}]})
     if host == "fred.stlouisfed.org":
         return httpx.Response(200, text="observation_date,NASDAQ100\n2026-09-30,30408.5\n2026-10-01,.\n")
+    if host == "api.nasdaq.com":
+        return httpx.Response(200, json={"data": {"tradesTable": {"rows": [
+            {"date": "10/01/2026", "close": "30,501.56"}, {"date": "09/30/2026", "close": "30,408.50"}]}}})
     if host == "data-api.ecb.europa.eu":
         return httpx.Response(200, text=ECB)
     if host == "api.kraken.com":
@@ -181,3 +184,13 @@ def test_fiat_currencies_are_structural_exclusions():
     screen = load_screen(PROJECT / "config" / "halal_screen.yaml")
     for base in ("GBP", "EUR", "JPY", "TRY", "USDC"):
         assert structural_reason(base, screen) == "stablecoins_et_fiat", base
+
+
+def test_nasdaq_falls_back_to_the_exchange_api_when_fred_fails():
+    def down(request):
+        if request.url.host == "fred.stlouisfed.org":
+            raise httpx.ReadTimeout("lent", request=request)
+        return handler(request)
+    out = src.fetch_nasdaq100(src.PublicSources(transport=httpx.MockTransport(down)), now=NOW)
+    assert out["source"] == "Nasdaq" and out["closes"] == [["2026-09-30", 30408.5], ["2026-10-01", 30501.56]]
+    assert src.fetch_nasdaq100(client(), now=NOW)["source"] == "FRED"

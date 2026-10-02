@@ -108,7 +108,7 @@ propriétaire le 2026-10-02, toutes gratuites et sans clé, lues par un client l
 |---|---|
 | Volatilité implicite BTC et ETH (indice DVOL) | Deribit, API publique |
 | Indice Fear & Greed | alternative.me |
-| Clôtures du Nasdaq 100 | FRED (série NASDAQ100) |
+| Clôtures du Nasdaq 100 | FRED (série NASDAQ100), sinon l'API publique de Nasdaq (source notée à chaque relevé) |
 | Indice dollar | recalculé avec la formule publique d'ICE aux taux de référence de la BCE (pas la cotation ICE) |
 | Parité USDT et USDC | Kraken (milieu achat-vente), contrôle par Bitstamp |
 | Liquidations 24 h, BTC et ETH | OKX seule : PARTIEL, une bourse parmi d'autres |
