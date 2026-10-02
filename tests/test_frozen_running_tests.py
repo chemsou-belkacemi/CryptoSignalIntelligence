@@ -38,6 +38,9 @@ STARTED = {
     "F8_NEWS": {"doc": "a9ad4d8b16ed457f56dd1f506a43b56e",
                 "params": "822ceef77e4931ef33d21decb864c926",
                 "code": "67669f372d4361ccb2a89658de6dcc01"},
+    "F9_OI_FLUSH": {"doc": "8a462b3b900ed85b08cc8a9f465915f7",
+                    "params": "87afbf5d5501766b72f4dd1676a50b60",
+                    "code": "8b40c57f2c955edb2bbcfa11bb2b90dc"},
 }
 
 

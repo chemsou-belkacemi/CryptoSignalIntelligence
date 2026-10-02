@@ -229,6 +229,44 @@ def factors_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", hel
     console.print(f"Rapport : {settings.reports_dir / result.run_id / 'summary.json'}")
 
 
+@app.command("trend-daily")
+def trend_daily_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Essai local sur du code non commité (enregistré comme tel)"),
+                        universe_file: str = typer.Option(None, "--universe-file", help="JSON {\"symbols\": [...]} : paires admises par le screening halal"),
+                        verbose: bool = False):
+    """Étape 4 du plan (docs/TREND_DAILY.md) : ensemble de canaux de Donchian journaliers, long seul, avec ou sans
+    ciblage de volatilité réalisée, contre une allocation STATIQUE ; 2 essais, DEVELOPMENT seulement, audit d'abord."""
+    from .research.factors import DirtyCode
+    from .research.trend_daily import LeakAuditFailed, run
+    from .research.universe import RESEARCH_UNIVERSE
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    symbols = None
+    if universe_file:
+        with open(universe_file, encoding="utf-8") as handle:
+            admitted = set(json.load(handle).get("symbols", []))
+        symbols = [s for s in RESEARCH_UNIVERSE if s in admitted]
+        console.print(f"Univers : {len(symbols)} paires de recherche admises par le screening (sur {len(RESEARCH_UNIVERSE)}).")
+    try:
+        with console.status("tendance journalière…") as status:
+            result = run(settings, now=_now(), symbols=symbols, progress=lambda text: status.update(f"tendance journalière : {text}"),
+                         allow_dirty=allow_dirty)
+    except (LeakAuditFailed, DirtyCode, RuntimeError) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    console.rule(f"Tendance journalière — {result.run_id}")
+    console.print(f"Audit des fuites : réussi ; essais : {result.n_trials} ; programme : {result.program_trials}")
+    table = Table("Modèle", "Scénario", "Rendement/an", "Volatilité", "Sharpe", "Sharpe déflaté", "Perte max.", "Transactions", "Frais", "Exposition")
+    for scenario, models in result.models.items():
+        for name, m in models.items():
+            table.add_row(name, scenario, f"{(m['annual_return'] or 0) * 100:.1f} %", f"{(m['volatility'] or 0) * 100:.1f} %",
+                          f"{m['sharpe']:.2f}", f"{m['deflated_sharpe'] if m['deflated_sharpe'] is not None else '—'}",
+                          f"{m['max_drawdown'] * 100:.0f} %", str(m["trades"]), f"{m['fees_pct']:.1f} %", f"{m['average_exposure'] * 100:.0f} %")
+    console.print(table)
+    for name, verdict in result.verdicts.items():
+        console.print(f"{name} (référence {verdict['reference']}) : {verdict['verdict']}")
+    console.print(f"Rapport : {settings.reports_dir / result.run_id / 'summary.json'}")
+
+
 @app.command("long-horizon")
 def long_horizon_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Essai local sur du code non commité (enregistré comme tel)"),
                          universe_file: str = typer.Option(None, "--universe-file", help="JSON {\"symbols\": [...]} : paires admises par le screening halal ; l'univers de recherche y est restreint"),
