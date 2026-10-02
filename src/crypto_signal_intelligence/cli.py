@@ -469,6 +469,34 @@ def volatility_hourly_command(allow_dirty: bool = typer.Option(False, "--allow-d
     console.print(f"Rapport : {settings.reports_dir / result.run_id / 'summary.json'}")
 
 
+@app.command("quantiles")
+def quantiles_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Essai local sur du code non commité (enregistré comme tel)"),
+                      verbose: bool = False):
+    """Intervalles de rendement (docs/QUANTILES.md) : LightGBM quantile et conforme adaptatif contre « σ̂ en service ×
+    quantiles empiriques », quantiles 5/25/75/95 % à 1, 3 et 7 jours ; 6 comparaisons, DEVELOPMENT seulement, audit
+    des fuites d'abord. Perte de prévision seulement : ni direction, ni rentabilité, ni ordre."""
+    from .research.quantiles import LeakAuditFailed, run
+    from .research.volatility import DirtyCode, IncompleteData
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    try:
+        with console.status("intervalles de rendement…") as status:
+            result = run(settings, now=_now(), progress=lambda text: status.update(f"intervalles : {text}"), allow_dirty=allow_dirty)
+    except (LeakAuditFailed, IncompleteData, DirtyCode) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    console.rule(f"Intervalles de rendement — {result.run_id}")
+    console.print(f"Audit des fuites : réussi ; essais : {result.n_trials} ; programme : {result.program_trials} ; niveau des IC : {result.level:.2%}")
+    table = Table("Modèle", "Horizon", "Jours", "Paires", "Pinball", "Référence", "Écart", "IC de l'écart", "Années 90 %", "Années 50 %", "Paires mieux", "Utile")
+    for r in result.rows:
+        table.add_row(r.model, f"{r.horizon_days} j", str(r.days), str(r.pairs), str(r.pinball), str(r.pinball_baseline), str(r.pinball_diff),
+                      str(r.ci_pinball_diff), str(r.years_covered_90), str(r.years_covered_50), str(r.pairs_better_share),
+                      "[yellow]oui[/yellow]" if r.useful else "non")
+    console.print(table)
+    console.print(f"[bold]Verdict : {result.verdict}[/bold] ; retenu par horizon : {result.selected}")
+    console.print(f"Rapport : {settings.reports_dir / result.run_id / 'summary.json'}")
+
+
 @app.command("data-quality")
 def data_quality(symbol: str = typer.Option(..., help="Paire, ex. BTCUSDT"),
                  timeframe: str = typer.Option(None, help="Défaut : timeframe de setup")):
