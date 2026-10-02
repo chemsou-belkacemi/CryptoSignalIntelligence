@@ -497,6 +497,46 @@ def quantiles_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", h
     console.print(f"Rapport : {settings.reports_dir / result.run_id / 'summary.json'}")
 
 
+@app.command("positive-control")
+def positive_control_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Essai local sur du code non commité (enregistré comme tel)"),
+                             universe_file: str = typer.Option(None, "--universe-file", help="JSON {\"symbols\": [...]} : paires admises par le screening halal"),
+                             verbose: bool = False):
+    """Contrôle positif de la mesure (docs/POSITIVE_CONTROL.md) : un avantage synthétique est planté dans les vraies
+    données ; on mesure si les chaînes criblage, décisions ML et walk-forward le retrouvent, et leurs fausses alarmes.
+    0 essai au programme, DEVELOPMENT seulement."""
+    from .research.factors import DirtyCode
+    from .research.positive_control import run
+    from .research.universe import RESEARCH_UNIVERSE
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    symbols = None
+    if universe_file:
+        with open(universe_file, encoding="utf-8") as handle:
+            admitted = set(json.load(handle).get("symbols", []))
+        symbols = [s for s in RESEARCH_UNIVERSE if s in admitted]
+    try:
+        with console.status("contrôle positif…") as status:
+            result = run(settings, now=_now(), symbols=symbols, progress=lambda text: status.update(f"contrôle positif : {text}"),
+                         allow_dirty=allow_dirty)
+    except (DirtyCode, FileNotFoundError, RuntimeError) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    console.rule(f"Contrôle positif — {result.run_id}")
+    table = Table("Chaîne", "Groupe", "Avantage planté", "Détection", "Passe / estimation")
+    for r in result.screen:
+        table.add_row("criblage", f"{r['horizon_days']} j", f"{r['delta_pct']} %", f"{r['detection_rate']:.0%}",
+                      f"passe {r['pass_rate']:.0%} ; excès estimé {r['mean_excess_estimate_pct']} % ; brut {r['mean_raw_return_pct']} %")
+    for r in result.ml:
+        table.add_row("décisions ML", r["system"], f"ρ {r['rho']}", f"{r['detection_rate']:.0%}", f"corrélation de rang réalisée {r['realized_rank_ic']}")
+    for r in result.walk_forward:
+        table.add_row("walk-forward", r["strategy"], f"{r['delta_r']} R", f"{r['detection_rate']:.0%}", f"{r['trades']} trades")
+    console.print(table)
+    for label, info in result.ml_real.items():
+        console.print(f"Modèle réel {label} : corrélation de rang {info['rank_ic']} {info['rank_ic_ci95']} ; décile haut − bas {info['top_minus_bottom_pct']} %")
+    console.print(f"Tailles minimales détectables (80 %) : {result.minimum_detectable}")
+    console.print(f"Rapport : {settings.reports_dir / result.run_id / 'summary.json'}")
+
+
 @app.command("data-quality")
 def data_quality(symbol: str = typer.Option(..., help="Paire, ex. BTCUSDT"),
                  timeframe: str = typer.Option(None, help="Défaut : timeframe de setup")):
