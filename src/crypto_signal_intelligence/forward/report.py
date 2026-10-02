@@ -115,9 +115,31 @@ def markdown(report: dict) -> str:
                                  f"{_fmt(s.get('win_share'), True)} | {_fmt(s.get('relative_r_mean'), True)} | {s.get('relative_r_ci') or '—'} |")
             lines += ["", f"Verdicts : **{stats['verdict']}**.", ""]
             continue
+        if "comparisons" in stats:                            # F12 : prévisions de volatilité en direct
+            lines += [f"Prévisions journalisées : {stats['checks']} ; résolues : {stats['resolved']} ; en attente : {stats['pending']}.", "",
+                      "| Horizon | Candidat | Référence | Attendu | Jours | QLIKE candidat | QLIKE référence | Écart | IC | Verdict |",
+                      "|---|---|---|---|---|---|---|---|---|---|"]
+            for c in stats["comparisons"].values():
+                lines.append(f"| {c['horizon']} | {c['candidate']} | {c['reference']} | {c['expected']} | {c['days']} | "
+                             f"{_fmt(c.get('qlike_candidate'))} | {_fmt(c.get('qlike_reference'))} | {_fmt(c.get('diff'))} | "
+                             f"{c.get('ci') or '—'} | {c['verdict']} |")
+            lines += ["", f"Verdicts : **{stats['verdict']}**.", ""]
+            continue
+        if "checks" in stats and "latest" not in stats:       # F9, F10, F11 : contrôle quotidien, achat contre placebos
+            lines += [f"Contrôles : {stats['checks']} ; événements : {stats['events']} ; par actif : {stats['by_asset'] or 'aucun'} ; "
+                      f"en attente : {stats['pending']} ; trous : {stats['gaps']}.", "",
+                      "| Coûts | Horizon | Événements | Rendement achat | Rendement placebos | Excès | Gagnants | IC de l'excès |",
+                      "|---|---|---|---|---|---|---|---|"]
+            for scenario, horizons in stats["scenarios"].items():
+                for horizon, s in horizons.items():
+                    lines.append(f"| {scenario} | {horizon} | {s.get('n', 0)} | {_fmt(s.get('event_r'), True)} | "
+                                 f"{_fmt(s.get('placebo_r'), True)} | {_fmt(s.get('excess'), True)} | {_fmt(s.get('win_share'), True)} | "
+                                 f"{s.get('excess_ci') or '—'} |")
+            lines += ["", f"Verdicts : **{stats['verdict']}**.", ""]
+            continue
         if "checks" in stats:                                 # F6 : capitulation
-            lines += [f"Contrôles : {stats['checks']} sur {stats['days']} jour(s) ; derniers indicateurs : {stats['latest']} ; "
-                      f"événements : {stats['events']} ({stats['by_status']}) ; par actif : {stats['by_asset']} ; en attente : "
+            lines += [f"Contrôles : {stats['checks']} sur {stats.get('days', '—')} jour(s) ; derniers indicateurs : {stats.get('latest')} ; "
+                      f"événements : {stats['events']} ({stats.get('by_status')}) ; par actif : {stats['by_asset']} ; en attente : "
                       f"{stats['pending']} ; trous : {stats['gaps']}.", "",
                       "| Coûts | Horizon | Événements | Rendement achat | Rendement placebos | Excès | Gagnants | IC de l'excès |",
                       "|---|---|---|---|---|---|---|---|"]
