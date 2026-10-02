@@ -108,6 +108,18 @@ def test_journal_survives_a_line_cut_by_a_crash(tmp_path):
     assert not journal.verify()["ok"] and "LIGNE_TRONQUEE" in journal.verify()["reason"]
 
 
+def test_journal_line_cut_inside_an_accented_character(tmp_path):
+    journal = Journal(tmp_path / "j.jsonl")
+    journal.append("X", {"motif": "figée"}, now=NOW)
+    raw = canonical({"seq": 1, "at": NOW.isoformat(), "kind": "X", "data": {"motif": "figée"}}).encode("utf-8")
+    cut = raw[:raw.index("é".encode()) + 1]                               # premier octet de « é » seulement
+    with journal.path.open("ab") as handle:
+        handle.write(cut)
+    assert [e["data"]["motif"] for e in journal.entries()] == ["figée"]
+    journal.append("X", {"motif": "après"}, now=NOW)
+    assert [e["kind"] for e in journal.entries()] == ["X", TRUNCATED, "X"] and journal.verify()["ok"]
+
+
 def test_journal_complete_line_without_newline_is_kept(tmp_path):
     journal = Journal(tmp_path / "j.jsonl")
     journal.append("X", {"k": 0}, now=NOW)
@@ -247,9 +259,9 @@ def test_taker_is_exactly_the_plan_rule(rows):
 
 # --- Lectures, écart d'équilibre, verdict -------------------------------------------------------------------------
 
-def paths_of(rows, symbol="SOLUSDT"):
-    decision = {"symbol": symbol, "limit": 100.0, "stop_pct": -2.0, "target_pct": 3.0, "bars": 6}
-    return f1.resolve_one(bars(rows), decision)
+def paths_of(rows, symbol="SOLUSDT", limit=100.0):
+    decision = {"symbol": symbol, "stop_pct": -2.0, "target_pct": 3.0, "bars": 6}
+    return f1.resolve_one(bars(rows), decision, limit)
 
 
 def test_views_differ_only_by_the_declared_costs():
@@ -269,6 +281,13 @@ def test_robust_reading_is_harder_for_the_maker():
     t_o, m_o, _ = f1.view_r("SOLUSDT", 0.02, paths, "observe")
     t_r, m_r, _ = f1.view_r("SOLUSDT", 0.02, paths, "robuste")
     assert m_r - t_r < m_o - t_o
+    # Décision non remplie dans les deux lectures, taker perdant : la lecture robuste ne doit pas être plus douce
+    # (des frais plus élevés avantageraient le maker, qui ne trade pas).
+    falling = paths_of([(100.2, 100.4, 100.1, 100.15)] + [(100.15, 100.2, 100.05, 100.1)] * 5)
+    assert falling["maker"]["central"]["outcome"] == NOT_FILLED == falling["maker"]["robuste"]["outcome"]
+    t_o, m_o, _ = f1.view_r("SOLUSDT", 0.02, falling, "observe")
+    t_r, m_r, _ = f1.view_r("SOLUSDT", 0.02, falling, "robuste")
+    assert m_r - t_r <= m_o - t_o + 1e-12
     assert f1.through_for("central", "SOLUSDT") == 0.0
     assert f1.through_for("robuste", "SOLUSDT") == pytest.approx(0.001)
     assert f1.through_for("robuste", "BTCUSDT") == pytest.approx(0.0004)
@@ -285,8 +304,8 @@ def test_break_even_cost_cancels_the_mean_gap():
     maker_r = [f1.view_r(s, r, p, "observe")[1] for s, r, p in rows]
     assert sum(maker_r) / 4 - sum(taker) / 4 == pytest.approx(0, abs=1e-3)     # arrondi au centième de pb
     assert f1.break_even_bps([("SOLUSDT", 0.02, better)]) == 0.0       # maker déjà meilleur sans écart
-    wide = {"symbol": "SOLUSDT", "limit": 100.0, "stop_pct": -2.0, "target_pct": 10.0, "bars": 6}
-    big = f1.resolve_one(bars([(100.2, 108.0, 100.1, 107.0)] + [(107.0, 107.2, 106.9, 107.0)] * 5), wide)
+    wide = {"symbol": "SOLUSDT", "stop_pct": -2.0, "target_pct": 10.0, "bars": 6}
+    big = f1.resolve_one(bars([(100.2, 108.0, 100.1, 107.0)] + [(107.0, 107.2, 106.9, 107.0)] * 5), wide, 100.0)
     assert big["taker"]["gross"] == pytest.approx(107.0 / 100.2)
     assert f1.break_even_bps([("SOLUSDT", 0.02, big)]) is None          # il faudrait plus de 500 pb
 
@@ -302,6 +321,19 @@ def test_break_even_cost_cancels_the_mean_gap():
 ])
 def test_f1_decision_threshold(observed, robust, ended, expected):
     assert f1.verdict({"observe": observed, "robuste": robust}, ended=ended) == expected
+
+
+def test_f1_limit_is_the_last_price_when_the_order_leaves():
+    """Le prix monte de 1 % pendant le retard : la limite suit (clôture juste avant l'entrée), sinon le maker raterait
+    mécaniquement les hausses (défaut de la deuxième version)."""
+    frame = bars([(99.9, 100.1, 99.8, 100.0), (100.0, 101.1, 99.95, 101.0)] + [(101.0, 101.2, 100.95, 101.05)] * 6)
+    begin = T0 + 2 * STEP
+    assert f1.limit_price(frame, begin) == 101.0 and f1.limit_price(frame, T0) is None
+    after = frame[frame["open_time"] >= begin].reset_index(drop=True)
+    decision = {"symbol": "SOLUSDT", "stop_pct": -2.0, "target_pct": 3.0, "bars": 6}
+    late = f1.resolve_one(after, decision, f1.limit_price(frame, begin))
+    assert late["maker"]["central"]["fill_bar"] == 0                     # rempli comme sans retard
+    assert f1.resolve_one(after, decision, 100.0)["maker"]["central"]["outcome"] == NOT_FILLED   # l'ancienne limite
 
 
 def test_f1_entry_starts_when_the_plan_exists():
@@ -455,9 +487,8 @@ def test_f1_end_to_end(settings):
     start = registry.start(settings, f1.TEST, now=begin.to_pydatetime(), allow_dirty=True, halal=ETH_ONLY)
     journal = registry.journal_for(settings, f1.TEST_ID)
     decision_time = candles["open_time"].iloc[400]
-    close = float(candles["close"].iloc[399])
     recorded = decision_time + pd.Timedelta(minutes=20)                    # plan calculé 20 min après la décision
-    plan_id = add_plan(settings, "ETHUSDT", decision_time, close=close, recorded_at=recorded)
+    plan_id = add_plan(settings, "ETHUSDT", decision_time, recorded_at=recorded)
     add_plan(settings, "PEPEUSDT", decision_time, recorded_at=recorded)    # hors liste halal figée
     add_plan(settings, "ETHUSDT", candles["open_time"].iloc[200], recorded_at=begin - STEP)   # avant le démarrage
     now = (recorded + STEP).to_pydatetime()
@@ -466,7 +497,7 @@ def test_f1_end_to_end(settings):
     decision_entry = next(journal.entries({f1.DECISION}))["data"]
     entry = decision_time + 2 * STEP                                       # première ouverture après l'enregistrement
     assert decision_entry["entry_time"] == entry.isoformat() and decision_entry["delay_minutes"] == 30.0
-    assert decision_entry["limit"] == close and len(decision_entry["plan_sha256"]) == 64
+    assert "limit" not in decision_entry and len(decision_entry["plan_sha256"]) == 64
     assert f1.resolve(settings, journal, now=(entry + 50 * STEP).to_pydatetime()) == {}       # horizon pas écoulé
     later = (entry + 200 * STEP).to_pydatetime()
     counts = f1.resolve(settings, journal, now=later)
@@ -474,8 +505,10 @@ def test_f1_end_to_end(settings):
     result = next(journal.entries({f1.RESOLUTION}))["data"]
     after = candles[candles["open_time"] >= entry].reset_index(drop=True)
     assert result["paths"]["taker"] == taker_path(after, stop_pct=-2, target_pct=3, horizon_bars=96, step=STEP)
+    limit = float(candles.loc[candles["open_time"] == entry - STEP, "close"].iloc[0])
+    assert result["limit"] == limit and result["limit_bar"][0][4] == limit
     for fill in f1.FILLS:
-        assert result["paths"]["maker"][fill] == maker_path(after, limit=close, stop_pct=-2, target_pct=3, horizon_bars=96,
+        assert result["paths"]["maker"][fill] == maker_path(after, limit=limit, stop_pct=-2, target_pct=3, horizon_bars=96,
                                                             valid_bars=4, step=STEP,
                                                             through=f1.through_for(fill, "ETHUSDT"))
     assert result["plan_id"] == plan_id and result["n_bars"] == 96 and len(result["first_bars"]) == 4
@@ -580,7 +613,14 @@ def test_derivatives_log_once_a_day(settings):
     failing = FakeFutures(fail=lambda path, params: path == "/futures/data/openInterestHist")
     out = derivlog.record_day(settings, now=now + timedelta(days=1), client=failing, halal=DERIV_HALAL, sleep=lambda s: None)
     assert out["errors"] == 2 and out["pairs"] == 0 and len(client.calls) == calls
-    assert derivlog.summary(settings)["days"] == 2 and log.verify()["ok"]
+    assert derivlog.summary(settings)["days"] == 1                                    # paires en erreur : jour non clos
+    out = derivlog.record_day(settings, now=now + timedelta(days=1, hours=1), client=FakeFutures(), halal=DERIV_HALAL,
+                              sleep=lambda s: None)
+    assert out["pairs"] == 2 and derivlog.summary(settings)["days"] == 2 and log.verify()["ok"]
+    stuck = FakeFutures(fail=lambda path, params: path == "/fapi/v1/fundingRate")
+    late = datetime(2026, 3, 5, 20, 30, tzinfo=UTC)
+    derivlog.record_day(settings, now=late, client=stuck, halal=DERIV_HALAL, sleep=lambda s: None)
+    assert "2026-03-05" in derivlog.recorded_days(log)                                # clos quand même en fin de journée
 
 
 def test_derivatives_log_retries_the_day_when_the_common_call_fails(settings):
@@ -620,3 +660,48 @@ def test_runner_survives_a_derivatives_failure_and_reports_a_stopped_test(settin
     out = runner.daily(settings, now=NOW + timedelta(hours=2), force=True)
     assert "panne" in out["derivatives"]["error"] and out["report"]
     assert report.latest(settings)["tests"][0]["stats"]["verdict"] == registry.STOPPED
+
+
+def test_f1_verdict_is_recorded_once_then_the_test_closes(settings):
+    start = registry.start(settings, f1.TEST, now=NOW, allow_dirty=True, halal=ETH_ONLY)
+    journal = registry.journal_for(settings, f1.TEST_ID)
+    decision = {"plan_id": 1, "symbol": "ETHUSDT", "horizon": "24h", "bars": 6, "entry_time": T0.isoformat(),
+                "decision_time": T0.isoformat(), "stop_pct": -2.0, "target_pct": 3.0}
+    journal.append(f1.DECISION, decision, now=NOW)
+    journal.append(f1.DECISION, decision | {"plan_id": 2, "horizon": "7j"}, now=NOW)
+    resolution = {"plan_id": 1, "symbol": "ETHUSDT", "horizon": "24h", "risk": 0.02, "limit": 100.0,
+                  "paths": paths_of([FILL] + [FLAT] * 5, "ETHUSDT")}
+    journal.append(f1.RESOLUTION, resolution, now=NOW)
+    assert f1.finalize(journal, start, now=NOW) is None                              # avant la date d'évaluation
+    after = NOW + timedelta(days=85)
+    assert f1.finalize(journal, start, now=after) == registry.VERDICT
+    assert f1.finalize(journal, start, now=after) is None                            # une seule fois ; 7 j en attente
+    journal.append(f1.RESOLUTION, resolution | {"plan_id": 2, "horizon": "7j"}, now=after)
+    assert f1.finalize(journal, start, now=after) == registry.CLOSURE
+    state = registry.status(settings, f1.TEST, now=after)
+    assert state["state"] == registry.CLOSED and state["verdict"]["verdict"] == f1.INSUFFICIENT
+    assert registry.check_frozen(settings, f1.TEST, now=after, doc_text="# vide\n") is None   # plus contrôlé
+    assert runner.run_tests(settings, now=after) == {}
+    assert report.build(settings, now=after)["tests"][0]["stats"]["verdict"] == f1.INSUFFICIENT
+
+
+def test_f1_waits_when_the_limit_price_candle_is_missing(settings):
+    candles = candles_fixture(800, "15m", symbol="ETHUSDT", start="2026-03-01", seed=4)
+    CandleStore(settings.data_dir).save(candles, "ETHUSDT", "15m")
+    first = candles["open_time"].iloc[0]
+    start = registry.start(settings, f1.TEST, now=(first - STEP).to_pydatetime(), allow_dirty=True, halal=ETH_ONLY)
+    journal = registry.journal_for(settings, f1.TEST_ID)
+    add_plan(settings, "ETHUSDT", first)                      # entrée sur la toute première bougie : rien avant elle
+    f1.record_decisions(settings, journal, start, now=first.to_pydatetime())
+    assert f1.resolve(settings, journal, now=(first + 120 * STEP).to_pydatetime()) == {}
+    assert f1.resolve(settings, journal, now=(first + timedelta(days=4)).to_pydatetime()) == {"TROU": 1}
+
+
+def test_a_recorded_verdict_survives_a_later_stop(settings):
+    start = registry.start(settings, f1.TEST, now=NOW, allow_dirty=True, halal=ETH_ONLY)
+    journal = registry.journal_for(settings, f1.TEST_ID)
+    journal.append(registry.VERDICT, {"verdict": f1.NO_DIFFERENCE}, now=NOW + timedelta(days=85))
+    journal.append(registry.STOP, {"reason": "modifié après le verdict"}, now=NOW + timedelta(days=86))
+    assert registry.status(settings, f1.TEST)["state"] == registry.STOPPED
+    assert report.build(settings, now=NOW + timedelta(days=86))["tests"][0]["stats"]["verdict"] == f1.NO_DIFFERENCE
+    assert start["test_id"] == f1.TEST_ID

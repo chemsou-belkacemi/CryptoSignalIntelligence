@@ -20,7 +20,7 @@ import sqlite3
 import threading
 from collections.abc import Iterable
 from contextlib import closing, contextmanager
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -94,7 +94,7 @@ def record_day(settings: Settings, *, now: datetime, symbols: Iterable[str] | No
             if plan.get("state") == STALE or "stop_pct" not in plan:
                 counts["skipped"] += 1
                 continue
-            rows.append((day, symbol, horizon, HORIZONS[horizon][0], moment.isoformat(),
+            rows.append((day, symbol, horizon, HORIZONS[horizon][0], _recorded_at(moment).isoformat(),
                          result["context"]["decision_time"], float(result["context"]["close"]), float(plan["stop_pct"]),
                          float(plan["target_pct"]), plan.get("state_history", plan["state"]), plan.get("expectancy_r")))
         with connect(settings) as db:
@@ -102,6 +102,12 @@ def record_day(settings: Settings, *, now: datetime, symbols: Iterable[str] | No
                               stop_pct, target_pct, state, expectancy_r) VALUES (?,?,?,?,?,?,?,?,?,?,?)""", rows)
         counts["recorded"] += len(rows)
     return counts
+
+
+def _recorded_at(moment: pd.Timestamp) -> pd.Timestamp:
+    """Heure où le plan existe vraiment : la boucle du jour dure 25 à 35 minutes, l'heure de son début ne suffit pas
+    (tests en direct : un ordre ne part pas avant le plan)."""
+    return max(moment, pd.Timestamp(datetime.now(UTC)))
 
 
 def replay_plan(bars: pd.DataFrame, *, stop_pct: float, target_pct: float, horizon_bars: int, step: pd.Timedelta,

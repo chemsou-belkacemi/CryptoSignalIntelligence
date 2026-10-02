@@ -31,9 +31,9 @@ from .journal import Journal, canonical, utc_iso
 
 DOC_NAME = "FORWARD_TESTS.md"
 REQUIRED_FIELDS = ("Hypothèse", "Règles", "Paramètres", "Métrique", "Seuil de décision", "Date d'évaluation")
-START, STOP = "DEMARRAGE", "ARRET"
+START, STOP, VERDICT, CLOSURE = "DEMARRAGE", "ARRET", "VERDICT", "CLOTURE"
 COMMON_SECTION = "Cadre"                 # « ## Cadre commun » : couvert par l'empreinte de chaque test
-NOT_STARTED, RUNNING, STOPPED, ENDED = "NON_DEMARRE", "EN_COURS", "ARRETE", "TERMINE"
+NOT_STARTED, RUNNING, STOPPED, ENDED, CLOSED = "NON_DEMARRE", "EN_COURS", "ARRETE", "TERMINE", "CLOS"
 PERIOD_LABEL = "FORWARD"
 
 
@@ -145,12 +145,16 @@ def status(settings: Settings, test: ForwardTest, *, now: datetime | None = None
     start = journal.first(START)
     if start is None:
         return {"state": NOT_STARTED, "start": None}
+    closure, verdict = journal.first(CLOSURE), journal.first(VERDICT)
+    extra = {"verdict": verdict["data"]} if verdict is not None else {}
+    if closure is not None:
+        return {"state": CLOSED, "start": start["data"]} | extra
     stop = journal.first(STOP)
     if stop is not None:
-        return {"state": STOPPED, "start": start["data"], "stop": stop["data"]}
+        return {"state": STOPPED, "start": start["data"], "stop": stop["data"]} | extra
     if now is not None and pd.Timestamp(now) >= pd.Timestamp(start["data"]["final_at"]):
-        return {"state": ENDED, "start": start["data"]}
-    return {"state": RUNNING, "start": start["data"]}
+        return {"state": ENDED, "start": start["data"]} | extra
+    return {"state": RUNNING, "start": start["data"]} | extra
 
 
 def start(settings: Settings, test: ForwardTest, *, now: datetime, allow_dirty: bool = False,

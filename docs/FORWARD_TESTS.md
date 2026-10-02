@@ -40,6 +40,12 @@ Mission du propriétaire du 2026-10-02 : construire maintenant les tests en dire
   moindre différence, le test est ARRÊTÉ définitivement : le refaire, c'est pré-inscrire un nouveau test, sous un
   nouvel identifiant, compté comme un nouvel essai.
 
+  L'orchestration (`forward/runner.py` : planification des passages, verrou, rapport) n'est pas gelée : elle ne
+  fixe ni les règles, ni la mesure, ni le gel lui-même.
+- **Verdict et clôture.** À la date d'évaluation, une fois l'horizon principal résolu, le verdict est inscrit au
+  journal une seule fois (entrée VERDICT) : c'est lui qui fait foi. Quand toutes les décisions sont résolues,
+  l'entrée CLOTURE termine le test : il n'est plus ni contrôlé ni calculé.
+
   Si le document est introuvable, par exemple dans une image mal construite, une alerte est écrite au journal de
   service, sans arrêt.
 - **Essais.** Chaque démarrage est un essai du registre des expériences, avec la période « FORWARD ».
@@ -122,15 +128,19 @@ l'ordre limite n'est pas rempli, et MÊME SANS compter d'écart supposé à l'en
 
 **Règles** (bougies de 15 minutes).
 - **Heure d'entrée.** Un plan n'existe qu'à son heure d'enregistrement, en général 10 à 35 minutes après sa
-  décision. Les deux entrées commencent donc à la première bougie qui s'ouvre à cette heure ou après ; c'est
-  `bars[0]`. Chaque décision inscrit ce retard et l'empreinte de la ligne du plan.
+  décision ; c'est l'heure réelle de son inscription dans la base du suivi. Les deux entrées commencent donc à la
+  première bougie qui s'ouvre à cette heure ou après ; c'est `bars[0]`. Chaque décision inscrit ce retard et
+  l'empreinte de la ligne du plan.
 - **Taker.** C'est exactement la règle du plan (`tracking.replay_plan`) :
   - entrée à l'ouverture de `bars[0]` ;
   - stop au contact, ou à l'ouverture si elle est déjà sous le stop ;
   - objectif seulement s'il est dépassé ;
   - stop d'abord si les deux sont touchés dans la même bougie ;
   - sinon sortie à la clôture de la dernière bougie de l'horizon.
-- **Maker.** Ordre limite au prix de la clôture de la bougie de décision, valable 4 bougies, soit une heure.
+- **Maker.** Ordre limite au dernier prix connu quand l'ordre part : la clôture de la bougie qui se termine à
+  l'heure d'entrée. Il est valable 4 bougies, soit une heure. Ce prix et sa bougie sont inscrits à la résolution.
+  Une limite prise à la décision serait vieille de 15 à 30 minutes : le maker raterait mécaniquement les hausses
+  et achèterait trop cher les baisses.
   - **Remplissage.** L'ordre n'est rempli que si le plus bas d'une de ces bougies passe STRICTEMENT sous
     `limite × (1 − traversée)`.
   - **Bougie du remplissage.** On suppose le pire : le stop est touché si le plus bas l'atteint, et l'objectif
@@ -148,13 +158,14 @@ l'ordre limite n'est pas rempli, et MÊME SANS compter d'écart supposé à l'en
 | Lecture | Remplissage du maker | Frais (les deux) | Écart d'entrée du taker | Écart de sortie (les deux) |
 |---|---|---|---|---|
 | observe | traversée nulle | 0,075 % | AUCUN | central |
-| robuste | traversée de l'écart défavorable (0,04 % BTC/ETH, 0,10 % autres) | 0,10 % | AUCUN | défavorable |
+| robuste | traversée de l'écart défavorable (0,04 % BTC/ETH, 0,10 % autres) | 0,075 % | AUCUN | central |
 | modele_central (information) | traversée nulle | 0,075 % | central | central |
 | modele_defavorable (information) | traversée défavorable | 0,10 % | défavorable | défavorable |
 
   - La lecture « observe » ne contient que ce que les bougies montrent : les décisions non remplies, le pire cas
     dans la bougie du remplissage et la différence de prix d'entrée.
-  - La lecture « robuste » est défavorable AU MAKER : son ordre est supposé en fin de file.
+  - La lecture « robuste » est défavorable AU MAKER : son ordre est supposé en fin de file. Seul le remplissage
+    change : des frais plus élevés avantageraient le bras qui trade le moins, c'est-à-dire le maker.
   - Les lectures « modèle » appliquent le modèle de frais commun, où le taker paie l'écart supposé. Elles sont
     données à titre d'information seulement.
 
@@ -165,7 +176,7 @@ l'ordre limite n'est pas rempli, et MÊME SANS compter d'écart supposé à l'en
 | Unité de temps | 15 minutes (`data.setup_timeframe`, gelée) |
 | Horizons | 24 h, 3 j, 7 j |
 | Horizon principal | 24 h |
-| Prix limite | clôture de la bougie de décision |
+| Prix limite | clôture de la bougie qui se termine à l'heure d'entrée |
 | Validité | 4 bougies |
 | Traversée | nulle (observe), écart défavorable (robuste) |
 | Trou constaté | 2 jours après l'horizon |
@@ -202,7 +213,8 @@ Les horizons de 3 et 7 jours sont descriptifs.
   ne comptent pas.
 - **Revue intermédiaire** : à 42 jours.
 - **Verdict** : il tombe dès que toutes les décisions de 24 heures sont résolues, soit environ un jour après la
-  fin du recueil. Ce délai monte à trois jours au plus si des bougies manquent.
+  fin du recueil. Ce délai monte à trois jours au plus si des bougies manquent. Il est alors inscrit au journal
+  une fois pour toutes.
 - **Inscription des dates** : les dates exactes sont inscrites au journal par `csi forward start` et reportées
   dans la section « Démarrages » ci-dessous.
 

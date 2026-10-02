@@ -1,6 +1,10 @@
 """Passage périodique des tests en direct, appelé par la surveillance entre deux cycles (fil séparé, jamais
 bloquant) : gel vérifié, décisions inscrites, résolutions, relevé quotidien des dérivés, rapport du jour.
 
+Ce module orchestre seulement : il n'est pas gelé (les règles, la mesure et le gel lui-même le sont, dans les
+modules de chaque test et dans registry.py). Une fois le VERDICT puis la CLOTURE inscrits, un test n'est plus
+contrôlé ni calculé.
+
 Un seul passage à la fois, ENTRE PROCESSUS : la surveillance et `csi forward run` prennent le même verrou de
 fichier (`<CSI_ROOT>/forward/.run.lock`) ; l'autre passe son tour. Lire puis ajouter au journal se fait donc
 toujours sous ce verrou (aucune décision ni résolution inscrite deux fois).
@@ -66,7 +70,8 @@ def run_tests(settings: Settings, *, now: datetime) -> dict:
         journal = journal_for(settings, test.test_id)
         out[test.test_id] = out.get(test.test_id, {}) | {
             "recorded": module.record_decisions(settings, journal, state["start"], now=now),
-            "resolved": module.resolve(settings, journal, now=now)}
+            "resolved": module.resolve(settings, journal, now=now),
+            "finalized": module.finalize(journal, state["start"], now=now)}
     return out
 
 

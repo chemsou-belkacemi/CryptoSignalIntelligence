@@ -39,7 +39,10 @@ def build(settings: Settings, *, now: datetime) -> dict:
             if "stop" in state:
                 item["stop"] = state["stop"]
             item["stats"] = module.stats(journal, start, now=now)
-            if state["state"] == STOPPED:
+            if "verdict" in state:                              # verdict inscrit au journal : il fait foi
+                item["stats"]["verdict"] = state["verdict"]["verdict"]
+                item["verdict_recorded"] = True
+            elif state["state"] == STOPPED:
                 item["stats"]["verdict"] = STOPPED
         report["tests"].append(item)
     report["derivatives_log"] = derivlog.summary(settings)

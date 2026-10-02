@@ -31,6 +31,7 @@ RECORD_AFTER = pd.Timedelta(minutes=10)
 FUNDING_WINDOW = pd.Timedelta(hours=26)
 OI_ROWS = 100                    # ~4 jours de valeurs horaires : un jour manqué se rattrape avec des valeurs de Binance
 PAUSE_SECONDS = 0.1
+CLOSE_ANYWAY = pd.Timedelta(hours=20)   # paire en erreur : nouvel essai à chaque passage, jour clos quand même à 20:00 UTC
 
 
 def journal(settings: Settings) -> Journal:
@@ -102,8 +103,10 @@ def record_day(settings: Settings, *, now: datetime, client: PublicHttpClient | 
                                   for r in interest]}, now=now)
             counts["pairs"] += 1
         counts["no_perpetual"] = len(missing)
-        log.append(DAY, counts | {"complete": True, "without_perpetual": missing, "halal_sha256": halal.sha256},
-                   now=now)
+        moment = pd.Timestamp(now)
+        if counts["errors"] == 0 or moment - moment.floor("D") >= CLOSE_ANYWAY:
+            log.append(DAY, counts | {"complete": counts["errors"] == 0, "without_perpetual": missing,
+                                      "halal_sha256": halal.sha256}, now=now)
         return counts
     finally:
         if own:

@@ -146,7 +146,7 @@ class Journal:
         """Entrées valides, dans l'ordre (une ligne coupée, signalée par LIGNE_TRONQUEE, est passée)."""
         if not self.path.exists():
             return
-        with self.path.open(encoding="utf-8") as handle:
+        with self.path.open("rb") as handle:              # binaire : une ligne coupée dans un caractère reste lisible
             for line in handle:
                 if line.strip():
                     entry = _parse(line)

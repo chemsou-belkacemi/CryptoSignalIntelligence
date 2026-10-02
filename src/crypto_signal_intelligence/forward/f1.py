@@ -9,8 +9,9 @@ coûts sont appliqués ensuite selon quatre lectures :
 
 - « observe » (décision) : frais centraux, AUCUN écart supposé à l'entrée du taker. L'écart restant vient de ce qui
   est observé : décisions non remplies, pire cas dans la bougie du remplissage, prix d'entrée.
-- « robuste » (décision, défavorable AU MAKER) : remplissage seulement après traversée de l'écart défavorable,
-  frais défavorables, toujours aucun écart supposé à l'entrée du taker.
+- « robuste » (décision, défavorable AU MAKER) : remplissage seulement après traversée de l'écart défavorable ;
+  frais et écart de sortie centraux (des frais plus élevés avantageraient le bras qui trade le moins, le maker),
+  toujours aucun écart supposé à l'entrée du taker.
 - « modele_central » et « modele_defavorable » (information) : le modèle de frais commun, écart payé par le taker.
 
 L'écart d'équilibre est le coût d'entrée du taker (en points de base) à partir duquel le maker devient meilleur
@@ -50,7 +51,7 @@ DECISION, SKIPPED, RESOLUTION = "DECISION", "HORS_SCREENING", "RESOLUTION"
 FILLS = ("central", "robuste")
 VIEWS: dict[str, dict[str, Any]] = {
     "observe": {"fill": "central", "costs": CENTRAL, "taker_entry_cost": False},
-    "robuste": {"fill": "robuste", "costs": ADVERSE, "taker_entry_cost": False},
+    "robuste": {"fill": "robuste", "costs": CENTRAL, "taker_entry_cost": False},
     "modele_central": {"fill": "central", "costs": CENTRAL, "taker_entry_cost": True},
     "modele_defavorable": {"fill": "robuste", "costs": ADVERSE, "taker_entry_cost": True},
 }
@@ -59,9 +60,11 @@ MAKER_BETTER, TAKER_BETTER, NO_DIFFERENCE = "MAKER_MEILLEUR", "TAKER_MEILLEUR_SA
 INSUFFICIENT, RUNNING = "INSUFFISANT", "EN_COURS"
 
 
-def limit_price(close: float) -> float:
-    """Règle du prix limite : la clôture de la bougie de décision (le dernier prix connu du plan)."""
-    return float(close)
+def limit_price(previous: pd.DataFrame, begin: pd.Timestamp) -> float | None:
+    """Règle du prix limite : la clôture de la bougie qui se termine à l'heure d'entrée (le dernier prix connu quand
+    l'ordre part). None si cette bougie manque."""
+    row = previous[previous["open_time"] == begin - STEP]
+    return None if row.empty else float(row["close"].iloc[0])
 
 
 def entry_time(recorded_at: str) -> pd.Timestamp:
@@ -75,12 +78,12 @@ def through_for(fill: str, symbol: str) -> float:
     return 0.0 if fill == "central" else costs_for(symbol, ADVERSE).market
 
 
-def resolve_one(after: pd.DataFrame, decision: dict) -> dict:
+def resolve_one(after: pd.DataFrame, decision: dict, limit: float) -> dict:
     """Chemins sans coût : taker, et maker pour chaque règle de remplissage."""
     common = {"stop_pct": decision["stop_pct"], "target_pct": decision["target_pct"],
               "horizon_bars": decision["bars"], "step": STEP}
     return {"taker": taker_path(after, **common),
-            "maker": {fill: maker_path(after, limit=decision["limit"], valid_bars=VALID_BARS,
+            "maker": {fill: maker_path(after, limit=limit, valid_bars=VALID_BARS,
                                        through=through_for(fill, decision["symbol"]), **common) for fill in FILLS}}
 
 
@@ -154,7 +157,8 @@ TEST = ForwardTest(
     params={"events": "plans quotidiens du suivi en direct (outlook/tracking.py), liste halal figée",
             "entry": "première bougie qui s'ouvre à l'enregistrement du plan ou après",
             "horizons": list(HORIZONS), "horizon_bars": HORIZON_BARS, "primary": PRIMARY,
-            "limit": "clôture de la bougie de décision", "valid_bars": VALID_BARS, "timeframe": TIMEFRAME,
+            "limit": "clôture de la bougie qui se termine à l'heure d'entrée", "valid_bars": VALID_BARS,
+            "timeframe": TIMEFRAME,
             "fill": "plus bas strictement sous limite × (1 − traversée)",
             "through": {"central": 0.0, "robuste": "écart et glissement du scénario défavorable"},
             "views": VIEWS, "deciding_views": list(DECIDING_VIEWS), "min_days": MIN_DAYS,
@@ -210,7 +214,7 @@ def record_decisions(settings: Settings, journal: Journal, start: dict, *, now: 
             "entry_time": utc_iso(begin), "delay_minutes": round((begin - pd.Timestamp(plan["decision_time"]))
                                                                  .total_seconds() / 60, 2),
             "close": plan["close"], "stop_pct": plan["stop_pct"], "target_pct": plan["target_pct"],
-            "state": plan["state"], "limit": limit_price(plan["close"]), "plan_sha256": _plan_digest(plan),
+            "state": plan["state"], "plan_sha256": _plan_digest(plan),
             "plan_code": code}, now=now)
         counts["decisions"] += 1
     return counts
@@ -238,25 +242,27 @@ def resolve(settings: Settings, journal: Journal, *, now: datetime) -> dict:
     for symbol, decisions in due.items():
         first = min(pd.Timestamp(d["entry_time"]) for d in decisions)
         try:
-            candles = store.load_since(symbol, TIMEFRAME, first.floor("D"))
+            candles = store.load_since(symbol, TIMEFRAME, (first - STEP).floor("D"))
         except FileNotFoundError:
             candles = pd.DataFrame(columns=["open_time", "open", "high", "low", "close"])
         for decision in decisions:
             begin = pd.Timestamp(decision["entry_time"])
             late = moment >= begin + decision["bars"] * STEP + GAP_AFTER
             after = candles[candles["open_time"] >= begin].reset_index(drop=True)
+            limit = limit_price(candles, begin)
             base = {"plan_id": decision["plan_id"], "symbol": symbol, "horizon": decision["horizon"]}
-            if after.empty or after["open_time"].iloc[0] != begin:
+            if after.empty or after["open_time"].iloc[0] != begin or limit is None:
                 if not late:
                     continue
-                data = base | {"gap": "bougie d'entrée absente", "paths": None}
+                data = base | {"gap": "bougie d'entrée ou bougie du prix limite absente", "paths": None}
             else:
                 window = after.iloc[:decision["bars"]]
-                paths = resolve_one(after, decision)
+                paths = resolve_one(after, decision, limit)
                 outcomes = [paths["taker"]["outcome"], *(m["outcome"] for m in paths["maker"].values())]
                 if any(o in {PENDING, tracking.GAP} for o in outcomes) and not late:
                     continue                          # bougies encore incomplètes : on attend qu'elles arrivent
-                data = base | {"paths": paths, "risk": -decision["stop_pct"] / 100, "n_bars": int(len(window)),
+                data = base | {"paths": paths, "limit": limit, "risk": -decision["stop_pct"] / 100,
+                               "limit_bar": _raw(candles[candles["open_time"] == begin - STEP]), "n_bars": int(len(window)),
                                "bars_sha256": hashlib.sha256(canonical(_raw(window)).encode()).hexdigest(),
                                "first_bars": _raw(window.iloc[:VALID_BARS]), "last_bar": _raw(window.iloc[-1:])}
             journal.append(RESOLUTION, data, now=now)
@@ -324,3 +330,21 @@ def stats(journal: Journal, start: dict, *, now: datetime, samples: int = SAMPLE
     out["verdict"] = verdict(out["horizons"][PRIMARY], ended=ended)
     out["ended"] = bool(ended)
     return out
+
+
+def finalize(journal: Journal, start: dict, *, now: datetime) -> str | None:
+    """À la date d'évaluation, une fois l'horizon principal résolu : inscrit le VERDICT (une seule fois). Une fois
+    toutes les décisions résolues : inscrit la CLOTURE ; plus rien n'est contrôlé ni calculé ensuite."""
+    from .registry import CLOSURE, VERDICT
+    if journal.first(CLOSURE) is not None:
+        return None
+    result = stats(journal, start, now=now)
+    if result["ended"] and journal.first(VERDICT) is None:
+        primary = result["horizons"][PRIMARY]
+        journal.append(VERDICT, {"verdict": result["verdict"], "observe": primary["observe"],
+                                 "robuste": primary["robuste"]}, now=now)
+        return VERDICT
+    if journal.first(VERDICT) is not None and result["pending"] == 0:
+        journal.append(CLOSURE, {"pending": 0}, now=now)
+        return CLOSURE
+    return None
