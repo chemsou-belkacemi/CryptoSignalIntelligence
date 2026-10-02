@@ -78,7 +78,7 @@ def concat_trades(frames: list[pd.DataFrame]) -> pd.DataFrame:
 def simulation_rules(settings: Settings, strategy: Strategy, symbol: str, scenario: str,
                      exit_policy_id: str | None = None) -> SimulationRules:
     return SimulationRules(
-        costs=settings.costs[scenario], max_hold_bars=settings.simulation.max_hold_bars,
+        costs=settings.costs[scenario], veto_costs=settings.costs["central"], max_hold_bars=settings.simulation.max_hold_bars,
         min_net_rr=strategy.params.min_net_rr, tick_size=settings.tick_size(symbol),
         setup_interval=interval(settings.data.setup_timeframe), max_staleness_bars=settings.data.max_staleness_bars,
         requires_context=strategy.requires_context, exit_policy_id=exit_policy_id)

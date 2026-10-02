@@ -187,16 +187,23 @@ def buy_and_hold(daily_closes: pd.DataFrame, start, end) -> dict:
 
 
 def random_entries(pool: pd.DataFrame, count: int, limits: RiskLimits, start, end, *, draws: int, seed: int,
-                   step_ns: int = STEP_NS, strategy: str = STRATEGY) -> dict:
-    """Distribution du Sharpe d'entrées tirées au hasard (même nombre de candidats, mêmes limites)."""
+                   step_ns: int = STEP_NS, strategy: str = STRATEGY, trades_target: int | None = None) -> dict:
+    """Distribution du Sharpe d'entrées tirées au hasard (mêmes limites). Avec `trades_target` : autant de TRADES
+    que le système (les trades en trop, après les limites, sont retirés au hasard). Avant le 2026-10-02, seul le
+    nombre de CANDIDATS était égal : le hasard pouvait faire jusqu'à quatre fois plus de trades, donc payer quatre
+    fois plus de frais, et la référence était trop facile à battre."""
     if pool.empty or count == 0:
         return {"draws": 0, "sharpe_p50": None, "sharpe_p95": None}
     rng = np.random.default_rng(seed)
-    values = []
+    values, counts = [], []
     for _ in range(draws):
         pick = pool.iloc[rng.choice(len(pool), size=min(count, len(pool)), replace=False)]
         trades = simulate(pick.assign(score=rng.random(len(pick))), limits, step_ns=step_ns, strategy=strategy)
+        if trades_target is not None and len(trades) > trades_target:
+            trades = trades.iloc[np.sort(rng.choice(len(trades), size=trades_target, replace=False))]
+        counts.append(len(trades))
         value = sharpe(daily_returns(trades, start, end).to_numpy())
         values.append(value if value is not None else 0.0)
     return {"draws": draws, "sharpe_p50": round(float(np.percentile(values, 50)), 4),
-            "sharpe_p95": round(float(np.percentile(values, 95)), 4)}
+            "sharpe_p95": round(float(np.percentile(values, 95)), 4),
+            "trades_median": int(np.median(counts)), "trades_target": trades_target}

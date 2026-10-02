@@ -818,7 +818,7 @@ def analyse(prep: Prepared, system: System, runs: list[FoldRun], limits: RiskLim
             "random_entries": random_entries(pool, int(run.submitted.sum()), limits, run.fold.valid_start,
                                              run.fold.valid_end, draws=program.random_draws,
                                              seed=protocol.seed + run.fold.index, step_ns=step_ns(program),
-                                             strategy=program.strategy_id),
+                                             strategy=program.strategy_id, trades_target=int(run.metrics["trades"])),
             "calibration": run.prediction.quality, "state": run.state})
     progress("analyse : robustesse (coûts, retard)")
     robustness = [replay(prep, system, runs, limits, "central", delay=1)]
@@ -1306,7 +1306,7 @@ def final(program: Program, settings: Settings, *, now: datetime, allow_final_te
     pool = pd.concat(pool_parts, ignore_index=True)
     random = random_entries(pool, int(sum(r.submitted.sum() for r in runs)), limits, period.start, period.end,
                             draws=program.random_draws, seed=settings.protocol.seed, step_ns=step_ns(program),
-                            strategy=program.strategy_id)
+                            strategy=program.strategy_id, trades_target=int(metrics["trades"]))
     benchmarks = buy_and_hold(prep.daily_closes, period.start, period.end)
     robustness = [replay(prep, system, runs, limits, "central", delay=1),
                   replay(prep, system, runs, limits, "adverse"), replay(prep, system, runs, limits, "stress")]

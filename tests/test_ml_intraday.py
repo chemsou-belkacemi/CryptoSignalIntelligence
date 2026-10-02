@@ -582,3 +582,47 @@ def test_fingerprints_are_stable_and_sensitive():
     assert proto.source_fingerprint() == proto.source_fingerprint()
     changed = first.model_copy(update={"risk": first.risk.model_copy(update={"max_positions": 3})})
     assert proto.config_fingerprint(first) != proto.config_fingerprint(changed)
+
+
+def _pool(n=4000, seed=11, edge=0.0):
+    rng = np.random.default_rng(seed)
+    times = pd.date_range("2024-01-01", periods=n, freq="15min", tz="UTC")
+    return pd.DataFrame({"symbol": rng.choice(["A", "B", "C", "D"], n), "decision_time": times, "bars": 4,
+                         "net": rng.normal(-0.0026 + edge, 0.01, n)})
+
+
+def test_random_entries_match_the_system_trade_count():
+    """Le hasard fait autant de trades que le système : sinon il paie plus de frais et la référence est trop facile."""
+    from crypto_signal_intelligence.ml.intraday.portfolio import random_entries
+    limits = RiskLimits(position_fraction=0.05, max_positions=8, max_total_exposure=0.5, max_asset_exposure=0.2,
+                        max_strategy_exposure=0.5)
+    pool = _pool()
+    start, end = pool["decision_time"].min(), pool["decision_time"].max()
+    loose = random_entries(pool, 2000, limits, start, end, draws=20, seed=1)
+    matched = random_entries(pool, 2000, limits, start, end, draws=20, seed=1, trades_target=150)
+    assert loose["trades_median"] > 150 and matched["trades_median"] == 150
+    # Sans avantage et à frais égaux, la médiane du hasard est moins pénalisée par les frais avec moins de trades.
+    assert matched["sharpe_p50"] > loose["sharpe_p50"]
+
+
+def test_a_planted_edge_beats_the_random_reference_and_noise_does_not():
+    """Contrôle positif : des trades choisis parmi des candidats à espérance nette positive battent le 95e centile du
+    hasard ; des trades tirés du même bruit, non."""
+    from crypto_signal_intelligence.ml.intraday.portfolio import (
+        daily_returns,
+        random_entries,
+        sharpe,
+        simulate,
+    )
+    limits = RiskLimits(position_fraction=0.05, max_positions=8, max_total_exposure=0.5, max_asset_exposure=0.2,
+                        max_strategy_exposure=0.5)
+    pool = _pool(seed=12)
+    start, end = pool["decision_time"].min(), pool["decision_time"].max()
+    rng = np.random.default_rng(5)
+    planted = pool.assign(net=pool["net"] + 0.006)                         # avantage planté : +0,6 % net par trade
+    chosen = planted.iloc[np.sort(rng.choice(len(planted), 300, replace=False))]
+    system = simulate(chosen.assign(score=1.0), limits)
+    reference = random_entries(pool, 300, limits, start, end, draws=200, seed=2, trades_target=len(system))
+    assert sharpe(daily_returns(system, start, end).to_numpy()) > reference["sharpe_p95"]
+    noise = simulate(pool.iloc[np.sort(rng.choice(len(pool), 300, replace=False))].assign(score=1.0), limits)
+    assert sharpe(daily_returns(noise, start, end).to_numpy()) < reference["sharpe_p95"]

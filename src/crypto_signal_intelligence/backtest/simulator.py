@@ -47,6 +47,10 @@ class SimulationRules:
     max_staleness_bars: int = 2
     requires_context: bool = True
     exit_policy_id: str | None = None   # None : politique déclarée par chaque signal
+    # Coûts du veto « RR net » : ceux du SERVICE (scénario central), quel que soit le scénario simulé. Avant le
+    # 2026-10-02, le veto prenait les coûts du scénario : en défavorable, il écartait d'autres signaux qu'en direct
+    # et le scénario défavorable ne mesurait plus les mêmes décisions. None : coûts du scénario (ancien comportement).
+    veto_costs: CostScenario | None = None
 
 
 @dataclass
@@ -233,7 +237,7 @@ def simulate(frame: pd.DataFrame, symbol: str, strategy: Strategy, rules: Simula
         except LevelError:
             result.no_trade[NoTradeReason.POOR_NET_PROFILE.value] += 1
             continue
-        veto = gates.post_levels(levels, costs, rules.min_net_rr)
+        veto = gates.post_levels(levels, rules.veto_costs or costs, rules.min_net_rr)
         if veto:
             result.no_trade[veto[0].value] += 1
             continue

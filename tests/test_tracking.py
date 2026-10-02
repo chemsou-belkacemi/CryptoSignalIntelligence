@@ -121,30 +121,80 @@ def test_recorded_plans_are_resolved_on_candles_that_come_after(settings):
     assert tk.resolve(settings, now=later.to_pydatetime()) == {}                         # déjà résolu
 
 
-def insert(settings, *, plans: int, days: int, r: float, state="HISTORIQUE_POSITIF_NON_VALIDE", horizon="24h"):
+def insert(settings, *, days: int, per_day: int, r: float, state="HISTORIQUE_POSITIF_NON_VALIDE", horizon="24h",
+           noise: float = 0.3, seed: int = 0, start=T0):
+    """`per_day` plans par jour pendant `days` jours, R = r + bruit ; décision à 00:00 du jour, terminés le lendemain."""
+    rng = np.random.default_rng(seed)
     with tk.connect(settings) as db:
-        for k in range(plans):
-            day = T0 + pd.Timedelta(days=k % days)
-            value = r + (0.3 if k % 2 else -0.3)
-            db.execute("""INSERT INTO plans (day, symbol, horizon, bars, recorded_at, decision_time, close, stop_pct,
-                          target_pct, state, outcome, r) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-                       (f"{day:%Y-%m-%d}", f"P{k}USDT", horizon, 96, day.isoformat(), day.isoformat(), 1.0, -2.0, 3.0,
-                        state, "TP" if value > 0 else "SL", value))
+        for d in range(days):
+            day = start + pd.Timedelta(days=d)
+            for k in range(per_day):
+                value = float(r + rng.normal(0, noise))
+                db.execute("""INSERT INTO plans (day, symbol, horizon, bars, recorded_at, decision_time, close, stop_pct,
+                              target_pct, state, outcome, r) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                           (f"{day:%Y-%m-%d}", f"{state[:4]}{k}USDT", horizon, 96, day.isoformat(), day.isoformat(), 1.0,
+                            -2.0, 3.0, state, "TP" if value > 0 else "SL", value))
 
 
-def test_live_proof_needs_fifty_plans_twenty_days_and_a_positive_interval(settings):
-    assert tk.summary(settings) == {"groups": [], "recorded": 0}
-    insert(settings, plans=50, days=20, r=0.5)
-    group = tk.summary(settings, samples=500, seed=1)["groups"][0]
-    assert group["proven"] and group["resolved"] == 50 and group["days"] == 20 and group["ic95"][0] > 0
-    assert tk.live_status(settings, "24h", "HISTORIQUE_POSITIF_NON_VALIDE")["proven"]
-    assert tk.live_status(settings, "3j", "HISTORIQUE_POSITIF_NON_VALIDE") is None
+OTHER = "AUCUN_AVANTAGE_HISTORIQUE"
+STATE = "HISTORIQUE_POSITIF_NON_VALIDE"
 
 
-@pytest.mark.parametrize(("plans", "days", "r"), [(49, 20, 0.5), (50, 19, 0.5), (60, 20, 0.0)])
-def test_live_proof_refused_when_a_criterion_fails(settings, plans, days, r):
-    insert(settings, plans=plans, days=days, r=r)
-    assert not tk.summary(settings, samples=500, seed=1)["groups"][0]["proven"]
+def group(settings, now, state=STATE, horizon="24h"):
+    out = tk.summary(settings, samples=500, seed=1, now=now)
+    return next(g for g in out["groups"] if g["state"] == state and g["horizon"] == horizon)
+
+
+def test_a_rising_market_is_not_a_proof(settings):
+    """Tous les plans gagnent (marché haussier) : l'ancienne règle aurait conclu ; le témoin dit « rien de plus »."""
+    insert(settings, days=40, per_day=3, r=0.5, seed=1)
+    insert(settings, days=40, per_day=3, r=0.5, state=OTHER, seed=2)
+    g = group(settings, (T0 + pd.Timedelta(days=30)).to_pydatetime())
+    assert g["r_mean"] > 0.4 and g["ic95"][0] > 0                          # le R absolu est bien positif
+    assert abs(g["excess_mean"]) < 0.1 and not g["proven"]
+
+
+def test_a_real_state_effect_is_proven_at_the_first_fixed_look(settings):
+    insert(settings, days=40, per_day=3, r=0.5, seed=1)
+    insert(settings, days=40, per_day=3, r=0.0, state=OTHER, seed=2)
+    before = group(settings, (T0 + pd.Timedelta(days=27)).to_pydatetime())
+    assert before["checks"] == [] and not before["proven"]                 # aucune date de contrôle encore passée
+    after = group(settings, (T0 + pd.Timedelta(days=28, hours=1)).to_pydatetime())
+    check = after["checks"][0]
+    assert check["look"] == (T0 + pd.Timedelta(days=28)).date().isoformat() and check["level"] == 0.975
+    assert check["plans"] == 27 * 3 and check["days"] == 27                 # plans terminés AVANT la date de contrôle
+    assert after["proven"] and check["ci"][0] > 0
+    assert group(settings, (T0 + pd.Timedelta(days=60)).to_pydatetime())["checks"][1]["level"] == 0.9875
+
+
+@pytest.mark.parametrize(("days", "per_day"), [(19, 5), (25, 1)])
+def test_live_proof_needs_fifty_plans_and_twenty_days(settings, days, per_day):
+    insert(settings, days=days, per_day=per_day, r=1.0, seed=1)
+    insert(settings, days=days, per_day=per_day, r=0.0, state=OTHER, seed=2)
+    assert not group(settings, (T0 + pd.Timedelta(days=60)).to_pydatetime())["proven"]
+
+
+def test_plans_without_a_control_never_count(settings):
+    insert(settings, days=40, per_day=3, r=1.0, seed=1)                    # aucun autre état ces jours-là
+    g = group(settings, (T0 + pd.Timedelta(days=60)).to_pydatetime())
+    assert g["excess_mean"] is None and not g["proven"]
+
+
+def test_false_proofs_stay_under_five_percent_across_all_looks(monkeypatch):
+    """Sans aucun effet d'état, sur 4 contrôles : part des groupes « prouvés » ≤ 5 % (on simule 200 groupes)."""
+    monkeypatch.setattr(tk, "PROOF_SAMPLES", 2000)
+    rng = np.random.default_rng(7)
+    proven = 0
+    for trial in range(200):
+        days = pd.date_range(T0, periods=112, freq="D")
+        part = pd.DataFrame({"day": [f"{d:%Y-%m-%d}" for d in days for _ in range(2)],
+                             "decision_time": [d.isoformat() for d in days for _ in range(2)],
+                             "excess": rng.normal(0, 0.8, 224)})
+        looks = [T0 + pd.Timedelta(days=28 * k) for k in range(1, 5)]
+        if any(tk.proof_at(part, look, k, span=1, bars=96, step=STEP, seed=trial)["proven"]
+               for k, look in enumerate(looks, start=1)):
+            proven += 1
+    assert proven / 200 <= 0.06
 
 
 def test_a_plan_is_shown_favorable_only_when_its_kind_is_proven_live(settings, monkeypatch):
@@ -157,7 +207,7 @@ def test_a_plan_is_shown_favorable_only_when_its_kind_is_proven_live(settings, m
     base = po.pair_outlook(settings, "ETHUSDT", "24h", now=now)
     assert base["plan"]["state_history"] == base["plan"]["state"]
     proven = {"proven": True, "label": "1 jour", "state": base["plan"]["state"], "resolved": 60, "r_mean": 0.2,
-              "ic95": (0.05, 0.3), "win_share": 0.6, "progress": "60/50"}
+              "ic95": (0.05, 0.3), "win_share": 0.6, "progress": "60/50", "excess_mean": 0.2, "checks": []}
     monkeypatch.setattr(tk, "live_status", lambda settings, horizon, state: proven | {"state": state})
     shown = po.pair_outlook(settings, "ETHUSDT", "24h", now=now)["plan"]
     expected = tk.LIVE_PROVEN if base["plan"]["state"] == po.POSITIVE else base["plan"]["state"]

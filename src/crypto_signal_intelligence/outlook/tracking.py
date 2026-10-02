@@ -9,8 +9,17 @@ bougie, sortie à l'horizon ; coûts du scénario central.
 
 Ces résultats portent sur des données que PERSONNE n'a vues au moment du plan. Par horizon et par état au moment de
 l'enregistrement : nombre de plans, R moyen, part gagnante, IC95 par blocs d'un horizon (1, 3 ou 7 jours :
-au moins 10 blocs, soit 10, 30 ou 70 jours de suivi). « Prouvé en direct » seulement
-avec au moins PROOF_PLANS plans terminés sur PROOF_DAYS jours et un IC95 du R moyen entièrement > 0. Aucun ordre.
+au moins 10 blocs, soit 10, 30 ou 70 jours de suivi). Aucun ordre.
+
+« Prouvé en direct » (règle corrigée le 2026-10-02 après relecture : l'ancienne relisait le R absolu chaque jour,
+sans témoin, et aurait déclaré « prouvé » environ un groupe sans avantage sur cinq en 12 semaines) :
+- TÉMOIN : chaque plan est comparé aux plans des AUTRES états du même jour et du même horizon (écart de R). La
+  hausse ou la baisse générale du marché touche les deux et s'annule : seul l'apport de l'état compte.
+- DATES FIXES : le contrôle n'a lieu qu'aux dates de contrôle, tous les LOOK_DAYS jours depuis le premier jour de
+  suivi, sur les seuls plans terminés à cette date. Au k-ième contrôle, l'intervalle est au niveau
+  1 − 0,05 / 2^k : la somme des risques de fausse preuve sur tous les contrôles reste sous 5 %.
+- Au moins PROOF_PLANS plans terminés sur PROOF_DAYS jours avec un témoin. Une preuve acquise à un contrôle reste
+  acquise (les plans d'avant cette date ne changent plus).
 """
 from __future__ import annotations
 
@@ -23,9 +32,10 @@ from contextlib import closing, contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
-from ..backtest.metrics import day_block_ci95
+from ..backtest.metrics import day_block_ci, day_block_ci95
 from ..config import Settings
 from ..data.schema import interval
 from ..data.store import CandleStore
@@ -35,6 +45,9 @@ log = logging.getLogger("csi.tracking")
 TRACKED = ("24h", "3j", "7j")
 RECORD_AFTER = timedelta(minutes=10)                 # après 00:00 UTC : la bougie de 23:45 est stockée
 PROOF_PLANS, PROOF_DAYS = 50, 20
+LOOK_DAYS = 28                                       # contrôles de preuve tous les 28 jours, à dates fixes
+PROOF_ALPHA = 0.05
+PROOF_SAMPLES = 20_000
 LIVE_PROVEN = "FAVORABLE_PROUVE_EN_DIRECT"
 TP, SL, TIMEOUT, GAP = "TP", "SL", "TEMPS", "TROU"
 _LOCK = threading.Lock()
@@ -179,37 +192,108 @@ def resolve(settings: Settings, *, now: datetime) -> dict:
     return counts
 
 
-def summary(settings: Settings, *, samples: int = 2000, seed: int = 20260929) -> dict:
-    """Bilan en direct par horizon et par état au moment de l'enregistrement."""
+def with_control(rows: pd.DataFrame) -> pd.DataFrame:
+    """Ajoute `excess` : R du plan moins le R moyen des plans terminés des AUTRES états, même jour et même horizon
+    (NaN s'il n'y en a pas : le plan n'entre pas dans la preuve)."""
+    out = rows.copy()
+    done = out["r"].notna()
+    keys = ["day", "horizon"]
+    total = out[done].groupby(keys)["r"].agg(["sum", "count"])
+    by_state = out[done].groupby([*keys, "state"])["r"].agg(["sum", "count"])
+    excess = np.full(len(out), np.nan)
+    for i, (day, horizon, state, r) in enumerate(zip(out["day"], out["horizon"], out["state"], out["r"], strict=True)):
+        if pd.isna(r) or (day, horizon) not in total.index:
+            continue
+        all_sum, all_count = total.loc[(day, horizon)]
+        own_sum, own_count = by_state.loc[(day, horizon, state)]
+        others = all_count - own_count
+        if others > 0:
+            excess[i] = r - (all_sum - own_sum) / others
+    out["excess"] = excess
+    return out
+
+
+def look_dates(first_day: str, now: datetime) -> list[pd.Timestamp]:
+    """Dates de contrôle passées : premier jour de suivi + k × LOOK_DAYS (k ≥ 1), à 00:00 UTC."""
+    start = pd.Timestamp(first_day, tz="UTC")
+    moment = pd.Timestamp(now)
+    out, k = [], 1
+    while start + pd.Timedelta(days=k * LOOK_DAYS) <= moment:
+        out.append(start + pd.Timedelta(days=k * LOOK_DAYS))
+        k += 1
+    return out
+
+
+def proof_at(part: pd.DataFrame, look: pd.Timestamp, k: int, *, span: int, bars: int, step: pd.Timedelta,
+             seed: int) -> dict:
+    """Contrôle k : plans terminés à la date `look` (décision + horizon ≤ look), écart au témoin."""
+    end = pd.to_datetime(part["decision_time"], utc=True) + (bars + 1) * step
+    usable = part[(end <= look) & part["excess"].notna()]
+    level = 1 - PROOF_ALPHA / 2 ** k
+    values = usable["excess"].to_numpy(float)
+    days = int(usable["day"].nunique())
+    ci = None
+    if len(values) >= PROOF_PLANS and days >= PROOF_DAYS:
+        times = pd.to_datetime(usable["decision_time"], utc=True).to_numpy()
+        ci, _ = day_block_ci(values, times, block_days=span, samples=PROOF_SAMPLES, seed=seed, level=level, min_blocks=10)
+    return {"look": look.date().isoformat(), "k": k, "level": round(level, 5), "plans": int(len(values)), "days": days,
+            "excess_mean": round(float(values.mean()), 4) if len(values) else None, "ci": ci,
+            "proven": bool(ci is not None and ci[0] > 0)}
+
+
+_CACHE: dict = {}
+
+
+def summary(settings: Settings, *, samples: int = 2000, seed: int = 20260929, now: datetime | None = None) -> dict:
+    """Bilan en direct par horizon et par état au moment de l'enregistrement ; preuve aux dates de contrôle."""
     if not db_path(settings).exists():
         return {"groups": [], "recorded": 0}
+    moment = pd.Timestamp(now) if now is not None else pd.Timestamp.now(tz="UTC")
+    key = (str(db_path(settings)), db_path(settings).stat().st_mtime_ns, moment.floor("h"), samples, seed)
+    if now is None and _CACHE.get("key") == key:
+        return _CACHE["value"]
     with connect(settings) as db:
         rows = pd.DataFrame([dict(r) for r in db.execute("SELECT * FROM plans")])
     if rows.empty:
         return {"groups": [], "recorded": 0}
-    bar_minutes = int(interval(settings.data.setup_timeframe).total_seconds() // 60)
+    rows = with_control(rows)
+    step = interval(settings.data.setup_timeframe)
+    bar_minutes = int(step.total_seconds() // 60)
+    looks = look_dates(str(rows["day"].min()), moment)
     groups = []
     for (horizon, state), part in rows.groupby(["horizon", "state"]):
         done = part[part["r"].notna()]
         values = done["r"].to_numpy(float)
         times = pd.to_datetime(done["decision_time"], utc=True).to_numpy()
         days = int(done["day"].nunique())
+        span = max(1, math.ceil(HORIZONS[horizon][0] * bar_minutes / 1440))
         ci = None
         if len(values) >= 20:
             # Plans quotidiens : blocs d'un horizon (1, 3 ou 7 jours), la durée sur laquelle deux plans se chevauchent.
-            span = max(1, math.ceil(HORIZONS[horizon][0] * bar_minutes / 1440))
             ci, _ = day_block_ci95(values, times, block_days=span, samples=samples, seed=seed, min_blocks=10)
-        proven = bool(len(values) >= PROOF_PLANS and days >= PROOF_DAYS and ci is not None and ci[0] > 0)
+        excess = done["excess"].dropna().to_numpy(float)
+        checks = [proof_at(part, look, k, span=span, bars=HORIZONS[horizon][0], step=step, seed=seed)
+                  for k, look in enumerate(looks, start=1)]
+        proven = any(c["proven"] for c in checks)
+        next_look = pd.Timestamp(str(rows["day"].min()), tz="UTC") + pd.Timedelta(days=(len(looks) + 1) * LOOK_DAYS)
         groups.append({
             "horizon": horizon, "label": HORIZONS[horizon][1], "state": state, "recorded": int(len(part)),
             "resolved": int(len(values)), "pending": int(part["outcome"].isna().sum()),
             "gaps": int((part["outcome"] == GAP).sum()), "days": days,
             "r_mean": round(float(values.mean()), 4) if len(values) else None,
-            "win_share": round(float((values > 0).mean()), 4) if len(values) else None, "ic95": ci, "proven": proven,
-            "progress": f"{len(values)}/{PROOF_PLANS} plans terminés, {days}/{PROOF_DAYS} jours"})
+            "win_share": round(float((values > 0).mean()), 4) if len(values) else None, "ic95": ci,
+            "excess_mean": round(float(excess.mean()), 4) if len(excess) else None, "checks": checks,
+            "proven": proven, "next_look": next_look.date().isoformat(),
+            "progress": (f"{len(excess)}/{PROOF_PLANS} plans avec témoin, {days}/{PROOF_DAYS} jours ; "
+                         f"prochain contrôle le {next_look.date().isoformat()}")})
     groups.sort(key=lambda g: (list(HORIZONS).index(g["horizon"]), g["state"]))
-    return {"groups": groups, "recorded": int(len(rows)), "first_day": str(rows["day"].min()),
-            "rule": f"« prouvé en direct » : au moins {PROOF_PLANS} plans terminés sur {PROOF_DAYS} jours, IC95 du R moyen > 0"}
+    value = {"groups": groups, "recorded": int(len(rows)), "first_day": str(rows["day"].min()),
+             "rule": (f"« prouvé en direct » : à une date de contrôle fixe (tous les {LOOK_DAYS} jours), au moins "
+                      f"{PROOF_PLANS} plans terminés sur {PROOF_DAYS} jours, et l'écart de R face aux plans des autres "
+                      f"états du même jour entièrement > 0 (niveau 1 − 0,05/2^k au k-ième contrôle)")}
+    if now is None:
+        _CACHE.update(key=key, value=value)
+    return value
 
 
 def live_status(settings: Settings, horizon: str, state: str) -> dict | None:

@@ -169,3 +169,32 @@ def test_confidence_interval_uses_day_blocks_and_brackets_the_mean():
     assert blocks == 30 and low < values.mean() < high
     naive = 1.96 * values.std() / np.sqrt(len(values))
     assert (high - low) / 2 > 2 * naive
+
+
+def test_rr_veto_uses_the_live_costs_whatever_the_simulated_scenario():
+    """Le veto « RR net » écarte les MÊMES signaux qu'en service (coûts centraux) ; seul le résultat paie les coûts du
+    scénario. Avant le 2026-10-02, un scénario cher écartait d'autres signaux et ne mesurait plus les mêmes décisions."""
+    from crypto_signal_intelligence.backtest.simulator import SimulationRules, simulate
+    from crypto_signal_intelligence.config import CostScenario
+    dear = CostScenario(fee_bps=150, slippage_bps=50, half_spread_bps=50)      # RR net sous 1,5 avec ces coûts
+    bars = [FLAT, FLAT, (100, 104.5, 99.8, 104)]
+
+    def with_veto(veto_costs):
+        rules = SimulationRules(costs=dear, max_hold_bars=50, min_net_rr=1.5, tick_size=Decimal("0.01"),
+                                setup_interval=timedelta(minutes=15), requires_context=False, veto_costs=veto_costs)
+        return simulate(frame_from(bars), "TESTUSDT", OneShot({0}), rules)
+
+    old = with_veto(None)                     # ancien comportement : veto aux coûts du scénario
+    assert not old.trades and sum(old.no_trade.values()) >= 1
+    new = with_veto(FREE)                     # veto aux coûts du service
+    assert len(new.trades) == 1 and new.trades[0].exit_reason == "TP"
+    assert new.trades[0].r_multiple < 2.0     # le résultat, lui, paie bien les coûts du scénario
+
+
+def test_research_runs_veto_with_central_costs_in_every_scenario(settings):
+    from crypto_signal_intelligence.research.backtest_run import simulation_rules
+    from crypto_signal_intelligence.strategies import registry
+    strategy = registry.build("DONCHIAN_VOLUME_BREAKOUT", settings.strategies)
+    for scenario in settings.costs:
+        rules = simulation_rules(settings, strategy, "BTCUSDT", scenario)
+        assert rules.costs == settings.costs[scenario] and rules.veto_costs == settings.costs["central"]

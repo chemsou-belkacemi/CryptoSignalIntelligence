@@ -151,11 +151,13 @@ def test_walk_forward_end_to_end_on_synthetic_data(settings):
         assert (exits <= pd.Timestamp(settings.protocol.development_end)).all()  # test final jamais lu
     assert isinstance(result.verdict, ValidationVerdict) and len(result.criteria) == 7
     payload = json.loads((result.report_dir / "summary.json").read_text(encoding="utf-8"))
-    assert payload["n_trials"] == 6 and payload["verdict"] == result.verdict.value
+    # 6 combinaisons de la grille + chaque variante jouée en plus (ablations, extensions, profils de sortie)
+    assert payload["n_trials"] == 11 and payload["verdict"] == result.verdict.value
     assert (result.report_dir / "report.md").read_text(encoding="utf-8").startswith("# Walk-forward RANGE_REENTRY")
     recorded = ExperimentRegistry(settings.experiments_db).get(result.run_id)
-    assert recorded["kind"] == "WALK_FORWARD" and recorded["metrics"]["n_trials"] == 6
-    assert payload["program_trials"] == 6 and recorded["metrics"]["program_trials"] == 6
+    assert recorded["kind"] == "WALK_FORWARD" and recorded["metrics"]["n_trials"] == 11
+    assert recorded["metrics"]["grid_combinations"] == 6
+    assert payload["program_trials"] == 11 and recorded["metrics"]["program_trials"] == 11
 
 
 def test_development_end_cannot_be_moved_into_the_final_test(settings):
@@ -187,3 +189,13 @@ def test_final_test_consultations_and_trials_are_counted_program_wide(settings):
     registry.record(run_id="BT-4", kind="BACKTEST_REFERENCE", strategy="B", period_label="FINAL_TEST",
                     metrics={}, **common)
     assert registry.program_trials() == 19
+
+
+def test_every_variant_played_beyond_the_grid_counts_as_a_trial():
+    from crypto_signal_intelligence.research.walk_forward import BASE, _variants, trial_count
+    from crypto_signal_intelligence.strategies.donchian import DonchianVolumeBreakout
+    variants = _variants(DonchianVolumeBreakout, ["central", "adverse", "stress"])
+    extra = {name for name, _, _, _ in variants if name != BASE}
+    assert len(extra) == len(DonchianVolumeBreakout.ablations) + len(DonchianVolumeBreakout.extensions) + 2
+    assert trial_count(18, variants) == 18 + len(extra)
+    assert trial_count(18, [(BASE, s, {}, None) for s in ("central", "adverse")]) == 18   # coûts : mêmes décisions

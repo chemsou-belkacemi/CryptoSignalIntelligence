@@ -150,6 +150,13 @@ class WalkForwardResult:
     calibration: pd.DataFrame = field(repr=False, default_factory=pd.DataFrame)
 
 
+def trial_count(n_combos: int, variants: list[tuple[str, str, dict, str | None]]) -> int:
+    """Essais d'un walk-forward : combinaisons de la grille + chaque variante jouée en plus de la base (ablations,
+    extensions, profils de sortie). Les scénarios de coûts de la base ne comptent pas : mêmes décisions.
+    Avant le 2026-10-02, seules les combinaisons étaient comptées."""
+    return n_combos + len({name for name, _, _, _ in variants if name != BASE})
+
+
 def _variants(strategy_cls: type[Strategy], scenarios: list[str]) -> list[tuple[str, str, dict, str | None]]:
     """(variante, scénario, surcharges, politique de sortie imposée) joués sur chaque fenêtre de test."""
     variants: list[tuple[str, str, dict, str | None]] = [(BASE, scenario, {}, None) for scenario in scenarios]
@@ -240,8 +247,9 @@ def run(settings: Settings, strategy_id: str, *, now: datetime, progress=None) -
         grid=grid, verdict=verdict, criteria=criteria, summaries=summaries, baselines=baselines,
         report_dir=settings.reports_dir / run_id, oos=oos, calibration=pd.DataFrame(calibration_rows))
     experiments = ExperimentRegistry(settings.experiments_db)
-    program_trials = experiments.program_trials(period.label) + len(combos)
-    payload = _payload(settings, result, base, integrity, len(combos)) | {
+    n_trials = trial_count(len(combos), variants)
+    program_trials = experiments.program_trials(period.label) + n_trials
+    payload = _payload(settings, result, base, integrity, n_trials) | {
         "program_trials": program_trials,
         "program_trials_note": "essais cumulés du programme sur DEVELOPMENT, celui-ci compris ; à titre indicatif, "
                                f"un seuil de Bonferroni serait 0,05 / {program_trials}"}
@@ -255,7 +263,8 @@ def run(settings: Settings, strategy_id: str, *, now: datetime, progress=None) -
         simulation_rules={"max_hold_bars": settings.simulation.max_hold_bars,
                           "walk_forward": config.model_dump(), "admission": settings.admission.model_dump(),
                           "fill_rules": "voir backtest/simulator.py (docstring)"},
-        metrics={"verdict": verdict.value, "n_trials": len(combos), "program_trials": program_trials,
+        metrics={"verdict": verdict.value, "n_trials": n_trials, "grid_combinations": len(combos),
+                 "program_trials": program_trials,
                  "criteria": payload["criteria"],
                  "oos": summaries}, status="COMPLETED", report_dir=str(result.report_dir), **common)
     _write_artifacts(result, payload)

@@ -41,6 +41,28 @@ def day_block_ci95(values: np.ndarray, times: np.ndarray, *, block_days: int, sa
     return (round(float(low), 4), round(float(high), 4)), blocks
 
 
+def day_block_ci(values: np.ndarray, times: np.ndarray, *, block_days: int, samples: int, seed: int,
+                 level: float, min_blocks: int = 10) -> tuple[tuple[float, float] | None, int]:
+    """Comme `day_block_ci95`, à un niveau quelconque (intervalle bilatéral de niveau `level`)."""
+    if len(values) == 0:
+        return None, 0
+    days = pd.to_datetime(times, utc=True).floor("D")
+    frame = pd.DataFrame({"day": days, "v": values}).groupby("day")["v"].agg(["sum", "count"])
+    sums, counts = frame["sum"].to_numpy(), frame["count"].to_numpy()
+    blocks = math.ceil(len(sums) / block_days)
+    if blocks < min_blocks:
+        return None, blocks
+    pad = blocks * block_days - len(sums)
+    sums = np.concatenate([sums, np.zeros(pad)]).reshape(blocks, block_days).sum(axis=1)
+    counts = np.concatenate([counts, np.zeros(pad)]).reshape(blocks, block_days).sum(axis=1)
+    rng = np.random.default_rng(seed)
+    picks = rng.integers(0, blocks, size=(samples, blocks))
+    draws = sums[picks].sum(axis=1) / counts[picks].sum(axis=1)
+    tail = (1 - level) / 2 * 100
+    low, high = np.percentile(draws, [tail, 100 - tail])
+    return (round(float(low), 4), round(float(high), 4)), blocks
+
+
 def max_drawdown(cumulative: np.ndarray) -> float:
     if not len(cumulative):
         return 0.0
