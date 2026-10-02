@@ -1201,3 +1201,66 @@ def signals_reconcile():
         counts = SignalRegistry(settings.signals_db, settings.publication_dir()).reconcile(
             publish=publication_suspended(settings) is None)
     console.print(counts)
+
+
+forward_app = typer.Typer(no_args_is_help=True,
+                          help="Tests EN DIRECT pré-inscrits (docs/FORWARD_TESTS.md) : simulés et journalisés, aucun ordre.")
+app.add_typer(forward_app, name="forward")
+
+
+@forward_app.command("start")
+def forward_start(test_id: str = typer.Argument(..., help="Identifiant pré-inscrit, par exemple F1_MAKER_TAKER")):
+    """Démarre un test pré-inscrit : empreintes figées, liste halal figée, essai enregistré. Une seule fois."""
+    from .forward.halal import HalalNotValidated
+    from .forward.registry import AlreadyStarted, DirtyCode, NotPreregistered, start
+    from .forward.tests import BY_ID
+    settings = _settings()
+    if test_id not in BY_ID:
+        console.print(f"[red]Test inconnu :[/red] {test_id} (connus : {', '.join(BY_ID)})")
+        raise typer.Exit(2)
+    try:
+        data = start(settings, BY_ID[test_id][0], now=_now())
+    except (NotPreregistered, AlreadyStarted, DirtyCode, HalalNotValidated) as exc:
+        console.print(f"[red]Démarrage refusé :[/red] {exc}")
+        raise typer.Exit(3) from None
+    console.print(f"{test_id} démarré le {data['started_at']} (essai {data['run_id']}, commit {data['commit'][:12]}) ; "
+                  f"revue intermédiaire le {data['interim_at'][:10]}, évaluation le {data['final_at'][:10]} ; "
+                  f"{len(data['halal']['symbols'])} paires halal figées.")
+
+
+@forward_app.command("status")
+def forward_status():
+    """État de chaque test et intégrité de son journal."""
+    from .forward import derivlog
+    from .forward.registry import journal_for, status
+    from .forward.tests import TESTS
+    settings = _settings()
+    table = Table("Test", "État", "Démarrage", "Évaluation", "Journal")
+    for test, _ in TESTS:
+        state = status(settings, test, now=_now())
+        check = journal_for(settings, test.test_id).verify()
+        start = state["start"] or {}
+        table.add_row(test.test_id, state["state"], str(start.get("started_at", "—"))[:16],
+                      str(start.get("final_at", "—"))[:10],
+                      f"intègre ({check['entries']})" if check["ok"] else f"[red]ROMPU : {check['reason']}[/red]")
+    console.print(table)
+    log = derivlog.summary(settings)
+    console.print(f"Relevé des dérivés : {log['days']} jours ; journal "
+                  f"{'intègre' if log['verified']['ok'] else 'ROMPU : ' + str(log['verified']['reason'])}.")
+
+
+@forward_app.command("run")
+def forward_run():
+    """Un passage complet maintenant (gel vérifié, décisions, résolutions, relevé des dérivés, rapport du jour)."""
+    from .forward.runner import daily
+    settings = _settings()
+    console.print(daily(settings, now=_now(), force=True))
+
+
+@forward_app.command("report")
+def forward_report():
+    """Écrit le rapport du jour (reports/forward/<jour>.md) et l'affiche."""
+    from .forward.report import write
+    settings = _settings()
+    path = write(settings, now=_now())
+    console.print(path.read_text(encoding="utf-8"))

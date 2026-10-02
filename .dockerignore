@@ -17,3 +17,4 @@ models/
 backups/
 tests/
 docs/
+!docs/FORWARD_TESTS.md

@@ -19,6 +19,8 @@ dependencies = [
     "pydantic-settings>=2.10,<3",
     "typer>=0.16",
     "rich>=14",
+    # Screening halal des tests en direct (config/halal_screen.yaml, format demandé par le propriétaire).
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]

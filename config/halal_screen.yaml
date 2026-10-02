@@ -1,0 +1,48 @@
+# Screening halal des tests en direct (mission du 2026-10-02).
+#
+# SOURCE DE VÉRITÉ : les décisions du PROPRIÉTAIRE déjà enregistrées dans CSI, avec ses propres sources.
+# Ce fichier ne reclasse aucune crypto : il dit seulement comment lire ces décisions et ajoute les exclusions
+# STRUCTURELLES du cadre de la mission (ce qui n'est pas un actif de modèle).
+#
+#   1. config/halal_screening.toml : relevé des sources du 2026-10-01 (statut mécanique, external/admission.py).
+#   2. table `pair_admissions` de signals/external.sqlite3 : décision par crypto (AJOUTEE, REFUSEE, A_DECIDER,
+#      INDISPONIBLE), prise par la règle ou par le propriétaire. Une décision du propriétaire prime toujours.
+#   3. paires de la configuration (data.symbols) : favorables au relevé, admises.
+
+statut: VALIDE
+valide_par: propriétaire
+valide_le: "2026-10-02"
+note_validation: "cryptos halal validées par le propriétaire sur CSI, avec ses sources"
+
+regles:
+  admis: [AJOUTEE]                          # par la règle (favorable) ou par le propriétaire
+  exclus: [REFUSEE, A_DECIDER, INDISPONIBLE]
+  absent: exclu                             # crypto sans décision : exclue tant que le propriétaire n'a pas tranché
+  # Paire de la configuration sans décision : admise seulement si elle est FAVORABLE au relevé des sources.
+  # Un test en direct FIGE la liste admise à son démarrage (empreinte écrite dans son journal) : une décision
+  # prise ensuite ne change pas un test en cours, elle vaut pour les tests suivants.
+  figer_au_demarrage: true
+
+# Exclusions structurelles du cadre (appliquées même à une crypto admise) : ce n'est pas un avis sur la
+# crypto, c'est ce que le cadre interdit comme actif de modèle.
+structurelles:
+  stablecoins_et_fiat:
+    raison: "position d'attente uniquement, jamais un actif de modèle, jamais placée à rendement"
+    bases: [USDT, USDC, FDUSD, TUSD, USDP, DAI, USDE, PYUSD, USD1, EUR, TRY, BRL]
+  adosses_ou_wrapped:
+    raison: "copie d'un autre actif ou version mise en staking (rendement)"
+    bases: [WBTC, WBETH, BETH, PAXG, XAUT]
+    motif: "^(W|ST|WE|CB|R|M)(BTC|ETH|SOL|BNB)$"
+  tokens_a_levier:
+    raison: "levier et dérivés interdits"
+    # Tokens à levier de Binance (actif + UP, DOWN, BULL ou BEAR). Motif limité à ces actifs pour ne pas exclure
+    # des cryptos dont le nom finit par hasard ainsi (JUP, SYRUP, SUP).
+    motif: "^(BTC|ETH|BNB|XRP|ADA|DOT|LINK|LTC|TRX|XLM|EOS|SXP|FIL|YFI|SUSHI|AAVE|UNI|1INCH|BCH|XTZ)(UP|DOWN|BULL|BEAR)$"
+
+# État relevé le 2026-10-02 dans le volume de CSI (information ; le code relit la table, il ne lit pas ces chiffres) :
+#   admises par la règle (favorables)        9   + les paires favorables de la configuration
+#   ajoutées par le propriétaire           141
+#   refusées par la règle (haram)            6   AAVE ENA FTT HYPE MKR ONDO
+#   refusées par le propriétaire            60   dont BNB CRV INJ LDO UNI PAXG MORPHO PEPE SHIB
+#   à décider                                9   GUN MUB NXPC PIXEL SPCXB TSLAB W XAUT YGG
+#   indisponible sur Binance                 1   XMR

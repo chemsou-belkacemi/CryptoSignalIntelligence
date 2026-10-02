@@ -269,6 +269,13 @@ class CsiApi:
         from ..outlook.tracking import summary
         return summary(self.settings, samples=self.settings.protocol.bootstrap_samples, seed=self.settings.protocol.seed)
 
+    def forward(self) -> dict:
+        """Tests EN DIRECT pré-inscrits (docs/FORWARD_TESTS.md) : état, journal, mesures provisoires."""
+        from datetime import UTC, datetime
+
+        from ..forward.report import build, latest
+        return latest(self.settings) or build(self.settings, now=datetime.now(UTC))
+
     def sources_history(self) -> dict:
         """Dernière preuve sur historique de chaque groupe importé (avis lié au groupe)."""
         from ..external.audit import latest_history
@@ -717,7 +724,7 @@ class CsiApi:
                 "/derivatives": lambda: self.derivatives(query.get("symbol", [""])[0]),
                 "/admissions": self.admissions, "/sources/history": self.sources_history,
                 "/volatility": lambda: self.volatility(query.get("symbol", [""])[0]),
-                "/plans/live": self.plans_live,
+                "/plans/live": self.plans_live, "/forward": self.forward,
             }
             if path in routes:
                 return routes[path]()

@@ -28,6 +28,12 @@ open('constraints.txt', 'w').write(''.join(f\"{p['name']}=={p['version']}\n\" fo
 
 COPY config ./config
 COPY src ./src
+# Pré-inscription des tests en direct : ses empreintes sont recalculées à chaque passage (forward/registry.py).
+COPY docs/FORWARD_TESTS.md ./docs/FORWARD_TESTS.md
+# Commit du code construit (l'image n'a pas de dépôt git) : `--build-arg CSI_CODE_COMMIT=$(git rev-parse HEAD)`
+# depuis un worktree propre ; il est inscrit au démarrage de chaque test en direct.
+ARG CSI_CODE_COMMIT=NO_GIT_COMMIT
+ENV CSI_CODE_COMMIT=${CSI_CODE_COMMIT}
 # libgomp1 : bibliothèque OpenMP dont LightGBM a besoin (volatilité prévue, docs/VOLATILITY.md §13).
 RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 && rm -rf /var/lib/apt/lists/*
 RUN pip install -c constraints.txt ".[forecast]" \

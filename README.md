@@ -193,6 +193,27 @@ arrivent ensuite. Un plan ne peut devenir « Favorable — prouvé en direct » 
 terminés sur 20 jours, avec un intervalle de confiance entièrement positif : une preuve sur des données que personne
 n'avait vues. Onglet Suivi, carte « Suivi en direct des plans indicatifs ».
 
+### Tests en direct pré-inscrits
+
+Mission du propriétaire du 2026-10-02 ([docs/FORWARD_TESTS.md](docs/FORWARD_TESTS.md)). Chaque test est
+pré-inscrit avant son démarrage, puis ses règles sont figées par empreinte : une modification l'arrête pour de bon.
+- Le filtre halal s'applique en amont : ce sont les décisions du propriétaire enregistrées dans CSI
+  (`config/halal_screen.yaml`).
+- Le journal fonctionne en ajout seul, avec des empreintes chaînées.
+- Le même modèle de frais s'applique partout.
+- Un rapport quotidien unique est écrit dans `reports/forward/`, avec la carte « Tests en direct » de l'onglet
+  Suivi.
+
+Premier test : F1_MAKER_TAKER, qui compare l'ordre limite et l'ordre au marché à l'entrée. Le financement et
+l'intérêt ouvert sont aussi relevés chaque jour. Le calendrier des unlocks n'est pas fait, faute de source gratuite
+fiable.
+
+```bash
+.venv/bin/csi forward status                     # état et intégrité des journaux
+.venv/bin/csi forward start F1_MAKER_TAKER       # une seule fois, code commité
+.venv/bin/csi forward report                     # rapport du jour
+```
+
 ### Mesurer un groupe tout de suite
 
 Onglet « Évaluer un signal » du tableau de bord : importer l'export JSON de Telegram Desktop d'un

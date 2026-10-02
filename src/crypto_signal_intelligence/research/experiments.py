@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 from importlib import metadata
 from pathlib import Path
 
-DEPENDENCIES = ["numpy", "pandas", "pyarrow", "httpx", "pydantic", "pydantic-settings", "typer", "rich"]
+DEPENDENCIES = ["numpy", "pandas", "pyarrow", "httpx", "pydantic", "pydantic-settings", "typer", "rich", "pyyaml"]
 
 
 def new_run_id(prefix: str = "RUN") -> str:

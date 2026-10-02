@@ -744,14 +744,33 @@ function verdictClass(verdict) {
   return "muted";
 }
 
+function forwardCard(report) {
+  if (!report) return card("Tests en direct", el("p", { class: "muted small", text: "indisponible" }));
+  const rows = [];
+  for (const t of report.tests || []) {
+    const h = ((t.stats || {}).horizons || {});
+    const main = (h["24h"] || {}).observe || {};
+    rows.push([t.test_id, t.state, t.started_at ? when(t.started_at) : "–", t.final_at ? when(t.final_at) : "–",
+      t.journal && t.journal.ok ? `intègre (${t.journal.entries})` : { node: el("span", { class: "bad", text: "ROMPU" }) },
+      main.n ? `${main.n} décisions, remplissage ${pctFrac(main.fill_rate)}, écart ${fmt(main.diff, 3, true)} R ${ciR(main.diff_ci)}, équilibre ${isNum(main.break_even_bps) ? fmt(main.break_even_bps, 1) + " pb" : "–"}` : "–",
+      (t.stats || {}).verdict || "–"]);
+  }
+  const log = report.derivatives_log || {};
+  return card("Tests en direct (pré-inscrits)",
+    el("p", { class: "muted small", text: report.warning }),
+    table(["Test", "État", "Démarré", "Évaluation", "Journal", "Mesure provisoire (24 h, sans écart supposé)", "Verdict"], rows, "aucun test"),
+    el("p", { class: "muted small", text: `Relevé quotidien du financement et de l'intérêt ouvert : ${log.days || 0} jour(s)`
+      + (log.last ? `, dernier ${log.last.day} (${log.last.pairs} paires)` : "") + `. ${report.unlocks}` }));
+}
+
 async function loadFollow(force = false) {
   const target = document.getElementById("follow-result");
   if (state.followLoaded && !force) return;
   busy(target, "Chargement…");
   try {
-    const [health, models, recent, sources, generated, universe, admissions, history, plans] = await Promise.all([
+    const [health, models, recent, sources, generated, universe, admissions, history, plans, forward] = await Promise.all([
       api("/health"), api("/models"), api("/signals/recent?limit=15"), api("/sources"), api("/signals/generated?limit=10"), api("/universe"),
-      refreshAdmissions(), api("/sources/history"), api("/plans/live"),
+      refreshAdmissions(), api("/sources/history"), api("/plans/live"), api("/forward").catch(() => null),
     ]);
     state.followLoaded = true;
     state.models = models;
@@ -782,6 +801,7 @@ async function loadFollow(force = false) {
             g.resolved ? `${fmt(g.r_mean, 2, true)} R` : "–", ciR(g.ic95), g.resolved ? pctFrac(g.win_share) : "–",
             { node: el("span", { class: g.proven ? "ok" : "muted", text: g.proven ? "prouvé en direct" : g.progress }) }]),
           "aucun plan encore enregistré : le premier passage a lieu chaque jour après 00:10 UTC")),
+      forwardCard(forward),
       card("Groupes Telegram : avis lié au groupe",
         el("p", { class: "muted small", text: "Un groupe prouvé (en direct, ou sur son historique importé depuis l'onglet « Évaluer un signal ») rend ses signaux favorables malgré une géométrie défavorable. Preuve sur historique valable 30 jours." }),
         table(["Groupe", "Preuve sur historique", "Importé le"], (history.groups || []).map((g) => [g.source,

@@ -204,6 +204,11 @@ class UserPairWorker:
             start_daily(self.settings, now=self.clock())
         except Exception:  # noqa: BLE001
             log.exception("suivi des plans")
+        try:                                         # tests en direct pré-inscrits (fil séparé, au plus une fois par heure)
+            from ..forward.runner import start_background
+            start_background(self.settings, now=self.clock())
+        except Exception:  # noqa: BLE001
+            log.exception("tests en direct")
         return result
 
     def _loop(self) -> None:
