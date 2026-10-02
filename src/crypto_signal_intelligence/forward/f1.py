@@ -151,7 +151,7 @@ def plan_code() -> str:
 
 TEST = ForwardTest(
     test_id=TEST_ID, title="Ordre limite (maker) contre ordre au marché (taker) à l'entrée",
-    hypothesis=("Entrer par un ordre limite à la clôture de décision, valable une heure, donne en moyenne un meilleur "
+    hypothesis=("Entrer par un ordre limite au dernier prix connu quand l'ordre part, valable une heure, donne en moyenne un meilleur "
                 "résultat net par décision que l'ordre au marché, une fois comptées les décisions non remplies, "
                 "même sans compter d'écart à l'entrée du taker."),
     params={"events": "plans quotidiens du suivi en direct (outlook/tracking.py), liste halal figée",

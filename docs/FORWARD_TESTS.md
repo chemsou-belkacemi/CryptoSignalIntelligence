@@ -111,8 +111,8 @@ Le propriétaire ne veut aucun abonnement payant sans gain démontré : cette co
 
 ## F1_MAKER_TAKER : ordre limite (maker) contre ordre au marché (taker) à l'entrée
 
-**Hypothèse.** Entrer par un ordre limite placé à la clôture de décision, valable une heure, donne en moyenne un
-meilleur résultat net par décision que l'ordre au marché. Cela doit tenir une fois comptées les décisions où
+**Hypothèse.** Entrer par un ordre limite placé au dernier prix connu quand l'ordre part, valable une heure,
+donne en moyenne un meilleur résultat net par décision que l'ordre au marché. Cela doit tenir une fois comptées les décisions où
 l'ordre limite n'est pas rempli, et MÊME SANS compter d'écart supposé à l'entrée du taker.
 
 **Événements.**
