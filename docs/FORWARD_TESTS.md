@@ -239,4 +239,5 @@ Les horizons de 3 et 7 jours sont descriptifs.
 
 Historique des démarrages et des arrêts. Cette section est hors empreinte : on y ajoute, on n'y modifie rien.
 
-- (aucun démarrage pour l'instant)
+- 2026-10-02 00:34 UTC : **F1_MAKER_TAKER démarré** dans le conteneur de surveillance (essai FWD-20261002T003429Z-b4ac75, commit dd50b4f). 166 paires halal figées. Revue intermédiaire le 2026-11-13, fin du recueil et évaluation le 2026-12-25. Relu trois fois avant démarrage (verdict final : GO).
+- 2026-10-02 : relevé F0_DERIVES en service (premier jour : 160 paires, 6 sans perpétuel, aucune erreur).
