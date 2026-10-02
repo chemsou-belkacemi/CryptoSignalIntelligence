@@ -206,7 +206,9 @@ pré-inscrit avant son démarrage, puis ses règles sont figées par empreinte :
 
 Tests pré-inscrits : F1_MAKER_TAKER (ordre limite contre ordre au marché à l'entrée), F2_ECHELLES (signaux de CSI
 à 1 objectif contre des échelles de 2 à 7 objectifs) et F3_STABLECOINS (achat de BTC après une création d'USDT ou
-d'USDC d'au moins 100 M$, lue sur les chaînes publiques, contre 20 achats placebo). Le financement, l'intérêt
+d'USDC d'au moins 100 M$, lue sur les chaînes publiques, contre 20 achats placebo) et F4_TELEGRAM (signaux Telegram
+reçus en direct par le bot de BSM ou déposés par le robot du propriétaire, achetés au premier prix et gérés avec le
+stop suiveur, contre un achat au même moment et 20 placebos). Le financement, l'intérêt
 ouvert et une dizaine de données de contexte sont aussi relevés chaque jour. Le calendrier des unlocks n'est pas
 fait, faute de source gratuite fiable.
 

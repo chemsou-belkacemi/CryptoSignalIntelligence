@@ -89,6 +89,21 @@ def markdown(report: dict) -> str:
         if "stop" in item:
             lines.append(f"ARRÊTÉ : {item['stop']['reason']}.")
         stats = item["stats"]
+        if "providers" in stats:                              # F4 : signaux Telegram en direct, par fournisseur
+            lines += [f"Messages : {stats['signals']} (joués : {stats['decisions']} ; comptés : {stats['counted']}, "
+                      f"{stats['by_status']}) ; en attente : {stats['pending']} ; non mesurables : {stats['unplayable']} ; "
+                      f"modifiés : {stats['edited']} ; versions du parseur : {stats['parser_codes']}.", "",
+                      "| Fournisseur | Coûts | Messages | Jouables | Résolus | Jours | R moyen | IC95 du R | Gagnants | Pire série | "
+                      "Écart même moment | Excès placebos | IC de l'excès | Verdict |",
+                      "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+            for name, block in stats["providers"].items():
+                for scenario, s in block["scenarios"].items():
+                    lines.append(f"| {name} | {scenario} | {block['signals']} | {_fmt(block.get('halal_share'), True)} | "
+                                 f"{s.get('n', 0)} | {s.get('days', 0)} | {_fmt(s.get('r_mean'))} | {s.get('r_ci95') or '—'} | "
+                                 f"{_fmt(s.get('win_share'), True)} | {s.get('worst_streak', '—')} | {_fmt(s.get('same_moment_diff'))} | "
+                                 f"{_fmt(s.get('placebo_excess'))} | {s.get('placebo_excess_ci') or '—'} | {block['verdict']} |")
+            lines += ["", f"Verdicts : **{stats['verdict']}**.", ""]
+            continue
         if "mints" in stats:                                  # F3 : événements on-chain, achat contre placebos
             lines += [f"Créations inscrites : {stats['mints']} (ignorées, ponts : {stats['mints_ignored']} ; comptées : "
                       f"{stats['mints_usd']} M$) ; événements : {stats['events']} ({stats['by_status']}) ; décisions "

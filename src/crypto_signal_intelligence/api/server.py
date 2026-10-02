@@ -748,7 +748,23 @@ class CsiApi:
             return self.admissions_decide_all(body or {})
         elif method == "POST" and path == "/sources/history":
             return self.sources_history_run(body or {})
+        elif method == "POST" and path == "/telegram/live":
+            return self.telegram_live(body or {})
         raise ApiError(HTTPStatus.NOT_FOUND, f"route inconnue : {method} {path}")
+
+    def telegram_live(self, payload: dict) -> dict:
+        """Dépôt d'une liste de signaux reçus en direct par le robot du propriétaire (`{"signals": [...]}`, format
+        du 2026-10-02 : signal_id, source_chat_id, raw_text, received_at). Enregistrée telle quelle dans le dossier
+        de dépôt ; le test F4_TELEGRAM la lit à son passage suivant. Aucune évaluation, aucun ordre."""
+        from ..forward import telegram_live
+        rows = payload.get("signals") if isinstance(payload, dict) else None
+        if not isinstance(rows, list) or not rows or not all(isinstance(r, dict) for r in rows):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "« signals » : liste non vide de signaux attendue")
+        if len(rows) > 5000:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "au plus 5 000 signaux par dépôt")
+        readable = telegram_live.read_robot_file(telegram_live.store_drop(self.settings, rows, now=self.now()))
+        return {"deposited": len(rows), "readable": len(readable),
+                "providers": sorted({s.provider for s in readable})}
 
 
 def _text(value: Any) -> str:

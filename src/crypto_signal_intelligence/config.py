@@ -147,6 +147,14 @@ class ExternalSection(BaseModel):
     trail_max_hold_bars: int = Field(2880, ge=1)
 
 
+class ForwardSection(BaseModel):
+    """Tests en direct (docs/FORWARD_TESTS.md). Sources des signaux Telegram reçus en direct (F4_TELEGRAM) :
+    la boîte de réception de BinanceSpotManager (chemin de `signals.sqlite3`, lecture seule ; vide = non lue) et
+    le dossier de dépôt des listes du robot du propriétaire, relatif à la racine."""
+    bsm_inbox: str = ""
+    telegram_live_dir: str = "imports/telegram/live"
+
+
 class CostScenario(BaseModel):
     fee_bps: float = Field(ge=0)
     slippage_bps: float = Field(ge=0)
@@ -258,6 +266,7 @@ class Settings(BaseSettings):
     admission: AdmissionSection = AdmissionSection()
     risk: RiskSection = RiskSection()
     external: ExternalSection = ExternalSection()
+    forward: ForwardSection = ForwardSection()
     costs: dict[str, CostScenario] = {}
     publication: PublicationSection = PublicationSection()
     live: LiveSection = LiveSection()

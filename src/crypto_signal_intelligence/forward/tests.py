@@ -6,7 +6,7 @@ appelé à chaque cycle de la surveillance (toutes les 15 min) pour les tests qu
 """
 from __future__ import annotations
 
-from . import f1, f2, f3
+from . import f1, f2, f3, f4
 
-TESTS = ((f1.TEST, f1), (f2.TEST, f2), (f3.TEST, f3))
+TESTS = ((f1.TEST, f1), (f2.TEST, f2), (f3.TEST, f3), (f4.TEST, f4))
 BY_ID = {test.test_id: (test, module) for test, module in TESTS}

@@ -419,6 +419,93 @@ placebos partagent l'heure mais pas le contexte de marché ; deux horizons sur l
 détection toutes les 15 minutes ajoute jusqu'à 15 minutes à la latence d'un vrai bot ; Tron et Ethereum seulement
 (pas Solana ni les autres chaînes) ; 12 semaines ne valident rien, elles comptent et mesurent.
 
+## F4_TELEGRAM : signaux Telegram reçus en direct, achat au premier prix, gestion du propriétaire, contre placebos
+
+Phase 3 de la mission du 2026-10-02 (partie « en direct » ; l'historique exporté est traité par `csi audit-telegram`,
+avec son biais de suppression déclaré).
+
+**Hypothèse.** Un signal d'achat spot d'un fournisseur Telegram, acheté au premier prix après sa réception et géré
+avec le stop suiveur du propriétaire, rapporte en moyenne plus, en R net, qu'un achat au même moment sur le même actif
+gardé aussi longtemps, et que 20 achats de même géométrie à des moments tirés au hasard dans les 30 jours
+précédents. Les audits sur l'historique (2 729 messages, 2026-04 → 2026-10) n'ont montré aucun fournisseur avec
+un gain démontré : la réponse attendue est « non démontré » ou « insuffisant ».
+
+**Événements.** Chaque message reçu après le démarrage par l'une des deux sources (`forward/telegram_live.py`),
+dédoublonné sur son identifiant :
+- la boîte de réception de BinanceSpotManager (`signals.sqlite3`, montée en lecture seule dans le conteneur de
+  surveillance) : messages des conversations Telegram autorisées, horodatés à la réception par son bot ;
+- le dossier de dépôt `imports/telegram/live/` (listes JSON du robot du propriétaire : identifiant, conversation,
+  texte brut, heure de réception), rempli à la main ou par `POST /telegram/live`.
+
+Un message est **joué** (DECISION) s'il est lisible par le parseur de CSI (`external/parser.py`, port du parseur
+de BSM), long au comptant, avec une entrée, un stop et au moins un objectif, sur une paire de la liste halal figée,
+et si son entrée précède la fin du recueil. Sinon il est **compté** avec sa raison : `ILLISIBLE`,
+`SHORT_OU_LEVIER` (short, vente initiale, levier, futures, marge), `HORS_SCREENING`, `HORS_FENETRE`. Un message
+signalé modifié par la source est inscrit comme tel ; les suppressions ne sont pas détectables. Le parseur n'est
+pas gelé : son empreinte est inscrite dans chaque décision et le rapport dit combien de versions ont servi.
+
+**Règles** (bougies de 1 minute publiques de Binance Spot, téléchargées à la résolution et conservées dans le
+magasin ; moteur `external/trailing.simulate`).
+- **Entrée** : au marché, à l'ouverture de la première bougie de 1 minute qui s'ouvre à réception + 60 s ou après ;
+  prix effectif = ouverture × (1 + écart et glissement). Si cette bougie n'existe que plus de 10 minutes après
+  l'heure voulue : `TROU`. Si l'ouverture est déjà sous le stop : `INVALIDE` ; déjà au-dessus du premier objectif :
+  `DEJA_JOUE` (comptés, jamais mesurés).
+- **Gestion** : stop et objectifs du signal (5 premiers objectifs, parts décroissantes 5, 4, 3, 2, 1), stop au
+  contact, stop à l'entrée effective après TP1 puis à TP(k−2) après TPk, dès la bougie suivante ; pire cas dans la
+  bougie ; sortie au plus tard après 43 200 bougies (30 jours), reste vendu à la clôture. La mention de clôture du
+  stop (« 4h ») est ignorée : stop au contact.
+- **Comparaison 1, même moment** : achat au même prix effectif, vendu au marché à la clôture de la bougie de sortie
+  de la transaction du signal (même actif, même durée) ; écart en R.
+- **Comparaison 2, placebos** : 20 achats du même actif à des décalages distincts tirés sans remise entre 1 440 et
+  43 200 minutes avant l'entrée (graine déduite de l'identifiant du signal, inscrits à la décision), stop et
+  objectifs au même rapport au prix d'entrée que ceux du signal, même gestion, mêmes frais ; excès = R du signal −
+  moyenne des R des placebos (placebos encore ouverts : résolution différée ; placebo sans bougie : ignoré).
+- **Frais** : modèle commun, central et défavorable, payés à chaque exécution.
+- **Résolution** : quand la transaction du signal et ses placebos sont terminés ; trou constaté 2 jours après
+  l'horizon si des bougies manquent ou si la source ne répond plus.
+
+**Paramètres** (figés dans le code, `forward/f4.py`) :
+
+| Paramètre | Valeur |
+|---|---|
+| Latence d'entrée | 60 s après la réception, bougies de 1 min |
+| Objectifs | 5 au plus, parts 5/4/3/2/1 ; stop suiveur à 2 objectifs |
+| Durée maximale | 43 200 bougies (30 jours) |
+| Placebos | 20, décalages de 1 à 30 jours, mêmes niveaux relatifs |
+| Minimum pour conclure, par fournisseur | 30 signaux résolus sur 10 jours |
+| Comparaisons | 2 (même moment, placebos) ; intervalle de l'excès au niveau 1 − 0,05/2 ; intervalle du R à 95 % |
+| Rééchantillonnage | 10 000 tirages par blocs de 7 jours (au moins 8 blocs), graine 20261005 |
+| Téléchargement | au plus 60 pages de 1 000 bougies par paire et par passage |
+| Gel | modules f4, telegram_live, costs, registry, journal ; moteur de rejeu, intervalle par blocs, téléchargement et normalisation des bougies, magasin ; adresse REST et latence supposée |
+
+**Métrique.** Par fournisseur et pour l'ensemble, par scénario de frais : nombre de messages, part jouable (halal
+et lisible), signaux résolus, jours, R net moyen avec son intervalle à 95 %, part gagnante, pire série de pertes,
+durée moyenne de détention, écart moyen à l'achat au même moment, excès moyen sur les placebos avec son intervalle,
+part des signaux qui battent leurs placebos ; comptes des messages illisibles, short ou levier, hors screening,
+modifiés ; trous, invalides, déjà joués.
+
+**Seuil de décision**, par fournisseur, à la date d'évaluation et une fois toutes les décisions résolues :
+- `INSUFFISANT` : moins de 30 signaux résolus ou moins de 10 jours, ou un intervalle non calculable ;
+- `SUPERIEUR_AU_HASARD` : intervalle du R moyen ET intervalle de l'excès sur les placebos entièrement au-dessus de
+  0, en central ET en défavorable ;
+- `INFERIEUR_AU_HASARD` : intervalle du R moyen entièrement en dessous de 0 dans les deux scénarios ;
+- sinon `NON_DEMONTRE`.
+
+**Date d'évaluation.** Fin du recueil 84 jours (12 semaines) après le démarrage ; revue intermédiaire à 42 jours ;
+verdict une fois le dernier signal résolu (au plus 30 jours après la fin du recueil), inscrit une fois au journal.
+
+**Nombre d'événements attendu (estimation NON vérifiée).** Le robot du propriétaire a reçu 186 signaux en
+septembre 2026 (5 sources, 121 exploitables) et sa boîte BSM dépend des conversations autorisées : de l'ordre de
+100 à 300 signaux joués en 12 semaines, répartis sur quelques fournisseurs ; seuls ceux qui dépassent 30 signaux
+résolus auront un verdict. Les signaux d'un même jour et d'un même fournisseur sont corrélés : l'intervalle par
+blocs de 7 jours en tient compte, au prix d'une largeur importante.
+
+**Limites déclarées.** Marché Spot public, pas Binance Demo ; aucune suppression détectée (un fournisseur qui
+efface ses pertes n'est pas visible ici non plus, mais ses messages déjà reçus restent comptés) ; la gestion est
+celle du propriétaire, pas celle de l'analyste ; les placebos partagent la géométrie, pas le contexte ; bougies
+1 min (ordre des prix dans la minute inconnu) ; une paire sans bougies 1 min (retrait de la cote) finit en trou ;
+12 semaines ne valident rien.
+
 ## Démarrages
 
 Historique des démarrages et des arrêts. Cette section est hors empreinte : on y ajoute, on n'y modifie rien.

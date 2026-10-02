@@ -27,6 +27,14 @@ services:
   monitor:
     <<: *app
     command: ["python", "-m", "crypto_signal_intelligence", "run", "--mode", "shadow"]
+    volumes:
+      - csi-state:/srv/csi
+      # Boîte de réception de BinanceSpotManager (messages Telegram reçus en direct par son bot), LECTURE SEULE :
+      # source du test F4_TELEGRAM. Volume créé par BSM (`make up`) ; CSI n'y écrit jamais.
+      - binance-spot-manager_bsm-data:/srv/bsm-data:ro
+    environment:
+      CSI_EXTERNAL__AUTO_ADD_PAIRS: ${CSI_AUTO_ADD_PAIRS:-true}
+      CSI_FORWARD__BSM_INBOX: /srv/bsm-data/signals.sqlite3
     # Plafond (pas une réservation) : un cycle ne dure que quelques secondes toutes les 15 min ;
     # 4 CPU laissent les 4 rafraîchissements parallèles de bougies tourner sans se gêner.
     cpus: 4.0
@@ -110,6 +118,9 @@ services:
 
 volumes:
   csi-state:
+  # Volume de données de BinanceSpotManager, lu par `monitor` (F4_TELEGRAM) ; il doit exister (`make up` côté BSM).
+  binance-spot-manager_bsm-data:
+    external: true
 
 networks:
   default: {}

@@ -753,11 +753,15 @@ function forwardCard(report) {
     const sc = ((t.stats || {}).scenarios || {}).central;
     const st = t.stats || {};
     const onchain = st.mints !== undefined ? st : null;
+    const providers = st.providers ? st.providers : null;
+    const whole = providers ? (providers.ensemble || {}) : {};
+    const wholeCentral = ((whole.scenarios || {}).central) || {};
     const excessText = (h) => { const s = (sc || {})[h] || {}; return `${h} : ${isNum(s.excess) ? fmt(s.excess * 100, 2, true) + " %" : "–"} (${s.n || 0})`; };
     const ladder = sc && !onchain ? Object.entries(sc).map(([v, s]) => `${v.replace("echelle_", "")} : ${isNum(s.r_mean) ? fmt(s.r_mean, 2, true) + " R" : "–"} (${s.filled || 0})`).join(" · ") : null;
     rows.push([t.test_id, t.state, t.started_at ? when(t.started_at) : "–", t.final_at ? when(t.final_at) : "–",
       t.journal && t.journal.ok ? `intègre (${t.journal.entries})` : { node: el("span", { class: "bad", text: "ROMPU" }) },
-      onchain ? `${onchain.mints} création(s) lue(s), ${onchain.events} événement(s), ${onchain.decisions} décidé(s), ${onchain.pending} en attente ; excès net sur les placebos : ${["24h", "72h"].map(excessText).join(" · ")}`
+      providers ? `${st.signals} message(s), ${st.decisions} joué(s), ${st.pending} en attente, ${Object.keys(providers).length - 1} fournisseur(s) ; ensemble : ${wholeCentral.n || 0} résolu(s), R moyen ${isNum(wholeCentral.r_mean) ? fmt(wholeCentral.r_mean, 2, true) : "–"} ${ciR(wholeCentral.r_ci95)}, excès sur les placebos ${isNum(wholeCentral.placebo_excess) ? fmt(wholeCentral.placebo_excess, 2, true) + " R" : "–"}`
+        : onchain ? `${onchain.mints} création(s) lue(s), ${onchain.events} événement(s), ${onchain.decisions} décidé(s), ${onchain.pending} en attente ; excès net sur les placebos : ${["24h", "72h"].map(excessText).join(" · ")}`
         : ladder ? `R moyen par nombre d'objectifs (remplis) : ${ladder}` : main.n ? `${main.n} décisions, remplissage ${pctFrac(main.fill_rate)}, écart ${fmt(main.diff, 3, true)} R ${ciR(main.diff_ci)}, équilibre ${isNum(main.break_even_bps) ? fmt(main.break_even_bps, 1) + " pb" : "–"}` : "–",
       (t.stats || {}).verdict || "–"]);
   }
