@@ -79,6 +79,18 @@ def markdown(report: dict) -> str:
         if "stop" in item:
             lines.append(f"ARRÊTÉ : {item['stop']['reason']}.")
         stats = item["stats"]
+        if "scenarios" in stats:                              # F2 : variantes de sortie sur les mêmes entrées
+            lines += [f"Signaux inscrits : {stats['decisions']} ; en attente : {stats['pending']} ; hors screening : "
+                      f"{stats['skipped']} ; trous : {stats['gaps']}.", "",
+                      "| Variante | Coûts | Remplis | R moyen | Gagnants | Écart à l'origine | IC de l'écart |",
+                      "|---|---|---|---|---|---|---|"]
+            for scenario, variants in stats["scenarios"].items():
+                for variant, s in variants.items():
+                    lines.append(f"| {variant} | {scenario} | {s.get('filled', 0)} | {_fmt(s.get('r_mean'))} | "
+                                 f"{_fmt(s.get('win_share'), True)} | {_fmt(s.get('diff_mean'))} | "
+                                 f"{s.get('diff_ci') or '—'} |")
+            lines += ["", f"Verdicts : **{stats['verdict']}**.", ""]
+            continue
         lines += [f"Décisions en attente de résolution : {stats['pending']} (horizon principal : "
                   f"{stats.get('pending_primary', '—')}) ; hors screening : {stats['skipped']}.", "",
                   "| Horizon | Lecture | Décisions | Jours | Remplissage | R taker | R maker | Écart | IC95 de l'écart |",

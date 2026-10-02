@@ -1,7 +1,8 @@
 """Issue des signaux trouvés par les stratégies de CSI (dossier shadow) : rejoués sur les bougies arrivées APRÈS
 leur création, avec les règles de remplissage du simulateur (`external.registry.replay`, testé équivalent).
 
-Règles : ordre limite à l'entrée 1, valable jusqu'à `entry_expires_at` ; stop au contact (ouverture sous le stop :
+Règles : ordre limite à l'entrée 1, à partir de la première bougie qui s'ouvre après la création du signal et sur
+les seules bougies entièrement avant `entry_expires_at` ; stop au contact (ouverture sous le stop :
 sortie à l'ouverture) ; objectif seulement s'il est dépassé ; stop d'abord si les deux sont touchés dans la même
 bougie ; sinon sortie à la clôture après `simulation.max_hold_bars` bougies (24 h), comme le backtest qui a jugé
 ces stratégies. Coûts du scénario central. Lecture seule des signaux : rien n'est publié ni modifié, aucun ordre.
@@ -49,7 +50,7 @@ def resolve_signal(bars: pd.DataFrame, *, created_at: pd.Timestamp, entry_expire
                    ) -> tuple[str, float | None, datetime | None]:
     """Issue d'un signal sur les bougies clôturées (`bars`) qui s'ouvrent à sa création ou après."""
     start = created_at.ceil(step)
-    window = max(1, math.ceil((entry_expires_at - start) / step))
+    window = max(1, math.floor((entry_expires_at - start) / step))     # bougies entièrement dans la validité
     after = bars[(bars["open_time"] >= start) & (bars["open_time"] + step <= now)].reset_index(drop=True)
     late = now >= start + (window + max_hold) * step + GAP_AFTER
     if after.empty or after["open_time"].iloc[0] != start:

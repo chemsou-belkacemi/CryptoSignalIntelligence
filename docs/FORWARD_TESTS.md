@@ -235,6 +235,73 @@ Les horizons de 3 et 7 jours sont descriptifs.
 - Le retard entre décision et enregistrement du plan rend l'entrée plus tardive que la décision.
 - Les données du marché Spot public ne sont pas celles de Binance Demo.
 
+## F2_ECHELLES : signaux de CSI, 1 objectif contre échelles de 2 à 7 objectifs
+
+Demande du propriétaire du 2026-10-02 : suivre pendant des semaines les signaux de CSI joués avec plusieurs
+objectifs.
+
+**Hypothèse.** Sur les mêmes entrées, une échelle de k objectifs (k = 2 à 7) jouée avec la gestion « stop suiveur »
+donne un R net moyen différent de la règle à un objectif avec laquelle les stratégies de CSI ont été jugées. Ces
+stratégies sont REJETÉES (espérance négative après frais) : le test mesure l'effet de la SORTIE, il ne réhabilite
+aucune entrée. Une échelle ne crée pas d'avantage à partir d'entrées qui n'en ont pas : la réponse attendue est
+« pas de différence démontrée ».
+
+**Événements.** Chaque signal du registre shadow de CSI (`signals/registry.sqlite3`) créé après le démarrage, sur
+une paire de la liste halal figée ; les autres sont seulement comptés. Toutes les variantes utilisent la MÊME
+entrée : ordre limite à l'entrée 1, à partir de la première bougie de 15 minutes qui s'ouvre à la création du
+signal ou après, sur les seules bougies entièrement avant l'expiration de l'entrée du signal (`ENTRY_EXPIRES_AT`).
+En direct, le signal est créé environ une minute après la clôture de décision : la fenêtre commence donc une
+bougie plus tard que dans le walk-forward, qui supposait l'ordre posé à la clôture.
+
+**Règles** (bougies de 15 minutes, moteur `external/trailing.simulate`, celui des signaux Telegram).
+- `origine` : l'objectif unique du signal, stop fixe, sortie à la clôture après 96 bougies (24 heures) : la sortie
+  avec laquelle le walk-forward a jugé la stratégie.
+- `echelle_k` (k = 2 à 7) : objectifs à 1, 2, …, k fois le risque (entrée − stop) au-dessus de l'entrée ; parts
+  vendues décroissantes (k, k−1, …, 1) ; stop à l'entrée après TP1, puis à TP(k−2) après TPk, appliqué dès la bougie
+  suivante ; sortie au plus tard après 672 bougies (7 jours).
+- Remplissage, stop au contact, objectif seulement s'il est dépassé, pire cas dans la bougie : règles du moteur.
+- Résolution quand toutes les variantes sont terminées ou non remplies, sur les bougies arrivées après le signal ;
+  « trou » si les bougies manquent encore 2 jours après la fin de l'horizon.
+
+**Paramètres** (figés dans le code, `forward/f2.py`) :
+
+| Paramètre | Valeur |
+|---|---|
+| Variantes | origine, echelle_2 à echelle_7 |
+| Durée maximale | 24 h (origine), 7 jours (échelles) |
+| Frais | modèle commun ; central et défavorable |
+| Minimum pour conclure | 100 signaux remplis |
+| Comparaisons | 6, niveau de chaque intervalle 1 − 0,05/6 |
+| Rééchantillonnage | 10 000 tirages par blocs de 7 jours (au moins 8 blocs), graine 20261003 |
+| Gel | modules f2, costs, registry, journal ; moteur de rejeu, lecture des signaux, règle d'expiration de l'entrée, magasin de bougies, paramètres des stratégies et unité de temps |
+
+**Métrique.** Par signal rempli et par variante, R net (en risque initial du signal). Pour chaque échelle : écart
+apparié au R de l'origine sur les mêmes signaux, moyenne et intervalle par blocs de 7 jours, au niveau
+1 − 0,05/6. Rapportés aussi : R moyen, part gagnante et nombre de remplis de chaque variante, et l'intervalle
+à 95 % du R moyen de l'origine.
+
+**Seuil de décision**, pour chaque échelle, à la date d'évaluation et une fois tous les signaux résolus :
+- `INSUFFISANT` : moins de 100 signaux remplis, ou intervalle non calculable ;
+- `MEILLEURE` : intervalle de l'écart entièrement au-dessus de 0 en central ET en défavorable ;
+- `MOINS_BONNE` : entièrement en dessous de 0 dans les deux ;
+- sinon `PAS_DE_DIFFERENCE_DEMONTREE`.
+
+**Date d'évaluation.** Fin du recueil 84 jours (12 semaines) après le démarrage ; revue intermédiaire à 42 jours ;
+verdict une fois le dernier signal résolu, en général 7 jours après la fin du recueil (9 jours si des bougies
+manquent), inscrit une fois au journal.
+
+**Nombre d'événements attendu (estimation NON vérifiée).** Le registre ne comptait que 9 signaux au démarrage,
+sur un jour et demi, et le taux de remplissage n'est pas mesuré : de l'ordre de 5 à 10 signaux par jour dont un
+tiers à la moitié remplis donnerait 150 à 400 signaux remplis en 12 semaines ; moins de 100 donnera `INSUFFISANT`.
+Les signaux d'un même jour sont corrélés : le nombre effectif d'observations est plus proche du nombre de semaines
+(environ 12 blocs de 7 jours) ; à si peu de blocs, un intervalle par rééchantillonnage à 99,2 % est un peu trop
+étroit : une conclusion limite doit être lue comme telle.
+
+**Limites déclarées.** Les entrées viennent de stratégies rejetées ; les objectifs en multiples du risque sont une
+règle simple, pas celle d'un analyste ; l'origine sort à 24 h et les échelles à 7 jours : un écart peut venir de
+la durée d'exposition autant que de l'échelle ; bougies de 15 minutes (ordre des prix dans la bougie inconnu) ; marché Spot
+public, pas Binance Demo. Un résultat ne valide aucune stratégie.
+
 ## Démarrages
 
 Historique des démarrages et des arrêts. Cette section est hors empreinte : on y ajoute, on n'y modifie rien.

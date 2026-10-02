@@ -5,7 +5,7 @@ Un module de test expose `record_decisions(settings, journal, start, now=)`, `re
 """
 from __future__ import annotations
 
-from . import f1
+from . import f1, f2
 
-TESTS = ((f1.TEST, f1),)
+TESTS = ((f1.TEST, f1), (f2.TEST, f2))
 BY_ID = {test.test_id: (test, module) for test, module in TESTS}
