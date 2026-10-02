@@ -30,6 +30,11 @@ ALLOWED = {
     # Émissions de stablecoins (F3_STABLECOINS) : événements publics des contrats, sans clé.
     "api.trongrid.io": ("/v1/contracts/",),
     "ethereum-rpc.publicnode.com": ("/",),
+    # Annonces officielles de Binance (F5 : delisting, maintenance), lecture seule des titres.
+    "www.binance.com": ("/bapi/composite/v1/public/cms/article/list/query",),
+    # Annonces de listing (F7_LISTINGS) : Upbit (annonces publiques), Coinbase (produits de son API publique).
+    "api-manager.upbit.com": ("/api/v1/announcements",),
+    "api.exchange.coinbase.com": ("/products",),
 }
 TRON_API = "https://api.trongrid.io"
 ETH_RPC = "https://ethereum-rpc.publicnode.com"

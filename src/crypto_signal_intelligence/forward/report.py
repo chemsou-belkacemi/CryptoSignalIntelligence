@@ -89,6 +89,45 @@ def markdown(report: dict) -> str:
         if "stop" in item:
             lines.append(f"ARRÊTÉ : {item['stop']['reason']}.")
         stats = item["stats"]
+        if "news_items" in stats:                             # F8 : filtre de news sur A
+            per = stats["scenarios"]
+            lines += [f"News avec terme : {stats['news_items']} (appliquées : {stats['applied']}, ambiguës : {stats['ambiguous']}) ; "
+                      f"par actif : {stats['by_asset'] or 'aucun'} ; jours valorisés : {stats['days']} ; jours-actifs coupés : "
+                      f"{stats['masked_days']} ; jours sans F5 : {stats['skipped_days']} ; cohérence avec A de F5 : "
+                      f"{len(stats['f5_consistency']['mismatches'])} écart(s).", "",
+                      "| Coûts | Portefeuille | Jours | Rendement | Perte max | Transactions |", "|---|---|---|---|---|---|"]
+            for scenario, variants in per.items():
+                for variant, s in variants.items():
+                    if isinstance(s, dict):
+                        lines.append(f"| {scenario} | {variant} | {s.get('days', 0)} | {_fmt(s.get('return'), True)} | "
+                                     f"{_fmt(s.get('max_drawdown'), True)} | {s.get('trades', '—')} |")
+                lines.append(f"| {scenario} | A + news − A | | {_fmt(variants.get('A_NEWS_minus_A'), True)} | | |")
+            lines += ["", f"Verdict : **{stats['verdict']}**.", ""]
+            continue
+        if "listings" in stats:                               # F7 : listings
+            lines += [f"Listings : {stats['listings']} (joués : {stats['decisions']}, comptés : {stats['counted']}, par source : "
+                      f"{stats['by_source']}) ; latence médiane : {stats['latency_median_min'] if stats['latency_median_min'] is not None else '—'} min ; "
+                      f"en attente : {stats['pending']} ; trous : {stats['gaps']} ; erreurs de source : {stats['source_errors']}.", "",
+                      "| Coûts | Horizon | Résolus | Rendement net | IC | Gagnants | Relatif à BTC | IC |", "|---|---|---|---|---|---|---|---|"]
+            for scenario, horizons in stats["scenarios"].items():
+                for horizon, s in horizons.items():
+                    lines.append(f"| {scenario} | {horizon} | {s.get('n', 0)} | {_fmt(s.get('r_mean'), True)} | {s.get('r_ci') or '—'} | "
+                                 f"{_fmt(s.get('win_share'), True)} | {_fmt(s.get('relative_r_mean'), True)} | {s.get('relative_r_ci') or '—'} |")
+            lines += ["", f"Verdicts : **{stats['verdict']}**.", ""]
+            continue
+        if "checks" in stats:                                 # F6 : capitulation
+            lines += [f"Contrôles : {stats['checks']} sur {stats['days']} jour(s) ; derniers indicateurs : {stats['latest']} ; "
+                      f"événements : {stats['events']} ({stats['by_status']}) ; par actif : {stats['by_asset']} ; en attente : "
+                      f"{stats['pending']} ; trous : {stats['gaps']}.", "",
+                      "| Coûts | Horizon | Événements | Rendement achat | Rendement placebos | Excès | Gagnants | IC de l'excès |",
+                      "|---|---|---|---|---|---|---|---|"]
+            for scenario, horizons in stats["scenarios"].items():
+                for horizon, s in horizons.items():
+                    lines.append(f"| {scenario} | {horizon} | {s.get('n', 0)} | {_fmt(s.get('event_r'), True)} | "
+                                 f"{_fmt(s.get('placebo_r'), True)} | {_fmt(s.get('excess'), True)} | {_fmt(s.get('win_share'), True)} | "
+                                 f"{s.get('excess_ci') or '—'} |")
+            lines += ["", f"Verdicts : **{stats['verdict']}**.", ""]
+            continue
         if "light_share" in stats:                            # F5 : modèle A en direct, feu tricolore, statique
             lines += [f"Décisions hebdomadaires : {stats['decisions']} ; jours valorisés : {stats['days']} ; feu : "
                       f"{stats['light_days']} ; actifs rouges : {stats['red_assets'] or 'aucun'} ; conformité : "

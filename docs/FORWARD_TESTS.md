@@ -584,6 +584,172 @@ calendrier (plus les jours de volatilité, financement ou parité), environ 24 j
 figé ne suit pas un changement de date du BLS ou de la Fed ; le code de recherche n'est pas gelé (empreinte par
 décision) ; 12 semaines, aucune validation.
 
+## F6_CAPITULATION : achat de BTC ou d'ETH après une capitulation du marché à levier
+
+Phase 6 de la mission du 2026-10-02.
+
+**Hypothèse.** Après une liquidation massive des positions à levier, les ventes forcées poussent le prix trop bas
+et un rebond suit : un achat simulé après le signal fait mieux, net de frais, que 20 achats placebo du même actif
+dans les 90 jours précédents, à 3 et 7 jours. Sur l'historique gratuit de développement (4 ans et demi), les
+trois conditions n'ont été réunies que 4 fois (1 sur BTC, 3 sur ETH) : **environ 0,2 événement attendu en
+12 semaines** ; l'issue attendue est `INSUFFISANT`, et c'est une réponse. Aucun backtest indicatif n'est lancé
+(il coûterait un essai pour 4 événements).
+
+**Règles.**
+- Chaque jour, pour BTC et ETH (s'ils sont dans la liste halal figée), dès que le relevé F0_DERIVES du jour est
+  inscrit (passage après 00:10 UTC) : un contrôle journalisé avec les trois indicateurs calculés sur des
+  informations connues à 00:00 UTC :
+  - financement moyen des règlements des 24 dernières heures (relevé du jour) **strictement négatif** ;
+  - intérêt ouvert horaire : dernière valeur à 00:00 ou avant **inférieure d'au moins 15 %** à celle de 72 h plus
+    tôt (même relevé) ;
+  - clôture journalière (bougie 1 h de 23:00) de la veille **inférieure d'au moins 10 %** à celle de 3 jours
+    plus tôt.
+- Les trois réunies : événement. Pas de nouvel événement sur le même actif dans les 7 jours (compté
+  `DELAI_7_JOURS`). Événement avant le démarrage ou après la fin du recueil : hors fenêtre.
+- **Achat** simulé au premier prix (ouverture de la première bougie de 1 minute) après l'heure du calcul ;
+  **sorties** au marché à 3 jours et à 7 jours (premières bougies après ces heures) ; frais du modèle commun,
+  central et défavorable.
+- **Placebos** : 20 achats du même actif aux mêmes heures, à des jours tirés sans remise entre 1 et 90 jours
+  avant (graine déduite de l'événement, inscrits à la décision), mêmes durées, mêmes frais ; excès = rendement de
+  l'achat − moyenne des placebos.
+- Résolution 7 jours après l'entrée ; bougie voulue plus de 10 minutes en retard : `TROU` ; source muette :
+  nouvel essai, trou constaté 2 jours après l'horizon.
+
+**Paramètres** (figés dans le code, `forward/f6.py`) :
+
+| Paramètre | Valeur |
+|---|---|
+| Actifs | BTCUSDT, ETHUSDT |
+| Conditions | financement 24 h < 0 ; intérêt ouvert −15 % sur 3 jours ; prix −10 % sur 3 jours |
+| Délai entre deux événements | 7 jours par actif |
+| Horizons | 3 jours, 7 jours |
+| Placebos | 20, de 1 à 90 jours avant, même heure |
+| Minimum pour conclure | 10 événements résolus par horizon |
+| Comparaisons | 2, niveau 1 − 0,05/2 ; rééchantillonnage 10 000 tirages par blocs de 7 jours, graine 20261006 |
+| Gel | modules f6, costs, registry, journal ; intervalle par blocs ; magasin de bougies |
+
+**Métrique.** Par horizon et scénario : événements résolus, rendement net moyen de l'achat, des placebos, excès
+moyen et son intervalle, part des événements qui battent leurs placebos ; contrôles journaliers, derniers
+indicateurs, événements par actif, en délai, en attente, trous.
+
+**Seuil de décision**, par horizon : `INSUFFISANT` (moins de 10 résolus ou intervalle non calculable) ;
+`EXCES_POSITIF` (intervalle entièrement au-dessus de 0 en central ET en défavorable) ; `EXCES_NEGATIF` (entièrement
+en dessous dans les deux) ; sinon `PAS_DE_DIFFERENCE_DEMONTREE`.
+
+**Date d'évaluation.** 84 jours après le démarrage (revue intermédiaire à 42 jours) ; verdict une fois le dernier
+événement résolu (7 jours après la fin du recueil au plus, 9 si des bougies manquent).
+
+**Limites déclarées.** Intérêt ouvert et financement d'une seule bourse (Binance USDⓈ-M) ; seuils fixés par la
+mission, pas calibrés ; très peu d'événements ; 12 semaines ne valident rien.
+
+## F7_LISTINGS : achat après une annonce de listing d'Upbit ou l'apparition d'un produit chez Coinbase
+
+Phase 5 de la mission du 2026-10-02.
+
+**Hypothèse.** Un actif négociable sur Binance Spot et admis par le screening, acheté au premier prix après la
+détection d'un listing chez Upbit ou Coinbase, rapporte en moyenne un rendement net positif à 24 h et à 7 jours,
+en absolu et relativement à BTC. Attendu : 1 ou 2 événements en 12 semaines, donc `INSUFFISANT`.
+
+**Événements.**
+- **Upbit** : annonces publiques (API `api-manager.upbit.com`, catégorie « 거래 »), titres de la forme
+  « …(SYMBOLE) 신규 거래지원 안내 … » (nouveau support de trading), lues toutes les 10 minutes ; heure d'annonce =
+  `listed_at` ; latence = détection − annonce, journalisée.
+- **Coinbase** : liste publique des produits (`api.exchange.coinbase.com/products`) ; une nouvelle devise de base
+  en ligne par rapport au relevé précédent est un listing (Coinbase n'a pas d'API gratuite pour ses annonces :
+  la détection se fait à la mise en ligne, plus tardive ; heure d'annonce inconnue, journalisée comme telle).
+- Un listing dont au moins un actif a sa paire USDT dans la liste halal figée (donc négociable sur Binance Spot)
+  est **joué** ; les autres sont comptés avec leur raison. Annonce antérieure au démarrage : ignorée.
+
+**Règles.** Achat simulé au premier prix Binance (ouverture de la première bougie de 1 minute) **après la
+détection**, jamais avant (la mission demande annonce + 60 s ; une lecture toutes les 10 minutes ne le permet pas
+sans regarder le passé : la latence réelle est journalisée) ; sorties au marché à 24 h et à 7 jours ; frais du
+modèle commun ; BTC acheté et vendu aux mêmes instants pour le rendement relatif. Résolution 7 jours après
+l'entrée, mêmes règles de trou que F6.
+
+**Paramètres** (figés dans le code, `forward/f7.py`) : horizons 24 h et 7 jours ; minimum 10 événements résolus
+par horizon ; 2 comparaisons au niveau 1 − 0,05/2 ; rééchantillonnage 10 000 tirages par blocs de 7 jours,
+graine 20261007 ; gel : modules f7, costs, registry, journal, intervalle par blocs.
+
+**Métrique.** Par horizon et scénario : listings joués, rendement net moyen avec son intervalle, part gagnante,
+rendement relatif à BTC avec son intervalle ; listings comptés par source, latence médiane, trous, erreurs de
+source.
+
+**Seuil de décision**, par horizon : `INSUFFISANT` ; `RENDEMENT_POSITIF` (intervalle du rendement entièrement
+au-dessus de 0 en central ET en défavorable) ; `RENDEMENT_NEGATIF` ; sinon `PAS_DE_DIFFERENCE_DEMONTREE`.
+
+**Date d'évaluation.** 84 jours après le démarrage (revue intermédiaire à 42 jours) ; verdict une fois le
+dernier listing résolu.
+
+**Limites déclarées.** Titres lus par un motif coréen fixe (un changement de formulation d'Upbit rend le test
+muet, ce que le rapport montre) ; détection Coinbase tardive ; aucun placebo (la mission n'en demande pas) ;
+l'effet « listing » est connu et largement exploité : un rendement positif ne serait pas une découverte.
+
+## F8_NEWS : filtre de news à mots-clés appliqué au modèle A en direct
+
+Phase 4 de la mission du 2026-10-02. **Aucun backtest** : comparaison en direct seulement, A contre A + news.
+
+**Hypothèse.** Descriptive : mettre à zéro pendant 7 jours l'exposition d'un actif visé par une news de gravité 3
+change le résultat du modèle A en direct ; le nombre de coupures, les actifs touchés et l'écart A + news − A sont
+mesurés, sans seuil.
+
+**Sources.** Les actualités que CSI collecte déjà toutes les 15 minutes, sans modèle de langage (`news/` :
+flux RSS de CoinDesk, Cointelegraph, Decrypt, The Block, annonces Binance, Fed, BCE, SEC), texte brut conservé avec
+ses révisions pour tester plus tard un autre classifieur.
+
+**Règles.**
+- **Liste de termes FIGÉE** (`forward/f8.py`), anglais et français : termes de vol (hack, hacked, exploit,
+  exploited, drained, stolen, theft, piratage, piraté, exploité, vol de fonds, volé, siphonné…) et autres termes
+  de gravité 3 (delisting, delist, lawsuit, sues, charged, indicted, insolvency, bankruptcy, withdrawals suspended
+  ou halted, depeg, rug pull, exit scam ; radiation, poursuite, inculpé, mis en examen, insolvabilité, faillite,
+  retraits suspendus, décrochage de la parité, arnaque de sortie…). Un changement de liste = un nouveau test.
+- **Association prudente** (décision du propriétaire du 2026-10-02) : le terme doit être dans le **titre** ; l'actif
+  (code exact ou nom complet, détection lexicale de `news/assets.py`, non gelée, empreinte inscrite) doit être
+  cité **avant** le terme ; un seul actif admis cité avant le terme ; les termes de vol ne s'appliquent **jamais**
+  à BTC ni à ETH. Tout autre cas avec un terme est journalisé `AMBIGU`, sans effet.
+- **Effet** : dans le portefeuille `A_NEWS`, exposition à zéro sur l'actif pendant 7 jours à partir du jour UTC où
+  la news a été vue (vente de la position le jour même, aucune entrée pendant 7 jours, puis retour aux cibles).
+- **Rejeu** : chaque jour après 01:20 UTC, le portefeuille `A` et le portefeuille `A_NEWS` rejouent les décisions
+  hebdomadaires et les prix d'ouverture de 01:00 journalisés par F5_MODELE_A (même bande, mêmes frais) ; la
+  valeur de `A` doit coïncider avec celle de F5 (contrôle inscrit). Jour sans valorisation de F5 : compté, sauté.
+
+**Paramètres** (figés dans le code) : liste de termes ; actifs protégés BTC, ETH ; effet 7 jours ; variantes A et
+A_NEWS ; gel : modules f8, costs, registry, journal ; fonctions de portefeuille de F5.
+
+**Métrique.** News avec terme (appliquées, ambiguës, par actif, termes vus), jours de valorisation, jours-actifs
+coupés, rendement, volatilité, perte maximale, transactions et frais de A et de A + news (central et défavorable),
+écart A + news − A, cohérence avec la valeur de A chez F5.
+
+**Seuil de décision.** Aucun seuil de performance : `SUIVI_TERMINE` avec le nombre de coupures et l'écart, à la date
+d'évaluation.
+
+**Date d'évaluation.** Celle de F5_MODELE_A (84 jours après son démarrage) ; verdict le lendemain de la dernière
+valorisation.
+
+**Limites déclarées.** Classifieur à mots-clés : faux positifs et faux négatifs certains ; titres seulement ;
+dépend de la collecte (une source en panne est visible dans l'état des sources, pas ici) ; un modèle de langage
+local reste une option non implémentée sans accord du propriétaire.
+
+## VOTE_V1 : modèle de vote, définition pré-enregistrée (phase 9, NON évalué)
+
+Défini maintenant, conformément à la mission ; **aucun code d'évaluation, aucune mesure sur les 12 semaines en
+cours** (ses composants y sont sélectionnés). Il démarrera en direct sur la période SUIVANTE, uniquement avec les
+composants qui auront individuellement passé leur seuil ; un composant sans seuil passé n'entre pas.
+
+- **Composants** (poids égaux) et leur vote quotidien, calculé à 00:00 UTC sur des informations connues :
+  1. **Tendance de A** (F5) : +1 pour un actif détenu par A cette semaine (≥ 2 votes sur 3), −1 sinon ;
+  2. **Capitulation** (F6, seuil `EXCES_POSITIF` à 3 ou 7 jours) : +1 pour BTC et ETH pendant les 7 jours qui
+     suivent un événement, 0 sinon ;
+  3. **Émission de stablecoins** (F3, seuil `EXCES_POSITIF` à 24 h ou 72 h) : +1 pour BTC pendant les 72 h qui
+     suivent un événement joué, 0 sinon ;
+  4. **Filtre de news** (F8, retenu seulement si le propriétaire valide son apport) : −1 pour un actif coupé
+     (7 jours), 0 sinon.
+- **Règle de combinaison, fixée maintenant** : pour chaque actif, score = somme des votes des composants actifs ;
+  exposition = poids de A × max(0, score) / (nombre de composants actifs), plafonnée au poids de A ; un score ≤ 0
+  = stablecoin. Avec A seul actif, le vote est A.
+- **Pré-inscription** : avant tout démarrage, une section « F9_VOTE » sera écrite avec les composants retenus
+  (ceux ayant passé leur seuil), la période, le modèle de frais commun et la référence (A seul), puis figée
+  comme les autres tests. Jusque-là, rien n'est calculé.
+
 ## Démarrages
 
 Historique des démarrages et des arrêts. Cette section est hors empreinte : on y ajoute, on n'y modifie rien.
