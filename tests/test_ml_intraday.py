@@ -426,8 +426,11 @@ def test_a_failed_run_is_recorded_with_its_status(small_protocol, small_program)
     assert rows[0]["status"] == "FAILED" and rows[0]["kind"] == proto.KIND_SELECT
 
 
-def test_code_must_be_committed_before_any_data_is_read(small_protocol, small_program):
+def test_code_must_be_committed_before_any_data_is_read(small_protocol, small_program, monkeypatch):
     from dataclasses import replace
+
+    # Indépendant de l'état réel du dépôt (propre juste après un commit) : on simule un code modifié.
+    monkeypatch.setattr(proto.engine, "code_state", lambda: "abc123+DIRTY")
 
     def forbidden(*_args, **_kwargs):
         raise AssertionError("données lues avant le contrôle du code")

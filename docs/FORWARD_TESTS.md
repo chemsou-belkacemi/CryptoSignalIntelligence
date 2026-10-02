@@ -307,4 +307,5 @@ public, pas Binance Demo. Un résultat ne valide aucune stratégie.
 Historique des démarrages et des arrêts. Cette section est hors empreinte : on y ajoute, on n'y modifie rien.
 
 - 2026-10-02 00:34 UTC : **F1_MAKER_TAKER démarré** dans le conteneur de surveillance (essai FWD-20261002T003429Z-b4ac75, commit dd50b4f). 166 paires halal figées. Revue intermédiaire le 2026-11-13, fin du recueil et évaluation le 2026-12-25. Relu trois fois avant démarrage (verdict final : GO).
+- 2026-10-02 10:45 UTC : **F2_ECHELLES démarré** dans le conteneur de surveillance (essai FWD-20261002T104515Z-87ed9d, commit 76bff87). 166 paires halal figées. Revue intermédiaire le 2026-11-13, fin du recueil le 2026-12-25. Relu avant démarrage (6 corrections appliquées).
 - 2026-10-02 : relevé F0_DERIVES en service (premier jour : 160 paires, 6 sans perpétuel, aucune erreur).
