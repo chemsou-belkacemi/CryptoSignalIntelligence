@@ -31,6 +31,7 @@ except ImportError:  # pragma: no cover - Windows
 
 log = logging.getLogger("csi.forward")
 EVERY = pd.Timedelta(hours=1)
+POLL_EVERY = pd.Timedelta(minutes=10)             # détection d'événements en direct (tests qui exposent `poll`)
 REPORT_AFTER = pd.Timedelta(hours=1)              # après 01:00 UTC : plans du jour inscrits par le suivi
 _LOCK = threading.Lock()
 _LAST: dict[str, pd.Timestamp] = {}
@@ -75,10 +76,44 @@ def run_tests(settings: Settings, *, now: datetime) -> dict:
     return out
 
 
+def poll_tests(settings: Settings, *, now: datetime) -> dict:
+    """Détection d'événements en direct : les tests EN_COURS qui exposent `poll`, gel vérifié avant."""
+    out = {}
+    for test, module in TESTS:
+        if not hasattr(module, "poll") or status(settings, test, now=now)["state"] != RUNNING:
+            continue
+        reason = check_frozen(settings, test, now=now)
+        if reason:
+            log.warning("test %s : %s", test.test_id, reason)
+            out[test.test_id] = {"frozen_check": reason}
+            continue
+        state = status(settings, test, now=now)
+        if state["state"] != RUNNING:
+            continue
+        try:
+            out[test.test_id] = module.poll(settings, journal_for(settings, test.test_id), state["start"], now=now)
+        except Exception as exc:  # noqa: BLE001 - une source en panne ne doit jamais bloquer les autres tests
+            log.exception("détection %s", test.test_id)
+            out[test.test_id] = {"error": f"{type(exc).__name__}: {exc}"[:300]}
+    return out
+
+
+def _due(moment: pd.Timestamp, key: str, every: pd.Timedelta) -> bool:
+    return key not in _LAST or moment - _LAST[key] >= every
+
+
+def _pollable(settings: Settings, *, now: datetime) -> bool:
+    """Au moins un test EN_COURS détecte des événements en direct (sinon aucun passage intermédiaire)."""
+    return any(hasattr(module, "poll") and status(settings, test, now=now)["state"] == RUNNING for test, module in TESTS)
+
+
 def daily(settings: Settings, *, now: datetime, force: bool = False) -> dict | None:
-    """Un passage (au plus un par heure dans ce processus, sauf `force`) ; un seul à la fois entre processus."""
+    """Un passage complet au plus une fois par heure dans ce processus (sauf `force`), une détection d'événements
+    au plus toutes les 10 min quand un test en direct l'exige ; un seul passage à la fois entre processus."""
     moment = pd.Timestamp(now)
-    if not force and "run" in _LAST and moment - _LAST["run"] < EVERY:
+    hourly = force or _due(moment, "run", EVERY)
+    polling = force or (_due(moment, "poll", POLL_EVERY) and _pollable(settings, now=now))
+    if not (hourly or polling):
         return None
     if not _LOCK.acquire(blocking=False):
         return None
@@ -86,6 +121,9 @@ def daily(settings: Settings, *, now: datetime, force: bool = False) -> dict | N
         with process_lock(settings) as acquired:
             if not acquired:
                 return {"skipped": "un autre passage est en cours"}
+            _LAST["poll"] = moment
+            if not hourly:
+                return {"poll": poll_tests(settings, now=now)}
             _LAST["run"] = moment
             out: dict = {"tests": run_tests(settings, now=now)}
             if moment - moment.floor("D") >= derivlog.RECORD_AFTER:
@@ -111,7 +149,8 @@ def daily(settings: Settings, *, now: datetime, force: bool = False) -> dict | N
 
 
 def start_background(settings: Settings, *, now: datetime) -> bool:
-    if _LOCK.locked() or ("run" in _LAST and pd.Timestamp(now) - _LAST["run"] < EVERY):
+    moment = pd.Timestamp(now)
+    if _LOCK.locked() or not (_due(moment, "run", EVERY) or _due(moment, "poll", POLL_EVERY)):
         return False
     threading.Thread(target=_logged, args=(settings, now), name="csi-forward", daemon=True).start()
     return True

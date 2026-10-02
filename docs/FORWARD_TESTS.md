@@ -325,6 +325,100 @@ règle simple, pas celle d'un analyste ; l'origine sort à 24 h et les échelles
 la durée d'exposition autant que de l'échelle ; bougies de 15 minutes (ordre des prix dans la bougie inconnu) ; marché Spot
 public, pas Binance Demo. Un résultat ne valide aucune stratégie.
 
+## F3_STABLECOINS : achat de BTC après une grosse émission de stablecoins
+
+Phase 7 de la mission du 2026-10-02.
+
+**Hypothèse.** Une création d'USDT ou d'USDC d'au moins 100 M$, en une transaction ou cumulée sur 1 heure,
+représente de l'argent frais qui précède une hausse de BTC : un achat simulé de BTC après sa détection fait mieux,
+net de frais, que des achats placebo aux mêmes heures dans les 30 jours précédents. Réponse attendue à 12 semaines,
+avec une quinzaine d'événements : « insuffisant » ou « pas de différence démontrée ».
+
+**Événements.** Créations lues sur les chaînes publiques, sans clé, à chaque cycle de la surveillance (toutes les
+15 minutes) :
+
+| Stablecoin | Chaîne | Lecture | Création |
+|---|---|---|---|
+| USDT | Tron | TronGrid, événements `Issue` du contrat `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t` | montant de l'événement |
+| USDT | Ethereum | nœud public (`ethereum-rpc.publicnode.com`), événements `Issue(uint256)` du contrat `0xdAC1…1ec7` | montant de l'événement |
+| USDC | Ethereum | même nœud, événements `Mint(address,address,uint256)` du contrat `0xA0b8…eB48` | montant, émetteur noté |
+
+- Une création est COMPTÉE si elle vaut au moins 1 M$ et, pour l'USDC, si l'émetteur n'est pas un pont CCTP de
+  Circle (`0xc492…e907`, `0xfd78…D002`) : ces créations correspondent à des USDC brûlés sur une autre chaîne, pas à
+  de l'argent frais. Les créations non comptées sont inscrites au journal avec leur raison.
+- Un **instant qualifiant** : le cumul des créations comptées du MÊME stablecoin sur l'heure qui précède atteint
+  100 M$.
+- Un **événement** : un instant qualifiant à 24 h ou plus du dernier instant qualifiant, tous stablecoins
+  confondus ; les instants qualifiants suivants à moins de 24 h le prolongent (un seul événement). Les créations
+  antérieures au démarrage ne comptent pas ; une création lue tardivement ne crée pas de second événement à moins
+  de 24 h d'un événement déjà inscrit.
+- **Détection** : l'heure du passage qui lit la création. **Latence** = détection − heure du bloc ; journalisée.
+  Au-delà de 120 minutes (machine éteinte, source en panne), l'événement est `TARDIF` : compté, jamais joué. Un
+  événement avant le démarrage ou après la fin du recueil est `HORS_FENETRE`.
+- Journalisé pour chaque création : montant, stablecoin, chaîne, transaction, heure du bloc, émetteur, heure de
+  détection, latence ; pour chaque événement : instant, cumul, créations, décision et jours placebo.
+
+**Règles.**
+- **Achat** : BTCUSDT, au prix d'ouverture de la première bougie de 1 minute (Binance Spot public) qui s'ouvre à
+  DÉTECTION + 5 minutes ou après ; jamais à l'heure de l'émission. Une seule entrée, au marché.
+- **Sorties** : vente au marché au prix d'ouverture de la première bougie de 1 minute qui s'ouvre 24 h, puis 72 h,
+  après l'heure d'entrée (deux horizons, deux achats indépendants de même entrée).
+- **Placebos** : 20 achats de BTC à la même heure (entrée − d jours, d tiré sans remise parmi 1 à 30, graine déduite
+  de l'identifiant de l'événement : tirage reproductible, inscrit au journal à la décision), mêmes durées, mêmes
+  frais.
+- **Frais** : modèle commun, central et défavorable, payés à l'achat et à la vente (écart et glissement de BTC).
+- **Résolution** : 72 h après l'entrée, à partir des bougies 1 minute publiques ; si une bougie voulue n'existe que
+  plus de 10 minutes après l'heure demandée (bourse à l'arrêt), l'événement est un `TROU`, compté, exclu de la
+  mesure ; si la source ne répond pas, nouvel essai à chaque passage, trou constaté 2 jours après l'horizon.
+
+**Paramètres** (figés dans le code, `forward/f3.py`) :
+
+| Paramètre | Valeur |
+|---|---|
+| Seuil | 100 M$ cumulés sur 1 h, par stablecoin ; créations comptées à partir de 1 M$ |
+| Séparation des événements | 24 h depuis le dernier instant qualifiant |
+| Latence d'entrée | 5 min après la détection ; détection à plus de 120 min : TARDIF |
+| Fenêtre relue à chaque passage | 3 h (Tron), 1 000 blocs (Ethereum) |
+| Horizons | 24 h et 72 h |
+| Placebos | 20, dans les 30 jours précédents, même heure |
+| Minimum pour conclure | 10 événements résolus par horizon |
+| Comparaisons | 2 (un par horizon), niveau de chaque intervalle 1 − 0,05/2 |
+| Rééchantillonnage | 10 000 tirages par blocs de 3 jours (au moins 8 blocs), graine 20261004 |
+| Gel | modules f3, costs, registry, journal ; lecture des chaînes (`forward/sources.py` : `tron_events`, `eth_logs`, `eth_block_number`, `eth_block_timestamp`, `eth_rpc`), intervalle par blocs ; adresse REST des bougies |
+
+**Métrique.** Par événement joué et par horizon : rendement net de l'achat moins la moyenne des rendements nets de
+ses 20 placebos (« excès »). Moyenne de l'excès sur les événements et intervalle par blocs de 3 jours au niveau
+1 − 0,05/2. Rapportés aussi : rendement moyen des achats, des placebos, part des événements qui battent leurs
+placebos, nombre d'événements par stablecoin, latence médiane, créations ignorées, erreurs de source.
+
+**Seuil de décision**, par horizon, à la date d'évaluation et une fois tous les événements résolus :
+- `INSUFFISANT` : moins de 10 événements résolus, ou intervalle non calculable ;
+- `EXCES_POSITIF` : intervalle de l'excès entièrement au-dessus de 0 en central ET en défavorable ;
+- `EXCES_NEGATIF` : entièrement en dessous de 0 dans les deux ;
+- sinon `PAS_DE_DIFFERENCE_DEMONTREE`.
+
+**Date d'évaluation.** Fin du recueil 84 jours (12 semaines) après le démarrage ; revue intermédiaire à 42 jours ;
+verdict une fois le dernier événement résolu (au plus 3 jours après la fin du recueil, 5 si la source des bougies
+manque), inscrit une fois au journal.
+
+**Nombre d'événements attendu (estimation, sources sondées le 2026-10-02).** Sur les 90 jours précédant la
+pré-inscription, TronGrid montre 5 créations d'USDT d'un milliard chacune, dont 3 en une heure : 3 événements, soit
+environ 3 en 12 semaines. Sur Ethereum, 14 heures de blocs lues sur le nœud public (4 plages de 1 000 blocs sur 6,
+2 refusées par le nœud) montrent 47 créations d'USDC par l'émetteur de Circle (`0x5b61…47d7`, 108 M$ au total,
+la plus grosse 50 M$, 13 d'au moins 1 M$), un cumul sur 1 h de 56 M$ au plus et AUCUN instant qualifiant ; les
+ponts CCTP (`0xfd78…D002` : 2 137 créations, 102 M$ ; `0xc492…e907` : 141, 13 M$) sont exclus ; un quatrième
+émetteur (`0x2222…c205`, 93 créations, 4 M$, la plus grosse 1,9 M$) est compté et inscrit avec son adresse. Aucune
+création d'USDT sur Ethereum dans ces plages. Ordre de grandeur attendu : 5 à 20 événements en 12 semaines, les
+jours de forte demande d'USDC pouvant en ajouter. À ce nombre, l'intervalle est large : une conclusion
+`INSUFFISANT` ou `PAS_DE_DIFFERENCE_DEMONTREE` est l'issue la plus probable, et c'est une réponse. Le nœud public
+refuse parfois une requête (quota) : l'erreur est journalisée et la lecture reprend au passage suivant ; une
+création manquée plus de 2 heures devient `TARDIF`.
+
+**Limites déclarées.** Une création n'est pas une vente : l'argent « frais » peut rester en trésorerie ; les
+placebos partagent l'heure mais pas le contexte de marché ; deux horizons sur le même achat sont corrélés ; une
+détection toutes les 15 minutes ajoute jusqu'à 15 minutes à la latence d'un vrai bot ; Tron et Ethereum seulement
+(pas Solana ni les autres chaînes) ; 12 semaines ne valident rien, elles comptent et mesurent.
+
 ## Démarrages
 
 Historique des démarrages et des arrêts. Cette section est hors empreinte : on y ajoute, on n'y modifie rien.

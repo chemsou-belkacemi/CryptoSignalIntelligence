@@ -27,7 +27,12 @@ ALLOWED = {
     "www.bitstamp.net": ("/api/v2/ticker/",),
     "www.okx.com": ("/api/v5/public/liquidation-orders",),
     "api.nasdaq.com": ("/api/quote/NDX/historical",),
+    # Émissions de stablecoins (F3_STABLECOINS) : événements publics des contrats, sans clé.
+    "api.trongrid.io": ("/v1/contracts/",),
+    "ethereum-rpc.publicnode.com": ("/",),
 }
+TRON_API = "https://api.trongrid.io"
+ETH_RPC = "https://ethereum-rpc.publicnode.com"
 # Indice dollar (ICE) : formule publique, à partir des taux de référence de la BCE (pas la cotation ICE elle-même).
 DXY_CONSTANT = 50.14348112
 DXY_WEIGHTS = {"EURUSD": -0.576, "USDJPY": 0.136, "GBPUSD": -0.119, "USDCAD": 0.091, "USDSEK": 0.042, "USDCHF": 0.036}
@@ -70,6 +75,68 @@ class PublicSources:
             return json.loads(self.get(url, params))
         except ValueError:
             raise SourceError(f"JSON illisible : {url}") from None
+
+    def post_json(self, url: str, payload: dict, timeout: float | None = None):
+        """POST JSON (appels JSON-RPC), même liste blanche et mêmes limites que `get`."""
+        parsed = httpx.URL(url)
+        prefixes = ALLOWED.get(parsed.host or "")
+        if parsed.scheme != "https" or prefixes is None or not parsed.path.startswith(prefixes):
+            raise PermissionError(f"adresse hors liste blanche : {url}")
+        try:
+            response = self._client.post(url, json=payload,
+                                         timeout=httpx.Timeout(timeout, connect=10.0) if timeout else httpx.USE_CLIENT_DEFAULT)
+        except httpx.HTTPError as exc:
+            raise SourceError(f"réseau : {type(exc).__name__}") from None
+        if response.status_code != 200:
+            raise SourceError(f"HTTP {response.status_code} sur {parsed.host}")
+        if len(response.content) > MAX_BYTES:
+            raise SourceError(f"réponse trop volumineuse ({len(response.content)} octets)")
+        try:
+            return json.loads(response.content)
+        except ValueError:
+            raise SourceError(f"JSON illisible : {url}") from None
+
+
+# --- Chaînes publiques (F3_STABLECOINS) ------------------------------------------------------------------
+
+def eth_rpc(client: PublicSources, method: str, params: list):
+    """Appel JSON-RPC au nœud Ethereum public ; une erreur du nœud devient une SourceError."""
+    reply = client.post_json(ETH_RPC, {"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+    if not isinstance(reply, dict) or "result" not in reply:
+        message = (reply.get("error") or {}).get("message", "réponse sans résultat") if isinstance(reply, dict) else "?"
+        raise SourceError(f"RPC {method} : {str(message)[:120]}")
+    return reply["result"]
+
+
+def eth_block_number(client: PublicSources) -> int:
+    return int(eth_rpc(client, "eth_blockNumber", []), 16)
+
+
+def eth_block_timestamp(client: PublicSources, number: int) -> pd.Timestamp:
+    block = eth_rpc(client, "eth_getBlockByNumber", [hex(number), False])
+    if not isinstance(block, dict) or "timestamp" not in block:
+        raise SourceError(f"bloc {number} sans horodatage")
+    return pd.Timestamp(int(block["timestamp"], 16), unit="s", tz="UTC")
+
+
+def eth_logs(client: PublicSources, *, address: str, topic: str, from_block: int, to_block: int) -> list[dict]:
+    """Journaux d'événements d'un contrat pour une signature, sur une plage de blocs récente."""
+    logs = eth_rpc(client, "eth_getLogs", [{"address": address, "topics": [topic],
+                                            "fromBlock": hex(max(from_block, 0)), "toBlock": hex(to_block)}])
+    if not isinstance(logs, list):
+        raise SourceError("eth_getLogs : liste attendue")
+    return logs
+
+
+def tron_events(client: PublicSources, *, contract: str, event_name: str, since_ms: int, limit: int = 200) -> list[dict]:
+    """Événements d'un contrat TRC-20 depuis `since_ms` (ordre chronologique), API publique de TronGrid."""
+    reply = client.get_json(f"{TRON_API}/v1/contracts/{contract}/events",
+                            {"event_name": event_name, "min_block_timestamp": int(since_ms), "limit": int(limit),
+                             "order_by": "block_timestamp,asc"})
+    data = reply.get("data") if isinstance(reply, dict) else None
+    if not isinstance(data, list):
+        raise SourceError("TronGrid : réponse sans « data »")
+    return data
 
 
 def _number(value) -> float:

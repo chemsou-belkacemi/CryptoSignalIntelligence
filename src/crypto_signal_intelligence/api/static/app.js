@@ -751,10 +751,14 @@ function forwardCard(report) {
     const h = ((t.stats || {}).horizons || {});
     const main = (h["24h"] || {}).observe || {};
     const sc = ((t.stats || {}).scenarios || {}).central;
-    const ladder = sc ? Object.entries(sc).map(([v, s]) => `${v.replace("echelle_", "")} : ${isNum(s.r_mean) ? fmt(s.r_mean, 2, true) + " R" : "–"} (${s.filled || 0})`).join(" · ") : null;
+    const st = t.stats || {};
+    const onchain = st.mints !== undefined ? st : null;
+    const excessText = (h) => { const s = (sc || {})[h] || {}; return `${h} : ${isNum(s.excess) ? fmt(s.excess * 100, 2, true) + " %" : "–"} (${s.n || 0})`; };
+    const ladder = sc && !onchain ? Object.entries(sc).map(([v, s]) => `${v.replace("echelle_", "")} : ${isNum(s.r_mean) ? fmt(s.r_mean, 2, true) + " R" : "–"} (${s.filled || 0})`).join(" · ") : null;
     rows.push([t.test_id, t.state, t.started_at ? when(t.started_at) : "–", t.final_at ? when(t.final_at) : "–",
       t.journal && t.journal.ok ? `intègre (${t.journal.entries})` : { node: el("span", { class: "bad", text: "ROMPU" }) },
-      ladder ? `R moyen par nombre d'objectifs (remplis) : ${ladder}` : main.n ? `${main.n} décisions, remplissage ${pctFrac(main.fill_rate)}, écart ${fmt(main.diff, 3, true)} R ${ciR(main.diff_ci)}, équilibre ${isNum(main.break_even_bps) ? fmt(main.break_even_bps, 1) + " pb" : "–"}` : "–",
+      onchain ? `${onchain.mints} création(s) lue(s), ${onchain.events} événement(s), ${onchain.decisions} décidé(s), ${onchain.pending} en attente ; excès net sur les placebos : ${["24h", "72h"].map(excessText).join(" · ")}`
+        : ladder ? `R moyen par nombre d'objectifs (remplis) : ${ladder}` : main.n ? `${main.n} décisions, remplissage ${pctFrac(main.fill_rate)}, écart ${fmt(main.diff, 3, true)} R ${ciR(main.diff_ci)}, équilibre ${isNum(main.break_even_bps) ? fmt(main.break_even_bps, 1) + " pb" : "–"}` : "–",
       (t.stats || {}).verdict || "–"]);
   }
   const log = report.derivatives_log || {};

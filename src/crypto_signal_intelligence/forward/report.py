@@ -89,6 +89,21 @@ def markdown(report: dict) -> str:
         if "stop" in item:
             lines.append(f"ARRÊTÉ : {item['stop']['reason']}.")
         stats = item["stats"]
+        if "mints" in stats:                                  # F3 : événements on-chain, achat contre placebos
+            lines += [f"Créations inscrites : {stats['mints']} (ignorées, ponts : {stats['mints_ignored']} ; comptées : "
+                      f"{stats['mints_usd']} M$) ; événements : {stats['events']} ({stats['by_status']}) ; décisions "
+                      f"USDT/USDC : {stats['by_stablecoin']} ; en attente : {stats['pending']} ; trous : {stats['gaps']} ; "
+                      f"latence médiane : {stats['latency_median_min'] if stats['latency_median_min'] is not None else '—'} min ; "
+                      f"erreurs de source : {stats['source_errors']}.", "",
+                      "| Coûts | Horizon | Événements | Rendement achat | Rendement placebos | Excès | Gagnants | IC de l'excès |",
+                      "|---|---|---|---|---|---|---|---|"]
+            for scenario, horizons in stats["scenarios"].items():
+                for horizon, s in horizons.items():
+                    lines.append(f"| {scenario} | {horizon} | {s.get('n', 0)} | {_fmt(s.get('event_r'), True)} | "
+                                 f"{_fmt(s.get('placebo_r'), True)} | {_fmt(s.get('excess'), True)} | "
+                                 f"{_fmt(s.get('win_share'), True)} | {s.get('excess_ci') or '—'} |")
+            lines += ["", f"Verdicts : **{stats['verdict']}**.", ""]
+            continue
         if "scenarios" in stats:                              # F2 : variantes de sortie sur les mêmes entrées
             lines += [f"Signaux inscrits : {stats['decisions']} ; en attente : {stats['pending']} ; hors screening : "
                       f"{stats['skipped']} ; trous : {stats['gaps']}.", "",
