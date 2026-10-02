@@ -93,7 +93,8 @@ def flow_flags(share: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     previous = share.shift(1)
     high = previous.rolling(FLOW_WINDOW, min_periods=FLOW_MIN_DAYS).quantile(FLOW_TOP)
     low = previous.rolling(FLOW_WINDOW, min_periods=FLOW_MIN_DAYS).quantile(FLOW_BOTTOM)
-    return (share >= high) & share.notna() & high.notna(), (share <= low) & share.notna() & low.notna()
+    valid = share.notna() & high.notna() & low.notna() & (high > low)      # fenêtre dégénérée (constante) : aucun drapeau
+    return (share >= high) & valid, (share <= low) & valid
 
 
 def new_supply_flags(close: pd.DataFrame) -> pd.DataFrame:
@@ -111,7 +112,8 @@ def mvrv_flags(mvrv: pd.Series, index: pd.DatetimeIndex) -> tuple[pd.Series, pd.
     previous = known.shift(1)
     low = previous.rolling(MVRV_WINDOW, min_periods=MVRV_MIN_DAYS).quantile(MVRV_LOW)
     high = previous.rolling(MVRV_WINDOW, min_periods=MVRV_MIN_DAYS).quantile(MVRV_HIGH)
-    return (known <= low) & low.notna(), (known >= high) & high.notna()
+    valid = known.notna() & low.notna() & high.notna() & (high > low)
+    return (known <= low) & valid, (known >= high) & valid
 
 
 def forward_returns(panel: fa.Panel, horizon_days: int) -> pd.DataFrame:
@@ -121,11 +123,24 @@ def forward_returns(panel: fa.Panel, horizon_days: int) -> pd.DataFrame:
     return exit_close / panel.price - 1
 
 
-def events_frame(flags: pd.DataFrame, fwd: pd.DataFrame) -> pd.DataFrame:
-    drift = fwd.mean()
+def aged_drift(close: pd.DataFrame, fwd: pd.DataFrame) -> pd.Series:
+    """Dérive de référence du veto J3 : rendement moyen, au même horizon, de toutes les (paire, journée) où la paire a
+    plus de NEW_SUPPLY_MAX_DAYS jours de cotation. La dérive propre d'une paire jeune serait faite de sa fenêtre de
+    veto et tirerait mécaniquement l'excès vers zéro."""
+    first = close.notna().idxmax()
+    age = pd.DataFrame({s: (fwd.index - first[s]).days for s in fwd.columns}, index=fwd.index)
+    aged = fwd.where(age > NEW_SUPPLY_MAX_DAYS).to_numpy(float)
+    value = float(np.nanmean(aged)) if np.isfinite(aged).any() else np.nan
+    return pd.Series(value, index=fwd.columns)
+
+
+def events_frame(flags: pd.DataFrame, fwd: pd.DataFrame, drift: pd.Series | None = None) -> pd.DataFrame:
+    """Événements (journée, paire) avec rendement et excès ; `drift` : dérive retirée par paire, par défaut la
+    moyenne de `fwd` de la paire sur toute la période (convention des criblages D à I)."""
+    drift = fwd.mean() if drift is None else drift
     parts = []
     for symbol in flags.columns:
-        if symbol not in fwd.columns:
+        if symbol not in fwd.columns or symbol not in drift.index or not np.isfinite(drift[symbol]):
             continue
         mask = flags[symbol].to_numpy(bool) & fwd[symbol].notna().to_numpy()
         values = fwd[symbol].to_numpy(float)[mask]
@@ -205,23 +220,31 @@ def leak_audit(frames: dict[str, pd.DataFrame], panel: fa.Panel, mvrv: dict[str,
     rng = np.random.default_rng(seed)
     share = daily_flow(frames)
     full = all_flags(panel, share, mvrv)
+    mutated_full = all_flags(panel, share.shift(-1), mvrv)
     days = panel.close.index[panel.close.index >= FIRST_DAY]
     chosen = sorted(rng.choice(np.arange(len(days) // 3, len(days)), size=picks, replace=False))
     violations: list[dict] = []
+    detected = False
     for pick in chosen:
         moment = days[pick]
         cut = {s: f[f["open_time"] < moment] for s, f in frames.items()}
         kept = {s: f for s, f in cut.items() if not f.empty}
+        cut_panel, cut_share = fa.build_panel(kept), daily_flow(kept)
         cut_mvrv = {s: v[v.index + pd.Timedelta(days=MVRV_LATENCY_DAYS) <= moment] for s, v in mvrv.items()}
-        redo = all_flags(fa.build_panel(kept), daily_flow(kept), cut_mvrv)
+        redo = all_flags(cut_panel, cut_share, cut_mvrv)
         for name, table in full.items():
             again = redo[name].reindex(columns=table.columns).fillna(False)
             if moment not in again.index or not (again.loc[moment].to_numpy() == table.loc[moment].to_numpy()).all():
                 violations.append({"day": str(moment), "condition": name})
-    mutated = all_flags(panel, share.shift(-1), mvrv)["J1_FLOW_BUY_TOP"]
-    detected = bool((mutated.to_numpy() != full["J1_FLOW_BUY_TOP"].to_numpy()).any())
-    return {"violations": violations, "mutation_detected": detected, "days": [str(days[p]) for p in chosen],
-            "passed": not violations and detected}
+        # Mutation passée par la MÊME coupe : les drapeaux d'une part lue sur le lendemain doivent différer entre le
+        # calcul complet et le calcul tronqué (le lendemain n'y existe pas). Sinon l'audit ne verrait pas une fuite.
+        again_mutated = all_flags(cut_panel, cut_share.shift(-1), cut_mvrv)
+        for name in ("J1_FLOW_BUY_TOP", "J2_FLOW_SELL_BOTTOM"):
+            table = mutated_full[name]
+            redo_mutated = again_mutated[name].reindex(columns=table.columns).fillna(False)
+            detected |= moment not in redo_mutated.index or not (redo_mutated.loc[moment].to_numpy() == table.loc[moment].to_numpy()).all()
+    return {"violations": violations, "mutation_detected": bool(detected), "days": [str(days[p]) for p in chosen],
+            "passed": not violations and bool(detected)}
 
 
 def run(settings: Settings, *, now: datetime, symbols: list[str] | None = None, progress: Callable[[str], None] | None = None,
@@ -241,6 +264,8 @@ def run(settings: Settings, *, now: datetime, symbols: list[str] | None = None, 
     panel = fa.build_panel(frames)
     say("MVRV")
     mvrv = {s: load_mvrv(settings, a, end=end, fetcher=mvrv_fetcher) for s, a in MVRV_ASSETS.items() if s in frames}
+    for symbol, series in mvrv.items():
+        result.data_hashes[f"mvrv_{MVRV_ASSETS[symbol]}"] = fingerprint(pd.DataFrame({"time": series.index, "value": series.to_numpy(float)}))
     say("audit des fuites")
     result.leak_audit = leak_audit(frames, panel, mvrv, seed=settings.protocol.seed)
     if not result.leak_audit["passed"]:
@@ -248,14 +273,15 @@ def run(settings: Settings, *, now: datetime, symbols: list[str] | None = None, 
     share = daily_flow(frames)
     flags = all_flags(panel, share, mvrv)
     result.coverage = {"days": int((panel.close.index >= FIRST_DAY).sum()), "first": str(FIRST_DAY)[:10], "last": str(panel.close.index.max())[:10],
-                       "mvrv_days": {s: int(len(v)) for s, v in mvrv.items()},
+                       "mvrv_days": {s: int(len(v)) for s, v in mvrv.items()}, "flow_pairs": int(share.shape[1]),
                        "flag_days": {name: int(table.loc[table.index >= FIRST_DAY].to_numpy().sum()) for name, table in flags.items()}}
     for horizon in HORIZONS_DAYS:
         say(f"horizon {horizon} j")
         fwd = forward_returns(panel, horizon)
         fwd = fwd[fwd.index >= FIRST_DAY]
         for name, table in flags.items():
-            frame = events_frame(table[table.index >= FIRST_DAY], fwd)
+            drift = aged_drift(panel.close, fwd) if name == "J3_NEW_SUPPLY_VETO" else None
+            frame = events_frame(table[table.index >= FIRST_DAY], fwd, drift)
             row = _row(name, horizon, frame, hurdle_pct, settings)
             result.rows.append(row)
     result.program_trials = ExperimentRegistry(settings.experiments_db).program_trials() + N_TRIALS

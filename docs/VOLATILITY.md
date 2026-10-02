@@ -274,9 +274,73 @@ La prévision est branchée, comme **information** : aucune décision de CSI n'e
   apprennent aussi des données récentes (après 2025-06) ; cela ne consulte pas la période finale au sens
   du protocole (aucune mesure d'erreur n'y est faite).
 
+## 14. Protocole v2 — combiner et enrichir (déclaré le 2026-10-02, avant exécution)
+
+Étape 7 du plan de travail validé le 2026-10-02. Code : `research/volatility_v2.py` (le module v1 n'est pas
+modifié ; il est en service). Tests : `tests/test_volatility_v2.py`. Commande : `csi volatility-v2`.
+
+**Question.** Un candidat prévoit-il la variance réalisée à 1, 3 et 7 jours mieux que le **modèle en service**
+(§ 12-13 : LightGBM à 1 et 3 jours, HAR + BTC à 7 jours) ? La référence n'est plus M0 : « mieux que M0 » est
+acquis ; ce qui compte est « mieux que ce qui tourne ».
+
+**Cadre repris sans changement** (§ 1 à 6, 9) : données, univers, origines, cibles, variables du lot 7, purge,
+réajustement mensuel sur fenêtre croissante, QLIKE et erreur de log RV, IC calendaires (blocs de max(10, 2·H)
+jours, 20 blocs au moins), échantillon commun, réglages de HAR et de LightGBM. La référence est réajustée ici
+sur les mêmes lignes que les candidats (lignes complètes au sens v2, légèrement moins nombreuses que celles du
+lot 7 quand une variable v2 manque).
+
+**Variables ajoutées**, toutes connues à l'origine, sur la même grille horaire :
+
+| Variable | Définition |
+|---|---|
+| `neg_share_d`, `neg_share_w`, `neg_share_m` | part négative de la variance : moyenne des carrés des rendements horaires négatifs / moyenne des carrés de tous les rendements, sur 24, 168 et 720 h (couverture ≥ 95 %) |
+| `log_park_d`, `log_park_w` | log de la variance de Parkinson moyenne, ln(plus haut / plus bas)² / (4 ln 2) par bougie 1 h, sur 24 et 168 h ; les colonnes `high` et `low` du magasin long sont donc lues (empreintes enregistrées) |
+| `log_dvol_var` | log de la variance horaire implicite de l'indice **DVOL** de Deribit pour BTC : (DVOL / 100)² / 8 760, clôture journalière de la journée qui se termine à l'origine (connue à 00:00 UTC, jamais celle du lendemain) ; même valeur pour toutes les paires (variable de marché, comme les variances de BTC) |
+| `dvol_spread` | `log_dvol_var` − `log_var_w` (écart implicite − réalisé) |
+
+DVOL : API publique de Deribit (`get_volatility_index_data`, résolution 1 jour, en liste blanche), clôtures
+depuis le 2021-03-24, mises en cache dans `data/options/dvol_btc.parquet` ; la série lue est coupée aux journées
+commencées avant la fin de DEVELOPMENT et son empreinte est enregistrée.
+
+**Candidats** (aucun nouveau réglage) :
+
+| Candidat | Définition |
+|---|---|
+| `REF_SERVICE` (référence) | M5 à 1 et 3 jours, M4 à 7 jours, réajustés sur les mêmes lignes |
+| `V1_MEAN_M4_M5` | moyenne arithmétique des variances prévues par M4 et M5 |
+| `V2_HAR_SEMIVAR` | HAR commun + BTC + les trois parts négatives |
+| `V3_LGBM_ENRICHED` | LightGBM commun : variables de M5 + parts négatives + `log_park_d`, `log_park_w` |
+| `V4_HAR_DVOL` | HAR commun + BTC + `log_dvol_var` + `dvol_spread`, ajusté et évalué sur les seules lignes à DVOL connu (origines ≥ 2021-03-25) |
+
+- **Échantillon.** Référence, V1, V2 et V3 sont comparés sur l'échantillon commun complet (2019-01-01 → fin de
+  DEVELOPMENT, 400 jours d'historique). V4 est comparé à la référence **sur ses propres lignes** (DVOL connu) :
+  moins de jours, intervalles plus larges, et c'est déclaré.
+- **Règle** : celle du § 7, référence = modèle en service, avec une seule adaptation : le critère des années
+  exige « toutes les années couvertes sauf au plus une » (6 sur 7 pour V1 à V3 ; 4 sur 5 pour V4, dont les
+  années vont de 2021 à 2025). Verdict par horizon : meilleur QLIKE parmi les candidats utiles, sinon
+  `AUCUNE_AMELIORATION` ; verdict global `MIEUX_QUE_SERVICE` si un horizon au moins a un candidat utile.
+- **Essais** : 4 candidats × 3 horizons = **12 comparaisons**, comptées au programme ; niveau de Bonferroni
+  1 − 0,05/12 ≈ 99,58 %.
+- **Audit des fuites avant tout résultat** (§ 9 étendu) : sur BTC, ETH et SOL, 3 origines à DVOL connu par paire ;
+  bougies **et** série DVOL tronquées à la décision puis falsifiées après elle ; les 15 entrées v2 (celles du lot 7,
+  parts négatives, Parkinson, DVOL) doivent être identiques ; deux mutations à détecter sur chaque paire : la
+  fenêtre « jour » avancée d'une heure (lot 7) et la bougie DVOL de la journée qui **commence** à l'origine.
+- **Attendu et lecture déclarée.** V1 (combinaison) : gain faible, peut-être mesurable à 1 et 3 jours ; V2 et V3 :
+  gain faible ou nul (la littérature trouve les semi-variances utiles surtout à 1 jour sur les indices) ; V4 : sur
+  ≈ 1 500 jours, un gain modeste serait indétectable. `AUCUNE_AMELIORATION` laisse le service en l'état ;
+  `MIEUX_QUE_SERVICE` ne remplace rien automatiquement : le candidat retenu est le meilleur de quatre sur des
+  données déjà vues, à confirmer sur la période finale réservée ou en observation prospective avant tout
+  branchement, dans une étape séparée.
+- **Limites** : celles du § 11 ; DVOL n'existe que pour BTC et ETH (seul BTC est utilisé) et depuis 2021 ; le
+  plus haut et le plus bas d'une bougie 1 h dépendent des cotations réelles de Binance (une mèche aberrante entre
+  dans la variance de Parkinson) ; la référence réajustée ici peut différer d'un cheveu de celle du lot 7
+  (lignes complètes v2).
+
 ## Historique
 
 - 2026-10-01, v1 : protocole déclaré avant toute exécution.
+- 2026-10-02, protocole v2 (§ 14, module `research/volatility_v2.py`, le v1 reste en service) : déclaré avant toute
+  exécution ; aucun résultat v2 calculé ni regardé.
 - 2026-10-01, v1 complétée avant toute exécution, après la relecture indépendante : grille horaire et
   variances passées tolérantes à 5 % d'heures manquantes (avant : une heure de maintenance retirait
   30 jours d'origines, soit environ 21 % des jours de 2019 à 2025) ; exécution refusée sur du code non

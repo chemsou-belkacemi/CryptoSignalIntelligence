@@ -49,9 +49,14 @@ def test_flow_flags_compare_to_previous_days_only(monkeypatch):
     assert high["A"].to_numpy()[10] and not high["A"].to_numpy()[:10].any()    # 0,9 ≥ 90e centile des 10 précédents
     assert low["A"].to_numpy()[11] and not low["A"].to_numpy()[:11].any()
     assert not high["A"].to_numpy()[12] and not low["A"].to_numpy()[12]
-    # Un jour extrême ne doit pas s'auto-déclencher par comparaison avec lui-même : fenêtre sur les jours d'avant.
-    single = pd.DataFrame({"A": [0.5] * 5 + [0.95]}, index=pd.date_range(START, periods=6, freq="D", tz="UTC"))
-    assert fs.flow_flags(single)[0]["A"].to_numpy()[5]
+    # Cas discriminants : avec la fenêtre sur les jours d'AVANT, 0,6 dépasse le 90e centile de [0,5 × 9, 0,7] (0,52) ;
+    # une fenêtre qui contiendrait le jour lui-même donnerait 0,61 et aucun drapeau (miroir pour le bas : 0,39 contre 0,48).
+    top = pd.DataFrame({"A": [0.5] * 9 + [0.7, 0.6]}, index=pd.date_range(START, periods=11, freq="D", tz="UTC"))
+    bottom = pd.DataFrame({"A": [0.5] * 9 + [0.3, 0.4]}, index=pd.date_range(START, periods=11, freq="D", tz="UTC"))
+    assert fs.flow_flags(top)[0]["A"].to_numpy()[10] and fs.flow_flags(bottom)[1]["A"].to_numpy()[10]
+    # Série constante : centiles haut et bas égaux, fenêtre dégénérée, aucun drapeau (ni haut ni bas).
+    flat = pd.DataFrame({"A": [0.5] * 12}, index=pd.date_range(START, periods=12, freq="D", tz="UTC"))
+    assert not fs.flow_flags(flat)[0]["A"].any() and not fs.flow_flags(flat)[1]["A"].any()
 
 
 def test_new_supply_flags_cover_days_30_to_180_after_first_close():
@@ -72,6 +77,30 @@ def test_mvrv_flags_apply_the_two_day_latency(monkeypatch):
     low, high = fs.mvrv_flags(mvrv, index)
     assert low.to_numpy()[12] and not low.to_numpy()[10:12].any() and not low.to_numpy()[13]   # 0,5 du jour 10 connu au jour 12
     assert not high.to_numpy()[12] and high.to_numpy()[-1]                                   # 2,5 ≥ 80e centile
+
+
+def test_mvrv_flags_use_previous_values_only(monkeypatch):
+    monkeypatch.setattr(fs, "MVRV_WINDOW", 5)
+    monkeypatch.setattr(fs, "MVRV_MIN_DAYS", 3)
+    index = pd.date_range(START, periods=14, freq="D", tz="UTC")
+    mvrv = pd.Series([2.0] * 5 + [1.0, 1.5] + [2.0] * 7, index=index)
+    low, _high = fs.mvrv_flags(mvrv, index)
+    # 1,5 (jour 6, connu au jour 8) contre les 5 valeurs d'avant [2, 2, 2, 2, 1] : 20e centile 1,8 → bas ; une fenêtre
+    # qui contiendrait la valeur elle-même donnerait 1,4 et aucun drapeau.
+    assert low.to_numpy()[8]
+    flat = pd.Series(2.0, index=index)
+    low, high = fs.mvrv_flags(flat, index)
+    assert not low.any() and not high.any()                                     # fenêtre dégénérée : aucun drapeau
+
+
+def test_aged_drift_ignores_the_new_supply_window_of_young_pairs():
+    index = pd.date_range(START, periods=400, freq="D", tz="UTC")
+    close = pd.DataFrame({"OLD": 100.0, "NEW": [np.nan] * 300 + [100.0] * 100}, index=index)
+    fwd = pd.DataFrame({"OLD": 0.01, "NEW": 0.05}, index=index)
+    fwd.loc[close["NEW"].isna(), "NEW"] = np.nan
+    drift = fs.aged_drift(close, fwd)
+    assert drift.to_dict() == pytest.approx({"OLD": 0.01, "NEW": 0.01})           # NEW (< 180 j) ne compte pas
+    assert fs.aged_drift(close.iloc[:10], fwd.iloc[:10]).isna().all()            # aucune paire âgée : pas de dérive
 
 
 def test_forward_returns_buy_at_0100_and_sell_at_close_h_days_later():
@@ -132,10 +161,24 @@ def test_run_measures_fifteen_trials_and_caches_mvrv(stored):
     assert j1.events > 0 and j1.pairs == len(PAIRS) and j1.ci95_excess_pct is not None
     assert not any(r.beats_costs for r in result.rows if r.condition in fs.VETO_CONDITIONS)
     assert fs.mvrv_path(stored, "btc").exists() and fs.mvrv_path(stored, "eth").exists()
+    assert {"mvrv_btc", "mvrv_eth"} <= set(result.data_hashes) and result.coverage["flow_pairs"] == len(PAIRS)
     registry = ExperimentRegistry(stored.experiments_db)
     assert registry.get(result.run_id)["kind"] == "SCREEN" and registry.program_trials() == 15
     cached = fs.load_mvrv(stored, "btc", end=pd.Timestamp("2024-12-30", tz="UTC"), fetcher=lambda *_a, **_k: pytest.fail("réseau"))
     assert cached.index.max() <= pd.Timestamp("2024-12-30", tz="UTC") and len(cached) > 300
+
+
+def test_leak_audit_catches_a_share_read_on_the_next_day(stored, monkeypatch):
+    end = pd.Timestamp(stored.protocol.development_end)
+    frames = fa.load_frames(stored, list(PAIRS), end)
+    panel = fa.build_panel(frames)
+    mvrv = {s: fake_mvrv(a)[fake_mvrv(a).index <= end] for s, a in fs.MVRV_ASSETS.items()}
+    honest = fs.leak_audit(frames, panel, mvrv, seed=stored.protocol.seed)
+    assert honest["passed"] and honest["mutation_detected"] and not honest["violations"]
+    true_flow = fs.daily_flow
+    monkeypatch.setattr(fs, "daily_flow", lambda frames: true_flow(frames).shift(-1))   # part du LENDEMAIN
+    leaky = fs.leak_audit(frames, panel, mvrv, seed=stored.protocol.seed)
+    assert not leaky["passed"] and {v["condition"] for v in leaky["violations"]} & {"J1_FLOW_BUY_TOP", "J2_FLOW_SELL_BOTTOM"}
 
 
 def test_uncommitted_code_or_failed_audit_records_nothing(stored, monkeypatch):

@@ -111,11 +111,22 @@ Une condition vraie le jour d est connue à d+1 00:00 : achat à l'ouverture de 
   de coûts aller-retour (0,26 %) ET borne basse de l'IC95 > 0 ; « veto justifié » (J3, J5) = borne haute de l'IC95
   < 0. Audit des fuites avant tout résultat : drapeaux recalculés avec les seules bougies antérieures à 4 jours
   tirés au hasard (identiques), mutation (part d'achats lue sur le lendemain) détectée.
+- Fenêtre dégénérée (centiles haut et bas égaux, série constante) : aucun drapeau, ni haut ni bas.
+- Dérive retirée : celle de la paire sur toute la période (convention D à I), sauf pour **J3**, où la dérive de
+  référence est le rendement moyen, au même horizon, des (paire, journée) où la paire a plus de 180 jours de
+  cotation : la dérive propre d'une paire jeune serait faite de sa fenêtre de veto et tirerait l'excès vers zéro.
+- Audit des fuites : la mutation est passée par la **même coupe** que les drapeaux honnêtes (calcul tronqué contre
+  calcul complet) ; si elle n'y faisait aucune différence, l'audit ne verrait pas une fuite et refuse de conclure.
 - Attendu : rien ne passe à 1 jour (coûts) ; les conditions de veto peuvent se justifier (une paire récente ou un
   MVRV élevé précèdent souvent des rendements faibles), ce qui ne serait pas une stratégie, seulement un filtre.
-- Limites : MVRV n'existe que pour BTC et ETH (régimes de plusieurs mois, très peu d'observations indépendantes) ;
-  la part des achats au marché est celle de Binance seule ; les « 30 à 180 jours » dépendent de la date de cotation
-  sur Binance, pas de l'émission du token.
+  15 tests à 95 % sans correction de multiplicité : un seul « passe » se lit comme une piste, jamais comme un résultat.
+- À 30 jours, l'intervalle exige 10 blocs de 60 journées à événement ; pour J4 et J5 (BTC et ETH seuls, ≈ 20 % des
+  journées), il sera probablement incalculable : ligne sans verdict, c'est attendu et ce n'est pas un « passe ».
+- Limites : MVRV n'existe que pour BTC et ETH (régimes de plusieurs mois, très peu d'observations indépendantes), et
+  la série est la version téléchargée le 2026-10-02 (CoinMetrics peut la réviser ; empreinte enregistrée) ; la part
+  des achats au marché est celle de Binance seule ; les « 30 à 180 jours » dépendent de la date de cotation sur
+  Binance, pas de l'émission du token ; **univers de survivantes** : les cotations retirées manquent, ce qui biaise J3
+  vers « veto non justifié » — un J3 justifié tient a fortiori, un J3 non justifié ne conclut rien.
 
 ## Historique
 
