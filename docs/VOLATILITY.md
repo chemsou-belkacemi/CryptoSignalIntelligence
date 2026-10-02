@@ -387,9 +387,11 @@ Lecture :
 - **Ce que cela permet** : une prévision à 3 jours un peu plus fine, en moyennant les deux modèles déjà calculés
   (aucun nouveau modèle à entraîner). **Ce que cela ne permet pas** : rien sur la direction ni la rentabilité ; et
   le gain est sélectionné sur DEVELOPMENT (12 comparaisons de plus, 749 au programme) : avant tout branchement,
-  confirmation sur des données jamais consultées (période finale réservée, ou observation prospective : les
-  prévisions des deux modèles en service sont déjà journalisées chaque jour par `outlook/volatility.py`, la moyenne
-  peut donc être mesurée après coup sans rien changer au service). Rien n'est branché par ce lot.
+  confirmation sur des données jamais consultées (période finale réservée, ou observation prospective). Le service
+  (`outlook/volatility.py`) ne journalise que le modèle retenu par horizon, pas les deux : la moyenne ne peut pas
+  être mesurée après coup sur ses fichiers. C'est l'objet du test en direct **F12_VOL_FORWARD**
+  (`FORWARD_TESTS.md`), qui journalise chaque jour toutes les prévisions et mesure leurs QLIKE une fois les
+  variances réalisées connues. Rien n'est branché par ce lot.
 
 ## 16. Protocole v3 — volatilité à toute heure (déclaré le 2026-10-02, avant exécution)
 

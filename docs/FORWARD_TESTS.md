@@ -892,6 +892,56 @@ direct) ; seuils d'une autre période et d'un seul marché (Binance) ; une part 
 en 2026 (changement de mix maker/taker) déclencherait trop souvent, ce que le nombre d'événements révélera ;
 12 semaines ne valident rien.
 
+## F12_VOL_FORWARD : prévisions de volatilité retenues sur DEVELOPMENT, mesurées en direct
+
+Les seuls résultats positifs du programme sont des prévisions d'**ampleur** : lot 7 (`VOL-20261001T194742Z-926ff2`),
+v2 (`VOL-20261002T170500Z-c3bda6`, moyenne de HAR + BTC et LightGBM meilleure à 3 jours) et v3
+(`VOL-20261002T211837Z-be55c0`, HAR + profil heure × jour meilleur que la règle des 24 h). Tous sont des sélections
+sur DEVELOPMENT ; le service ne journalise que le modèle retenu par horizon. Ce test journalise **toutes** les
+prévisions chaque jour et mesure leurs erreurs sur des données jamais vues, sans rien sélectionner.
+
+**Hypothèse.** En direct, sur les paires de la configuration : (1) la moyenne de HAR + BTC et LightGBM prévoit la
+variance réalisée à 3 jours mieux que LightGBM seul ; (2) HAR + profil prévoit la variance des 24 h suivantes mieux
+que la règle des 24 dernières heures ; (3) LightGBM à 3 jours et HAR + BTC à 7 jours font mieux que la règle des
+7 jours. Réponse attendue : `CONFIRME` pour ces trois ; `PAS_DE_DIFFERENCE` pour la moyenne à 1 et 7 jours.
+
+**Règles.**
+- Paires : celles de la configuration (`data.symbols`) admises par la liste halal figée, évaluables si leurs
+  variables sont complètes et qu'elles ont 400 jours d'historique (règles du lot 7 et de v3).
+- Chaque jour après 00:10 UTC, à l'origine 00:00 : prévisions de variance par `M0_RECENT_7D`, `M4_HAR_POOLED_BTC`,
+  `M5_LGBM_POOLED` et `V1_MEAN_M4_M5` à 1, 3 et 7 jours (modèles du lot 7, fonctions de recherche gelées, réajustés
+  le **1er du mois** sur les bougies 1 h du magasin de la surveillance jusqu'à l'origine), et par `R0_RECENT_24H`,
+  `H1_HAR_PROFILE`, `H2_LGBM_PROFILE` à 4 h et 24 h (modèles de v3, réajustés le **1er du trimestre** sur 3 ans
+  glissants). Une entrée `PREVISION` par jour.
+- Résolution 7 jours (+ 2 h) après l'origine : variance réalisée de chaque horizon lue par les mêmes fonctions de
+  recherche (cible contiguë : une bougie manquante → pas de valeur) et perte **QLIKE** de chaque prévision ; une
+  entrée `RESOLUTION` par jour.
+
+**Paramètres** (figés dans le code, `forward/f12.py`) : **7 comparaisons** (candidat contre référence) : moyenne
+contre LightGBM à 3 j (attendu `CONFIRME`), à 1 j et 7 j (attendu `PAS_DE_DIFFERENCE`, à 7 j contre HAR + BTC) ;
+HAR + profil contre la règle des 24 h à 24 h (attendu `CONFIRME`) et à 4 h (attendu `CONFIRME` : QLIKE net sur
+DEVELOPMENT, non retenu par la règle du § 7) ; LightGBM contre la règle des 7 jours à 3 j et HAR + BTC à 7 j
+(attendu `CONFIRME`) ; différence de QLIKE moyennée par jour sur les paires ; intervalle de Student par
+**blocs de 10 jours** calendaires (au moins 6 blocs), niveau 1 − 0,05/7 ; minimum **60 jours** résolus ; gel : modules f12,
+registry, journal ; fonctions `daily_frame`, `complete_rows`, `fit_at`, `month_forecasts` du lot 7, `hourly_frame`,
+`complete_rows`, `fit_at`, `quarter_forecasts` de v3, `calendar_mean_ci`, magasin de bougies, paires de la
+configuration. Sources : `VOL-20261001T194742Z-926ff2`, `VOL-20261002T170500Z-c3bda6`, `VOL-20261002T211837Z-be55c0`.
+
+**Métrique.** Par comparaison : jours résolus, QLIKE moyen du candidat et de la référence, différence moyenne et son
+intervalle ; prévisions journalisées, résolues, en attente, paires évaluables par jour.
+
+**Seuil de décision**, par comparaison : `INSUFFISANT` (moins de 60 jours ou intervalle non calculable) ;
+`CONFIRME` (borne haute < 0 : le candidat fait mieux) ; `INFIRME` (borne basse > 0) ; sinon `PAS_DE_DIFFERENCE`.
+Un `CONFIRME` ne branche rien automatiquement : il autorise le propriétaire à décider un branchement (v2 à 3 jours :
+moyenne des deux modèles déjà calculés ; v3 à 24 h : volatilité horaire pour les stops et objectifs).
+
+**Date d'évaluation.** 84 jours après le démarrage (revue intermédiaire à 42 jours) ; verdict une fois la dernière
+origine résolue (7 jours après la fin du recueil).
+
+**Limites déclarées.** 16 paires au lieu de 38 ; 12 semaines d'un seul régime ; une valeur par jour, paires
+corrélées ; les modèles horaires sont réajustés sur le magasin de la surveillance (bougies depuis 2021), pas sur le
+magasin long ; aucune mesure de rentabilité, aucune direction.
+
 ## VOTE_V1 : modèle de vote, définition pré-enregistrée (phase 9, NON évalué)
 
 Défini maintenant, conformément à la mission ; **aucun code d'évaluation, aucune mesure sur les 12 semaines en
