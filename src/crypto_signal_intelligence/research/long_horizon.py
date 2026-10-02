@@ -99,10 +99,10 @@ def funding_mean(funding: dict[str, pd.DataFrame], decisions: pd.DatetimeIndex) 
         if frame.empty:
             continue
         # `available_at` peut arriver en objets Timestamp (magasin des dérivés) : comparé en datetime64 UTC.
-        known = pd.to_datetime(frame["available_at"], utc=True).to_numpy()
+        known = pd.to_datetime(frame["available_at"], utc=True).dt.tz_convert(None).to_numpy(dtype="datetime64[ns]")
         rate8 = (frame["rate"] * 8 / frame["interval_hours"]).to_numpy(float)
         for moment in decisions:
-            at = pd.Timestamp(moment).tz_convert("UTC").to_datetime64()
+            at = np.datetime64(pd.Timestamp(moment).tz_convert("UTC").tz_convert(None), "ns")
             pick = (known <= at) & (known > at - np.timedelta64(FUNDING_DAYS, "D"))
             if pick.any():
                 out.loc[moment, symbol] = float(rate8[pick].mean())
