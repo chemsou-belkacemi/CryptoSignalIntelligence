@@ -29,3 +29,4 @@ signals/*.sqlite3*
 
 # Contraintes pip générées depuis pylock.toml (installation Linux)
 constraints.txt
+imports/

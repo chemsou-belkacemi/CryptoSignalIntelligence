@@ -1,10 +1,12 @@
-"""Lecture des signaux externes (groupes Telegram), mêmes modèles que BinanceSpotManager.
+"""Lecture des signaux externes (groupes Telegram) : la MÊME lecture que BinanceSpotManager.
 
-Modèles reconnus : structured (PAIR / ENTRY n / Tn / SL — Suhaib, Cleo), abk (Coin / Entry
-Zone / Target n → / Stop Loss), numbered (#PAIRE/USDT / Entryn / TPn / Stop — Al-Mahwashi)
-et simple (BUY / ENTRY / TP / SL). Tout texte ambigu échoue : aucun prix n'est deviné,
-aucune devise n'est ajoutée, les shorts et le levier sont refusés (Spot, long uniquement).
-Ce lecteur n'exécute rien.
+Depuis le 2026-10-02, `parse` reprend la lecture par étiquettes de BSM (`binance_spot_manager/signal_parser.py`,
+commit df56b3a sur main) : paire, entrée, objectif, stop et plateforme sont lus par leurs étiquettes, quel que
+soit l'habillage (émojis, filets, numérotation, pourcentages, flèches). CSI juge ainsi exactement les signaux que
+le bot exécuterait ; un test compare les deux lectures sur des signaux réels. Tout texte ambigu échoue : aucun
+prix n'est deviné, aucune devise n'est ajoutée, les shorts et le levier sont refusés (Spot, long uniquement).
+Propre à CSI : l'empreinte `content_hash` (inchangée pour les signaux déjà enregistrés), `group_of`, et un stop
+sur clôture évalué comme un stop au toucher (convention pessimiste). Ce lecteur n'exécute rien.
 """
 from __future__ import annotations
 
@@ -86,81 +88,170 @@ def group_of(text: str) -> str:
     return ""
 
 
+LABELS = {
+    "pair": r"PAIR|COIN|SYMBOL|ASSET|TOKEN|PAIRE",
+    "platform": r"PLATFORM|PLATEFORME|EXCHANGE",
+    "entry": (r"ENTRY(?:\s+(?:ZONE|PRICES?|RANGE|POINTS?|AREA|LEVELS?))?|ENTRIES|ENTR[EÉ]ES?"
+              r"|BUY(?:\s+(?:ZONE|RANGE|PRICE|AREA|AROUND|AT|BETWEEN))?|ACHAT"),
+    "target": r"TAKE\s*PROFITS?|TARGETS?|TGTS?|TPS?|T|OBJECTIFS?",
+    "stop": r"STOP\s*[-_]?\s*LOSS|STOPLOSS|STOP|SL|S\s*/\s*L|INVALIDATION",
+}
+LABELLED_LINE = re.compile(
+    "^(?:" + "|".join(f"(?P<{kind}>{pattern})" for kind, pattern in LABELS.items()) + r")(?![A-Z])"
+    r"\s*(?P<index>\d{1,2})?(?![\d.])\s*(?::|=>|->|→|=|-|–|—|@|\))?\s*(?P<value>.*)$"
+)
+INLINE_LABEL = re.compile(r"\s(?=(?:" + "|".join(LABELS.values()) + r")(?![A-Z])\s*\d{0,2}\s*[:=])")
+QUOTES = r"USDT|USDC|FDUSD|BUSD|USD|BTC|ETH|BNB|EUR|TRY"
+SLASH_PAIR = re.compile(rf"(?<![A-Z0-9])([A-Z0-9]{{2,20}})(?:\s*/\s*|[-_])({QUOTES})(?![A-Z0-9])")
+JOINED_PAIR = re.compile(r"(?<![A-Z0-9])((?=[A-Z0-9]*[A-Z])[A-Z0-9]{2,20}?)(USDT|USDC)(?![A-Z0-9])")
+TIMEFRAME = re.compile(r"(?<![\d.])(\d{1,3})\s*(MINUTES?|MINS?|M|HOURS?|HRS?|H|DAYS?|D|WEEKS?|W)(?![A-Z])")
+MEANING_CHANGERS = re.compile(r"\b(?:OR|OU|MARKET|CMP|NOW|CURRENT|ABOVE|BREAKOUT|BREAK|RETEST|DCA|UNTIL)\b")
+CANDLE_CLOSE = re.compile(r"\b(?:CLOSES?|CLOSED|CLOSING|CANDLE|DAILY|WEEKLY|CL[OÔ]TURE)\b")
+LIST_INDEX = re.compile(r"^\d{1,2}\s*(?:\)|[.:](?=\s))\s*")
+
+
+def _label_text(raw: str) -> str:
+    """Texte lu par étiquettes (BSM : normalize + without_symbols) : majuscules NFKC, pictogrammes remplacés par
+    des ESPACES (un espace ne colle jamais deux nombres), gras Telegram « * » retiré."""
+    text = unicodedata.normalize("NFKC", raw).upper()
+    text = re.sub(r"[0-9]️?⃣", "", text)
+    text = text.replace("‎", "").replace("‏", "").replace("‍", "").replace("*", "").replace("️", "")
+    return "".join(" " if unicodedata.category(ch) in ("So", "Sk") else ch for ch in text)
+
+
+def _pairs(text: str) -> set[str]:
+    found = {base + quote for base, quote in SLASH_PAIR.findall(text)}
+    return found | {base + quote for base, quote in JOINED_PAIR.findall(text)}
+
+
+def _timeframe(match) -> str:
+    return (match[1] + match[2]).lower()
+
+
+def _read_prices(value: str, kind: str) -> tuple[list[float], str, str]:
+    """(prix, unité de clôture du stop, erreur) d'une valeur ; le moindre doute est une erreur, jamais une
+    supposition."""
+    if MEANING_CHANGERS.search(value):
+        return [], "", "condition ou alternative (or, market, above…) non prise en charge"
+    timeframe, notes = "", []
+    text = re.sub(r"[(\[{]([^)\]}]*)[)\]}]", lambda m: notes.append(m[1]) or " ", value)
+    for note in notes:
+        if "%" in note:
+            continue
+        found = TIMEFRAME.search(note)
+        if found:
+            timeframe = timeframe or _timeframe(found)
+        elif re.search(r"\d", note):
+            return [], "", "chiffre inattendu entre parenthèses"
+    text = SLASH_PAIR.sub(" ", JOINED_PAIR.sub(" ", text))
+    text = re.sub(r"\b(?:USDT|USDC|USD)\b|\$", " ", text)
+    text = re.sub(rf"[+-]?\s*{NUMBER}\s*%", " ", text)
+    if kind == "stop":
+        found = TIMEFRAME.search(text)
+        timeframe = timeframe or (_timeframe(found) if found else "")
+        text = TIMEFRAME.sub(" ", text)
+        close = CANDLE_CLOSE.search(value)
+        if close and not timeframe:
+            timeframe = {"DAILY": "1d", "WEEKLY": "1w"}.get(close[0], "bougie")
+    else:
+        timeframe = ""
+    if re.search(r"\d\s*,\d|\d\s*\+|\d[A-Z]|^\s*[-−]\s*\.?\d", text):
+        return [], "", "prix ambigu (virgule, +, suffixe ou signe négatif)"
+    numbers = re.findall(rf"(?<![\d.]){NUMBER}(?![\d.])", text)
+    if re.search(r"\d", re.sub(rf"(?<![\d.]){NUMBER}(?![\d.])", " ", text)):
+        return [], "", "prix mal formé"
+    return [float(n) for n in numbers], timeframe, ""
+
+
 def parse(raw: str) -> ExternalSignal:
+    """Lecture par étiquettes, identique à `parse_signal` de BSM (sauf les points propres à CSI, en tête)."""
     result = ExternalSignal()
     if not raw.strip() or len(raw) > MAX_LENGTH:
         result.errors.append("Texte vide ou trop long (20 000 caractères maximum).")
         return result
     result.content_hash = content_hash(raw)
-    text = normalize(raw)
-    lines = [re.sub(r"^[^A-Z0-9#]+", "", line.strip()) for line in text.splitlines()]
+    text = _label_text(raw)
+    lines = [re.sub(r"^[^A-Z0-9#]+", "", part.strip())
+             for line in text.replace("|", "\n").splitlines() for part in INLINE_LABEL.split(line)]
     clean = "\n".join(lines)
-    result.template = (
-        "structured" if re.search(r"^PAIR\s*:", clean, re.M) else
-        "abk" if re.search(r"^COIN\s*:", clean, re.M) else
-        "numbered" if (re.search(r"^#[A-Z0-9]+\s*/\s*(?:USDT|USDC)\s*$", clean, re.M)
-                       and re.search(r"^ENTRY\s*1\s*:", clean, re.M)
-                       and re.search(r"^TP\s*1\s*:", clean, re.M)
-                       and re.search(r"^STOP\s*:", clean, re.M)) else "simple")
+    result.template = ("structured" if re.search(r"^PAIR\s*:", clean, re.M) else
+                       "abk" if re.search(r"^COIN\s*:", clean, re.M) else
+                       "numbered" if (re.search(r"^#[A-Z0-9]+\s*/\s*(?:USDT|USDC)\s*$", clean, re.M)
+                                      and re.search(r"^ENTRY\s*1\s*:", clean, re.M)
+                                      and re.search(r"^TP\s*1\s*:", clean, re.M)
+                                      and re.search(r"^STOP\s*:", clean, re.M)) else "simple")
     if re.search(r"\b(?:NIFTY|BANKNIFTY|INTRADAY)\b", text):
         result.errors.append("Rapport de marché / indices : pas un signal Spot.")
-    if SHORT_SIGNAL.search(text):
+    # Spot ne peut qu'acheter : BUY est implicite sauf vente annoncée ; un short sans le mot échoue de toute façon
+    # sur la géométrie SL < entrées < TP.
+    if SHORT_SIGNAL.search(clean):
         result.direction = "SELL"
         result.errors.append("Short, vente initiale et levier refusés : Spot, long uniquement.")
-    elif re.search(r"\b(?:BUY|LONG)\b", text) or result.template in {"structured", "abk", "numbered"}:
-        result.direction = "BUY"
     else:
-        result.errors.append("Direction d'achat non identifiable.")
+        result.direction = "BUY"
 
-    pairs = re.findall(r"(?:^|\n)(?:PAIR|COIN)\s*:\s*([A-Z0-9]+\s*/\s*[A-Z0-9]+|[A-Z0-9]+)", clean)
-    if not pairs:
-        found = re.findall(r"\b([A-Z0-9]{2,20}/(?:USDT|USDC|USD))\b|#([A-Z0-9]+USDT)\b"
-                           r"|(?:BUY|SELL)\s+(?:LIMIT\s+)?([A-Z0-9]+USD[T]?)\b", clean)
-        pairs = [next(x for x in match if x) for match in found]
+    keys: dict[str, list[str]] = {"entry": [], "target": []}
+    stops: list[float] = []
+    pairs, platforms = _pairs(clean), []
+    section, list_items = None, 0
+    for line in lines:
+        if not line:
+            continue
+        labelled = LABELLED_LINE.match(line)
+        if labelled:
+            kind = next(k for k in LABELS if labelled[k])
+            index, value = labelled["index"], labelled["value"].strip()
+            section = None
+            if kind == "pair":
+                named = re.match(r"[#$]?\s*([A-Z0-9]{2,20})(?:\s*/\s*|[-_\s]?)([A-Z]{3,5})?(?![A-Z0-9])", value)
+                if named:
+                    pairs.add(named[1] + (named[2] or ""))
+                continue
+            if kind == "platform":
+                platforms.append((value.split() or [""])[0])
+                continue
+            if index is None and not re.search(r"\d", SLASH_PAIR.sub(" ", JOINED_PAIR.sub(" ", value))):
+                if MEANING_CHANGERS.search(value):
+                    result.errors.append(f"Valeur non prise en charge : « {line.strip()} ».")
+                section = kind
+                continue
+            if not value:
+                result.errors.append(f"Ligne sans prix : « {line.strip()} ».")
+                continue
+            source = [(index or "single", value)]
+        elif section and re.match(r"\.?\d", LIST_INDEX.sub("", line)):
+            list_items += 1
+            kind, source = section, [(f"list{list_items}", LIST_INDEX.sub("", line))]
+        else:
+            section = None
+            continue
+        for key, value in source:
+            prices, timeframe, error = _read_prices(value, kind)
+            if not error and not prices:
+                error = "aucun prix (pourcentage seul ou texte)"
+            if not error and len(prices) > 1 and (kind == "stop" or (kind == "target" and key.isdigit())):
+                error = "plusieurs prix pour un seul niveau"
+            label = {"entry": "Prix d'entrée", "target": "Objectif", "stop": "Stop loss"}[kind]
+            if error:
+                result.errors.append(f"{label} ambigu ou non pris en charge ({error}) : « {line.strip()} ».")
+                continue
+            if kind == "stop":
+                stops.extend(prices)
+                result.stop_timeframe = timeframe
+            else:
+                keys[kind].append(key)
+                (result.entries if kind == "entry" else result.targets).extend(prices)
+
     if len(pairs) != 1:
         result.errors.append("Une seule paire explicite est requise ; aucune devise n'est ajoutée automatiquement.")
     else:
-        result.symbol = re.sub(r"[\s/]", "", pairs[0])
+        result.symbol = pairs.pop()
         if not re.fullmatch(r"[A-Z0-9]{2,20}(?:USDT|USDC)", result.symbol):
             result.errors.append("Seules les paires Spot USDT/USDC sont prises en charge.")
-    platforms = re.findall(r"^PLATFORM\s*:\s*(\w+)", clean, re.M)
     result.exchange = platforms[0] if platforms else ""
     if any(platform != "BINANCE" for platform in platforms):
         result.errors.append("Plateforme autre que Binance : prix et liquidité non comparables.")
-
-    # Préfixe numérique strict : pourcentages seuls, virgules et prix supplémentaires échouent.
-    indexed_entries: list[str] = []
-    indexed_targets: list[str] = []
-    stops: list[float] = []
-    for line in lines:
-        entry = re.match(r"ENTRY(?:\s+(ZONE|PRICE)|\s*(\d+))?\s*:\s*(.*)$", line)
-        target = re.match(r"(?:T(?:P)?\s*(\d+)|TARGET\s*(\d*)|TP)\s*(?::|→|-|\s)\s*(.*)$", line)
-        stop = re.match(r"(?:SL|STOP(?:\s*LOSS)?)\s*(?::|-|\s)\s*(.*)$", line)
-        if re.match(r"ENTRY\s*\d", line) and not entry:
-            result.errors.append("Ligne d'entrée numérotée non reconnue.")
-        if re.match(r"(?:TP?\s*\d|TARGET\s*\d)", line) and not target:
-            result.errors.append("Ligne d'objectif numéroté non reconnue.")
-        if entry and entry[3].strip():
-            match = re.fullmatch(rf"({NUMBER})(?:\s*[–—-]\s*({NUMBER}))?\s*", entry[3].strip())
-            if not match:
-                result.errors.append("Prix d'entrée ambigu ou non pris en charge.")
-            else:
-                indexed_entries.append(entry[2] or entry[1] or "single")
-                result.entries.extend(float(v) for v in match.groups() if v)
-        if target:
-            indexed_targets.append(target[1] or target[2] or "single")
-            match = re.fullmatch(rf"({NUMBER})\s*(?:SELL\s*)?(?:[\[(][^\]\n)]*[%][\])])?\s*", target[3])
-            if match:
-                result.targets.append(float(match[1]))
-            else:
-                result.errors.append("Objectif ambigu (plage, +, pourcentage seul ou texte inattendu).")
-        if stop:
-            match = re.fullmatch(rf"({NUMBER})\s*(?:\((\d+\s*(?:H|MIN|M))\))?\s*(?:[\[(][^\]\n)]*%[\])])?\s*", stop[1])
-            if match:
-                stops.append(float(match[1]))
-                result.stop_timeframe = (match[2] or "").lower()
-            else:
-                result.errors.append("Stop loss ambigu ou non pris en charge.")
+    indexed_entries, indexed_targets = keys["entry"], keys["target"]
     if len(set(indexed_entries)) != len(indexed_entries) or len(set(indexed_targets)) != len(indexed_targets):
         result.errors.append("Indices d'entrée/objectif répétés : séparer les signaux.")
     for indices in (indexed_entries, indexed_targets):
@@ -184,14 +275,15 @@ def parse(raw: str) -> ExternalSignal:
         result.warnings.append(f"SL ({result.stop_timeframe}) : stop sur clôture de bougie possible ; "
                                "évalué ici comme un stop au toucher (convention pessimiste).")
     date = re.search(r"\b(20\d\d-\d\d-\d\d)\b", text)
-    hour = re.search(r"(\d{1,2}):(\d{2})\s*GMT\s*([+-]\d{1,2})\b", text)
+    hour = re.search(r"(\d{1,2}):(\d{2})\s*(?:GMT|UTC)\s*([+-]\d{1,2})?\b", text)
     if date and hour:
         try:
             stamp = datetime.fromisoformat(date[1]).replace(hour=int(hour[1]), minute=int(hour[2]),
-                                                             tzinfo=timezone(timedelta(hours=int(hour[3]))))
+                                                             tzinfo=timezone(timedelta(hours=int(hour[3] or 0))))
             result.published_at = stamp.astimezone(UTC).isoformat()
         except ValueError:
             result.errors.append("Date du signal invalide.")
     else:
         result.warnings.append("Date source absente : fraîcheur vérifiée uniquement sur les données de marché.")
+    result.errors = list(dict.fromkeys(result.errors))
     return result
