@@ -44,6 +44,9 @@ STARTED = {
     "F10_PIVOT_BREAK_1D": {"doc": "210df143838b10e6af3eeb0835548d1b",
                            "params": "ac67404be011c613c7ee359701a20635",
                            "code": "adfd33331b18d6c5aa765030449454a3"},
+    "F11_SELL_PRESSURE_VETO": {"doc": "556da31af0804602ea3913778566e630",
+                               "params": "eee117b71102ec804edd45a331361cf8",
+                               "code": "6a4bf7bbd2d12e296e5d1a721221b9d5"},
 }
 
 
