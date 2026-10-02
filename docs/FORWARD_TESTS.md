@@ -729,6 +729,60 @@ valorisation.
 dépend de la collecte (une source en panne est visible dans l'état des sources, pas ici) ; un modèle de langage
 local reste une option non implémentée sans accord du propriétaire.
 
+## F9_OI_FLUSH : achat après une purge de l'intérêt ouvert, en direct
+
+Étape 5 du plan de travail validé le 2026-10-02. Le criblage du marché à terme (`docs/DERIVATIVES.md`,
+SCREEN-20261001T111500Z-60702b, 12 essais) a conclu `AUCUNE_PISTE` ; les estimations ponctuelles de OI_FLUSH
+étaient positives sans intervalle au-dessus de 0. Ce test mesure la condition en direct, sans rien changer à
+sa définition.
+
+**Hypothèse.** Quand l'intérêt ouvert d'une paire (nombre de contrats du perpétuel USDⓈ-M de Binance) chute en
+24 h sous son 10e centile historique et que le Spot baisse le même jour, un achat simulé le lendemain matin fait
+mieux, net de frais, que 20 achats placebo de la même paire aux mêmes heures dans les 30 jours précédents, à 24 h
+et 72 h. Réponse attendue : « pas de différence démontrée ».
+
+**Événements et règles.**
+- Paires : les 16 de la configuration (`data.symbols`) admises par la liste halal figée, toutes avec un perpétuel.
+- Chaque jour, dès que le relevé F0_DERIVES du jour couvre au moins la moitié de ces paires (passage après
+  00:10 UTC) : un contrôle journalisé avec, par paire, la variation de l'intérêt ouvert entre la dernière valeur
+  horaire à 00:00 ou avant et celle de 24 h plus tôt (même relevé), et la variation de la clôture journalière
+  (bougie 1 h de 23:00) de la veille sur celle de l'avant-veille.
+- Événement : variation d'OI **≤ seuil de la paire** ET variation Spot **< 0**. Seuils FIGÉS, calculés le
+  2026-10-02 sur la période de développement (2021 → 2025-06-30) à partir du magasin des dérivés (archives
+  publiques, dernière valeur de chaque jour) : BTC −4,41 %, ETH −4,44 %, SOL −5,83 %, XRP −5,77 %, NEAR −6,00 %,
+  AVAX −5,64 %, HBAR −8,44 %, LINK −5,83 %, XLM −6,68 %, ADA −5,46 %, TRX −7,35 %, FIL −4,97 %, ALGO −6,54 %,
+  DOT −3,97 %, ATOM −5,63 %, ETC −6,82 %. Une paire peut déclencher plusieurs jours de suite (aucun délai : la
+  définition du criblage n'en a pas).
+- Achat simulé au premier prix (ouverture de la première bougie de 1 minute) après le calcul ; sorties au marché
+  à 24 h et 72 h ; frais du modèle commun, central et défavorable.
+- Placebos : 20 achats de la même paire aux mêmes heures, 1 à 30 jours avant (graine déduite de l'événement),
+  mêmes durées, mêmes frais ; excès = rendement de l'achat − moyenne des placebos.
+- Résolution 72 h après l'entrée ; bougie voulue plus de 10 minutes en retard : `TROU` ; source muette : nouvel
+  essai, trou constaté 2 jours après l'horizon.
+
+**Paramètres** (figés dans le code, `forward/f9.py`) : seuils ci-dessus ; horizons 24 h et 72 h ; 20 placebos de 1
+à 30 jours ; minimum **30 événements résolus** par horizon ; 2 comparaisons au niveau 1 − 0,05/2 ;
+rééchantillonnage 10 000 tirages par blocs de 7 jours (au moins 8 blocs), graine 20261008 ; gel : modules f9,
+costs, registry, journal, intervalle par blocs, magasin de bougies, paires de la configuration.
+
+**Métrique.** Par horizon et scénario : événements résolus, jours distincts, rendement net moyen de l'achat et des
+placebos, excès moyen et son intervalle, part des événements qui battent leurs placebos ; événements par paire,
+contrôles, en attente, trous.
+
+**Seuil de décision**, par horizon : `INSUFFISANT` (moins de 30 résolus ou intervalle non calculable) ;
+`EXCES_POSITIF` (intervalle entièrement au-dessus de 0 en central ET en défavorable) ; `EXCES_NEGATIF` ; sinon
+`PAS_DE_DIFFERENCE_DEMONTREE`.
+
+**Date d'évaluation.** 84 jours après le démarrage (revue intermédiaire à 42 jours) ; verdict une fois le dernier
+événement résolu (3 jours après la fin du recueil au plus, 5 si des bougies manquent).
+
+**Nombre d'événements attendu.** Un 10e centile donne environ un jour sur dix par paire, dont une partie avec un
+Spot en baisse : de l'ordre de 60 à 120 événements en 12 semaines, très corrélés entre paires (les purges sont
+des jours de marché) ; l'intervalle par blocs de 7 jours en tient compte.
+
+**Limites déclarées.** Intérêt ouvert d'une seule bourse, en nombre de contrats (pas en dollars) ; seuils d'une
+autre période (2021-2025) ; événements corrélés ; 12 semaines ne valident rien.
+
 ## VOTE_V1 : modèle de vote, définition pré-enregistrée (phase 9, NON évalué)
 
 Défini maintenant, conformément à la mission ; **aucun code d'évaluation, aucune mesure sur les 12 semaines en
@@ -759,3 +813,4 @@ Historique des démarrages et des arrêts. Cette section est hors empreinte : on
 - 2026-10-02 : relevé F0_DERIVES en service (premier jour : 160 paires, 6 sans perpétuel, aucune erreur).
 - 2026-10-02 15:32 UTC : **F3_STABLECOINS démarré** dans le conteneur de surveillance (essai FWD-20261002T153210Z-fe5857, commit e18e985). 166 paires halal figées. Revue intermédiaire le 2026-11-13, fin du recueil le 2026-12-25. Sources sondées le jour même (TronGrid, nœud Ethereum public, signatures contrôlées).
 - 2026-10-02 15:52 UTC : **F4_TELEGRAM démarré** dans le conteneur de surveillance (essai FWD-20261002T155203Z-02f161, commit 9e19948). 166 paires halal figées. Boîte de BSM montée en lecture seule (vide au démarrage : son bot n'a encore rien reçu) ; dépôt du robot vide. Revue intermédiaire le 2026-11-13, fin du recueil le 2026-12-25.
+- 2026-10-02 16:18 UTC : **F5_MODELE_A** (essai FWD-20261002T161825Z-d27ebd), **F6_CAPITULATION** (FWD-20261002T161827Z-d9ffb2), **F7_LISTINGS** (FWD-20261002T161830Z-9c9ce5) et **F8_NEWS** (FWD-20261002T161832Z-0c1dc4) **démarrés** dans le conteneur de surveillance, commit ea01aa1, 166 paires halal figées. Revue intermédiaire le 2026-11-13, fin du recueil le 2026-12-25. Note : l'image précédente (commit 3436e43, 16:11 → 16:18 UTC) importait des modules absents ; aucun passage des tests en direct n'a eu lieu pendant ces 7 minutes (aucune décision perdue : les passages suivants reprennent les données).

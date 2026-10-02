@@ -26,6 +26,18 @@ STARTED = {
     "F4_TELEGRAM": {"doc": "37153713c1eb418643bd11d91029fa54",
                     "params": "d7783cc8ddb8cbd20afae1c8dbfeab9f",
                     "code": "9306290ff2439f22adf4e76a8735701c"},
+    "F5_MODELE_A": {"doc": "dfc6760a5212e5e035de160fa936606d",
+                    "params": "36afd8799936e4662c5f0375b966f092",
+                    "code": "a8c63f22ab2ae88918f377a3f380a7f1"},
+    "F6_CAPITULATION": {"doc": "45de7c4edb326324f71a09542cf2c5d3",
+                        "params": "df9d1109fcda2c214e7830ae3dc51540",
+                        "code": "ecf3bacc5053d3698afbb87b91c7a6d1"},
+    "F7_LISTINGS": {"doc": "e48b6d89fe0f96780eb34dde6d35e226",
+                    "params": "70ffd25f68524f044bba65f51f2aada3",
+                    "code": "f2ba122f0ce3151146484617aaa9b428"},
+    "F8_NEWS": {"doc": "a9ad4d8b16ed457f56dd1f506a43b56e",
+                "params": "822ceef77e4931ef33d21decb864c926",
+                "code": "67669f372d4361ccb2a89658de6dcc01"},
 }
 
 
