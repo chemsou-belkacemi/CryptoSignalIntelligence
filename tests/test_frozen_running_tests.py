@@ -47,6 +47,9 @@ STARTED = {
     "F11_SELL_PRESSURE_VETO": {"doc": "556da31af0804602ea3913778566e630",
                                "params": "eee117b71102ec804edd45a331361cf8",
                                "code": "6a4bf7bbd2d12e296e5d1a721221b9d5"},
+    "F12_VOL_FORWARD": {"doc": "66db0d0ca744a8922accde416af6130d",
+                        "params": "4832f3d7ee2ba366a1147f1e7726a8fd",
+                        "code": "e25ca34972a0b487d9e087ffb805b0ad"},
 }
 
 
