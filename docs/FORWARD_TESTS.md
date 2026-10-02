@@ -783,6 +783,60 @@ des jours de marché) ; l'intervalle par blocs de 7 jours en tient compte.
 **Limites déclarées.** Intérêt ouvert d'une seule bourse, en nombre de contrats (pas en dollars) ; seuils d'une
 autre période (2021-2025) ; événements corrélés ; 12 semaines ne valident rien.
 
+## F10_PIVOT_BREAK_1D : achat après une cassure journalière d'un pivot haut confirmé, en direct
+
+Suite du criblage K (`docs/SCREENING.md`, `SCREEN-20261002T170108Z-e89978`, étape 8 du plan). La condition K2 en
+bougies journalières a passé la règle du criblage sur DEVELOPMENT (+2,04 % d'excès à 7 jours, IC95 [+0,19 ;
++4,55], 4 années sur 7) : une piste contaminée par le fait d'avoir été vue. Ce test la mesure en direct, sans rien
+changer à sa définition (les fonctions du criblage sont gelées avec le test).
+
+**Hypothèse.** Quand la clôture journalière d'une paire passe pour la première fois au-dessus de son dernier pivot
+haut confirmé, un achat simulé le lendemain matin fait mieux, net de frais, que 20 achats placebo de la même paire
+aux mêmes heures dans les 30 jours précédents, à 24 h et 168 h. Réponse attendue : « pas de différence démontrée ».
+
+**Événements et règles.**
+- Paires : celles de la configuration (`data.symbols`) admises par la liste halal figée.
+- Chaque jour, après 00:10 UTC (la bougie 1 h de 23:00 doit être rangée) : un contrôle journalisé avec, par paire,
+  les journées complètes (24 bougies 1 h, blocs alignés UTC) des 130 derniers jours, reconstruites comme au
+  criblage ; une paire avec moins de **110 journées** complètes, ou dont la veille manque, est « non évaluable »
+  ce jour-là (inscrit).
+- Pivot haut : plus haut d'une journée i strictement au-dessus des **k = 3** journées précédentes et au moins égal
+  à celles des 3 journées suivantes ; confirmé à la clôture de i + 3, utilisable à partir de la journée suivante ;
+  niveau = dernier pivot confirmé, expiré après 100 journées.
+- Événement : la veille (dernière journée close) est la **première clôture au-dessus du niveau** (clôture de
+  l'avant-veille ≤ niveau) ; **un seul événement par niveau** (fonction `events_of` du criblage, gelée).
+- Achat simulé au premier prix (ouverture de la première bougie de 1 minute) après le calcul ; sorties au marché à
+  24 h et 168 h ; frais du modèle commun, central et défavorable.
+- Placebos : 20 achats de la même paire aux mêmes heures, 1 à 30 jours avant (graine déduite de l'événement),
+  mêmes durées, mêmes frais ; excès = rendement de l'achat − moyenne des placebos.
+- Résolution 168 h après l'entrée ; bougie voulue plus de 10 minutes en retard : `TROU` ; source muette : nouvel
+  essai, trou constaté 2 jours après l'horizon.
+
+**Paramètres** (figés dans le code, `forward/f10.py`) : k = 3, niveau de 100 journées au plus, 110 journées
+exigées, 130 jours lus ; horizons 24 h et 168 h ; 20 placebos de 1 à 30 jours ; minimum **30 événements résolus**
+par horizon ; 2 comparaisons au niveau 1 − 0,05/2 ; rééchantillonnage 10 000 tirages par blocs de 7 jours (au moins
+8 blocs), graine 20261010 ; gel : modules f10, costs, registry, journal, fonctions `aggregate`, `pivot_levels`,
+`events_of` du criblage K, intervalle par blocs, magasin de bougies, paires de la configuration.
+
+**Métrique.** Par horizon et scénario : événements résolus, jours distincts, rendement net moyen de l'achat et des
+placebos, excès moyen et son intervalle, part des événements qui battent leurs placebos ; événements par paire,
+contrôles, paires évaluables, en attente, trous.
+
+**Seuil de décision**, par horizon : `INSUFFISANT` (moins de 30 résolus ou intervalle non calculable) ;
+`EXCES_POSITIF` (intervalle entièrement au-dessus de 0 en central ET en défavorable) ; `EXCES_NEGATIF` ; sinon
+`PAS_DE_DIFFERENCE_DEMONTREE`. L'horizon principal est 168 h (celui du criblage) ; 24 h est secondaire.
+
+**Date d'évaluation.** 84 jours après le démarrage (revue intermédiaire à 42 jours) ; verdict une fois le dernier
+événement résolu (7 jours après la fin du recueil au plus, 9 si des bougies manquent).
+
+**Nombre d'événements attendu.** Au criblage, environ 11 événements par paire et par an : de l'ordre de 35 à 45
+sur 16 paires en 12 semaines, très corrélés entre paires (les cassures sont des jours de marché) ; `INSUFFISANT`
+est probable si le marché est calme, et c'est une réponse acceptable.
+
+**Limites déclarées.** Entrée vers 00:10-00:25 UTC au lieu de l'ouverture de 00:00 du criblage ; 16 paires au lieu
+de 40 ; blocs journaliers alignés UTC ; événements corrélés ; 12 semaines ne valident rien, et un `EXCES_POSITIF`
+sur deux comparaisons après 737 essais au programme resterait une indication, pas une preuve.
+
 ## VOTE_V1 : modèle de vote, définition pré-enregistrée (phase 9, NON évalué)
 
 Défini maintenant, conformément à la mission ; **aucun code d'évaluation, aucune mesure sur les 12 semaines en
