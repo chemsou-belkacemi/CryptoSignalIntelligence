@@ -114,7 +114,15 @@ et aucune n'a été choisie pour changer un verdict.
   risque d'être un hasard ; à titre indicatif, un seuil de Bonferroni serait 0,05 / ce nombre.
   Au 2026-09-30, le registre compte 21 exécutions sur DEVELOPMENT (5 backtests, 14 walk-forwards,
   2 criblages), soit 215 essais au sens de `program_trials`. Ces 21 exécutions portent
-  `NO_GIT_COMMIT` : elles précèdent le premier commit du dépôt.
+  `NO_GIT_COMMIT` : elles précèdent le premier commit du dépôt. Au soir du 2026-10-02, le
+  programme compte **753 essais** sur DEVELOPMENT (walk-forwards, criblages D à K, ML intraday,
+  swing et swing long, marché à terme, portefeuilles hebdomadaires, lot 8 et sa v2, suivi de
+  tendance journalier, protocoles de volatilité v1 à v3), plus les 6 comparaisons du protocole des
+  intervalles s'il s'enregistre ; la période finale n'a jamais été lue (0 consultation au registre).
+  Seules les prévisions de volatilité (ampleur, jamais le sens) ont passé leurs règles déclarées ;
+  les deux pistes directionnelles encore ouvertes (cassure journalière d'un pivot haut, veto après
+  une pression vendeuse extrême) ne sont mesurées qu'en direct, par des tests pré-inscrits
+  (`docs/FORWARD_TESTS.md`, F10 et F11), jamais par un nouvel essai sur DEVELOPMENT.
 - **Test de causalité** : coupure sur la disponibilité (`available_at`) de chaque unité de temps,
   tous les volumes falsifiés ; un test de mutation vérifie qu'une jointure sur `open_time` (bougie
   1h en formation) est détectée.

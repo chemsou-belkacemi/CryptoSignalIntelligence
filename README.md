@@ -373,7 +373,18 @@ Recherche (travaux lourds, DEVELOPMENT seulement ; chaque protocole est déclar�
 .venv/bin/csi download-long --research           # bougies 1 h depuis la cotation, 40 paires de recherche
 .venv/bin/csi factors                            # lot 7 : portefeuilles hebdomadaires
 .venv/bin/csi volatility                         # lot 7 : prévision de volatilité à 1, 3 et 7 jours
+.venv/bin/csi long-horizon --universe-file U.json  # lot 8 v2 : modèle A (vote de 3 horizons) contre l'allocation statique
+.venv/bin/csi trend-daily --universe-file U.json   # étape 4 du plan : suivi de tendance journalier (Donchian, ciblage de volatilité)
+.venv/bin/csi screen-flow --universe-file U.json   # étape 6 : criblage J (flux d'ordres, offre nouvelle, MVRV)
+.venv/bin/csi screen-pivot --universe-file U.json  # étape 8 : criblage K (pivots confirmés, 4 h et 1 jour)
+.venv/bin/csi volatility-v2                      # étape 7 : combiner et enrichir les modèles de volatilité en service
+.venv/bin/csi volatility-hourly                  # volatilité à toute heure (4 h et 24 h après chaque clôture 1 h)
+.venv/bin/csi quantiles                          # intervalles de rendement 5/25/75/95 % et abstention
 ```
+
+`U.json` : `{"symbols": [...]}`, les paires admises par le screening halal (export du tableau de bord). Chaque
+commande de recherche refuse un arbre git non commité, exécute son audit des fuites avant tout résultat, compte
+ses essais dans `program_trials` et inscrit son protocole déclaré dans le document cité par son `--help`.
 
 Tests et qualité :
 
