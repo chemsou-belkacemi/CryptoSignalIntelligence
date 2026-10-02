@@ -128,6 +128,65 @@ Une condition vraie le jour d est connue à d+1 00:00 : achat à l'ouverture de 
   Binance, pas de l'émission du token ; **univers de survivantes** : les cotations retirées manquent, ce qui biaise J3
   vers « veto non justifié » — un J3 justifié tient a fortiori, un J3 non justifié ne conclut rien.
 
+### Résultat (`SCREEN-20261002T165546Z-0994a2`, 15 essais, programme 733) : rien ne passe, aucun veto justifié
+
+Code du commit `99559a0` (après la relecture), audit des fuites réussi (4 journées recalculées identiques, mutation
+détectée à travers la coupe), 40 paires admises, 2 374 journées, MVRV BTC/ETH 3 103 jours chacun (empreintes
+enregistrées).
+
+| Condition | 1 j : excès % [IC95] | 7 j : excès % [IC95] | 30 j : excès % [IC95] | Paires > 0 |
+|---|---|---|---|---|
+| J1 achats au marché ≥ 90e centile (6 500 év.) | −0,11 [−0,34 ; +0,11] | +0,11 [−1,28 ; +1,57] | +0,53 [−6,20 ; +8,23] | 35–50 % |
+| J2 achats au marché ≤ 10e centile (7 200 év.) | **−0,34 [−0,57 ; −0,12]** | **−1,45 [−2,73 ; −0,17]** | −4,40 [−9,92 ; +2,70] | 8–18 % |
+| J3 offre nouvelle, veto (4 400 év., 30 paires) | +0,33 [−0,02 ; +0,68] | +2,91 [+0,13 ; +6,10] | +15,3 [−2,0 ; +35,4] | 47–57 % |
+| J4 MVRV bas (820 év., BTC et ETH) | −0,18 [−0,55 ; +0,09] | −1,02 [−3,48 ; +0,85] | −3,45 (IC incalculable) | 0 % |
+| J5 MVRV haut, veto (1 360 év., BTC et ETH) | +0,20 [−0,06 ; +0,47] | +1,30 [−0,43 ; +3,18] | +4,67 [−4,48 ; +14,47] | 100 % |
+
+Tableau complet : `reports/SCREEN-20261002T165546Z-0994a2/summary.json`.
+
+- **Aucune condition ne passe** (J1, J2, J4) ; **aucun veto n'est justifié** (J3, J5 : borne haute jamais < 0).
+- J2 est la seule ligne dont l'intervalle exclut zéro, et dans le **mauvais sens** : acheter après une journée de
+  forte pression vendeuse rapporte moins que la dérive de la paire à 1 et 7 jours (8 à 18 % des paires au-dessus de
+  zéro). Ce n'était pas une condition de veto déclarée : c'est une observation après coup, à inscrire comme
+  **piste de veto** (« pas d'achat le lendemain d'une pression vendeuse extrême ») et rien d'autre ; elle n'entre
+  dans aucune règle sans un test sur données non vues.
+- J3 va à l'inverse d'un veto : les paires récentes ont fait **mieux** que les paires âgées (+2,9 % à 7 jours,
+  intervalle juste au-dessus de zéro). C'est exactement le biais de survivance déclaré (les cotations qui ont mal
+  tourné ont été retirées de la cote et manquent) : ni veto, ni signal, ligne inexploitable.
+- J4 et J5 (MVRV) : deux actifs, des régimes de plusieurs mois ; l'intervalle est incalculable à 30 jours pour J4
+  comme annoncé, et rien n'est distinguable de zéro ailleurs. Un MVRV élevé n'a pas précédé de rendements plus
+  faibles sur 2019-2025.
+- Conséquence : aucune fiche, aucun walk-forward ; pas de filtre ajouté. Programme : 733 essais sur DEVELOPMENT.
+
+## Criblage K : pivots confirmés (déclaré le 2026-10-02, avant exécution)
+
+Étape 8 du plan de travail (seul criblage de géométrie retenu par l'étude du 2026-10-02 ; Fibonacci, XABCD et
+triangles écartés : ≥ 15 essais pour des équivalents de B, D, F nuls). Code : `research/pivot_screen.py` ;
+commande `csi screen-pivot --universe-file …` ; tests `tests/test_pivot_screen.py`.
+
+- Bougies **4 h** et **1 jour** reconstruites des bougies 1 h du magasin long (blocs alignés UTC, seulement les
+  blocs complets : 4 et 24 bougies) ; univers admis par le screening halal ; DEVELOPMENT seul, événements à partir
+  du 2019-01-01.
+- **Pivot** : plus haut (plus bas) d'une bougie i strictement au-dessus (au-dessous) des k = 3 bougies qui la
+  précèdent et au moins égal à celles des k = 3 bougies qui la suivent ; il n'existe qu'à la clôture de la bougie
+  i + 3 et n'est **utilisable qu'à partir de la bougie suivante**. Un niveau est le dernier pivot confirmé ; il
+  expire après 100 bougies.
+- K1_SUPPORT_BOUNCE : à la clôture de t, le plus bas de t touche le support (≤ support × 1,005), la clôture est
+  au-dessus du support et haussière (clôture > ouverture), la clôture de t − 1 était au-dessus du support ; **un seul
+  événement par niveau**.
+- K2_RESISTANCE_BREAK : première clôture au-dessus de la résistance (clôture de t − 1 ≤ résistance) ; un seul
+  événement par niveau.
+- Entrée à l'ouverture de t + 1, sortie à la clôture de t + h : h = 6 bougies de 4 h (24 h) et 7 bougies journalières
+  (7 jours). Excès = rendement − dérive de la paire au même horizon ; IC95 par blocs de max(10 jours, 2 × horizon) ;
+  « passe » = rendement brut moyen > seuil de coûts ET borne basse de l'IC95 > 0.
+- 2 conditions × 2 cadres = **4 essais** de plus au programme ; un seul « passe » se lit comme une piste.
+- Audit des fuites avant tout résultat : événements recalculés avec les seules bougies antérieures à 4 instants tirés
+  au hasard (identiques jusqu'à la coupe) ; mutation : un pivot utilisé dès sa bougie i (avant ses 3 bougies de
+  confirmation) doit changer les événements à travers la coupe.
+- Attendu : rien ne passe (équivalents D et E nuls à 1–24 h) ; la seule nouveauté est le cadre 1 jour.
+- Limites : survivantes ; blocs de 4 h et 1 jour alignés UTC (un autre alignement donnerait d'autres pivots) ;
+  k = 3 et 100 bougies sont des choix a priori, non optimisés, et ne seront pas retouchés après lecture.
+
 ## Historique
 
 - `SCREEN-20260930T093324Z-20101b` : premier passage, **intervalles faux** (moyenne pondérée par jour
