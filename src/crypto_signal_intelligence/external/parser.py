@@ -134,7 +134,11 @@ def _read_prices(value: str, kind: str) -> tuple[list[float], str, str]:
     if MEANING_CHANGERS.search(value):
         return [], "", "condition ou alternative (or, market, above…) non prise en charge"
     timeframe, notes = "", []
-    text = re.sub(r"[(\[{]([^)\]}]*)[)\]}]", lambda m: notes.append(m[1]) or " ", value)
+    def _note(match: re.Match) -> str:
+        notes.append(match[1])
+        return " "
+
+    text = re.sub(r"[(\[{]([^)\]}]*)[)\]}]", _note, value)
     for note in notes:
         if "%" in note:
             continue
