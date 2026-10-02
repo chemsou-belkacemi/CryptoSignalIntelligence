@@ -59,6 +59,61 @@ avec `n_trials = 0`, période DEVELOPMENT, pour la traçabilité). La période f
 - Ce contrôle ne teste pas l'**ajustement** des modèles (un LightGBM retrouverait-il une variable faiblement
   informative ?) : limite déclarée, à faire séparément.
 
+## 5. Résultats (`CTRL-20261002T232741Z-7be6ff`, exécuté le 2026-10-02 à 23:27 UTC, commit `0bdb08d`, 0 essai)
+
+### Criblage (≈ 7 100 événements aléatoires par répétition, 100 répétitions)
+
+| Horizon | Avantage planté | Détecté | Excès estimé | Rendement brut moyen |
+|---|---|---|---|---|
+| 1 j | 0 | **0 %** | +0,01 % | **+0,20 %** |
+| 1 j | +0,10 % | 2 % | +0,10 % | +0,29 % |
+| 1 j | +0,25 % | 77 % | +0,26 % | +0,45 % |
+| 1 j | +0,50 % | **100 %** | +0,50 % | +0,69 % |
+| 7 j | 0 | **0 %** | −0,00 % | **+1,32 %** |
+| 7 j | +1 % | 9 % | +1,01 % | +2,34 % |
+| 7 j | +2 % | **100 %** | +1,97 % | +3,30 % |
+
+### Décisions ML (50 répétitions ; corrélation de rang réalisée ≈ 0,9 ρ)
+
+| Système | ρ = 0 | ρ = 0,02 (corrélation 0,017) | ρ = 0,05 | ρ = 0,10 |
+|---|---|---|---|---|
+| swing (7 j) | 0 % | **100 %** | 100 % | 100 % |
+| intraday (4 h) | **8 %** | **100 %** | 100 % | 100 % |
+
+Score réel `p` (lecture descriptive) : swing **+0,006** [−0,027 ; +0,038] ; intraday **−0,004** [−0,009 ; −0,000].
+
+### Walk-forwards (100 répétitions)
+
+| Stratégie | Trades | δ = 0 | +0,05 R | +0,10 R | +0,20 R |
+|---|---|---|---|---|---|
+| A | 1 920 | 5 % | 38 % | 78 % | **100 %** |
+| B | 3 672 | 2 % | 34 % | **92 %** | 100 % |
+| C | 1 479 | 2 % | 21 % | 69 % | **100 %** |
+
+### Lecture
+
+- **La mesure n'est pas aveugle.** Chaque chaîne retrouve un avantage planté, sans biais (l'excès estimé retombe
+  sur δ à ±0,03 point près). Nos « non » sont donc des « pas d'avantage plus grand que » :
+  - criblages : **+0,5 % par trade à 1 jour, +2 % à 7 jours** (taille détectée à 80 %) ;
+  - ML : **corrélation de rang 0,017** (la mesure est très puissante ; les modèles réels sont à 0,006 et −0,004 :
+    il n'y a **aucune information directionnelle** à ce niveau) ;
+  - walk-forwards : **+0,1 à +0,2 R par trade**.
+- **Le piège de la dérive est confirmé** : sans aucun avantage, le rendement brut moyen des achats aléatoires vaut
+  +0,20 % à 1 jour et +1,32 % à 7 jours. Le premier dépasse presque le seuil de coûts (0,21 %) : sans le retrait de
+  la dérive, la moitié de ces achats au hasard « passeraient ».
+- **Fausses alarmes** :
+  - criblage : **0 %** (attendu ≈ 2,5 %) : les intervalles des criblages sont **trop prudents** ; on perd de la
+    puissance, jamais l'inverse ;
+  - ML intraday : **8 %**, un peu au-dessus : l'intervalle quotidien sous-estime la dépendance à 4 h. Le seul
+    « signal » réel de cette chaîne (intraday, −0,004, borne haute −0,0002) est de ce niveau : il ne compte pas ;
+  - walk-forward : 2 à 5 %, conforme.
+- **Conséquence** : un avantage de l'ordre de ce que vendent les groupes et les bots (quelques dixièmes de % par
+  trade) est **en dessous de ce que nos criblages pouvaient voir à 7 jours** ; seul un effet net de +0,5 %/jour ou
+  une corrélation de rang ≥ 0,02 aurait été vu à coup sûr. Deux corrections au plan : régler les intervalles des
+  criblages (trop larges) et de l'intraday (trop étroits) avec une méthode de référence (bootstrap stationnaire,
+  bibliothèque `arch`), sous contrôle positif.
+
 ## Historique
 
 - 2026-10-03 : déclaré avant toute exécution.
+- 2026-10-02 23:27 UTC (heure du serveur) : exécuté, `CTRL-20261002T232741Z-7be6ff`, 0 essai ; § 5 ajouté.

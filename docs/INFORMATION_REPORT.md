@@ -41,6 +41,51 @@ les walk-forwards : outcome = R net central, régimes de l'instant de setup, ren
   inscrits avec le rapport. Le contrôle positif (`POSITIVE_CONTROL.md`) donne la taille minimale détectable de ces
   mesures.
 
+## 4. Résultats (`INFO-20261002T233003Z-a12430`, commit `e98d232`, 0 essai) — lecture descriptive
+
+102 cellules lues : **≈ 5 fausses alarmes attendues** à 5 % sans aucune information. Aucune cellule n'est retenue.
+
+**ML : aucune information directionnelle** (corrélation de rang quotidienne entre p et l'excès du même instant).
+
+| Source | Lignes | Corrélation [IC95] | Décile haut − bas | Décile le plus confiant : brut / net / excès | Trades entrés : net / excès |
+|---|---|---|---|---|---|
+| swing 7 j | 99 840 | +0,006 [−0,027 ; +0,038] | −0,09 % | −0,39 / −0,65 / −0,15 % | 443 : +1,31 / +0,25 % |
+| intraday 4 h | 1 959 344 | −0,004 [−0,009 ; −0,000] | +0,01 % | +0,06 / −0,20 / +0,01 % | 1 769 : +0,05 / +0,09 % |
+| swing long 7 j | 355 032 | +0,011 [−0,015 ; +0,037] | −0,35 % | +0,20 / −0,06 / −0,15 % | 1 203 : +2,45 / +1,05 % |
+
+- Les déciles ne sont pas ordonnés (le plus confiant n'est pas le meilleur) et les corrélations changent de
+  signe d'une année à l'autre. Le contrôle positif montre que 0,017 aurait été vu à coup sûr : **l'information
+  est absente, pas mal mesurée.**
+- Les trades **réellement entrés** du swing long ont un excès de +1,05 % (1 203 trades) : sélection par le seuil
+  ET par les limites de risque (positions maximales, exposition), sans intervalle ici ; c'est une cellule parmi
+  102, déjà jugée par son protocole (rejeté). Hypothèse seulement.
+
+**Walk-forwards : l'avantage brut est nul, les frais font la perte.**
+
+| Stratégie | R central [IC95] | Défavorable | Stress | Rendement brut / net par trade |
+|---|---|---|---|---|
+| A cassure Donchian | −0,11 [−0,19 ; −0,04] | −0,13 | −0,15 | +0,01 % / −0,19 % |
+| B repli EMA | −0,16 [−0,22 ; −0,10] | −0,18 | −0,17 | −0,11 % / −0,31 % |
+| C retour en range | −0,19 [−0,27 ; −0,11] | −0,27 | −0,40 | +0,02 % / −0,18 % |
+
+- Par régime de volatilité, la seule cellule non négative est C en **volatilité haute** (453 trades, brut +0,37 %,
+  R −0,02 [−0,17 ; +0,13]) : hypothèse seulement. Toutes les années sont négatives pour les trois stratégies.
+- Les régimes de tendance sont constants par stratégie (A et B en BULL, C en RANGE : ce sont leurs filtres), donc
+  sans information ici.
+
+**Volatilité : bien classée, un peu mal étalonnée aux extrêmes** (réalisé / prévu par décile de la prévision).
+
+| Horizon | Décile le plus bas | Médian | Plus haut | Pente log | Corrélation log |
+|---|---|---|---|---|---|
+| 1 j | 1,43 | ≈ 1,02 | 1,00 | 0,95 | 0,73 |
+| 3 j | 1,31 | ≈ 1,00 | 0,92 | 0,93 | 0,72 |
+| 7 j | 0,99 | ≈ 0,90 | 0,86 | 0,99 | 0,72 |
+
+- À 1 et 3 jours, quand la prévision est la plus basse, la volatilité réalisée est 30 à 43 % plus forte (retour
+  vers la moyenne sous-estimé) ; à 7 jours, la prévision est trop haute d'environ 10 % partout. Piste d'un
+  réétalonnage, à pré-inscrire (F12 mesure déjà ces prévisions en direct).
+
 ## Historique
 
 - 2026-10-03 : déclaré avant toute exécution.
+- 2026-10-02 23:30 UTC (heure du serveur) : exécuté, `INFO-20261002T233003Z-a12430` ; § 4 ajouté.
