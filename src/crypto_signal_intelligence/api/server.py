@@ -342,12 +342,14 @@ class CsiApi:
         validation et le verdict du dernier walk-forward de sa stratégie.
         """
         from ..signals.outbox import SignalRegistry
+        from ..signals.outcomes import outcomes, summary
         from ..signals.txt import parse
         if not self.settings.signals_db.exists():
             return {"signals": [], "note": "aucun signal trouvé pour l'instant"}
         verdicts = {s["strategy"]: s for s in self.strategies()["strategies"]}
         registry = SignalRegistry(self.settings.signals_db, self.settings.publication_dir(), root=self.settings.root)
         now = self.now()
+        resolved = outcomes(self.settings)
         out = []
         for row in reversed(registry.rows()[-max(1, min(limit, 100)):]):
             try:
@@ -370,8 +372,10 @@ class CsiApi:
                 "validation_status": _text(signal.validation_status),
                 "strategy_verdict": walk_forward.get("verdict"), "strategy_expectancy_r": walk_forward.get("expectancy_r"),
                 "bsm_text": bsm_text,
+                "outcome": resolved.get(signal.signal_id, {}).get("outcome"),
+                "outcome_r": resolved.get(signal.signal_id, {}).get("r"),
             })
-        return {"signals": out,
+        return {"signals": out, "summary": summary(self.settings),
                 "note": "stratégies non validées (walk-forward) : signaux à observer ou à tester à la main en Demo, "
                         "jamais une promesse de gain"}
 

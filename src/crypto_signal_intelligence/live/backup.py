@@ -26,7 +26,8 @@ from ..config import Settings
 from .lock import InstanceLock
 
 SQLITE_FILES = ("signals/registry.sqlite3", "signals/feedback.sqlite3", "signals/external.sqlite3",
-                "experiments/experiments.sqlite3", "news/news.sqlite3", "data/raw/archives.sqlite3")
+                "experiments/experiments.sqlite3", "news/news.sqlite3", "data/raw/archives.sqlite3",
+                "signals/plans.sqlite3", "signals/generated_outcomes.sqlite3")
 PLAIN_DIRS = ("signals/shadow", "signals/outbox", "config", "models")
 SUSPENSION_FILE = "state/PUBLICATION_SUSPENDED"
 MANIFEST = "manifest.json"

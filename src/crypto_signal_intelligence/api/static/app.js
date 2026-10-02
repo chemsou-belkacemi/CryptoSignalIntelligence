@@ -763,6 +763,9 @@ function forwardCard(report) {
       + (log.last ? `, dernier ${log.last.day} (${log.last.pairs} paires)` : "") + `. ${report.unlocks}` }));
 }
 
+const OUTCOME_LABELS = { TP1_FIRST: "objectif atteint", SL_FIRST: "stop touché", TIMEOUT: "sortie à 24 h",
+  UNFILLED: "non rempli", TROU: "données manquantes" };
+
 async function loadFollow(force = false) {
   const target = document.getElementById("follow-result");
   if (state.followLoaded && !force) return;
@@ -815,9 +818,13 @@ async function loadFollow(force = false) {
           (sources.sources || []).map((x) => [x.source, x.evaluated, x.resolved, `${pctFrac(x.tp1_real)} / ${pctFrac(x.tp1_base)}`,
             `${fmt(x.r_real, 2, true)} / ${fmt(x.r_base, 2, true)}`, `${fmt(x.edge_r, 2, true)} ${ciR(x.edge_ci95)}`, x.conclusion]), "aucune source")),
       card("Signaux trouvés par les stratégies de CSI (shadow)", el("p", { class: "muted small", text: generated.note || "" }),
-        table(["Créé", "Paire", "Stratégie", "Entrée · stop · TP1", "Verdict stratégie", "État"],
+        table(["Stratégie", { label: "Résolus", num: true }, { label: "Remplis", num: true }, { label: "R moyen des remplis", num: true }, { label: "Gagnants", num: true }],
+          (generated.summary || []).map((s) => [s.strategy, s.resolved, s.filled, isNum(s.r_mean) ? `${fmt(s.r_mean, 2, true)} R` : "–", pctFrac(s.win_share)]),
+          "aucun signal encore résolu (24 h après la fin de validité de l'entrée)"),
+        table(["Créé", "Paire", "Stratégie", "Entrée · stop · TP1", "Verdict stratégie", "Issue", { label: "R", num: true }],
           (generated.signals || []).map((x) => [when(x.created_at), pair(x.symbol), x.strategy, `${price(x.entry)} · ${price(x.stop_loss)} · ${price(x.targets[0])}`,
-            x.strategy_verdict || "–", x.expired ? "expiré" : "actif"]), "aucun signal trouvé")));
+            x.strategy_verdict || "–", OUTCOME_LABELS[x.outcome] || (x.expired ? "en cours de suivi" : "actif"),
+            isNum(x.outcome_r) ? `${fmt(x.outcome_r, 2, true)} R` : "–"]), "aucun signal trouvé")));
   } catch (error) {
     showError(target, error);
   }

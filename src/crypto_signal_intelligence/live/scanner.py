@@ -204,6 +204,11 @@ class UserPairWorker:
             start_daily(self.settings, now=self.clock())
         except Exception:  # noqa: BLE001
             log.exception("suivi des plans")
+        try:                                         # issue des signaux shadow de CSI (rejeu sur les bougies stockées)
+            from ..signals.outcomes import resolve as resolve_generated
+            resolve_generated(self.settings, now=self.clock())
+        except Exception:  # noqa: BLE001
+            log.exception("issue des signaux shadow")
         try:                                         # tests en direct pré-inscrits (fil séparé, au plus une fois par heure)
             from ..forward.runner import start_background
             start_background(self.settings, now=self.clock())
