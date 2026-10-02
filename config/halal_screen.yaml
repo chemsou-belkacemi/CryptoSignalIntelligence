@@ -28,7 +28,8 @@ regles:
 structurelles:
   stablecoins_et_fiat:
     raison: "position d'attente uniquement, jamais un actif de modèle, jamais placée à rendement"
-    bases: [USDT, USDC, FDUSD, TUSD, USDP, DAI, USDE, PYUSD, USD1, EUR, TRY, BRL]
+    bases: [USDT, USDC, FDUSD, TUSD, USDP, DAI, USDE, PYUSD, USD1, EUR, EURI, AEUR, GBP, TRY, BRL, JPY, AUD, MXN, ARS,
+            UAH, PLN, RON, CZK, ZAR, COP, IDR]
   adosses_ou_wrapped:
     raison: "copie d'un autre actif ou version mise en staking (rendement)"
     bases: [WBTC, WBETH, BETH, PAXG, XAUT]

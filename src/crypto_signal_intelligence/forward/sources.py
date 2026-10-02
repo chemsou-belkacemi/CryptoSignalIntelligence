@@ -46,13 +46,16 @@ class PublicSources:
     def close(self) -> None:
         self._client.close()
 
-    def get(self, url: str, params: dict | None = None) -> bytes:
+    def get(self, url: str, params: dict | None = None, timeout: float | None = None) -> bytes:
         parsed = httpx.URL(url)
         prefixes = ALLOWED.get(parsed.host or "")
         if parsed.scheme != "https" or prefixes is None or not parsed.path.startswith(prefixes):
             raise PermissionError(f"adresse hors liste blanche : {url}")
         try:
-            response = self._client.get(url, params=params)
+            if timeout:
+                response = self._client.get(url, params=params, timeout=httpx.Timeout(timeout, connect=10.0))
+            else:
+                response = self._client.get(url, params=params)
         except httpx.HTTPError as exc:
             raise SourceError(f"réseau : {type(exc).__name__}") from None
         if response.status_code != 200:
@@ -104,7 +107,8 @@ def fetch_nasdaq100(client: PublicSources, *, now: datetime) -> dict:
     """Clôtures du Nasdaq 100 (FRED, série NASDAQ100) sur les 60 derniers jours : la corrélation 30 jours avec BTC
     est calculée à partir de cet extrait et des bougies Binance."""
     since = (pd.Timestamp(now) - pd.Timedelta(days=60)).date().isoformat()
-    text = client.get("https://fred.stlouisfed.org/graph/fredgraph.csv", {"id": "NASDAQ100", "cosd": since}).decode()
+    text = client.get("https://fred.stlouisfed.org/graph/fredgraph.csv", {"id": "NASDAQ100", "cosd": since},
+                      timeout=90.0).decode()                        # FRED répond parfois lentement
     rows = [r for r in csv.reader(io.StringIO(text))][1:]
     closes = [[d, _number(v)] for d, v in rows if v not in ("", ".")]
     if not closes:

@@ -22,7 +22,7 @@ from .journal import Journal
 from .sources import FETCHERS, PublicSources, SourceError
 
 JOURNAL_ID = "F0_DONNEES"
-SOURCE, INDICATORS, ERROR, DAY = "SOURCE", "INDICATEURS", "ERREUR", "JOUR"
+SOURCE, INDICATORS, ERROR, DAY, CORRELATION = "SOURCE", "INDICATEURS", "ERREUR", "JOUR", "CORRELATION"
 RECORD_AFTER = pd.Timedelta(minutes=10)
 CLOSE_ANYWAY = pd.Timedelta(hours=20)
 PERIOD = 14                       # ATR et ADX de Wilder sur 14 jours
@@ -136,28 +136,32 @@ def recorded(log: Journal, day: str, kind: str) -> set[str]:
     return {e["data"]["name"] for e in log.entries({kind}) if e["data"]["day"] == day}
 
 
-def indicators(settings: Settings, halal: HalalList, *, now: datetime, nasdaq: list[list] | None) -> dict:
+def indicators(settings: Settings, halal: HalalList, *, now: datetime, nasdaq: list[list] | None = None) -> dict:
     store = CandleStore(settings.data_dir)
     before = pd.Timestamp(now).floor("D")
     since = before - pd.Timedelta(days=HISTORY_DAYS)
     out: dict = {"pairs": {}, "missing": []}
-    btc_daily = None
     for symbol in halal.symbols:
         hourly = store.load_since(symbol, "1h", since)          # tableau vide si la paire n'est pas stockée
         if hourly.empty:
             out["missing"].append(symbol)
             continue
         daily = daily_bars(hourly, before)
-        if symbol == "BTCUSDT":
-            btc_daily = daily
         atr, adx = atr_adx(daily)
         if atr is None:
             out["missing"].append(symbol)
             continue
         out["pairs"][symbol] = {"atr14_pct": atr, "adx14": adx, "last_day": daily["day"].iloc[-1].date().isoformat()}
-    if btc_daily is not None and nasdaq:
-        out["btc_ndx_corr30"] = btc_ndx_correlation(btc_daily, nasdaq)
     return out
+
+
+def correlation(settings: Settings, *, now: datetime, nasdaq: list[list]) -> dict:
+    """Corrélation 30 jours BTC / Nasdaq 100, calculée dès que le Nasdaq du jour est relevé."""
+    before = pd.Timestamp(now).floor("D")
+    hourly = CandleStore(settings.data_dir).load_since("BTCUSDT", "1h", before - pd.Timedelta(days=HISTORY_DAYS))
+    if hourly.empty:
+        return {"correlation": None, "reason": "bougies BTC absentes"}
+    return btc_ndx_correlation(daily_bars(hourly, before), nasdaq)
 
 
 def record_day(settings: Settings, *, now: datetime, client: PublicSources | None = None,
@@ -193,11 +197,13 @@ def record_day(settings: Settings, *, now: datetime, client: PublicSources | Non
         book_client = depth if isinstance(depth, PublicHttpClient) else None
         log.append("CARNET", {"day": day, **depth_snapshot(settings, halal, client=book_client)}, now=now)
     if not any(e["data"]["day"] == day for e in log.entries({INDICATORS})):
-        nasdaq = next((e["data"]["data"]["closes"] for e in log.entries({SOURCE})
-                       if e["data"]["day"] == day and e["data"]["name"] == "nasdaq100"), None)
         halal = halal or admitted(settings)
-        values = indicators(settings, halal, now=now, nasdaq=nasdaq)
+        values = indicators(settings, halal, now=now, nasdaq=None)
         log.append(INDICATORS, {"day": day, "halal_sha256": halal.sha256, **values}, now=now)
+    nasdaq = next((e["data"]["data"]["closes"] for e in log.entries({SOURCE})
+                   if e["data"]["day"] == day and e["data"]["name"] == "nasdaq100"), None)
+    if nasdaq and not any(e["data"]["day"] == day for e in log.entries({CORRELATION})):
+        log.append(CORRELATION, {"day": day, "btc_ndx_30d": correlation(settings, now=now, nasdaq=nasdaq)}, now=now)
     moment = pd.Timestamp(now)
     if counts["sources"] == len(fetchers) or moment - moment.floor("D") >= CLOSE_ANYWAY:
         log.append(DAY, counts | {"complete": counts["sources"] == len(fetchers)}, now=now)

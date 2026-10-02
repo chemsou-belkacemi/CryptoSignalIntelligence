@@ -15,7 +15,7 @@ from crypto_signal_intelligence.forward import datalog
 from crypto_signal_intelligence.forward import sources as src
 from crypto_signal_intelligence.forward.halal import HalalList
 
-from .conftest import canonical
+from .conftest import PROJECT, canonical
 
 NOW = datetime(2026, 10, 2, 0, 30, tzinfo=UTC)
 ECB = ("KEY,FREQ,CURRENCY,CURRENCY_DENOM,EXR_TYPE,EXR_SUFFIX,TIME_PERIOD,OBS_VALUE\n"
@@ -152,3 +152,32 @@ def test_depth_client_reads_only_the_public_book():
     candles = PublicHttpClient.rest("https://data-api.binance.vision")
     with pytest.raises(PermissionError):
         candles.get("/api/v3/depth")                       # la liste blanche des bougies n'a pas changé
+
+
+def test_correlation_is_recorded_once_the_nasdaq_arrives(settings):
+    store = CandleStore(settings.data_dir)
+    store.save(canonical(24 * 80, "1h", symbol="BTCUSDT", start="2026-07-10"), "BTCUSDT", "1h")
+    halal = HalalList(("BTCUSDT",), {}, "a" * 64, "b" * 64)
+    state = {"down": True}
+
+    def nasdaq(c, *, now):
+        if state["down"]:
+            raise src.SourceError("réseau : ReadTimeout")
+        days = pd.date_range("2026-08-01", "2026-09-30", tz="UTC")
+        return {"closes": [[d.date().isoformat(), 100 + i] for i, d in enumerate(days) if d.weekday() < 5]}
+
+    datalog.record_day(settings, now=NOW, client=client(), halal=halal, fetchers={"nasdaq100": nasdaq}, depth=False)
+    log = datalog.journal(settings)
+    assert not list(log.entries({datalog.CORRELATION}))
+    state["down"] = False
+    datalog.record_day(settings, now=NOW + timedelta(hours=1), client=client(), halal=halal,
+                       fetchers={"nasdaq100": nasdaq}, depth=False)
+    corr = next(log.entries({datalog.CORRELATION}))["data"]["btc_ndx_30d"]
+    assert corr["sessions"] >= 15 and corr["correlation"] is not None
+
+
+def test_fiat_currencies_are_structural_exclusions():
+    from crypto_signal_intelligence.forward.halal import load_screen, structural_reason
+    screen = load_screen(PROJECT / "config" / "halal_screen.yaml")
+    for base in ("GBP", "EUR", "JPY", "TRY", "USDC"):
+        assert structural_reason(base, screen) == "stablecoins_et_fiat", base
