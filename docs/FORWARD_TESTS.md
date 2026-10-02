@@ -837,6 +837,61 @@ est probable si le marché est calme, et c'est une réponse acceptable.
 de 40 ; blocs journaliers alignés UTC ; événements corrélés ; 12 semaines ne valident rien, et un `EXCES_POSITIF`
 sur deux comparaisons après 737 essais au programme resterait une indication, pas une preuve.
 
+## F11_SELL_PRESSURE_VETO : achat le lendemain d'une pression vendeuse extrême, en direct (veto attendu)
+
+Piste **après coup** du criblage J (`docs/SCREENING.md`, `SCREEN-20261002T165546Z-0994a2`) : la condition J2 (part
+des achats au marché ≤ 10e centile des 365 journées précédentes) avait un excès négatif à 1 jour (−0,34 %,
+IC95 [−0,57 ; −0,12]) et à 7 jours (−1,45 % [−2,73 ; −0,17]) sans avoir été déclarée comme veto. Elle n'entre
+dans aucune règle ; ce test mesure en direct si l'observation tient sur des données jamais vues.
+
+**Hypothèse.** Quand la part des achats au marché (taker) dans le volume en USDT d'une journée tombe sous son 10e
+centile figé, un achat simulé le lendemain matin fait **moins bien**, net de frais, que 20 achats placebo de la
+même paire aux mêmes heures dans les 30 jours précédents, à 24 h et 168 h. Réponse attendue : `EXCES_NEGATIF`
+(veto justifié) ; `PAS_DE_DIFFERENCE_DEMONTREE` enterrerait la piste.
+
+**Événements et règles.**
+- Paires : les 16 de la configuration (`data.symbols`) admises par la liste halal figée.
+- Chaque jour, après 00:10 UTC : un contrôle journalisé avec, par paire, la part des achats au marché de la veille
+  (somme de `taker_buy_quote_volume` / somme de `quote_volume` sur les bougies 1 h ouvertes de 00:00 à 23:00 ; au
+  moins 20 bougies, volume > 0, sinon « non évaluable »), la même définition que `research.flow_screen.daily_flow`.
+- Événement : part de la veille **≤ seuil de la paire**. Seuils FIGÉS, calculés le 2026-10-02 sur les 365 dernières
+  journées de DEVELOPMENT (2024-07-01 → 2025-06-30, magasin long), 10e centile : BTC 0,4570, ETH 0,4681, SOL 0,4692,
+  XRP 0,4652, NEAR 0,4704, AVAX 0,4622, HBAR 0,4521, LINK 0,4447, XLM 0,4470, ADA 0,4629, TRX 0,4548, FIL 0,4523,
+  ALGO 0,4669, DOT 0,4536, ATOM 0,4521, ETC 0,4313. Une paire peut déclencher plusieurs jours de suite.
+- Achat simulé au premier prix (ouverture de la première bougie de 1 minute) après le calcul ; sorties au marché à
+  24 h et 168 h ; frais du modèle commun, central et défavorable.
+- Placebos : 20 achats de la même paire aux mêmes heures, 1 à 30 jours avant (graine déduite de l'événement),
+  mêmes durées, mêmes frais ; excès = rendement de l'achat − moyenne des placebos.
+- Résolution 168 h après l'entrée ; bougie voulue plus de 10 minutes en retard : `TROU` ; source muette : nouvel
+  essai, trou constaté 2 jours après l'horizon.
+
+**Paramètres** (figés dans le code, `forward/f11.py`) : seuils ci-dessus ; journée valide à 20 bougies ; horizons
+24 h et 168 h ; 20 placebos de 1 à 30 jours ; minimum **30 événements résolus** par horizon ; 2 comparaisons au
+niveau 1 − 0,05/2 ; rééchantillonnage 10 000 tirages par blocs de 7 jours (au moins 8 blocs), graine 20261011 ;
+gel : modules f11, costs, registry, journal, intervalle par blocs, magasin de bougies, paires de la configuration.
+
+**Métrique.** Par horizon et scénario : événements résolus, jours distincts, rendement net moyen de l'achat et des
+placebos, excès moyen et son intervalle, part des événements qui battent leurs placebos ; événements par paire,
+contrôles, paires évaluables, en attente, trous.
+
+**Seuil de décision**, par horizon : `INSUFFISANT` (moins de 30 résolus ou intervalle non calculable) ;
+`EXCES_NEGATIF` (intervalle entièrement sous 0 en central ET en défavorable : veto justifié) ; `EXCES_POSITIF`
+(intervalle entièrement au-dessus de 0 : la piste est contredite) ; sinon `PAS_DE_DIFFERENCE_DEMONTREE`. Un
+`EXCES_NEGATIF` sur 12 semaines n'installe aucun veto automatiquement : il justifierait de le pré-inscrire comme
+règle de veto pour la période suivante, décision du propriétaire.
+
+**Date d'évaluation.** 84 jours après le démarrage (revue intermédiaire à 42 jours) ; verdict une fois le dernier
+événement résolu (7 jours après la fin du recueil au plus, 9 si des bougies manquent).
+
+**Nombre d'événements attendu.** Un 10e centile donne environ un jour sur dix par paire si le régime de 2024-2025
+tient : de l'ordre de 100 à 140 événements en 12 semaines sur 16 paires, très corrélés entre paires (les journées
+de ventes sont des journées de marché).
+
+**Limites déclarées.** Piste choisie après avoir vu DEVELOPMENT (c'est précisément pourquoi elle est testée en
+direct) ; seuils d'une autre période et d'un seul marché (Binance) ; une part d'achats structurellement plus basse
+en 2026 (changement de mix maker/taker) déclencherait trop souvent, ce que le nombre d'événements révélera ;
+12 semaines ne valident rien.
+
 ## VOTE_V1 : modèle de vote, définition pré-enregistrée (phase 9, NON évalué)
 
 Défini maintenant, conformément à la mission ; **aucun code d'évaluation, aucune mesure sur les 12 semaines en
