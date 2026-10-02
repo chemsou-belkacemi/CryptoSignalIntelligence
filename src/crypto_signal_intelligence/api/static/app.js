@@ -567,7 +567,15 @@ async function runOpportunities() {
     for (const [index, p] of state.pairs.entries()) {
       if (run !== state.opportunitiesRun) return;
       try {
-        const r = await api("/opportunities/pair", { symbol: p.symbol });
+        // Une API momentanément absente (redémarrage du conteneur) répond tout de suite par une erreur : sans nouvel
+        // essai, toutes les paires suivantes passaient « illisibles » en quelques secondes. Deux nouveaux essais,
+        // 5 puis 15 s plus tard, avant de compter la paire comme illisible.
+        let r = null;
+        for (const wait of [0, 5000, 15000]) {
+          if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
+          if (run !== state.opportunitiesRun) return;
+          try { r = await api("/opportunities/pair", { symbol: p.symbol }); break; } catch (error) { if (wait === 15000) throw error; }
+        }
         if (run !== state.opportunitiesRun) return;                // relancé entre-temps : on s'efface
         for (const h of r.horizons || []) {
           if (!h.error) found.plans.push({ ...h, symbol: r.symbol });
