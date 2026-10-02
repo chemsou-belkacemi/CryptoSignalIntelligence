@@ -9,6 +9,7 @@ Aucune promesse de rendement. Zéro signal est une réponse valable.
 
 Cahier des charges complet : [docs/PROMPT_MAITRE.md](docs/PROMPT_MAITRE.md) (ajouts du 2026-09-30 en section 26).
 Ce qui est testé, non vérifié, bloqué ou non implémenté : [docs/DELIVERY_STATUS.md](docs/DELIVERY_STATUS.md).
+Plan de travail (fait, en cours, à faire, décisions en attente) : [docs/PLAN_DE_TRAVAIL.md](docs/PLAN_DE_TRAVAIL.md).
 
 ## État : lots 0 à 2 livrés, lots 3 et 4 en cours
 
