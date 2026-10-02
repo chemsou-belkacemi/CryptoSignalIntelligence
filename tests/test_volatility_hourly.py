@@ -116,6 +116,15 @@ def test_run_audits_then_records_four_comparisons(stored):
     assert run["metrics"]["n_trials"] == 4 == ExperimentRegistry(stored.experiments_db).program_trials()
 
 
+def test_a_first_forecast_inside_a_quarter_loses_no_origin(stored, monkeypatch):
+    monkeypatch.setattr(vh, "FIRST_FORECAST", "2024-05-15")                           # pas un début de trimestre
+    result = vh.run(stored, now=NOW, symbols=list(PAIRS))
+    saved = pd.read_parquet(stored.reports_dir / result.run_id / "forecasts_4h.parquet")
+    assert saved["origin"].min() == day("2024-05-15") and saved["origin"].dt.floor("D").nunique() == {r.horizon_days: r.days for r in result.rows}[4]
+    run = ExperimentRegistry(stored.experiments_db).get(result.run_id)
+    assert run["metrics"]["horizon_unit"] == "hours" and run["metrics"]["rows"][0]["horizon_unit"] == "hours"
+
+
 def test_uncommitted_code_or_failed_audit_records_nothing(stored, monkeypatch):
     monkeypatch.setattr(vh, "code_state", lambda: "0123abcd+DIRTY")
     with pytest.raises(v1.DirtyCode):

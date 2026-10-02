@@ -440,6 +440,45 @@ chevauchent : les blocs calendaires tiennent compte de la dépendance d'un jour 
 seule valeur par jour pèse autant en 2019 (peu de paires) qu'en 2025 ; la règle de 15 min du tableau de bord n'est
 pas comparée exactement.
 
+### Résultats du protocole v3 (`VOL-20261002T211837Z-be55c0`, exécuté le 2026-10-02, 4 comparaisons, programme 753)
+
+Code du commit `231f40f` (arbre propre ; relecture indépendante pendant le calcul : aucun défaut faussant la mesure,
+deux dettes corrigées ensuite sans effet sur le résultat : alignement du premier trimestre, unité « heures »
+explicite dans le registre), audit des fuites réussi (BTC, ETH, SOL, 3 origines horaires chacune, mutation
+détectée), 38 paires évaluées, **1,40 million de prévisions par horizon** sur 2 341 à 2 349 jours (2019-01-01 →
+2025-06), 26 réajustements trimestriels. Période finale non consultée.
+
+**Verdict : `PREVISION_UTILE` à 24 h** (HAR + profil retenu) ; `AUCUNE_AMELIORATION` à 4 h par la règle.
+
+| Modèle | Horizon | QLIKE | R0 | Écart [IC 98,75 %] | Années | Paires mieux | Erreur de log RV | Utile |
+|---|---|---|---|---|---|---|---|---|
+| **H1 HAR + profil** | **24 h** | **0,382** | 0,659 | **−0,277 [−0,342 ; −0,212]** | 7/7 | 100 % | plus faible (−0,017) | **oui** |
+| H2 LightGBM + profil | 24 h | 0,411 | 0,659 | −0,248 [−0,315 ; −0,182] | 7/7 | 100 % | plus faible (−0,011) | oui |
+| H1 HAR + profil | 4 h | 0,728 | 0,905 | −0,176 [−0,217 ; −0,135] | 7/7 | 100 % | **plus grande (+0,055)** | non (critère 4) |
+| H2 LightGBM + profil | 4 h | 0,749 | 0,905 | −0,156 [−0,196 ; −0,116] | 7/7 | 100 % | plus grande (+0,042) | non (critère 4) |
+
+Tableau complet et prévisions : `reports/VOL-20261002T211837Z-be55c0/` (`summary.json`, `forecasts_4h.parquet`,
+`forecasts_24h.parquet`).
+
+Lecture :
+- **La règle « 24 dernières heures » est une mauvaise référence à toute heure** : les deux candidats la battent
+  de 20 à 40 % de QLIKE, chaque année de 2019 à 2025, sur chacune des 38 paires, avec des intervalles très loin de
+  zéro. L'essentiel vient de deux choses connues et déclarées : la **saisonnalité** (heure et jour de semaine : le
+  profil) et la **mémoire longue** (168 h et 720 h, que la règle ignore).
+- **À 24 h, H1 (HAR + profil) est utile** sur les quatre critères, et LightGBM n'apporte rien de plus que la
+  régression linéaire (le profil capte déjà la saisonnalité).
+- **À 4 h, le critère 4 écarte les deux candidats** : leur QLIKE est bien meilleur, mais leur erreur quadratique
+  de log RV est plus grande que celle de R0. Comme déclaré au § 11 du lot 7, cette perte secondaire est peu robuste
+  au bruit de la variance réalisée, et à 4 h la variance réalisée n'est faite que de **4 rendements horaires** : une
+  mesure très bruitée, où une prévision bien centrée en moyenne (QLIKE) peut avoir une plus grande erreur de log.
+  La règle était déclarée avant exécution : elle s'applique, et le résultat à 4 h se lit comme « gain de QLIKE
+  net, non retenu par la règle », pas comme un échec.
+- **Ce que cela permet** : à 24 h, un stop ou un objectif dimensionné sur la volatilité prévue par HAR + profil
+  serait mieux calibré que sur les 24 dernières heures ; c'est une prévision d'**ampleur**, rien sur la direction
+  ni la rentabilité. **Rien n'est branché** : le plan indicatif du tableau de bord garde sa règle ; la sélection a
+  eu lieu sur DEVELOPMENT (4 comparaisons de plus, 753 au programme) et doit être confirmée sur des données jamais
+  consultées (période finale réservée, ou observation prospective) avant un branchement dans une étape séparée.
+
 ## Historique
 
 - 2026-10-01, v1 : protocole déclaré avant toute exécution.
@@ -447,6 +486,9 @@ pas comparée exactement.
   exécution ; aucun résultat v2 calculé ni regardé.
 - 2026-10-02 (17:05 UTC), protocole v2 exécuté : `VOL-20261002T170500Z-c3bda6`, 12 comparaisons (programme 749), MIEUX_QUE_SERVICE
   à 3 jours par la combinaison V1 ; § 15 ajouté ; rien n'est branché.
+- 2026-10-02, protocole v3 (§ 16, volatilité à toute heure) : déclaré avant exécution puis exécuté le soir même,
+  `VOL-20261002T211837Z-be55c0`, 4 comparaisons (programme 753), PREVISION_UTILE à 24 h (HAR + profil) ; résultats
+  inscrits au § 16 ; rien n'est branché.
 - 2026-10-01, v1 complétée avant toute exécution, après la relecture indépendante : grille horaire et
   variances passées tolérantes à 5 % d'heures manquantes (avant : une heure de maintenance retirait
   30 jours d'origines, soit environ 21 % des jours de 2019 à 2025) ; exécution refusée sur du code non

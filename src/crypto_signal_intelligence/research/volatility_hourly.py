@@ -189,7 +189,8 @@ def walk_forward(frames: dict[str, pd.DataFrame], settings: Settings, *,
         scored = (eligible & (data[f"rv2_{horizon}"] > 0) & (last_target_bar <= end)).to_numpy()
         parts: list[pd.DataFrame] = []
         if scored.any():
-            for refit in pd.date_range(first.replace(day=1), origins[scored].max(), freq=REFIT_FREQ):
+            start = first.tz_convert(None).to_period("Q").start_time.tz_localize("UTC")   # début du trimestre de FIRST_FORECAST
+            for refit in pd.date_range(start, origins[scored].max(), freq=REFIT_FREQ):
                 quarter = scored & ((origins >= refit) & (origins < refit + pd.offsets.QuarterBegin(1, startingMonth=1))).to_numpy()
                 if not quarter.any():
                     continue
@@ -373,7 +374,8 @@ def _record(settings: Settings, result: Result, *, now: datetime, symbols: list[
             forecasts: dict[int, pd.DataFrame] | None = None, code: str = "") -> None:
     report_dir = settings.reports_dir / result.run_id
     report_dir.mkdir(parents=True, exist_ok=True)
-    payload = asdict(result) | {"models": MODEL_TEXT, "horizons_hours": list(HORIZONS), "protocol_version": PROTOCOL_VERSION, "doc": DOC}
+    payload = asdict(result) | {"models": MODEL_TEXT, "horizons_hours": list(HORIZONS), "horizon_unit": "hours",
+                                "protocol_version": PROTOCOL_VERSION, "doc": DOC}
     (report_dir / "summary.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
     for horizon, table in (forecasts or {}).items():
         table.to_parquet(report_dir / f"forecasts_{horizon}h.parquet", index=False)
@@ -398,5 +400,6 @@ def _record(settings: Settings, result: Result, *, now: datetime, symbols: list[
                           "purge": "cible terminée au plus tard à la date de réajustement", "sample": "origines où les trois modèles ont une prévision"},
         metrics={"n_trials": result.n_trials, "program_trials": result.program_trials, "verdict": result.verdict,
                  "selected": {str(horizon): model for horizon, model in result.selected.items()},
-                 "useful": sum(1 for row in result.rows if row.useful), "rows": [asdict(row) for row in result.rows]},
+                 "useful": sum(1 for row in result.rows if row.useful), "horizon_unit": "hours",
+                 "rows": [asdict(row) | {"horizon_unit": "hours"} for row in result.rows]},
         status="COMPLETED", report_dir=str(report_dir))
