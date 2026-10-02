@@ -199,8 +199,23 @@ def backtest_reference(db_path: Path, strategy: str, policy_id: str) -> tuple[fl
     return oos[variant].get("expectancy_r"), f"{row[0]} {variant}"
 
 
-def deviations(signal: Signal, channel: str, theory: Prospective, state: ExecutionState) -> list[str]:
-    """Explique les écarts prospectif / Demo : délai, prix, entrée manquée, taille, politique, frais."""
+#: Écart toléré entre le taux de frais réel et l'hypothèse centrale avant de le signaler (arrondis de la bourse).
+FEE_TOLERANCE_BPS = 0.5
+
+
+def fee_rate_bps(state: ExecutionState) -> float | None:
+    """Taux de frais réellement payé, en points de base du montant échangé, quand tous les frais sont connus et payés
+    dans la devise de cotation ; None sinon (frais inconnus, payés en BNB ou dans l'actif acheté : non convertis ici)."""
+    traded = state.bought_quote + state.sold_quote
+    if state.fills_without_fee or state.fees_other or not traded or state.fees_quote <= 0:
+        return None
+    return float(state.fees_quote / traded) * 1e4
+
+
+def deviations(signal: Signal, channel: str, theory: Prospective, state: ExecutionState, *,
+               assumed_fee_bps: float | None = None) -> list[str]:
+    """Explique les écarts prospectif / Demo : délai, prix, entrée manquée, taille, politique, frais. `assumed_fee_bps` :
+    frais par ordre du scénario central ; un taux réel différent (remise BNB absente en Demo, palier) est signalé."""
     notes: list[str] = []
     if state.consumer_policy_hash and state.consumer_policy_hash != signal.exit_policy_hash:
         notes.append(f"POLITIQUE_DIFFÉRENTE (consommateur {state.consumer_policy_hash})")
@@ -223,6 +238,11 @@ def deviations(signal: Signal, channel: str, theory: Prospective, state: Executi
         notes.append(f"SORTIE_MARCHÉ_HORS_POLITIQUE ×{state.market_exits} ({state.reason or 'motif absent'})")
     if state.fills_without_fee:
         notes.append(f"FRAIS_INCONNUS sur {state.fills_without_fee} remplissage(s)")
+    rate = fee_rate_bps(state)
+    if rate is not None and assumed_fee_bps is not None and abs(rate - assumed_fee_bps) > FEE_TOLERANCE_BPS:
+        notes.append(f"FRAIS {rate:.2f} pb par ordre vs {assumed_fee_bps:g} pb supposés")
+    for asset, amount in sorted(state.fees_other.items()):
+        notes.append(f"FRAIS_EN_{asset} {amount} (non convertis : taux réel à vérifier)")
     if theory.ambiguous:
         notes.append("THÉORIE_AMBIGUË (TP et stop dans la même bougie)")
     return notes
@@ -279,5 +299,5 @@ def execution_report(settings: Settings) -> list[ReportRow]:
             tp1=str(signal.tp_1), backtest_r=backtest_r, backtest_source=source,
             theoretical_outcome=theory.outcome, theoretical_r=theory.r, demo_status=demo_status,
             demo_r=state.realized_r, demo_events=state.events,
-            deviations=tuple(deviations(signal, channel, theory, state))))
+            deviations=tuple(deviations(signal, channel, theory, state, assumed_fee_bps=settings.costs["central"].fee_bps))))
     return rows

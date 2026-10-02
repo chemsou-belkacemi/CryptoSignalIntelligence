@@ -148,6 +148,27 @@ def test_deviations_explain_delay_price_size_policy_and_fees():
     assert any("ENTRÉE_MANQUÉE" in n for n in deviations(signal, "outbox", theory, missed))
 
 
+def test_real_fee_rate_is_compared_to_the_central_assumption():
+    from datetime import timedelta
+
+    from crypto_signal_intelligence.feedback.reconcile import Prospective, deviations, fee_rate_bps
+    signal = parse(SPEC_EXAMPLE)
+    theory = Prospective("TP", 1.0, signal.decision_at + timedelta(minutes=15), 100.0)
+
+    def filled(fee: str, asset: str) -> object:
+        return execution_state(signal, [parse_line(event(event_id="F1", event_type="ENTRY_FILLED", quantity="1", price="100",
+                                                         fee=fee, fee_asset=asset))])
+
+    with_bnb_rate = filled("0.075", "USDT")                                  # 0,075 USDT sur 100 USDT = 7,5 pb
+    assert fee_rate_bps(with_bnb_rate) == pytest.approx(7.5)
+    assert not any("FRAIS" in n for n in deviations(signal, "outbox", theory, with_bnb_rate, assumed_fee_bps=7.5))
+    without = filled("0.1", "USDT")                                           # 10 pb : remise absente
+    assert any("FRAIS 10.00 pb par ordre vs 7.5 pb supposés" in n for n in deviations(signal, "outbox", theory, without, assumed_fee_bps=7.5))
+    in_bnb = filled("0.0001", "BNB")
+    assert fee_rate_bps(in_bnb) is None
+    assert any(n.startswith("FRAIS_EN_BNB 0.0001") for n in deviations(signal, "outbox", theory, in_bnb, assumed_fee_bps=7.5))
+
+
 def test_prospective_replay_follows_the_signal_policy():
     """Même trajectoire : la politique BSM (sans sortie temporelle) reste ouverte, la théorique sort au temps."""
     from datetime import timedelta

@@ -130,6 +130,26 @@ et aucune n'a été choisie pour changer un verdict.
   encore cotées et liquides. Effet estimé : quelques centièmes de R par trade en faveur du
   backtest ; sans effet sur des stratégies rejetées, décisif pour un résultat limite.
 
+## Révision des frais centraux (2026-10-03)
+
+- **Frais par ordre du scénario central : 7,5 pb au lieu de 10 pb**, à partir du 2026-10-03. Le propriétaire paie
+  ses frais en BNB (remise de 25 % sur le tarif Spot de base) ; 10 pb surestimaient son coût réel. Seuil aller-retour
+  des criblages : **0,21 %** au lieu de 0,26 % (2 × 7,5 pb de frais + 2 × 3 pb de glissement et demi-spread).
+- Défavorable inchangé (10 pb : remise absente, solde BNB épuisé, environnement Demo sans remise) ; stress inchangé
+  (15 pb). Le modèle de frais des tests en direct (`forward/costs.py`, gelé) prenait déjà 7,5 pb en central.
+- **Rien n'est recalculé** : chaque exécution enregistrée garde le scénario de coûts de son époque (registre, rapport).
+  Effet estimé sur les verdicts passés, recalculé à la main et non enregistré : A, B et C gagneraient environ 0,03 à
+  0,05 R par trade et restent rejetées (intervalles négatifs) ; aucune condition des criblages D à K ne change de
+  verdict (E à 4 h, +0,11 % brut, reste sous 0,21 %) ; ce n'est pas un nouvel essai.
+- **Effet en direct, daté** : le chemin de décision (`signals/analyze.py`, veto sur le RR net central), les plans
+  indicatifs du tableau de bord, l'évaluation des signaux externes et le rejeu prospectif lisent ce scénario. Les
+  signaux shadow et les plans émis à partir du 2026-10-03 passent le veto un peu plus souvent ; c'est inscrit dans la
+  section « Démarrages » de `docs/FORWARD_TESTS.md` pour F1 et F2, dont les mesures utilisent leur propre modèle de
+  frais gelé.
+- **Vérification en Demo** : le rapprochement d'exécution (`feedback/reconcile.py`) compare le taux de frais réel de
+  chaque signal exécuté à l'hypothèse centrale et signale un écart de plus de 0,5 pb, ou des frais payés en BNB ou
+  dans l'actif acheté (non convertis). Au 2026-10-03, BSM n'a encore remonté aucune exécution.
+
 ## Traçabilité
 
 Chaque exécution enregistre : hypothèse, période, univers, empreinte des données,

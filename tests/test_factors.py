@@ -382,7 +382,7 @@ def test_run_measures_the_declared_trials_on_development_only(stored):
     assert all({"skipped_orders", "adverse_skipped_orders"} <= set(r) for r in result.rows)
     assert set(result.benchmarks) == {fa.EW, fa.BTC} and result.coverage["decisions"] == 38
     assert result.coverage["first"].startswith("2024-01-01") and result.coverage["last"].startswith("2024-09-16")
-    assert result.coverage["cost_per_side"] == pytest.approx(0.0013)
+    assert result.coverage["cost_per_side"] == pytest.approx(0.00105)            # 7,5 pb de frais + 3 pb (2026-10-03)
     assert result.coverage["adverse_cost_per_side"] == pytest.approx(0.0018)
     for row in result.rows:
         assert set(row["checks"]) == {"ic_ecart_de_sharpe_positif", "stable_par_validation",
@@ -394,7 +394,7 @@ def test_run_measures_the_declared_trials_on_development_only(stored):
     assert run["kind"] == "FACTORS" and run["metrics"]["n_trials"] == 18 and run["metrics"]["verdict"] == result.verdict
     assert run["period_label"] == "DEVELOPMENT" and run["period_end"].startswith("2024-09-29")
     assert ExperimentRegistry(stored.experiments_db).program_trials() == 18 == result.program_trials
-    assert run["params"]["cost_per_side"] == pytest.approx(0.0013) and run["params"]["bootstrap_samples"] == 300
+    assert run["params"]["cost_per_side"] == pytest.approx(0.00105) and run["params"]["bootstrap_samples"] == 300
     # Le tableau de bord liste ce protocole avec le verdict enregistré, sans le reformuler.
     from crypto_signal_intelligence.api.server import CsiApi
     listed = {m["kind"]: m for m in CsiApi(stored).dispatch("GET", "/models", {}, None)["models"]}

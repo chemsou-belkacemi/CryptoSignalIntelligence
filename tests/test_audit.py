@@ -21,7 +21,7 @@ from .conftest import canonical
 T0 = pd.Timestamp("2026-03-02 00:00", tz="UTC")
 STEP = pd.Timedelta(minutes=15)
 NOW = datetime(2026, 6, 1, tzinfo=UTC)
-FEE, MARKET = 0.001, 0.0003                      # coûts centraux : frais 10 pb ; glissement 2 pb + demi-écart 1 pb
+FEE, MARKET = 0.00075, 0.0003                    # coûts centraux : frais 7,5 pb (remise BNB) ; glissement 2 pb + demi-écart 1 pb
 SIGNAL = """👑 LEGEND TRADING INDICATOR 👑
 ───────────────────
 #ABC/USDT

@@ -33,9 +33,10 @@ def replay(rows, *, costs=FREE, max_hold: int = 50, entry: float = 100.0, stop: 
 FILL = (99.0, 99.5, 98.8, 99.2)                          # ouverture sous la limite 100 : rempli à 99
 
 
-def with_costs(first_weight: float, tp1: float = 102.0, rest_price: float = 100.0) -> float:
-    """R à la main, coûts centraux : achat à 99 + glissement, TP1 puis le reste au stop remonté (entrée 1)."""
-    m, fee = 3e-4, 1e-3
+def with_costs(first_weight: float, tp1: float = 102.0, rest_price: float = 100.0, fee: float = 1e-3) -> float:
+    """R à la main : achat à 99 + glissement, TP1 puis le reste au stop remonté (entrée 1). `fee` : 10 pb pour COSTS ;
+    les tests qui passent par la configuration donnent ses frais centraux (7,5 pb depuis le 2026-10-03)."""
+    m = 3e-4
     buy = 99 * (1 + m)
     sold = (first_weight * tp1 + (1 - first_weight) * rest_price) * (1 - m) * (1 - fee)
     return (sold - buy * (1 + fee)) / 5
@@ -200,7 +201,7 @@ def test_recorded_signals_are_resolved_with_the_owner_management(settings):
                     verdict="INDETERMINE", p_tp1=None, base_expectancy_r=None, evaluation={}, raw_text="x", resolvable=True)
     assert resolve_pending(settings, registry, now=datetime(2026, 4, 1, tzinfo=UTC)) == {"TP1_FIRST": 1}
     row = registry.recent()[0]
-    assert row["outcome"] == "TP1_FIRST" and row["outcome_r"] == pytest.approx(with_costs(5 / 15), abs=1e-4)
+    assert row["outcome"] == "TP1_FIRST" and row["outcome_r"] == pytest.approx(with_costs(5 / 15, fee=settings.costs["central"].fee_bps / 1e4), abs=1e-4)
 
 
 def test_history_audit_measures_the_owner_management_and_proves_with_it(settings):
@@ -212,5 +213,5 @@ def test_history_audit_measures_the_owner_management_and_proves_with_it(settings
                       bars_for=lambda symbol, start, end: candles)
     outcome = report.rows[0].outcomes[au.TRAILING]
     w = tr.early_weights(3)
-    assert outcome["issue"] == "TP1_PUIS_SL" and outcome["r"] == pytest.approx(with_costs(w[0]), abs=1e-4)
+    assert outcome["issue"] == "TP1_PUIS_SL" and outcome["r"] == pytest.approx(with_costs(w[0], fee=settings.costs["central"].fee_bps / 1e4), abs=1e-4)
     assert report.summary["G"]["preuve"]["convention"] == au.TRAILING

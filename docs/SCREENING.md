@@ -23,7 +23,7 @@ la dérive de la paire et le seuil des coûts.
   candidat.
 - Excès = rendement − moyenne inconditionnelle de la même paire au même horizon.
 - IC95 de la moyenne pondérée par événement, par tirage de blocs de 10 jours consécutifs.
-- « Passe » = rendement brut moyen > seuil de coûts aller-retour (0,26 % en coûts centraux) ET borne
+- « Passe » = rendement brut moyen > seuil de coûts aller-retour (0,26 % en coûts centraux jusqu'au 2026-10-02, 0,21 % ensuite : `PROTOCOL.md`) ET borne
   basse de l'IC95 de l'excès > 0.
 - 6 conditions × 3 horizons = 18 essais : un seul intervalle qui exclut zéro de peu peut être un hasard.
 

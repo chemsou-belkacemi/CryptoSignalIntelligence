@@ -80,7 +80,10 @@ max_hold_bars = 96                # 24 h en 15m ; sortie au close (profil théor
 risk_fraction_per_trade = 0.005   # courbe « signaux indépendants », informative
 
 [costs.central]
-fee_bps = 10
+# 7,5 pb par ordre depuis le 2026-10-03 : tarif Spot de base (10 pb) avec la remise de 25 % des frais payés en BNB,
+# que le propriétaire utilise. Avant : 10 pb ; chaque exécution enregistrée garde le scénario de son époque.
+# Le défavorable reste à 10 pb (remise absente, par exemple solde BNB épuisé ou environnement Demo sans remise).
+fee_bps = 7.5
 slippage_bps = 2
 half_spread_bps = 1
 extra_entry_delay_bars = 0
