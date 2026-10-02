@@ -760,7 +760,10 @@ function forwardCard(report) {
     const whole = providers ? (providers.ensemble || {}) : {};
     const wholeCentral = ((whole.scenarios || {}).central) || {};
     const excessText = (h) => { const s = (sc || {})[h] || {}; return `${h} : ${isNum(s.excess) ? fmt(s.excess * 100, 2, true) + " %" : "–"} (${s.n || 0})`; };
-    const ladder = sc && !onchain ? Object.entries(sc).map(([v, s]) => `${v.replace("echelle_", "")} : ${isNum(s.r_mean) ? fmt(s.r_mean, 2, true) + " R" : "–"} (${s.filled || 0})`).join(" · ") : null;
+    // F5 et F8 rangent aussi des écarts scalaires (A_FEU_minus_A, A_NEWS_minus_A), parfois null : seules les variantes
+    // d'échelle (objets avec « filled ») entrent dans ce résumé.
+    const ladder = sc && !onchain ? Object.entries(sc).filter(([, s]) => s && typeof s === "object" && "filled" in s)
+      .map(([v, s]) => `${v.replace("echelle_", "")} : ${isNum(s.r_mean) ? fmt(s.r_mean, 2, true) + " R" : "–"} (${s.filled || 0})`).join(" · ") : null;
     rows.push([t.test_id, t.state, t.started_at ? when(t.started_at) : "–", t.final_at ? when(t.final_at) : "–",
       t.journal && t.journal.ok ? `intègre (${t.journal.entries})` : { node: el("span", { class: "bad", text: "ROMPU" }) },
       st.news_items !== undefined ? `${st.news_items} news avec terme (${st.applied} appliquée(s), ${st.ambiguous} ambiguë(s)), ${st.days} jour(s) ; A + news − A ${isNum(((st.scenarios || {}).central || {}).A_NEWS_minus_A) ? fmt(st.scenarios.central.A_NEWS_minus_A * 100, 2, true) + " %" : "–"}`
