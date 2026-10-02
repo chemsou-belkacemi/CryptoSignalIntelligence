@@ -391,6 +391,55 @@ Lecture :
   prévisions des deux modèles en service sont déjà journalisées chaque jour par `outlook/volatility.py`, la moyenne
   peut donc être mesurée après coup sans rien changer au service). Rien n'est branché par ce lot.
 
+## 16. Protocole v3 — volatilité à toute heure (déclaré le 2026-10-02, avant exécution)
+
+Piste 2 de l'étude du 2026-10-02 : la volatilité qui sert aux stops et aux objectifs est celle des heures qui
+suivent une décision prise à **n'importe quelle heure**, pas seulement à 00:00. Code : `research/volatility_hourly.py`
+(le module v1 n'est pas modifié). Tests : `tests/test_volatility_hourly.py`. Commande : `csi volatility-hourly`.
+
+**Question.** À chaque clôture 1 h, un modèle prévoit-il la variance réalisée des **4 h** et des **24 h** suivantes
+mieux que la règle du tableau de bord, **R0** = variance horaire moyenne des 24 dernières heures × H (le plan
+indicatif d'`outlook/pair.py` lit 96 bougies de 15 min, soit les mêmes 24 heures ; le magasin long n'a que des
+bougies 1 h, la règle est donc prise sur bougies 1 h) ?
+
+**Cadre repris du lot 7** (§ 1, 2, 3, 4, 6, 9) : mêmes données, univers, coupure à DEVELOPMENT, données complètes
+exigées, rendements log horaires, fenêtres passées tolérantes à 5 % d'heures manquantes, cibles contiguës, HAR et
+LightGBM aux mêmes réglages (300 arbres, 15 feuilles, apprentissage 0,05, 200 lignes par feuille, facteur de Duan),
+100 lignes d'entraînement au moins, QLIKE et erreur de log RV, IC calendaires (blocs de 10 jours, 20 blocs au
+moins), échantillon commun, audit des fuites avant tout résultat.
+
+**Différences déclarées.**
+- **Origines** : chaque bougie 1 h close (24 par jour et par paire), à partir du 2019-01-01, après 400 jours
+  d'historique de la paire ; variables : log-variances horaires moyennes des **24, 168 et 720** dernières heures
+  (fenêtres terminées à la bougie de décision incluse), les trois mêmes pour BTC (jointes vers le passé sur
+  `available_at`, au plus 1 h), heure et jour de semaine de l'origine.
+- **Cibles** : RV_4² et RV_24² = sommes des carrés des 4 et 24 rendements horaires qui suivent, contiguës.
+- **Profil** : moyenne de log RV_H² par case (jour de semaine × heure, 168 cases) sur les lignes d'entraînement du
+  réajustement, appliquée à l'entraînement et aux origines prévues (case absente : moyenne générale).
+- **Réajustement le 1er de chaque trimestre** (janvier, avril, juillet, octobre), sur une **fenêtre glissante de
+  3 ans** de lignes purgées (origine + H heures ≤ date de réajustement), toutes paires ensemble : environ 1 million
+  de lignes par ajustement, c'est le volume que le PC supporte en moins de deux heures.
+- **Modèles** : `R0_RECENT_24H` (référence) ; `H1_HAR_PROFILE` = HAR commun sur les six log-variances + profil ;
+  `H2_LGBM_PROFILE` = LightGBM commun sur les mêmes + heure et jour de semaine.
+- **Mesure** : une valeur par jour calendaire (moyenne des pertes de toutes les origines et paires du jour), IC
+  de Student par blocs de 10 jours, niveau de Bonferroni 1 − 0,05/4 = 98,75 %.
+- **Règle** : celle du § 7 (borne haute < 0, 6 années sur 7, 70 % des paires, perte secondaire) ; verdict
+  `PREVISION_UTILE` / `AUCUNE_AMELIORATION` par horizon et global.
+- **Essais** : 2 candidats × 2 horizons = **4 comparaisons**, comptées au programme.
+- **Audit des fuites** : BTC, ETH, SOL, 3 origines horaires par paire tirées parmi toutes les heures ; données
+  tronquées et futur falsifié identiques ; mutation (fenêtre 24 h avancée d'une heure) détectée sur chaque paire.
+
+**Attendu et lecture déclarée.** La saisonnalité intrajournalière (week-end, heures asiatiques) est connue et
+forte : H1 devrait battre R0 nettement à 4 h ; à 24 h, l'avantage attendu est plus faible (le profil se moyenne
+sur une journée). `PREVISION_UTILE` à 4 h signifierait qu'un stop ou un objectif placé à partir de la volatilité
+prévue serait mieux dimensionné qu'avec les 24 dernières heures ; **rien n'est branché** par ce lot, et rien n'en
+dit la direction ni la rentabilité.
+
+**Limites déclarées.** Celles du § 11 ; origines voisines très dépendantes (24 par jour, cibles qui se
+chevauchent : les blocs calendaires tiennent compte de la dépendance d'un jour à l'autre, pas de plus loin) ; une
+seule valeur par jour pèse autant en 2019 (peu de paires) qu'en 2025 ; la règle de 15 min du tableau de bord n'est
+pas comparée exactement.
+
 ## Historique
 
 - 2026-10-01, v1 : protocole déclaré avant toute exécution.
