@@ -41,6 +41,9 @@ STARTED = {
     "F9_OI_FLUSH": {"doc": "8a462b3b900ed85b08cc8a9f465915f7",
                     "params": "87afbf5d5501766b72f4dd1676a50b60",
                     "code": "8b40c57f2c955edb2bbcfa11bb2b90dc"},
+    "F10_PIVOT_BREAK_1D": {"doc": "210df143838b10e6af3eeb0835548d1b",
+                           "params": "ac67404be011c613c7ee359701a20635",
+                           "code": "adfd33331b18d6c5aa765030449454a3"},
 }
 
 

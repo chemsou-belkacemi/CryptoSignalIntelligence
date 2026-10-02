@@ -341,11 +341,63 @@ commencées avant la fin de DEVELOPMENT et son empreinte est enregistrée.
   (aucune cible, jamais entraînée, jamais évaluée, jamais auditée) ; une bougie DVOL de Deribit qui ne commencerait
   pas à 00:00 UTC est refusée, pas arrondie.
 
+## 15. Résultats du protocole v2 (`VOL-20261002T170500Z-c3bda6`, exécuté le 2026-10-02, 12 comparaisons, programme 749)
+
+Code du commit `e27f00e` (arbre propre, après la relecture indépendante), audit des fuites réussi (BTC, ETH, SOL ; 3
+origines à DVOL connu + 3 quelconques par paire ; les deux mutations détectées sur chaque paire), 38 paires
+évaluées (POL et RENDER sans origine), 2 202 à 2 321 jours par horizon pour V1 à V3, 1 492 à 1 542 pour V4 ; DVOL
+BTC : 1 560 clôtures du 2021-03-24 au 2025-06-30, toutes alignées sur 00:00 UTC (empreinte `498ca9f065bd9f4d`).
+Période finale non consultée.
+
+**Verdict : `MIEUX_QUE_SERVICE` à 3 jours seulement**, par la combinaison V1 (moyenne de HAR + BTC et LightGBM).
+
+| Candidat | Horizon | QLIKE | Service | Écart [IC 99,58 %] | Années | Paires mieux | Perte secondaire | Utile |
+|---|---|---|---|---|---|---|---|---|
+| V1 moyenne M4/M5 | 1 j | 0,392 | 0,424 | −0,032 [−0,060 ; −0,004] | 6/6 | 97 % | pire (+0,004) | **non** (critère 4) |
+| V2 HAR + semi-variances | 1 j | 0,400 | 0,424 | −0,024 [−0,063 ; +0,016] | 4/6 | 66 % | pire | non |
+| V3 LightGBM enrichi | 1 j | 0,428 | 0,424 | +0,004 [−0,022 ; +0,029] | 4/6 | 45 % | mieux | non |
+| V4 HAR + DVOL | 1 j | 0,696 | 0,365 | +0,33 [−0,62 ; +1,28] | 2/4 | 32 % | pire | non |
+| **V1 moyenne M4/M5** | **3 j** | **0,318** | 0,344 | **−0,027 [−0,045 ; −0,008]** | **7/6** | **100 %** | mieux | **oui** |
+| V2 HAR + semi-variances | 3 j | 0,326 | 0,344 | −0,018 [−0,053 ; +0,016] | 7/6 | 89 % | pire | non |
+| V3 LightGBM enrichi | 3 j | 0,342 | 0,344 | −0,002 [−0,018 ; +0,014] | 5/6 | 87 % | mieux | non |
+| V4 HAR + DVOL | 3 j | 3 574 | 0,290 | aberrant (voir ci-dessous) | 4/4 | 42 % | pire | non |
+| V1 moyenne M4/M5 | 7 j | 0,294 | 0,285 | +0,009 [−0,011 ; +0,030] | 2/6 | 29 % | mieux | non |
+| V2 HAR + semi-variances | 7 j | 0,286 | 0,285 | +0,001 [−0,006 ; +0,008] | 2/6 | 61 % | mieux | non |
+| V3 LightGBM enrichi | 7 j | 0,329 | 0,285 | +0,044 [−0,013 ; +0,101] | 2/6 | 11 % | pire | non |
+| V4 HAR + DVOL | 7 j | 0,246 | 0,245 | +0,001 [−0,030 ; +0,032] | 3/4 | 66 % | mieux | non |
+
+Tableau complet et prévisions : `reports/VOL-20261002T170500Z-c3bda6/` (`summary.json`, `forecasts.parquet`).
+
+Lecture :
+- **La combinaison des deux modèles en service (V1) fait mieux que LightGBM seul à 3 jours** sur les quatre
+  critères : QLIKE −0,027 (≈ 8 % de la perte), intervalle de Bonferroni entièrement sous zéro, les 7 années, les 38
+  paires, erreur de log RV plus faible aussi. À 1 jour, le gain de QLIKE est du même ordre et aussi net (6 années
+  sur 6, 97 % des paires) mais l'erreur de log RV est légèrement plus grande : le critère 4, déclaré, l'écarte. À
+  7 jours, la moyenne est moins bonne que HAR + BTC seul (LightGBM y est le plus faible des deux).
+- **Les semi-variances (V2) n'apportent rien de démontrable** ; **l'enrichissement de LightGBM (V3) n'apporte
+  rien et dégrade à 7 jours** (plus de variables, mêmes 300 arbres : il apprend du bruit).
+- **V4 (DVOL) est inexploitable tel que déclaré** : ses prévisions aberrantes (rapport à la référence jusqu'à
+  10¹⁴ à 3 jours, 430 à 1 jour) viennent toutes du **premier mois** (avril-mai 2021), où le modèle est ajusté sur
+  266 lignes à DVOL connu (7 journées × 38 paires : le seuil de 100 lignes, pensé pour une paire, ne protège pas
+  un modèle commun) et extrapole sur des variables redondantes (`dvol_spread` = `log_dvol_var` − `log_var_w`,
+  colinéaire avec les autres entrées). Hors ce mois, V4 vaut la référence à 7 jours (+0,001) et ne la bat
+  nulle part. Retirer ce mois ou exiger 30 journées distinctes serait une règle choisie après lecture : ce serait
+  un 13e essai, non exécuté. Conclusion honnête : **aucun apport démontré de DVOL**, et un défaut de protocole
+  (seuil de lignes pour un modèle commun) à retenir pour toute version suivante.
+- **Ce que cela permet** : une prévision à 3 jours un peu plus fine, en moyennant les deux modèles déjà calculés
+  (aucun nouveau modèle à entraîner). **Ce que cela ne permet pas** : rien sur la direction ni la rentabilité ; et
+  le gain est sélectionné sur DEVELOPMENT (12 comparaisons de plus, 749 au programme) : avant tout branchement,
+  confirmation sur des données jamais consultées (période finale réservée, ou observation prospective : les
+  prévisions des deux modèles en service sont déjà journalisées chaque jour par `outlook/volatility.py`, la moyenne
+  peut donc être mesurée après coup sans rien changer au service). Rien n'est branché par ce lot.
+
 ## Historique
 
 - 2026-10-01, v1 : protocole déclaré avant toute exécution.
 - 2026-10-02, protocole v2 (§ 14, module `research/volatility_v2.py`, le v1 reste en service) : déclaré avant toute
   exécution ; aucun résultat v2 calculé ni regardé.
+- 2026-10-02 (17:05 UTC), protocole v2 exécuté : `VOL-20261002T170500Z-c3bda6`, 12 comparaisons (programme 749), MIEUX_QUE_SERVICE
+  à 3 jours par la combinaison V1 ; § 15 ajouté ; rien n'est branché.
 - 2026-10-01, v1 complétée avant toute exécution, après la relecture indépendante : grille horaire et
   variances passées tolérantes à 5 % d'heures manquantes (avant : une heure de maintenance retirait
   30 jours d'origines, soit environ 21 % des jours de 2019 à 2025) ; exécution refusée sur du code non
