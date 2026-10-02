@@ -537,6 +537,42 @@ def positive_control_command(allow_dirty: bool = typer.Option(False, "--allow-di
     console.print(f"Rapport : {settings.reports_dir / result.run_id / 'summary.json'}")
 
 
+@app.command("information-report")
+def information_report_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Essai local sur du code non commité (enregistré comme tel)"),
+                               verbose: bool = False):
+    """Registre unifié des prédictions hors échantillon et rapport d'information DESCRIPTIF (docs/INFORMATION_REPORT.md) :
+    décisions ML, trades des walk-forwards, prévisions de volatilité. Aucun ajustement, aucun verdict, 0 essai."""
+    from .research.factors import DirtyCode
+    from .research.information_report import run
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    try:
+        with console.status("rapport d'information…") as status:
+            report = run(settings, now=_now(), progress=lambda text: status.update(f"information : {text}"), allow_dirty=allow_dirty)
+    except (DirtyCode, FileNotFoundError) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    console.rule(f"Rapport d'information — {report.run_id}")
+    table = Table("Source ML", "Lignes", "Corrélation de rang", "IC95", "Décile haut − bas", "Décile haut : brut / net / excès", "Trades entrés : net / excès")
+    for name, s in report.ml.items():
+        top, entered = s["top_decile"], s["entered"]
+        table.add_row(name, str(s["rows"]), str(s["rank_ic"]), str(s["rank_ic_ci95"]), f"{s['top_minus_bottom_pct']} %",
+                      f"{top['gross_pct']} / {top['net_pct']} / {top['excess_pct']} % {top['excess_ci95_pct']}",
+                      f"{entered['n']} : {entered['net_pct']} / {entered['excess_pct']} %")
+    console.print(table)
+    table = Table("Walk-forward", "Central R [IC95]", "Défavorable R", "Stress R", "Brut / net %", "Par tendance")
+    for name, s in report.walk_forward.items():
+        sc = s["scenarios"]
+        table.add_row(name, f"{sc['central']['r_mean']} {sc['central']['r_ci95']}", str(sc["adverse"]["r_mean"]), str(sc["stress"]["r_mean"]),
+                      f"{sc['central']['gross_return_pct']} / {sc['central']['net_return_pct']}",
+                      " · ".join(f"{k} {v['r_mean']} ({v['trades']})" for k, v in s["by_trend"].items()))
+    console.print(table)
+    console.print(f"Volatilité : {report.volatility}")
+    console.print(f"Cellules lues : {report.cells} ; fausses alarmes attendues à 5 % sans information : {report.expected_false_alarms}. "
+                  "Lecture descriptive : aucune piste n'est retenue sans pré-inscription et données non vues.")
+    console.print(f"Rapport : {settings.reports_dir / report.run_id / 'summary.json'}")
+
+
 @app.command("data-quality")
 def data_quality(symbol: str = typer.Option(..., help="Paire, ex. BTCUSDT"),
                  timeframe: str = typer.Option(None, help="Défaut : timeframe de setup")):
