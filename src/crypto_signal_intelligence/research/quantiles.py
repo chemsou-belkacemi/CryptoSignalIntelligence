@@ -268,6 +268,8 @@ def walk_forward(rows_by_horizon: dict[int, pd.DataFrame], settings: Settings, *
                 if models.z_quantile is not None:
                     for symbol, index in picked.groupby("symbol").indices.items():
                         part = picked.iloc[index]
+                        if not part["origin"].is_monotonic_increasing:
+                            raise RuntimeError(f"{symbol} : origines non croissantes, le conforme adaptatif exige l'ordre du temps")
                         state = states.setdefault(str(symbol), np.array(QUANTILES, float))
                         pending = pendings.setdefault(str(symbol), [])
                         _levels, thresholds[index] = adaptive_sequence(pd.DatetimeIndex(part["origin"]), part["z"].to_numpy(float),
@@ -338,54 +340,78 @@ def decide(rows: list[Row]) -> tuple[dict[int, str], str]:
 
 # --- Audit des fuites ------------------------------------------------------------------------------------------------
 
+AUDIT_PAIRS = v1.AUDIT_PAIRS                       # BTC, ETH, SOL (les trois premières paires disponibles sinon)
+
+
+def hand_return(h1: pd.DataFrame, origin: pd.Timestamp, horizon: int) -> float:
+    """Rendement log à la main : clôture de la bougie ouverte à origine + H jours − 1 h sur celle ouverte à origine − 1 h."""
+    times = v1._utc(h1["open_time"]).dt.as_unit("ns")
+    now = h1.loc[times == origin - v1.STEP, "close"]
+    later = h1.loc[times == origin + pd.Timedelta(days=horizon) - v1.STEP, "close"]
+    if now.empty or later.empty:
+        return float("nan")
+    return float(np.log(float(later.iloc[0]) / float(now.iloc[0])))
+
+
 def leak_audit(frames: dict[str, pd.DataFrame], returns: dict[str, pd.DataFrame], rows_by_horizon: dict[int, pd.DataFrame], *,
                seed: int, picks: int = 3) -> dict:
-    """(1) Cibles : à `picks` origines tirées, le rendement à terme recalculé sur les bougies tronquées à l'origine est
-    inconnu (le futur n'est pas lu), et identique sur les bougies complètes. (2) Niveaux adaptatifs : pour une paire,
-    les niveaux à l'origine t calculés sur les seules origines ≤ t sont identiques aux niveaux complets ; la mutation
-    (mise à jour avec une origine non encore résolue, lag 0) doit changer des niveaux. Les variables du lot 7 ont leur
-    propre audit (lot 7, § 9), non répété ici."""
+    """(1) Cibles, sur BTC, ETH et SOL (ou les trois premières paires) à `picks` origines tirées : le rendement à terme
+    recalculé sur les bougies tronquées à l'origine est inconnu ; sur les bougies tronquées juste avant la clôture finale
+    il reste inconnu, et dès qu'elle existe il devient égal au rendement calculé à la main. (2) Conforme adaptatif :
+    les niveaux à l'origine t ne changent pas quand les z des origines non encore résolues (s + H > t) sont falsifiés ;
+    la même vérification doit ÉCHOUER avec la mutation lag 0 (lecture d'une origine non résolue). Les variables du
+    lot 7 et σ̂ ont leur propre audit (lot 7 § 9, v2 § 14), non répété ici."""
     rng = np.random.default_rng(seed)
     violations: list[dict] = []
     detected = False
     checked: list[str] = []
-    symbols = sorted(s for s in frames if s in returns and len(returns[s]) > 100)
-    for symbol in symbols[:3]:
+    symbols = [s for s in AUDIT_PAIRS if s in frames and s in returns] or sorted(s for s in frames if s in returns)[:3]
+    for symbol in symbols:
         h1 = frames[symbol]
         table = returns[symbol].set_index("origin")
-        candidates = table.index[len(table) // 3:]
+        candidates = table.index[len(table) // 3: -8]
+        if len(candidates) == 0:
+            continue
         for origin in rng.choice(candidates, size=min(picks, len(candidates)), replace=False):
             origin = pd.Timestamp(origin)
-            cut = h1[v1._utc(h1["open_time"]) + v1.STEP <= origin]
-            again = forward_log_returns(cut).set_index("origin")
+            times = v1._utc(h1["open_time"]).dt.as_unit("ns")
+            at_origin = forward_log_returns(h1[times + v1.STEP <= origin]).set_index("origin")
             for horizon in HORIZONS:
-                if origin in again.index and np.isfinite(again.loc[origin, f"ret_{horizon}"]):
+                finish = origin + pd.Timedelta(days=horizon)
+                if origin in at_origin.index and np.isfinite(at_origin.loc[origin, f"ret_{horizon}"]):
                     violations.append({"symbol": symbol, "origin": str(origin), "horizon": horizon, "check": "cible lue sur des bougies tronquées"})
-            full_again = forward_log_returns(h1).set_index("origin")
-            if not np.allclose(full_again.loc[origin, [f"ret_{h}" for h in HORIZONS]].to_numpy(float),
-                               table.loc[origin, [f"ret_{h}" for h in HORIZONS]].to_numpy(float), equal_nan=True):
-                violations.append({"symbol": symbol, "origin": str(origin), "check": "cible non reproductible"})
+                before = forward_log_returns(h1[times + v1.STEP < finish]).set_index("origin")
+                if origin in before.index and np.isfinite(before.loc[origin, f"ret_{horizon}"]):
+                    violations.append({"symbol": symbol, "origin": str(origin), "horizon": horizon, "check": "cible connue avant sa clôture finale"})
+                after = forward_log_returns(h1[times + v1.STEP <= finish]).set_index("origin")
+                expected = hand_return(h1, origin, horizon)
+                got = float(after.loc[origin, f"ret_{horizon}"]) if origin in after.index else float("nan")
+                if not np.isclose(got, expected, rtol=1e-12, atol=0.0, equal_nan=True):
+                    violations.append({"symbol": symbol, "origin": str(origin), "horizon": horizon, "check": "cible différente du calcul à la main"})
         checked.append(symbol)
     for horizon, rows in rows_by_horizon.items():
         if rows.empty:
             continue
-        symbol = symbols[0] if symbols else str(rows["symbol"].iloc[0])
-        part = rows[rows["symbol"] == symbol]
-        if len(part) < 50:
+        chosen = next((s for s in symbols if (rows["symbol"] == s).sum() >= 50), None)
+        if chosen is None:
             continue
-        times, z = pd.DatetimeIndex(part["origin"]), part["z"].to_numpy(float)
+        part = rows[rows["symbol"] == chosen]
+        times_part, z = pd.DatetimeIndex(part["origin"]), part["z"].to_numpy(float)
         reference = np.sort(z[np.isfinite(z)])
 
         def qz(levels: np.ndarray, reference=reference) -> np.ndarray:
             return np.quantile(reference, np.clip(levels, 0.0, 1.0))
 
-        cut_at = int(rng.integers(len(part) // 2, len(part)))
-        full, _ = adaptive_sequence(times, z, qz, horizon)
-        truncated, _ = adaptive_sequence(times[: cut_at + 1], z[: cut_at + 1], qz, horizon)
-        if not np.allclose(full[: cut_at + 1], truncated):
-            violations.append({"symbol": symbol, "horizon": horizon, "check": "niveaux adaptatifs dépendant du futur"})
-        mutated, _ = adaptive_sequence(times, z, qz, horizon, lag_days=0)
-        detected |= not np.allclose(full, mutated)
+        cut_at = int(rng.integers(len(part) // 2, len(part) - horizon - 1))
+        unresolved = np.asarray(times_part + pd.Timedelta(days=horizon) > times_part[cut_at])
+        falsified = np.where(unresolved, 99.0, z)
+        full, _ = adaptive_sequence(times_part, z, qz, horizon)
+        changed, _ = adaptive_sequence(times_part, falsified, qz, horizon)
+        if not np.allclose(full[: cut_at + 1], changed[: cut_at + 1]):
+            violations.append({"symbol": chosen, "horizon": horizon, "check": "niveaux adaptatifs dépendant d'origines non résolues"})
+        leaky_full, _ = adaptive_sequence(times_part, z, qz, horizon, lag_days=0)
+        leaky_changed, _ = adaptive_sequence(times_part, falsified, qz, horizon, lag_days=0)
+        detected |= not np.allclose(leaky_full[: cut_at + 1], leaky_changed[: cut_at + 1])
     return {"violations": violations, "mutation_detected": bool(detected), "checked_pairs": checked,
             "passed": bool(checked) and not violations and bool(detected)}
 

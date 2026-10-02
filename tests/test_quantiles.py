@@ -73,6 +73,32 @@ def test_adaptive_sequence_is_causal_and_moves_levels_towards_the_target():
     first, _ = q.adaptive_sequence(times[:30], z[:30], qz, 3, state=state, pending=pending)
     second, _ = q.adaptive_sequence(times[30:], z[30:], qz, 3, state=state, pending=pending)
     assert np.allclose(np.vstack([first, second]), levels)                   # enchaînement d'un mois à l'autre
+    # Falsifier les z des origines non résolues à la coupe ne change pas les niveaux jusqu'à la coupe ; avec la
+    # mutation (lag 0), si.
+    cut = 40
+    falsified = z.copy()
+    falsified[cut - 3 + 1: cut + 1] = -99.0
+    assert np.allclose(q.adaptive_sequence(times, falsified, qz, 3)[0][: cut + 1], levels[: cut + 1])
+    assert not np.allclose(q.adaptive_sequence(times, falsified, qz, 3, lag_days=0)[0][: cut + 1],
+                           q.adaptive_sequence(times, z, qz, 3, lag_days=0)[0][: cut + 1])
+
+
+def test_hand_return_matches_forward_log_returns_and_the_audit_catches_a_filled_target(monkeypatch):
+    h1 = hourly("BTCUSDT", days=40, seed=5)
+    table = q.forward_log_returns(h1).set_index("origin")
+    origin = day("2024-01-20")
+    assert q.hand_return(h1, origin, 3) == pytest.approx(table.loc[origin, "ret_3"])
+    frames, returns = {"BTCUSDT": h1}, {"BTCUSDT": q.forward_log_returns(h1)}
+    assert q.leak_audit(frames, returns, {}, seed=1)["violations"] == []
+    true_returns = q.forward_log_returns
+
+    def filled(frame):                                                       # fuite : la clôture manquante est remplie
+        out = true_returns(frame)
+        return out.assign(**{f"ret_{h}": out[f"ret_{h}"].ffill() for h in q.HORIZONS})
+
+    monkeypatch.setattr(q, "forward_log_returns", filled)
+    checks = {v["check"] for v in q.leak_audit(frames, returns, {}, seed=1)["violations"]}
+    assert "cible lue sur des bougies tronquées" in checks
 
 
 def fake_sigma(settings, pairs=PAIRS, *, start="2023-12-15", days=420) -> Path:

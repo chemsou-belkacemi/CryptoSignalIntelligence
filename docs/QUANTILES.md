@@ -3,7 +3,7 @@
 Piste 3 de l'étude du 2026-10-02. Code : `research/quantiles.py`. Tests : `tests/test_quantiles.py`. Commande :
 `csi quantiles`. Registre : expériences de type `QUANTILES`, stratégie `RETURN_QUANTILES`.
 
-**Pourquoi.** Aucun essai de prévision de la direction n'a démontré d'avantage (749 essais au programme à cette
+**Pourquoi.** Aucun essai de prévision de la direction n'a démontré d'avantage (753 essais au programme à cette
 date). L'ampleur se prévoit (lot 7, v2). L'étape suivante naturelle n'est pas un sens, mais des **intervalles** : si
 l'on sait dire « dans 3 jours, le rendement sera entre −6 % et +5 % avec 90 % de chances », on peut dimensionner une
 position et, surtout, **s'abstenir** quand l'intervalle est trop large pour les coûts. Un intervalle n'est pas un
@@ -38,8 +38,9 @@ standardisé » ?
   si son rendement est connu à la date de réajustement (origine + H jours ≤ date). 100 lignes au moins.
 - Le conforme adaptatif fixe les niveaux de l'origine t **avant** de lire r_t ; l'origine t n'entre dans les mises
   à jour qu'une fois résolue. État et file d'attente se transmettent d'un mois à l'autre.
-- Première origine évaluée : 2019-01-01 ; dernière : fin de DEVELOPMENT moins H jours. Échantillon commun : origines
-  où les trois modèles prévoient les quatre quantiles.
+- Première origine évaluée : 2019-01-01 au plus tôt, en pratique le premier mois où l'entraînement purgé compte
+  100 lignes (lu après coup : 2019-02-01 à 1 jour, 2019-03-01 à 3 et 7 jours) ; dernière : fin de DEVELOPMENT moins
+  H jours. Échantillon commun : origines où les trois modèles prévoient les quatre quantiles.
 
 ## 3. Mesures
 
@@ -69,11 +70,15 @@ séries et de la table σ̂, commit, versions.
 
 ## 6. Audit des fuites, avant tout résultat
 
-- **Cibles** : à 3 origines tirées par paire (3 paires), le rendement à terme recalculé sur les bougies tronquées à
-  l'origine est inconnu (le futur n'est pas lu) et le calcul complet est reproductible.
-- **Conforme adaptatif** : pour une paire et chaque horizon, les niveaux à l'origine t calculés sur les seules
-  origines ≤ t sont identiques aux niveaux complets ; la mutation (mise à jour avec une origine non encore
-  résolue) doit changer des niveaux.
+- **Cibles** : sur BTC, ETH et SOL (à défaut les trois premières paires), à 3 origines tirées par paire, le
+  rendement à terme recalculé sur les bougies tronquées à l'origine est inconnu ; tronquées juste avant la clôture
+  finale, il reste inconnu ; dès qu'elle existe, il est égal au rendement calculé à la main.
+- **Conforme adaptatif** : pour une paire et chaque horizon, les niveaux à l'origine t ne changent pas quand les
+  rendements standardisés des origines non encore résolues (s + H > t) sont falsifiés ; la même vérification doit
+  échouer avec la mutation (lecture d'une origine non résolue, lag 0).
+- Première version de l'audit (exécution du 2026-10-02) : coupe à l'origine et comparaison complet / tronqué des
+  niveaux, mutation détectée par simple différence ; la relecture indépendante l'a jugée trop faible (vraie par
+  construction) et elle a été renforcée comme ci-dessus APRÈS l'exécution, sans effet sur les résultats.
 - Les variables du lot 7 et σ̂ ont leur propre audit (lot 7 § 9, v2 § 14), non répété.
 
 ## 7. Attendu et lecture déclarée
@@ -92,9 +97,57 @@ séries et de la table σ̂, commit, versions.
 - Rendements qui se chevauchent à 3 et 7 jours ; survivantes ; une valeur par jour quel que soit le nombre de paires.
 - Le conforme adaptatif met à jour avec un retard égal à l'horizon ; γ = 0,005 est un choix a priori (environ 200
   observations pour déplacer un niveau d'un point), non optimisé.
-- Les quantiles de C1 ne sont pas contraints à être croissants (α < β ⇒ q_α ≤ q_β) : un croisement est compté
-  tel quel dans la pinball et dans la couverture.
+- Les quantiles de C1 ne sont pas contraints à être croissants (α < β ⇒ q_α ≤ q_β), et ceux de C2 non plus (niveaux
+  ajustés indépendamment) : un croisement est compté tel quel dans la pinball et fait sortir le rendement de
+  l'intervalle dans la couverture (il coûte, il n'aide jamais).
+- Le seuil de 100 lignes vaut pour un modèle commun : au premier mois (107 lignes à 1 jour), LightGBM ne peut faire
+  aucune coupure (200 lignes par feuille) et prédit le quantile inconditionnel ; cela pénalise C1 au début.
+- L'échantillon σ̂ de v2 exige une cible de variance contiguë (fenêtre future sans heure manquante) : quelques
+  journées de panne sont exclues, pour les trois modèles également.
+
+## 9. Résultats (`QTL-20261002T212535Z-0626e5`, exécuté le 2026-10-02, 6 comparaisons, programme 759)
+
+Code du commit `ef4cd1c` (arbre propre ; relecture indépendante pendant le calcul : aucun défaut faussant la mesure,
+audit interne renforcé ensuite), audit des fuites réussi (ADA, ALGO, APT, 3 origines chacune, mutation détectée),
+38 paires, 2 142 à 2 289 jours, σ̂ de `VOL-20261002T170500Z-c3bda6` (171 901 lignes, empreinte enregistrée).
+Période finale non consultée.
+
+**Verdict : `AUCUNE_AMELIORATION`** aux trois horizons.
+
+| Modèle | Horizon | Pinball | Q0 | Écart [IC 99,17 %] | Années à 90 % | Années à 50 % | Paires mieux | Utile |
+|---|---|---|---|---|---|---|---|---|
+| Q0 (référence) | 1 j | 0,0421 | — | — | 7/7 | 5/7 | — | — |
+| C1 LightGBM quantile | 1 j | 0,0443 | 0,0421 | +0,0021 [+0,0013 ; +0,0030] | 0/7 (≈ 82 %) | 0/7 (≈ 42 %) | 0 % | non |
+| C2 conforme adaptatif | 1 j | 0,0423 | 0,0421 | +0,0001 [+0,0000 ; +0,0002] | 7/7 | 7/7 | 13 % | non |
+| Q0 (référence) | 3 j | 0,0733 | — | — | 7/7 | 6/7 | — | — |
+| C1 LightGBM quantile | 3 j | 0,0793 | 0,0733 | +0,0060 [+0,0038 ; +0,0082] | 0/7 (≈ 80 %) | 0/7 (≈ 41 %) | 0 % | non |
+| C2 conforme adaptatif | 3 j | 0,0741 | 0,0733 | +0,0008 [+0,0001 ; +0,0014] | 7/7 | 6/7 | 3 % | non |
+| Q0 (référence) | 7 j | 0,1149 | — | — | 7/7 | 6/7 | — | — |
+| C1 LightGBM quantile | 7 j | 0,1274 | 0,1149 | +0,0126 [+0,0069 ; +0,0183] | 0/7 (≈ 77 %) | 0/7 (≈ 40 %) | 3 % | non |
+| C2 conforme adaptatif | 7 j | 0,1178 | 0,1149 | +0,0029 [+0,0010 ; +0,0048] | 7/7 | 5/7 | 5 % | non |
+
+Tableau complet et quantiles prévus : `reports/QTL-20261002T212535Z-0626e5/` (`summary.json`, `quantiles_<H>d.parquet`).
+
+Lecture :
+- **La règle simple Q0 est la meilleure des trois** : avec la volatilité en service et les quantiles empiriques du
+  rendement standardisé, l'intervalle à 90 % couvre 88 à 92 % des jours **chaque année** de 2019 à 2025, aux trois
+  horizons ; celui à 50 % couvre 46 à 53 % (dans ± 3 points 5 à 6 années sur 7). C'est un résultat utile en soi :
+  les intervalles de Q0 sont **honnêtes**, et ils ne demandent aucun modèle de plus.
+- **LightGBM quantile (C1) est nettement pire partout** : pinball plus élevée (+5 à +11 %, intervalles entièrement
+  au-dessus de zéro, 0 % des paires), intervalles trop étroits (≈ 80 % de couverture pour 90 % visé, ≈ 41 % pour
+  50 %). Entraîné sur une fenêtre croissante, il sous-estime les queues ; les variables n'ajoutent rien à σ̂.
+- **Le conforme adaptatif (C2) fait ce qu'il promet, et c'est tout** : il ramène la couverture à 50 % dans la
+  tolérance toutes les années à 1 jour (7/7 contre 5/7 pour Q0), au prix d'une pinball très légèrement plus élevée
+  (+0,3 % à +2,6 %, intervalles au-dessus de zéro) : la règle le refuse, comme déclaré. Il pourrait servir comme
+  **garde-fou de calibration** (corriger une dérive de couverture année par année), pas comme un meilleur
+  prédicteur.
+- **Ce que cela permet** : des intervalles de rendement à 1, 3 et 7 jours à couverture tenue, calculables depuis
+  les prévisions en service et un tableau de quantiles de z ; **rien n'est branché** (abstention et
+  dimensionnement sont une étape séparée, à décider par le propriétaire, et les couvertures absolues restent
+  optimistes du fait de la sélection de σ̂ sur DEVELOPMENT). Rien sur la direction ni la rentabilité.
 
 ## Historique
 
 - 2026-10-02 : protocole déclaré avant toute exécution.
+- 2026-10-02 (21:25 UTC) : exécuté, `QTL-20261002T212535Z-0626e5`, 6 comparaisons (programme 759), `AUCUNE_AMELIORATION` ;
+  § 9 ajouté ; corrections de la relecture inscrites (§ 2, § 6, § 8) et audit interne renforcé après coup.
