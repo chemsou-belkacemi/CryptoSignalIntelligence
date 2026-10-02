@@ -121,8 +121,52 @@ Code commité exigé (même refus que FACTORS). Sans audit réussi, aucun essai 
 - Unlocks non filtrés (pas de source historique fiable).
 - Non-indépendance avec le lot 7 (§0).
 
+## 10. Version 2 (mission du propriétaire du 2026-10-02, phase 2) — amendement avant toute exécution
+
+La version 1 n'a jamais été exécutée (aucun essai consommé : relecture indépendante en cours, puis mission
+du propriétaire changeant les règles). Les décisions ci-dessous remplacent les points correspondants des §2 à §7 ;
+le reste est inchangé. Commité avant la première exécution.
+
+- **Ce qui diffère du lot 7.** Le lot 7 (VOLMAN) dimensionnait l'exposition sur la volatilité **réalisée** ; A
+  utilise la volatilité **prévue** à 7 jours (VOLATILITY_FORECAST, seul résultat validé), une cible fixe et un
+  vote de tendance à trois horizons. A est donc lancé.
+- **Signal de A** : vote de trois horizons FIXÉS, 4, 12 et 26 semaines (28, 84 et 182 jours) ; un actif est
+  détenu si au moins **2 des 3** rendements passés sont strictement positifs (un horizon sans historique ne vote
+  pas). Sans optimisation.
+- **Volatilité cible de A : 50 % par an, FIGÉE.** Proche de la volatilité historique de BTC : le modèle reste
+  presque entièrement investi en période calme et réduit son exposition en période agitée. Poids = 1/5 ×
+  min(1, 0,50 / σ̂ᵢ) ; plafond d'exposition totale 100 % (5 actifs × 1/5, jamais de levier). Remplace la médiane
+  causale des σ̂ de BTC.
+- **Univers** : paires de l'univers de recherche **admises par le screening halal** (décisions du propriétaire
+  dans CSI, `config/halal_screen.yaml`, liste exportée au lancement et inscrite dans l'essai), éligibles à chaque
+  date par leur volume passé (point-in-time, comme FACTORS) ; sans stablecoins, tokens adossés, wrapped ni à
+  levier.
+- **Deuxième référence, obligatoire, pour A et B : allocation STATIQUE** au même panier, égale à l'exposition
+  moyenne du modèle sur la période (le reste en stablecoin, sans rendement), à parts égales entre les membres,
+  échangée seulement quand la composition change ; mêmes frais. C'est la référence du verdict. Le buy-and-hold
+  du panier (§5) reste rapporté pour information. L'exposition moyenne est connue en fin de période : c'est un
+  étalon, pas une stratégie réalisable.
+- **Filtre funding de A** : la part des couples (décision, actif) où il agit est comptée avant toute
+  exécution ; s'il s'active **moins de 2 % du temps**, l'essai « A + filtres » n'est **pas lancé** (2 essais au
+  lieu de 3) et la part est rapportée.
+- **B** : mêmes exclusions ; après un stop à −25 %, la part reste en stablecoin **jusqu'au rééquilibrage
+  suivant** (déjà la règle du §4) ; le nombre de rééquilibrages indépendants (sélections tous les 26 lundis) est
+  rapporté.
+- **Critère réaliste** : « perte réduite » (§7, point 2) **contre la référence statique**. Le critère ajusté au
+  risque (§7, point 1) exige un Sharpe déflaté ≥ 0,95 : avec 716 essais et plus, c'est quasi inatteignable ; il
+  reste calculé et rapporté, sans être le critère attendu.
+- **Suivi en direct** après le backtest : A (et B s'il est retenu « intéressant »), décisions hebdomadaires
+  simulées et valorisation quotidienne, 3 mois. Sur 3 mois, peu de transactions : ce suivi vérifie le
+  **comportement réel** du modèle, il ne le VALIDE pas ; le rapport le dit.
+- **Audit des fuites** : inchangé, avec une mutation renforcée (σ̂ de la semaine suivante, décuplé).
+
+**Budget : 3 essais au plus** (A, A + filtres si le funding s'active assez, B), comptés dans le registre au
+moment de l'exécution (716 essais avant, selon le registre).
+
 ## Historique
 
 - 2026-10-02 : proposition, en attente de validation ; aucun code, aucun résultat.
 - 2026-10-02 : validé par le propriétaire ; précision avant tout code : un actif de A doit avoir une volatilité
   prévue à la date (400 jours d'historique) ; il est sinon remplacé par le suivant le plus liquide.
+- 2026-10-02 : version 2 (§10) écrite d'après la mission du propriétaire, avant toute exécution ; la version 1 n'a
+  consommé aucun essai.

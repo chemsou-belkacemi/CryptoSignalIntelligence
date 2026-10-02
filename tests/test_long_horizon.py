@@ -146,8 +146,10 @@ def test_weights_of_a_follow_trend_forecast_volatility_and_funding():
     book = fa.Book(panel, decisions)
     first = decisions[0]
     assert lh.baskets(inputs, book)[first] == ["BTCUSDT", "ETHUSDT", "XRPUSDT", "SOLUSDT", "ADAUSDT"]   # pas DOT, pas LTC
+    votes = lh.trend_votes(book).loc[first]
+    assert votes["BTCUSDT"] == 2 and votes["SOLUSDT"] == 0            # 182 jours d'historique absents : 2 votes sur 3
     plain = lh.weights_a(inputs, book, with_funding=False).loc[first]
-    # Cible = σ̂ de BTC (moins de 26 décisions passées) = 0,5 : BTC 1/5, ETH 0,5/1,0 × 1/5, SOL baisse : 0.
+    # Cible FIGÉE 0,5 : BTC 1/5, ETH 0,5/1,0 × 1/5, SOL baisse (0 vote) : 0.
     assert plain["BTCUSDT"] == pytest.approx(0.2) and plain["ETHUSDT"] == pytest.approx(0.1)
     assert plain["SOLUSDT"] == 0.0 and plain["DOTUSDT"] == 0.0 and plain["XRPUSDT"] == pytest.approx(0.2)
     assert plain["ADAUSDT"] == pytest.approx(0.2) and plain["LTCUSDT"] == 0.0           # min(1, 0,5/0,25) = 1
@@ -156,6 +158,23 @@ def test_weights_of_a_follow_trend_forecast_volatility_and_funding():
     assert plain.sum() <= 1.0 + 1e-12
     bench = lh.weights_bench_a(inputs, book).loc[first]
     assert bench[bench > 0].to_dict() == pytest.approx({s: 0.2 for s in ("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "ADAUSDT")})
+    assert lh.funding_activation(inputs, book) == pytest.approx(1 / 5)              # XRP seul au-dessus de la limite
+    static = lh.static_targets(lh.weights_bench_a(inputs, book), 0.6)
+    assert list(static) == [first] and static[first].sum() == pytest.approx(0.6) and len(static[first]) == 5
+
+
+def test_vote_needs_two_positive_horizons_of_three():
+    # Hausse sur 4 et 12 semaines mais baisse sur 26 semaines : 2 votes ; baisse récente seule : 1 vote.
+    rising_late = [100 * 0.995 ** d for d in range(300)] + [100 * 0.995 ** 300 * 1.004 ** d for d in range(100)]
+    falling_late = [100 * 1.002 ** d for d in range(350)] + [100 * 1.002 ** 350 * 0.997 ** d for d in range(50)]
+    panel = daily_panel({"BTCUSDT": rising_late, "ETHUSDT": falling_late, "SOLUSDT": rising_late, "XRPUSDT": rising_late,
+                         "ADAUSDT": rising_late})
+    decisions = fa.decisions_of(panel, first=START + 390 * DAY)
+    votes = lh.trend_votes(fa.Book(panel, decisions)).loc[decisions[0]]
+    assert votes["BTCUSDT"] == 2 and votes["ETHUSDT"] == 1
+    sigma = pd.DataFrame(0.5, index=decisions, columns=panel.symbols)
+    weights = lh.weights_a(lh.Inputs(panel, decisions, sigma, pd.DataFrame(index=decisions)), fa.Book(panel, decisions), with_funding=False)
+    assert weights.loc[decisions[0], "BTCUSDT"] == pytest.approx(0.2) and weights.loc[decisions[0], "ETHUSDT"] == 0.0
 
 
 def test_low_volatility_selection():
@@ -190,7 +209,6 @@ def stored(settings, monkeypatch):
         "2024-05-06", "2024-06-10", "2024-07-15", "2024-08-19", "2024-09-23", "2024-10-28", "2024-12-02")))
     monkeypatch.setattr(lh, "B_EVERY", 8)
     monkeypatch.setattr(fa, "BOOTSTRAP_SAMPLES", 300)
-    monkeypatch.setattr(lh, "TARGET_MIN_DECISIONS", 4)
     return settings
 
 
@@ -209,12 +227,16 @@ def test_forecasts_are_causal(stored):
 def test_run_measures_the_three_trials_and_records_them(stored):
     result = lh.run(stored, now=NOW, symbols=list(PAIRS))
     assert result.leak_audit["passed"] and result.leak_audit["mutation_detected"]
-    assert set(result.verdicts) == {"A", "A_FUNDING", "B"}
+    # Sans historique de financement, le filtre ne s'active jamais : l'essai A + funding n'est pas consommé.
+    assert set(result.verdicts) == {"A", "B"} and result.n_trials == 2 and result.coverage["funding_activation"] == 0.0
+    assert result.coverage["b_rebalances"] == len(result.coverage["b_selections"])
     for verdict in result.verdicts.values():
         assert verdict["verdict"] in {"INTERESSANT_RISQUE_AJUSTE", "INTERESSANT_PERTE_REDUITE", "NON_INTERESSANT"}
-        assert set(verdict) >= {"central", "adverse", "reference"}
+        assert set(verdict) >= {"central", "adverse", "reference", "buy_and_hold"} and verdict["reference"].startswith("STATIC_")
+        assert "vs_buy_and_hold" in verdict["central"]
     for scenario in ("central", "adverse"):
-        assert set(result.models[scenario]) == {"A", "A_FUNDING", "REF_A", "B", "REF_B", "B_SANS_STOP", "BTC"}
+        assert set(result.models[scenario]) == {"A", "REF_A", "STATIC_A", "B", "REF_B", "STATIC_B", "B_SANS_STOP", "BTC"}
+        assert result.models[scenario]["STATIC_A"]["average_exposure"] <= 1.0 + 1e-9
         a = result.models[scenario]["A"]
         assert {"annual_return", "volatility", "sharpe", "deflated_sharpe", "max_drawdown", "drawdown_days", "trades",
                 "fees_pct", "average_exposure", "folds"} <= set(a)
@@ -222,8 +244,8 @@ def test_run_measures_the_three_trials_and_records_them(stored):
         result.models["adverse"]["A"]["trades"] != result.models["central"]["A"]["trades"]
     assert "non implémenté" in result.coverage["unlock_filter"]
     run = ExperimentRegistry(stored.experiments_db).get(result.run_id)
-    assert run["kind"] == "LONG_HORIZON" and run["metrics"]["n_trials"] == 3 and run["git_commit"] == "0123abcd"
-    assert ExperimentRegistry(stored.experiments_db).program_trials() == 3
+    assert run["kind"] == "LONG_HORIZON" and run["metrics"]["n_trials"] == 2 and run["git_commit"] == "0123abcd"
+    assert ExperimentRegistry(stored.experiments_db).program_trials() == 2
 
 
 def test_uncommitted_code_or_a_failed_audit_records_nothing(stored, monkeypatch):

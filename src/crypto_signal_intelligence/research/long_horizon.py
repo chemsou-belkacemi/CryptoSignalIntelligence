@@ -1,10 +1,18 @@
-"""Lot 8 — horizons longs et ciblage de volatilité : docs/LONG_HORIZON.md (déclaré avant exécution, 3 essais).
+"""Lot 8 v2 — horizons longs et ciblage de volatilité : docs/LONG_HORIZON.md (déclaré avant exécution, 3 essais au
+plus ; mission du propriétaire du 2026-10-02, phase 2).
 
-- A : tendance 12 semaines long / stablecoin, poids 1/5 × min(1, σ_cible / σ̂) avec σ̂ la volatilité PRÉVUE à 7 jours
-  (modèle HAR + BTC du protocole de volatilité, réajusté le 1er du mois sur le seul passé), bande de 5 points ;
+- A : tendance par VOTE de trois horizons fixés (4, 12 et 26 semaines : un actif est détenu si au moins 2 des 3
+  rendements passés sont positifs), poids 1/5 × min(1, σ_cible / σ̂) avec σ_cible = 50 % par an FIGÉE et σ̂ la
+  volatilité PRÉVUE à 7 jours (modèle HAR + BTC du protocole de volatilité, réajusté le 1er du mois sur le seul
+  passé), plafond 100 %, bande de 5 points ;
 - A + funding : poids divisé par deux quand le financement moyen du perpétuel sur 7 jours dépasse 0,05 % / 8 h ;
-- B : les 5 paires liquides les moins volatiles sur 180 jours, tous les 26 lundis, parts égales, stop à −25 %.
-Références : buy-and-hold du même panier, frais inclus. DEVELOPMENT seulement ; aucun ordre ; audit d'abord.
+  lancé seulement si le filtre s'active au moins 2 % du temps (sinon l'essai n'est pas consommé) ;
+- B : les 5 paires liquides les moins volatiles sur 180 jours, tous les 26 lundis, parts égales, stop à −25 % puis
+  stablecoin jusqu'à la sélection suivante.
+Références : allocation STATIQUE au panier égale à l'exposition moyenne du modèle (le reste en stablecoin, sans
+rendement), et, pour information, buy-and-hold du même panier ; frais inclus. Univers : paires de recherche
+admises par le screening halal, éligibles par leur volume passé à chaque date. DEVELOPMENT seulement ; aucun
+ordre ; audit des fuites d'abord.
 """
 from __future__ import annotations
 
@@ -26,7 +34,7 @@ from .experiments import ExperimentRegistry, dependency_versions, new_run_id
 from .protocol import development_end
 from .universe import MARKET, RESEARCH_UNIVERSE
 
-KIND, STRATEGY, PROTOCOL_VERSION = "LONG_HORIZON", "LONG_HORIZON", 1
+KIND, STRATEGY, PROTOCOL_VERSION = "LONG_HORIZON", "LONG_HORIZON", 2
 DOC = "docs/LONG_HORIZON.md"
 N_TRIALS = 3
 LEVEL = 1 - 0.025 / N_TRIALS
@@ -36,18 +44,18 @@ FOLD_STARTS = tuple(pd.Timestamp(d, tz="UTC") for d in (
     "2019-01-07", "2019-07-01", "2020-07-06", "2021-07-05", "2022-07-04", "2023-07-03", "2024-07-01"))
 CORE = ("BTCUSDT", "ETHUSDT")
 EXTRA_LIQUID, BASKET = 3, 5
-LOOKBACK_DAYS = 84
+HORIZONS_DAYS, VOTE_MIN = (28, 84, 182), 2        # 4, 12 et 26 semaines ; détenu si ≥ 2 rendements positifs
+SIGMA_TARGET = 0.50                               # volatilité cible annualisée, FIGÉE (mission du 2026-10-02)
 BAND = 0.05
 VOL_HORIZON, VOL_MODEL = 7, "M4_HAR_POOLED_BTC"
-TARGET_MIN_DECISIONS = 26
 FUNDING_DAYS, FUNDING_LIMIT, FUNDING_CUT = 7, 0.0005, 0.5
+FUNDING_MIN_ACTIVATION = 0.02                     # part des (décision, actif) où le filtre agit : en dessous, pas d'essai
 B_EVERY, B_COUNT, B_DAYS, B_MIN_DAYS, B_STOP = 26, 5, 180, 170, 0.25
 FEE, FEE_ADVERSE = 7.5e-4, 1e-3
 SPREAD = {"BTCUSDT": 2e-4, "ETHUSDT": 2e-4}
 SPREAD_OTHER = 5e-4
 MIN_RATIO_RETURN, MAX_RATIO_DRAWDOWN, MIN_FOLDS_DRAWDOWN = 0.8, 0.6, 5
-DSR_MIN = 0.95
-TOTAL_TRIALS_BEFORE = 713
+DSR_MIN = 0.95                                    # quasi inatteignable avec 716+ essais : critère secondaire
 
 
 class LeakAuditFailed(RuntimeError):
@@ -122,25 +130,54 @@ def baskets(inputs: Inputs, book: fa.Book) -> dict[pd.Timestamp, list[str]]:
     return out
 
 
+def trend_votes(book: fa.Book) -> pd.DataFrame:
+    """Nombre d'horizons (4, 12, 26 semaines) dont le rendement passé est strictement positif ; un horizon sans
+    historique ne vote pas."""
+    votes = None
+    for days in HORIZONS_DAYS:
+        positive = (book.momentum(days) > 0).astype(int)
+        votes = positive if votes is None else votes + positive
+    return votes
+
+
 def weights_a(inputs: Inputs, book: fa.Book, *, with_funding: bool) -> pd.DataFrame:
     symbols = inputs.panel.symbols
-    momentum = book.momentum(LOOKBACK_DAYS)
-    btc = inputs.sigma[MARKET]
+    votes = trend_votes(book)
     out = pd.DataFrame(0.0, index=inputs.decisions, columns=symbols)
-    history: list[float] = []
     for moment, members in baskets(inputs, book).items():
-        target = (float(np.median(history)) if len(history) >= TARGET_MIN_DECISIONS
-                  else (float(btc.loc[moment]) if np.isfinite(btc.loc[moment]) else math.nan))
         for symbol in members:
-            if not momentum.loc[moment, symbol] > 0:
+            if votes.loc[moment, symbol] < VOTE_MIN:
                 continue
             sigma = float(inputs.sigma.loc[moment, symbol])
-            weight = min(1.0, target / sigma) / BASKET if np.isfinite(target) and sigma > 0 else 0.0
+            weight = min(1.0, SIGMA_TARGET / sigma) / BASKET if sigma > 0 else 0.0
             if with_funding and symbol in inputs.funding.columns and inputs.funding.loc[moment, symbol] > FUNDING_LIMIT:
                 weight *= FUNDING_CUT
             out.loc[moment, symbol] = weight
-        if np.isfinite(btc.loc[moment]):
-            history.append(float(btc.loc[moment]))           # la médiane de la décision suivante l'inclut
+    return out
+
+
+def funding_activation(inputs: Inputs, book: fa.Book) -> float:
+    """Part des couples (décision, actif du panier) où le filtre funding agit (financement connu > limite)."""
+    pairs, active = 0, 0
+    for moment, members in baskets(inputs, book).items():
+        for symbol in members:
+            pairs += 1
+            if symbol in inputs.funding.columns and inputs.funding.loc[moment, symbol] > FUNDING_LIMIT:
+                active += 1
+    return round(active / pairs, 4) if pairs else 0.0
+
+
+def static_targets(table: pd.DataFrame, exposure: float) -> dict[pd.Timestamp, pd.Series]:
+    """Référence statique : à chaque changement de composition, `exposure` du portefeuille réparti à parts égales
+    entre les membres du panier (le reste en stablecoin) ; échangé seulement à ces changements."""
+    out: dict[pd.Timestamp, pd.Series] = {}
+    previous = None
+    for moment in table.index:
+        members = list(table.columns[table.loc[moment] > 0])
+        key = frozenset(members)
+        if key != previous:
+            out[moment] = pd.Series(exposure / len(members) if members else 0.0, index=members, dtype=float)
+            previous = key
     return out
 
 
@@ -297,7 +334,8 @@ def describe(run: Run, *, trials: int) -> dict:
 
 
 def judge(model: dict, reference: dict, ci: list[float] | None) -> dict:
-    """Critères du §7, pour UN scénario de coûts."""
+    """Critères du §7 (v2 : référence STATIQUE), pour UN scénario de coûts. Le critère ajusté au risque exige un
+    Sharpe déflaté ≥ 0,95, quasi inatteignable avec 716+ essais : « perte réduite » est le critère réaliste."""
     better_risk = bool(ci is not None and ci[0] > 0 and (model["deflated_sharpe"] or 0.0) >= DSR_MIN)
     ref_return, ret = reference["annual_return"], model["annual_return"]
     comparable = ret is not None and ref_return is not None and (
@@ -375,7 +413,9 @@ def leak_audit(settings: Settings, frames: dict[str, pd.DataFrame], funding: dic
                 row = redo[key].loc[moment].reindex(table.columns).fillna(0.0).to_numpy()
                 if not np.allclose(row, table.loc[moment].to_numpy(), atol=1e-12):
                     violations.append({"decision": str(moment), "check": label, "weights": key})
-        leaky = inputs.sigma.shift(-1)
+        # Mutation : un σ̂ qui lit la semaine SUIVANTE (décuplé, pour qu'un plafond min(1, σ_cible/σ̂) déjà atteint
+        # ne masque pas la lecture) doit changer au moins un poids de A aux décisions tirées.
+        leaky = inputs.sigma.shift(-1) * 10
         mutated = all_weights(Inputs(inputs.panel, inputs.decisions, leaky, inputs.funding))["A"]
         detected |= not np.allclose(mutated.loc[moment].to_numpy(), full["A"].loc[moment].to_numpy(), atol=1e-12)
     return {"violations": violations, "mutation_detected": bool(detected), "decisions": [str(inputs.decisions[p]) for p in chosen],
@@ -424,15 +464,21 @@ def run(settings: Settings, *, now: datetime, symbols: list[str] | None = None,
     result.leak_audit = leak_audit(settings, frames, funding, inputs, seed=settings.protocol.seed)
     if not result.leak_audit["passed"]:
         raise LeakAuditFailed(f"audit des fuites en échec : {result.leak_audit}")
-    trials = TOTAL_TRIALS_BEFORE + N_TRIALS
     book = fa.Book(inputs.panel, inputs.decisions)
     weights = all_weights(inputs)
     selections = selections_b(inputs, book)
     decisions = inputs.decisions
-    funding_first = {s: str(f["time"].min())[:10] for s, f in funding.items() if not f.empty}
+    activation = funding_activation(inputs, book)
+    with_funding = activation >= FUNDING_MIN_ACTIVATION
+    result.n_trials = 3 if with_funding else 2
+    before = ExperimentRegistry(settings.experiments_db).program_trials()
+    trials = before + result.n_trials
+    funding_first = {s: str(f["time"].min())[:10] for s, f in funding.items() if not f.empty and "time" in f.columns}
     result.coverage = {"decisions": len(decisions), "first": str(decisions[0]), "last": str(decisions[-1]),
                        "baskets": {str(m): b for m, b in list(baskets(inputs, book).items())[::13]},
-                       "b_selections": {str(m): s for m, s in selections.items()}, "funding_first": funding_first,
+                       "b_selections": {str(m): s for m, s in selections.items()}, "b_rebalances": len(selections),
+                       "funding_first": funding_first, "funding_activation": activation,
+                       "funding_trial": with_funding,
                        "unlock_filter": "non implémenté : aucune source historique fiable (docs/LONG_HORIZON.md §3)"}
     pairs = inputs.panel.symbols
     as_targets = lambda table: {m: table.loc[m] for m in table.index}            # noqa: E731
@@ -443,14 +489,19 @@ def run(settings: Settings, *, now: datetime, symbols: list[str] | None = None,
         ref_b[moment] = pd.Series(1 / len(eligible), index=eligible) if eligible else pd.Series(dtype=float)
     specs: dict[str, dict] = {
         "A": dict(targets=as_targets(weights["A"]), band=BAND),
-        "A_FUNDING": dict(targets=as_targets(weights["A_FUNDING"]), band=BAND),
         "REF_A": dict(targets=_membership_changes(weights["REF_A"]), full_rebalance=True),
         "B": dict(targets=b_targets, full_rebalance=True, stop=B_STOP),
         "REF_B": dict(targets=ref_b, full_rebalance=True),
         "B_SANS_STOP": dict(targets=b_targets, full_rebalance=True),
         "BTC": dict(targets={decisions[0]: pd.Series({MARKET: 1.0})}, full_rebalance=True),
     }
+    if with_funding:
+        specs["A_FUNDING"] = dict(targets=as_targets(weights["A_FUNDING"]), band=BAND)
     runs: dict[str, dict[str, Run]] = {"central": {}, "adverse": {}}
+    b_table = pd.DataFrame(0.0, index=list(selections), columns=pairs)
+    for moment, members in selections.items():
+        for symbol in members:
+            b_table.loc[moment, symbol] = 1 / len(members)
     for scenario, adverse in (("central", False), ("adverse", True)):
         costs = cost_per_side(pairs, adverse=adverse)
         for key, spec in specs.items():
@@ -458,10 +509,20 @@ def run(settings: Settings, *, now: datetime, symbols: list[str] | None = None,
             runs[scenario][key] = simulate(inputs.panel, spec["targets"], decisions, costs=costs,
                                            delay_days=1 if adverse else 0, band=spec.get("band"),
                                            full_rebalance=spec.get("full_rebalance", False), stop=spec.get("stop"))
+        # Références STATIQUES (mission du 2026-10-02) : exposition moyenne du modèle, répartie à parts égales sur son
+        # panier, le reste en stablecoin ; échangées seulement quand la composition change.
+        for model, table in (("A", weights["REF_A"]), ("B", b_table)):
+            exposure = float(runs[scenario][model].exposure.mean()) if len(runs[scenario][model].exposure) else 0.0
+            say(f"STATIC_{model} ({scenario})")
+            runs[scenario][f"STATIC_{model}"] = simulate(inputs.panel, static_targets(table, exposure), decisions, costs=costs,
+                                                         delay_days=1 if adverse else 0, full_rebalance=True)
     for scenario in runs:
         result.models[scenario] = {k: describe(r, trials=trials) for k, r in runs[scenario].items()}
-    for model, reference in (("A", "REF_A"), ("A_FUNDING", "REF_A"), ("B", "REF_B")):
-        judged = {}
+    comparisons = [("A", "STATIC_A", "REF_A"), ("B", "STATIC_B", "REF_B")]
+    if with_funding:
+        comparisons.insert(1, ("A_FUNDING", "STATIC_A", "REF_A"))
+    for model, reference, info in comparisons:
+        judged: dict = {}
         for scenario in ("central", "adverse"):
             a, b = runs[scenario][model].weekly, runs[scenario][reference].weekly
             common = a.index.intersection(b.index)
@@ -469,9 +530,11 @@ def run(settings: Settings, *, now: datetime, symbols: list[str] | None = None,
                                    seed=settings.protocol.seed)
             judged[scenario] = judge(result.models[scenario][model], result.models[scenario][reference], ci) | {
                 "sharpe_diff": round(fa.sharpe(a.loc[common].to_numpy()) - fa.sharpe(b.loc[common].to_numpy()), 4),
-                "sharpe_diff_ci": ci}
-        result.verdicts[model] = {"reference": reference, "verdict": verdict(judged["central"], judged["adverse"])} | judged
-    result.program_trials = ExperimentRegistry(settings.experiments_db).program_trials() + N_TRIALS
+                "sharpe_diff_ci": ci,
+                "vs_buy_and_hold": judge(result.models[scenario][model], result.models[scenario][info], None)}
+        result.verdicts[model] = {"reference": reference, "buy_and_hold": info,
+                                  "verdict": verdict(judged["central"], judged["adverse"])} | judged
+    result.program_trials = before + result.n_trials
     _record(settings, result, now=now, symbols=symbols, code=state)
     return result
 
@@ -494,16 +557,19 @@ def _record(settings: Settings, result: Result, *, now: datetime, symbols: list[
     (report_dir / "summary.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
     ExperimentRegistry(settings.experiments_db).record(
         run_id=result.run_id, created_at=now.isoformat(), kind=KIND,
-        hypothesis="horizons longs : tendance 12 semaines avec ciblage de volatilité prévue (A, A + funding) et "
-                   "basse volatilité 6 mois (B) font-ils mieux que le buy-and-hold du même panier, frais inclus ?",
-        strategy=STRATEGY, strategy_version=PROTOCOL_VERSION, variant="3 essais figés (docs/LONG_HORIZON.md)",
-        params={"lookback_days": LOOKBACK_DAYS, "band": BAND, "basket": BASKET, "funding_limit": FUNDING_LIMIT,
+        hypothesis="horizons longs v2 : tendance par vote de 3 horizons (4, 12, 26 semaines) avec ciblage de volatilité "
+                   "prévue à 50 % (A, A + funding) et basse volatilité 6 mois avec stop (B) réduisent-ils la perte, à "
+                   "rendement comparable, face à une allocation statique au même panier, frais inclus ?",
+        strategy=STRATEGY, strategy_version=PROTOCOL_VERSION,
+        variant=f"{result.n_trials} essais figés (docs/LONG_HORIZON.md v2)",
+        params={"horizons_days": list(HORIZONS_DAYS), "vote_min": VOTE_MIN, "sigma_target": SIGMA_TARGET, "band": BAND,
+                "basket": BASKET, "funding_limit": FUNDING_LIMIT, "funding_min_activation": FUNDING_MIN_ACTIVATION,
                 "b": {"every_weeks": B_EVERY, "count": B_COUNT, "days": B_DAYS, "stop": B_STOP}, "level": LEVEL,
                 "fee": FEE, "spread": SPREAD, "spread_other": SPREAD_OTHER},
         period_label="DEVELOPMENT", period_start=str(FIRST_DECISION), period_end=result.period_end, universe=symbols,
         data_hashes=result.data_hashes, git_commit=code, dependencies=dependency_versions(), seed=settings.protocol.seed,
         cost_scenario="frais 7,5 pb + écart 2 à 5 pb ; défavorable 10 pb, écart doublé, un jour de retard",
         simulation_rules={"decision": "lundi 00:00 UTC", "execution": "bougie 1 h de 01:00", "leverage": "aucun"},
-        metrics={"n_trials": N_TRIALS, "program_trials": result.program_trials,
+        metrics={"n_trials": result.n_trials, "program_trials": result.program_trials, "coverage": result.coverage,
                  "verdict": " ; ".join(f"{k} {v['verdict']}" for k, v in result.verdicts.items()),
                  "verdicts": result.verdicts, "models": result.models}, status="COMPLETED", report_dir=str(report_dir))

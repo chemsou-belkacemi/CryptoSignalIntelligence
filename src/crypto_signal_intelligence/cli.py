@@ -231,16 +231,25 @@ def factors_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", hel
 
 @app.command("long-horizon")
 def long_horizon_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Essai local sur du code non commité (enregistré comme tel)"),
+                         universe_file: str = typer.Option(None, "--universe-file", help="JSON {\"symbols\": [...]} : paires admises par le screening halal ; l'univers de recherche y est restreint"),
                          verbose: bool = False):
-    """Lot 8 (docs/LONG_HORIZON.md) : A (tendance 12 semaines + volatilité prévue), A + funding, B (basse volatilité
-    6 mois), contre le buy-and-hold du même panier, frais inclus ; 3 essais, DEVELOPMENT seulement, audit d'abord."""
+    """Lot 8 v2 (docs/LONG_HORIZON.md) : A (vote de 3 horizons + volatilité prévue, cible 50 %), A + funding si le
+    filtre s'active assez, B (basse volatilité 6 mois, stop), contre une allocation STATIQUE au même panier, frais
+    inclus ; 3 essais au plus, DEVELOPMENT seulement, audit d'abord."""
     from .research.factors import DirtyCode
     from .research.long_horizon import LeakAuditFailed, run
+    from .research.universe import RESEARCH_UNIVERSE
     settings = _settings(verbose)
     _heavy_job(settings)
+    symbols = None
+    if universe_file:
+        with open(universe_file, encoding="utf-8") as handle:
+            admitted = set(json.load(handle).get("symbols", []))
+        symbols = [s for s in RESEARCH_UNIVERSE if s in admitted]
+        console.print(f"Univers : {len(symbols)} paires de recherche admises par le screening (sur {len(RESEARCH_UNIVERSE)}).")
     try:
         with console.status("horizons longs…") as status:
-            result = run(settings, now=_now(), progress=lambda text: status.update(f"horizons longs : {text}"),
+            result = run(settings, now=_now(), symbols=symbols, progress=lambda text: status.update(f"horizons longs : {text}"),
                          allow_dirty=allow_dirty)
     except (LeakAuditFailed, DirtyCode, RuntimeError) as exc:
         console.print(f"[red]Aucun résultat :[/red] {exc}")
