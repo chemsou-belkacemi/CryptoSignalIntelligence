@@ -20,6 +20,9 @@ STARTED = {
     "F2_ECHELLES": {"doc": "4b2751fff4b03e7719b0cb17c9c5e58a",
                     "params": "70b894cc0934d89baf8a589f7614e7a8",
                     "code": "9afb3dec7d18e9bec5a05d765ca1670a"},
+    "F3_STABLECOINS": {"doc": "02d1dc70654fb83cb08b08df10363b6e",
+                       "params": "68770138b575681d47a661ce40b762b5",
+                       "code": "ff516d5b976709c821981e9392431bf2"},
 }
 
 
