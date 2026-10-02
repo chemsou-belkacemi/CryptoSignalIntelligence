@@ -97,6 +97,29 @@ Binance, dans la limite de ces 4 jours.
 Le jour n'est clos que si l'appel commun a réussi : sinon, un nouvel essai a lieu au passage suivant, sans
 réinscrire les paires déjà relevées. Code : `forward/derivlog.py`.
 
+## F0_DONNEES : relevé quotidien des données de contexte
+
+Ce n'est pas un test : une collecte de données publiques, sans hypothèse ni essai (mission, phase 1.3). Aucune de ces
+données n'influence un test en cours ; une phase qui voudra s'en servir le pré-inscrira. Sources validées par le
+propriétaire le 2026-10-02, toutes gratuites et sans clé, lues par un client limité à leurs seules adresses
+(`forward/sources.py`).
+
+| Donnée | Source |
+|---|---|
+| Volatilité implicite BTC et ETH (indice DVOL) | Deribit, API publique |
+| Indice Fear & Greed | alternative.me |
+| Clôtures du Nasdaq 100 | FRED (série NASDAQ100) |
+| Indice dollar | recalculé avec la formule publique d'ICE aux taux de référence de la BCE (pas la cotation ICE) |
+| Parité USDT et USDC | Kraken (milieu achat-vente), contrôle par Bitstamp |
+| Liquidations 24 h, BTC et ETH | OKX seule : PARTIEL, une bourse parmi d'autres |
+| ATR et ADX journaliers (Wilder, 14 jours) | calculés sur les bougies 1 h Binance déjà stockées, journées UTC complètes |
+| Corrélation 30 jours BTC / Nasdaq 100 | calculée : rendements journaliers sur les séances communes |
+| Écart achat-vente et profondeur à ±1 % | carnet public Binance Spot (`/api/v3/depth`, autorisé par le propriétaire le 2026-10-02, client séparé en lecture seule) : 1 000 niveaux, 5 000 pour BTC et ETH ; profondeur marquée « tronquée » si le carnet lu n'atteint pas ±1 % |
+
+Chaque jour UTC après 00:10 : une entrée par source au journal `F0_DONNEES`, puis les indicateurs. Une source en
+échec est réessayée à chaque passage ; le jour est clos quand tout a réussi, ou à 20:00 UTC. Un jour manqué reste
+un trou. Code : `forward/datalog.py`.
+
 ## Calendrier des unlocks : non fait
 
 Aucune source fiable n'est accessible sans abonnement ni clé (vérifié le 2026-10-02) :

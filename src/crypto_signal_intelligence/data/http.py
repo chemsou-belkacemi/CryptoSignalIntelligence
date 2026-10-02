@@ -15,6 +15,10 @@ import httpx
 logger = logging.getLogger("csi.http")
 
 REST_ALLOWED_PATHS = frozenset({"/api/v3/klines", "/api/v3/exchangeInfo", "/api/v3/ping", "/api/v3/time"})
+# Carnet d'ordres PUBLIC (lecture seule) : écart achat-vente et profondeur, relevé quotidien de contexte (mission du
+# 2026-10-02, phase 1.3). Autorisé explicitement par le propriétaire le 2026-10-02. Client séparé (`depth`) : la
+# liste blanche des bougies reste inchangée.
+DEPTH_ALLOWED_PATHS = frozenset({"/api/v3/depth"})
 ARCHIVE_ALLOWED_PREFIX = "/data/spot/"
 # Marché à terme USDⓈ-M : données publiques de marché seulement (financement, prime, intérêt ouvert, ratios),
 # comme information sur le positionnement. Aucun ordre, aucun compte, aucun flux utilisateur : CSI ne négocie
@@ -54,6 +58,11 @@ class PublicHttpClient:
     @classmethod
     def rest(cls, base_url: str, **kwargs) -> PublicHttpClient:
         return cls(base_url, allowed_paths=REST_ALLOWED_PATHS, **kwargs)
+
+    @classmethod
+    def depth(cls, base_url: str, **kwargs) -> PublicHttpClient:
+        """Carnet d'ordres public Spot, lecture seule (aucun ordre, aucun compte)."""
+        return cls(base_url, allowed_paths=DEPTH_ALLOWED_PATHS, **kwargs)
 
     @classmethod
     def archives(cls, base_url: str, **kwargs) -> PublicHttpClient:

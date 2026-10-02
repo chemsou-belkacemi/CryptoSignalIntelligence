@@ -13,7 +13,7 @@ from pathlib import Path
 import pandas as pd
 
 from ..config import Settings
-from . import derivlog
+from . import datalog, derivlog
 from .registry import NOT_STARTED, STOPPED, journal_for, status
 from .tests import TESTS
 
@@ -46,6 +46,7 @@ def build(settings: Settings, *, now: datetime) -> dict:
                 item["stats"]["verdict"] = STOPPED
         report["tests"].append(item)
     report["derivatives_log"] = derivlog.summary(settings)
+    report["context_log"] = datalog.summary(settings)
     report["forward_trials"] = forward_trials(settings)
     return report
 
@@ -63,6 +64,15 @@ def _fmt(value, pct: bool = False) -> str:
     if value is None:
         return "—"
     return f"{value:.1%}" if pct else f"{value:+.3f}"
+
+
+def _context_line(log: dict) -> str:
+    last = log.get("last") or {}
+    sources = ", ".join(f"{k} ({v})" for k, v in sorted((log.get("latest_by_source") or {}).items())) or "aucune"
+    return (f"Jours clos : {log.get('days', 0)} (depuis {log.get('first_day') or '—'}) ; dernier : {last.get('day', '—')}, "
+            f"{last.get('sources', 0)} sources, {last.get('errors', 0)} erreurs ; dernier relevé par source : {sources} ; "
+            f"journal {'intègre' if (log.get('verified') or {}).get('ok', True) else 'ROMPU'}. Information seulement : "
+            "aucune de ces données n'influence un test en cours.")
 
 
 def markdown(report: dict) -> str:
@@ -112,6 +122,8 @@ def markdown(report: dict) -> str:
               f"Jours relevés : {log['days']} (depuis {log['first_day'] or '—'}) ; dernier jour : "
               f"{last.get('day', '—')}, {last.get('pairs', 0)} paires, {last.get('no_perpetual', 0)} sans perpétuel, "
               f"{last.get('errors', 0)} erreurs ; journal {'intègre' if log['verified']['ok'] else 'ROMPU'}.", "",
+              "## Relevé des données de contexte (F0_DONNEES)", "",
+              _context_line(report.get("context_log") or {}), "",
               report["unlocks"], "",
               f"Essais « FORWARD » enregistrés : {report.get('forward_trials', 0)} (comptés à part des lots de "
               "recherche).", ""]

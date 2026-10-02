@@ -19,7 +19,7 @@ from datetime import datetime
 import pandas as pd
 
 from ..config import Settings
-from . import derivlog, report
+from . import datalog, derivlog, report
 from .halal import HalalNotValidated
 from .registry import ENDED, RUNNING, check_frozen, journal_for, status
 from .tests import TESTS
@@ -96,6 +96,13 @@ def daily(settings: Settings, *, now: datetime, force: bool = False) -> dict | N
                 except Exception as exc:  # noqa: BLE001 - le relevé ne doit jamais empêcher le rapport
                     log.exception("relevé des dérivés")
                     out["derivatives"] = {"error": f"{type(exc).__name__}: {exc}"[:300]}
+                try:
+                    out["context_data"] = datalog.record_day(settings, now=now)
+                except HalalNotValidated as exc:
+                    out["context_data"] = {"skipped": str(exc)}
+                except Exception as exc:  # noqa: BLE001 - jamais bloquant pour le rapport
+                    log.exception("relevé des données de contexte")
+                    out["context_data"] = {"error": f"{type(exc).__name__}: {exc}"[:300]}
             if moment - moment.floor("D") >= REPORT_AFTER:
                 out["report"] = str(report.write(settings, now=now))   # rapport du jour, mis à jour à chaque passage
             return out
