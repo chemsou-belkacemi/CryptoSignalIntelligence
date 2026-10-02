@@ -177,6 +177,18 @@ def test_vote_needs_two_positive_horizons_of_three():
     assert weights.loc[decisions[0], "BTCUSDT"] == pytest.approx(0.2) and weights.loc[decisions[0], "ETHUSDT"] == 0.0
 
 
+def test_funding_mean_accepts_timestamp_objects_and_seven_day_window():
+    decisions = pd.DatetimeIndex([pd.Timestamp("2024-05-13", tz="UTC")])
+    stamps = [pd.Timestamp("2024-05-13", tz="UTC") - k * pd.Timedelta(hours=8) for k in range(1, 30)]
+    frame = pd.DataFrame({"time": stamps, "available_at": pd.Series(stamps, dtype=object), "rate": 0.0002,
+                          "interval_hours": 8})
+    out = lh.funding_mean({"BTCUSDT": frame}, decisions)
+    assert out.loc[decisions[0], "BTCUSDT"] == pytest.approx(0.0002)           # 21 règlements dans les 7 jours
+    frame.loc[0, "available_at"] = pd.Timestamp("2024-05-13 00:00:01", tz="UTC")   # connu après la décision : exclu
+    frame["rate"] = [1.0] + [0.0002] * 28
+    assert lh.funding_mean({"BTCUSDT": frame}, decisions).loc[decisions[0], "BTCUSDT"] == pytest.approx(0.0002)
+
+
 def test_low_volatility_selection():
     rng = np.random.default_rng(3)
     days = 400
