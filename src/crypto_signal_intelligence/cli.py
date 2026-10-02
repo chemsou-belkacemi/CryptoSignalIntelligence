@@ -229,6 +229,39 @@ def factors_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", hel
     console.print(f"Rapport : {settings.reports_dir / result.run_id / 'summary.json'}")
 
 
+@app.command("screen-flow")
+def screen_flow_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Essai local sur du code non commité (enregistré comme tel)"),
+                        universe_file: str = typer.Option(None, "--universe-file", help="JSON {\"symbols\": [...]} : paires admises par le screening halal"),
+                        verbose: bool = False):
+    """Étape 6 du plan (docs/SCREENING.md, criblage J) : flux d'ordres, offre nouvelle (veto) et MVRV on-chain, à 1, 7 et
+    30 jours ; 15 essais, DEVELOPMENT seulement, audit des fuites d'abord."""
+    from .research.factors import DirtyCode
+    from .research.flow_screen import LeakAuditFailed, run
+    from .research.universe import RESEARCH_UNIVERSE
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    symbols = None
+    if universe_file:
+        with open(universe_file, encoding="utf-8") as handle:
+            admitted = set(json.load(handle).get("symbols", []))
+        symbols = [s for s in RESEARCH_UNIVERSE if s in admitted]
+    try:
+        with console.status("criblage J…") as status:
+            result = run(settings, now=_now(), symbols=symbols, progress=lambda text: status.update(f"criblage J : {text}"),
+                         allow_dirty=allow_dirty)
+    except (LeakAuditFailed, DirtyCode, RuntimeError) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    console.rule(f"Criblage J — {result.run_id}")
+    console.print(f"Audit des fuites : réussi ; essais : {result.n_trials} ; programme : {result.program_trials} ; seuil {result.cost_hurdle_pct} %")
+    table = Table("Condition", "Horizon", "Événements", "Paires", "Rendement", "Excès", "IC95 excès", "Passe", "Veto justifié")
+    for r in result.rows:
+        table.add_row(r.condition, f"{r.horizon_h // 24} j", str(r.events), str(r.pairs), f"{r.mean_return_pct}", f"{r.mean_excess_pct}",
+                      f"{r.ci95_excess_pct}", "oui" if r.beats_costs else "non", "oui" if r.veto_justified else "non")
+    console.print(table)
+    console.print(f"Rapport : {settings.reports_dir / result.run_id / 'summary.json'}")
+
+
 @app.command("trend-daily")
 def trend_daily_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Essai local sur du code non commité (enregistré comme tel)"),
                         universe_file: str = typer.Option(None, "--universe-file", help="JSON {\"symbols\": [...]} : paires admises par le screening halal"),

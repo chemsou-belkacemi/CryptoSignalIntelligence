@@ -91,6 +91,32 @@ avec les conditions existantes.
   laisser passer la tendance générale, qui n'est pas un signal.
 - Programme : 266 essais sur DEVELOPMENT.
 
+## Criblage J : flux d'ordres, offre nouvelle, valeur on-chain (déclaré le 2026-10-02, avant exécution)
+
+Étape 6 du plan de travail validé le 2026-10-02. Journées UTC du magasin long (bougies 1 h agrégées), univers de
+recherche admis par le screening halal, DEVELOPMENT seul (jusqu'au 2025-06-30), première journée le 2019-01-01.
+Une condition vraie le jour d est connue à d+1 00:00 : achat à l'ouverture de 01:00 de d+1, vente à la clôture de
+23:00 h−1 jours plus tard (h = 1, 7, 30 jours) ; excès = rendement − dérive de la paire sur le même horizon.
+
+| Condition | Définition |
+|---|---|
+| J1_FLOW_BUY_TOP | part des achats au marché (taker) dans le volume en USDT du jour ≥ 90e centile des 365 journées précédentes de la paire (au moins 200) |
+| J2_FLOW_SELL_BOTTOM | part ≤ 10e centile (pression vendeuse, achat à contre-courant) |
+| J3_NEW_SUPPLY_VETO | paire cotée depuis 30 à 180 jours (offre nouvelle) : condition de **veto** |
+| J4_MVRV_LOW | MVRV de BTC ou d'ETH (CoinMetrics, API communautaire gratuite, `CapMVRVCur`) ≤ 20e centile des 730 jours précédents (au moins 365) ; valeur du jour d supposée connue à d+2 |
+| J5_MVRV_HIGH_VETO | MVRV ≥ 80e centile : condition de **veto** |
+
+- 5 conditions × 3 horizons = **15 essais** de plus au programme.
+- IC95 de l'excès par blocs de max(10 jours, 2 × horizon) ; « passe » (J1, J2, J4) = rendement brut moyen > seuil
+  de coûts aller-retour (0,26 %) ET borne basse de l'IC95 > 0 ; « veto justifié » (J3, J5) = borne haute de l'IC95
+  < 0. Audit des fuites avant tout résultat : drapeaux recalculés avec les seules bougies antérieures à 4 jours
+  tirés au hasard (identiques), mutation (part d'achats lue sur le lendemain) détectée.
+- Attendu : rien ne passe à 1 jour (coûts) ; les conditions de veto peuvent se justifier (une paire récente ou un
+  MVRV élevé précèdent souvent des rendements faibles), ce qui ne serait pas une stratégie, seulement un filtre.
+- Limites : MVRV n'existe que pour BTC et ETH (régimes de plusieurs mois, très peu d'observations indépendantes) ;
+  la part des achats au marché est celle de Binance seule ; les « 30 à 180 jours » dépendent de la date de cotation
+  sur Binance, pas de l'émission du token.
+
 ## Historique
 
 - `SCREEN-20260930T093324Z-20101b` : premier passage, **intervalles faux** (moyenne pondérée par jour

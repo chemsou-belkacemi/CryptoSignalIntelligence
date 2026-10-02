@@ -35,6 +35,8 @@ ALLOWED = {
     # Annonces de listing (F7_LISTINGS) : Upbit (annonces publiques), Coinbase (produits de son API publique).
     "api-manager.upbit.com": ("/api/v1/announcements",),
     "api.exchange.coinbase.com": ("/products",),
+    # Valeur on-chain (criblage J) : API communautaire de CoinMetrics, sans clé, MVRV journalier.
+    "community-api.coinmetrics.io": ("/v4/timeseries/asset-metrics",),
 }
 TRON_API = "https://api.trongrid.io"
 ETH_RPC = "https://ethereum-rpc.publicnode.com"

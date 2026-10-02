@@ -87,6 +87,45 @@ audit réussi, aucun essai n'est enregistré.
 - Clôtures seulement (pas de plus hauts et plus bas intrajournaliers) ; ordres limites supposés remplis au prix de
   01:00 ; environ 2 300 décisions très autocorrélées (blocs de 56 jours).
 
+## 8. Résultats (`TREND-20261002T162611Z-1c66eb`, exécuté le 2026-10-02, 2 essais, programme 718)
+
+Univers : 40 paires de recherche admises par le screening halal ; 2 282 décisions du 2019-04-01 au 2025-06-29 ;
+audit des fuites réussi (4 décisions recalculées identiques, mutation détectée) ; position moyenne de l'ensemble
+0,16 (long environ un sixième du temps par paire).
+
+| Modèle | Scénario | Rendement ann. | Volatilité | Sharpe | Sharpe déflaté | Perte max. | Transactions | Frais | Exposition |
+|---|---|---|---|---|---|---|---|---|---|
+| ENSEMBLE | central | 34,7 % | 45,0 % | 0,89 | 0,18 | −59 % | 1 115 | 26,3 % | 41 % |
+| STATIC_ENSEMBLE (référence) | central | 18,0 % | 33,0 % | 0,67 | 0,07 | −48 % | 594 | 6,6 % | 38 % |
+| ENSEMBLE_VOL | central | 21,9 % | 23,8 % | 0,95 | 0,22 | −33 % | 997 | 8,7 % | 25 % |
+| STATIC_ENSEMBLE_VOL (référence) | central | 11,9 % | 21,6 % | 0,63 | 0,06 | −33 % | 589 | 3,1 % | 24 % |
+| REF_BH (panier acheté-conservé) | central | 29,8 % | 77,9 % | 0,73 | 0,09 | −84 % | 666 | 25,5 % | 92 % |
+
+Scénario défavorable : mêmes ordres de grandeur (ENSEMBLE 0,94, ENSEMBLE_VOL 0,96, références 0,63 et 0,60).
+
+| Essai | Référence | Écart de Sharpe (central) | IC 98,75 % | Écart (défavorable) | IC 98,75 % | Perte max. ≤ 60 % de la référence | Validations à perte plus faible | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| ENSEMBLE | STATIC_ENSEMBLE | +0,22 | [−0,19 ; +0,66] | +0,31 | [−0,11 ; +0,75] | non | 2 / 7 | **NON_INTERESSANT** |
+| ENSEMBLE_VOL | STATIC_ENSEMBLE_VOL | +0,32 | [−0,18 ; +0,82] | +0,36 | [−0,13 ; +0,84] | non | 4 / 7 | **NON_INTERESSANT** |
+
+Lecture :
+- Les deux variantes font mieux que leur référence statique sur toute la période (Sharpe +0,2 à +0,4, rendement
+  presque doublé à exposition égale), mais l'intervalle de l'écart couvre largement zéro : avec environ 2 300
+  jours très autocorrélés (41 blocs de 56 jours), rien ne distingue cet écart d'un hasard favorable. Le Sharpe
+  déflaté (718 essais) reste bien sous 0,95.
+- La perte maximale n'est pas réduite par rapport à la statique (−59 % contre −48 % ; −33 % contre −33 %) : le
+  canal ne protège pas plus qu'une exposition réduite. Le critère 2 échoue aussi par les validations annuelles
+  (2 et 4 sur 7).
+- Le ciblage de volatilité fait ce qu'il promet (volatilité 24 % au lieu de 45 %, perte −33 % au lieu de −59 %),
+  mais en divisant l'exposition, pas en choisissant mieux les moments ; la version statique à même volatilité
+  arrive à une perte identique.
+- Les frais pèsent : 26 % du capital initial en central pour l'ensemble sans ciblage (1 115 transactions), ce que
+  la littérature citée (univers large, coûts bas) ne subit pas.
+- Conséquence : aucune fiche, aucun walk-forward, aucun test en direct ajouté. L'écart positif reste une piste
+  non démontrée, comme le modèle A du lot 8 ; seule une période jamais consultée pourrait trancher.
+
 ## Historique
 
 - 2026-10-02 : déclaré avant exécution ; aucun code de mesure, aucun résultat.
+- 2026-10-02 (16:26 UTC) : exécuté, `TREND-20261002T162611Z-1c66eb`, 2 essais (programme 718), les deux
+  `NON_INTERESSANT` ; § 8 ajouté.
