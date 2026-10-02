@@ -233,7 +233,7 @@ def walk_forward(frames: dict[str, pd.DataFrame], settings: Settings, *,
         return empty
     data = pd.concat(tables, ignore_index=True)
     origins = data["origin"]
-    eligible = complete_rows(data) & (data["history_days"] >= v1.MIN_HISTORY_DAYS) & (origins >= first)
+    eligible = complete_rows(data) & (data["history_days"] >= v1.MIN_HISTORY_DAYS) & (origins >= first) & (origins <= end)
     common = [m for m in MODELS if m != DVOL_MODEL]
     parts: list[pd.DataFrame] = []
     for horizon in HORIZONS:
@@ -337,7 +337,7 @@ def dvol_path(settings: Settings) -> Path:
 def fetch_dvol_history(*, start: str = DVOL_START, end: pd.Timestamp | None = None, client=None) -> pd.Series:
     """Clôtures journalières de DVOL (Deribit, API publique en liste blanche), par tranches d'un an ; indexées par le
     début de chaque journée UTC."""
-    from ..forward.sources import PublicSources
+    from ..forward.sources import PublicSources, SourceError
     source = client or PublicSources()
     begin = pd.Timestamp(start, tz="UTC")
     stop = (pd.Timestamp(end) if end is not None else pd.Timestamp.now(tz="UTC")).floor("D")
@@ -348,7 +348,9 @@ def fetch_dvol_history(*, start: str = DVOL_START, end: pd.Timestamp | None = No
             payload = source.get_json(DVOL_URL, {"currency": DVOL_CURRENCY, "start_timestamp": int(begin.timestamp() * 1000),
                                                  "end_timestamp": int(chunk_end.timestamp() * 1000), "resolution": "1D"})
             for item in (payload.get("result") or {}).get("data") or []:
-                rows[pd.Timestamp(int(item[0]), unit="ms", tz="UTC").floor("D")] = float(item[4])
+                if int(item[0]) % 86_400_000:
+                    raise SourceError(f"bougie DVOL non alignée sur 00:00 UTC : {item[0]} (hypothèse du § 14 fausse, refus)")
+                rows[pd.Timestamp(int(item[0]), unit="ms", tz="UTC")] = float(item[4])
             begin = chunk_end
     finally:
         if client is None:
@@ -444,18 +446,27 @@ def leak_audit(settings: Settings, end: pd.Timestamp, seed: int, dvol: pd.Series
         if series is None or market is None:
             continue
         full, mutated = daily_frame(series, market, dvol), daily_frame(series, market, dvol, leaky=True)
-        ready = full.loc[(complete_rows(full) & dvol_rows(full) & mutated["log_var_d"].notna()).to_numpy(), "origin"]
+        mutated_dvol = daily_frame(series, market, dvol, leaky_dvol=True)
+        # Origines où les deux mutations sont observables (variables complètes, DVOL connu, bougie DVOL de la journée
+        # qui commence à l'origine présente) ; plus des origines quelconques (avant 2021 comprises) pour la causalité
+        # des variables hors DVOL.
+        observable = (complete_rows(full) & dvol_rows(full) & mutated["log_var_d"].notna() & mutated_dvol["log_dvol_var"].notna()).to_numpy()
+        anytime = (complete_rows(full) & mutated["log_var_d"].notna()).to_numpy()
+        ready, ready_any = full.loc[observable, "origin"], full.loc[anytime & ~observable, "origin"]
         if len(ready) < v1.AUDIT_ORIGINS:
             continue
         picks = np.sort(rng.choice(len(ready), size=v1.AUDIT_ORIGINS, replace=False))
         origins = [ready.iloc[int(index)] for index in picks]
-        violations += [v | {"symbol": symbol} for v in causality_violations(series, market, dvol, origins=origins, seed=seed)]
+        extra = []
+        if len(ready_any) >= v1.AUDIT_ORIGINS:
+            extra = [ready_any.iloc[int(index)] for index in np.sort(rng.choice(len(ready_any), size=v1.AUDIT_ORIGINS, replace=False))]
+        violations += [v | {"symbol": symbol} for v in causality_violations(series, market, dvol, origins=origins + extra, seed=seed)]
         found = causality_violations(series, market, dvol, origins=origins, seed=seed, leaky=True)
         detected[symbol] = any("log_var_d" in v["features"] for v in found)
         found = causality_violations(series, market, dvol, origins=origins, seed=seed, leaky_dvol=True)
         detected_dvol[symbol] = any("log_dvol_var" in v["features"] for v in found)
         checked.append(symbol)
-        origins_checked[symbol] = [str(origin) for origin in origins]
+        origins_checked[symbol] = [str(origin) for origin in origins + extra]
     complete = checked == list(v1.AUDIT_PAIRS)
     return {"violations": violations, "mutation_detected": detected, "dvol_mutation_detected": detected_dvol,
             "checked_pairs": checked, "origins": origins_checked, "origins_per_pair": v1.AUDIT_ORIGINS,

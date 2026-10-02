@@ -141,6 +141,14 @@ def test_fetch_dvol_history_pages_by_year_through_the_whitelisted_endpoint():
     assert [c[0] for c in calls] == [v2.DVOL_URL] * 2 and calls[0][1]["currency"] == "BTC" and calls[0][1]["resolution"] == "1D"
     assert series.index[0] == day("2021-03-24") and series.iloc[0] == 55.5 and len(series) == 4
 
+    class Misaligned:
+        def get_json(self, url, params=None):
+            return {"result": {"data": [[params["start_timestamp"] + 8 * 3_600_000, 1, 2, 3, 55.5]]}}
+
+    from crypto_signal_intelligence.forward.sources import SourceError
+    with pytest.raises(SourceError):                                         # bougie à 08:00 UTC : l'hypothèse du § 14 tombe
+        v2.fetch_dvol_history(start="2021-03-24", end=day("2021-04-01"), client=Misaligned())
+
 
 @pytest.fixture
 def stored(settings, monkeypatch):
@@ -182,6 +190,8 @@ def test_run_records_twelve_comparisons_with_v4_on_its_own_sample(stored):
     saved = pd.read_parquet(report / "forecasts.parquet")
     v4 = saved[saved["model"] == "V4_HAR_DVOL"]
     assert v4["forecast"].isna().any() and v4["forecast"].notna().any()             # NaN avant DVOL, prévu après
+    assert (saved["origin"] <= pd.Timestamp(stored.protocol.development_end)).all()  # aucune origine après DEVELOPMENT
+    assert all(len(v) == 6 for v in audit["origins"].values())                       # 3 à DVOL connu + 3 quelconques
     assert list(saved.columns) == list(v2.FORECAST_COLUMNS) and len(saved) == 5 * 4 * (337 + 335 + 331)
     run = ExperimentRegistry(stored.experiments_db).get(result.run_id)
     assert run["kind"] == "VOLATILITY" and run["strategy"] == "VOLATILITY_FORECAST_V2" and run["strategy_version"] == 2

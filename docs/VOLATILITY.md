@@ -334,7 +334,12 @@ commencées avant la fin de DEVELOPMENT et son empreinte est enregistrée.
 - **Limites** : celles du § 11 ; DVOL n'existe que pour BTC et ETH (seul BTC est utilisé) et depuis 2021 ; le
   plus haut et le plus bas d'une bougie 1 h dépendent des cotations réelles de Binance (une mèche aberrante entre
   dans la variance de Parkinson) ; la référence réajustée ici peut différer d'un cheveu de celle du lot 7
-  (lignes complètes v2).
+  (lignes complètes v2) ; **asymétrie de V4** : la référence apprend sur toutes les lignes complètes (2017 compris)
+  alors que V4 n'apprend que sur les lignes à DVOL connu (2021 et après) — un écart V4 − référence mêle l'effet de
+  DVOL et celui d'un entraînement plus court, et aucun modèle de contrôle n'est ajouté (ce serait un 13e essai) ;
+  la ligne journalière du 2025-07-01 00:00 (clôture de la dernière bougie de DEVELOPMENT) existe mais est inerte
+  (aucune cible, jamais entraînée, jamais évaluée, jamais auditée) ; une bougie DVOL de Deribit qui ne commencerait
+  pas à 00:00 UTC est refusée, pas arrondie.
 
 ## Historique
 
