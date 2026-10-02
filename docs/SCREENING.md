@@ -187,6 +187,37 @@ commande `csi screen-pivot --universe-file …` ; tests `tests/test_pivot_screen
 - Limites : survivantes ; blocs de 4 h et 1 jour alignés UTC (un autre alignement donnerait d'autres pivots) ;
   k = 3 et 100 bougies sont des choix a priori, non optimisés, et ne seront pas retouchés après lecture.
 
+### Résultat (`SCREEN-20261002T170108Z-e89978`, 4 essais, programme 737) : une ligne passe, à lire comme une piste
+
+Code du commit `f122845`, audit des fuites réussi (8 coupes juste après un pivot tiré au hasard, niveaux et
+événements identiques, mutation détectée sur les deux cadres), 40 paires admises, 290 à 2 843 bougies journalières
+par paire.
+
+| Condition | Cadre, horizon | Événements | Rendement brut | Excès | IC95 excès | Paires > 0 | Années > 0 | Passe |
+|---|---|---|---|---|---|---|---|---|
+| K1 rebond sur support | 4 h, 24 h | 11 317 | +0,04 % | −0,14 % | [−0,37 ; +0,09] | 33 % | 2/7 | non |
+| K1 rebond sur support | 1 j, 7 j | 1 361 | +0,17 % | −1,18 % | [−2,41 ; +0,53] | 28 % | 2/7 | non |
+| K2 cassure de résistance | 4 h, 24 h | 14 518 | +0,37 % | +0,18 % | [−0,07 ; +0,45] | 75 % | 4/7 | non |
+| K2 cassure de résistance | 1 j, 7 j | 2 350 | +3,35 % | **+2,04 %** | **[+0,19 ; +4,55]** | 78 % | 4/7 | **oui** |
+
+Tableau complet : `reports/SCREEN-20261002T170108Z-e89978/summary.json`.
+
+- **Le rebond sur support (K1) n'a aucun avantage**, sur aucun cadre : excès négatif, un tiers des paires au-dessus
+  de zéro. Acheter un support « confirmé » ne vaut pas mieux qu'acheter n'importe quand.
+- **La cassure d'une résistance confirmée en bougies journalières (K2, 1 j)** passe la règle déclarée : +3,35 % brut
+  sur 7 jours (loin au-dessus des 0,26 % de coûts), +2,04 % d'excès sur la dérive de la paire, borne basse de
+  l'IC95 à +0,19 %, 78 % des paires au-dessus de zéro. En 4 h, la même idée est positive mais ne passe pas
+  (borne basse −0,07 %).
+- **Lecture honnête, déclarée avant le run** : un seul « passe » se lit comme une piste. La borne basse est à
+  0,19 % pour 737 essais au programme ; seules 4 années sur 7 sont positives (le gain tient aux années de hausse
+  2019, 2021, 2023, 2024 ; il est négatif en 2020, 2022 et 2025) ; les 2 350 événements de 7 jours se chevauchent
+  (blocs de 14 jours, 40 paires fortement corrélées) ; l'univers est celui des survivantes ; et l'équivalent D
+  (cassure-retest en 15 min / 1 h) était nul. Cette condition est **contaminée** par le fait d'avoir été vue sur
+  DEVELOPMENT : aucune fiche, aucun walk-forward, aucun signal. La seule suite honnête est une confirmation sur
+  des données jamais consultées : test en direct pré-inscrit (voir `FORWARD_TESTS.md`, F10 si inscrit) ou période
+  finale réservée, décision du propriétaire.
+- Programme : 737 essais sur DEVELOPMENT.
+
 ## Historique
 
 - `SCREEN-20260930T093324Z-20101b` : premier passage, **intervalles faux** (moyenne pondérée par jour
