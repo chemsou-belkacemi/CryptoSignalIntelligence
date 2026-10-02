@@ -23,6 +23,9 @@ STARTED = {
     "F3_STABLECOINS": {"doc": "02d1dc70654fb83cb08b08df10363b6e",
                        "params": "68770138b575681d47a661ce40b762b5",
                        "code": "ff516d5b976709c821981e9392431bf2"},
+    "F4_TELEGRAM": {"doc": "37153713c1eb418643bd11d91029fa54",
+                    "params": "d7783cc8ddb8cbd20afae1c8dbfeab9f",
+                    "code": "9306290ff2439f22adf4e76a8735701c"},
 }
 
 
