@@ -3,7 +3,8 @@
 Document vivant : ce qui est fait, ce qui tourne, ce qui reste. Chaque ligne « à faire » se fait comme d'habitude :
 déclarée avant, mesurée avec intervalle (et placebos en direct), comptée au programme. Les décisions du
 propriétaire sont marquées **[propriétaire]**. Programme au 2026-10-03 : **791 essais** sur DEVELOPMENT ; période
-finale réservée **jamais consultée**.
+finale réservée consultée **une fois**, le 2026-10-03, pour la volatilité seulement (décision du
+propriétaire).
 
 **Plan validé par le propriétaire le 2026-10-03 (« oui pour tout à part le VPS »)** : plus de nouvelle recherche
 directionnelle sur les bougies ; rendre utile ce qui marche (volatilité, filtrage des signaux Telegram, boucle Demo).
@@ -52,11 +53,13 @@ Aucun calcul de recherche en cours.
 
 1. **Tests en direct** : rien n'y touche ; revue intermédiaire le 2026-11-13, verdicts le 2026-12-25.
 2. **Volatilité, confirmation puis branchement** :
-   - confirmation sur la période finale réservée, **une seule lecture, pour la volatilité seulement**
-     (`VOLATILITY.md` § 18 : séquence H24 → D7 → D3 → D1 → V3, déclarée et relue avant lecture) ;
-   - si confirmée : utilisation pour le **risque** (taille selon la volatilité prévue, stop en multiple du
-     mouvement prévu, abstention quand elle est extrême), en **shadow** d'abord, puis vers BSM en Demo ; le
-     service est d'abord aligné sur la spécification confirmée.
+   - **fait le 2026-10-03** : confirmation sur la période finale réservée, lecture unique
+     (`VOLC-20261003T101841Z-4d3ffb`, `VOLATILITY.md` § 19) : **H24 confirmée** (prévision horaire à 24 h) ;
+     **D7 non concluant**, séquence arrêtée : les prévisions à 1, 3 et 7 jours ne sont pas confirmées ;
+   - **fait** : branchement de H24 en **shadow** (`RISK_SHADOW.md`) : ampleur typique sur 24 h et taille relative à
+     risque égal, carte « Risque à 24 h » de l'onglet Marché, journal quotidien ; aucune influence ;
+   - à venir : après quelques semaines de journal, protocole déclaré pour passer taille et stop à BSM en Demo
+     **[propriétaire]** ; abstention pas avant 60 jours d'historique.
 3. **Telegram** :
    - **[propriétaire]** créer le deuxième bot et poser son jeton, puis démarrer le relais (guide :
      `TELEGRAM_RELAY.md`) ; le relais, son service Docker et ses tests sont prêts ;

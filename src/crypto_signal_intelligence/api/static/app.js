@@ -259,8 +259,28 @@ async function loadVolatility() {
       .map(([symbol, f]) => [{ node: el("strong", { text: pair(symbol) }) }, ...VOL_HORIZONS.map(([key]) => moveText(f.horizons[key])), calmText(f.horizons["1"])]);
     const missing = Object.values(d.pairs || {}).filter((f) => !f.available).length;
     target.replaceChildren(card(`Prévisions du jour — ampleur attendue (${rows.length} paires)`,
-      el("p", { class: "muted small", text: `${d.note} Prévision du ${when(d.origin)}.` + (missing ? ` ${missing} paire(s) sans prévision (historique trop court ou données manquantes).` : "") }),
+      el("p", { class: "muted small", text: `${d.note} Prévision du ${when(d.origin)}.` + (missing ? ` ${missing} paire(s) sans prévision (historique trop court ou données manquantes).` : "")
+        + " Non confirmées sur la période finale réservée (VOLATILITY.md § 19) : affichage seulement, rien n'en dépend." }),
       table(["Paire", { label: "1 jour", num: true }, { label: "3 jours", num: true }, { label: "7 jours", num: true }, "Demain par rapport à ces 7 derniers jours"], rows, "aucune prévision")));
+  } catch (error) {
+    showError(target, error);
+  }
+}
+
+// Risque à 24 h (shadow) : seule prévision de volatilité confirmée hors échantillon (VOLATILITY.md § 19).
+async function loadRisk() {
+  const target = document.getElementById("risk-result");
+  if (!target || state.riskLoaded) return;
+  busy(target, "Risque à 24 h…");
+  try {
+    const d = await api("/risk");
+    state.riskLoaded = true;
+    if (!d.available) { target.replaceChildren(card("Risque à 24 h (shadow)", el("p", { class: "muted", text: d.reason }))); return; }
+    const rows = Object.entries(d.pairs || {}).map(([symbol, r]) => [{ node: el("strong", { text: pair(symbol) }) },
+      `±${fmt(r.move_24h_pct, 2)} %`, `× ${fmt(r.relative_size, 2)}`]);
+    target.replaceChildren(card(`Risque à 24 h — prévision confirmée, en shadow (${rows.length} paires)`,
+      el("p", { class: "muted small", text: `${d.note} Prévision du ${when(d.origin)} ; ampleur médiane ${fmt(d.median_move_24h_pct, 2)} %.` }),
+      table(["Paire", { label: "Ampleur typique 24 h", num: true }, { label: "Taille relative (risque égal)", num: true }], rows, "aucune paire")));
   } catch (error) {
     showError(target, error);
   }
@@ -981,7 +1001,7 @@ function openTab(name) {
   }
   for (const pane of document.querySelectorAll(".tabpane")) pane.classList.toggle("hidden", pane.id !== `tab-${name}`);
   if (name === "follow") loadFollow();
-  if (name === "market") loadVolatility();
+  if (name === "market") { loadVolatility(); loadRisk(); }
 }
 
 function start() {

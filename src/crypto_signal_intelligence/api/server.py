@@ -264,6 +264,12 @@ class CsiApi:
                     "model_names": current["model_names"], "forecast": entry}
         return {"available": True} | current
 
+    def risk(self) -> dict:
+        """Conseil de risque à 24 h en shadow (risk/advice.py) : ampleur typique et taille relative à risque égal,
+        tirées de la seule prévision de volatilité confirmée hors échantillon. Information, aucune décision."""
+        from ..risk.advice import current
+        return current(self.settings, now=self.now())
+
     def plans_live(self) -> dict:
         """Suivi EN DIRECT des plans indicatifs : bilan par horizon et état au moment de l'enregistrement."""
         from ..outlook.tracking import summary
@@ -728,7 +734,7 @@ class CsiApi:
                 "/derivatives": lambda: self.derivatives(query.get("symbol", [""])[0]),
                 "/admissions": self.admissions, "/sources/history": self.sources_history,
                 "/volatility": lambda: self.volatility(query.get("symbol", [""])[0]),
-                "/plans/live": self.plans_live, "/forward": self.forward,
+                "/plans/live": self.plans_live, "/forward": self.forward, "/risk": self.risk,
             }
             if path in routes:
                 return routes[path]()
