@@ -1,0 +1,114 @@
+"""Confirmation de la volatilité sur la période finale (research/volatility_confirm.py, docs/VOLATILITY.md § 18) :
+verrou de la période finale, lecture unique, coupure stricte (un futur falsifié ne change rien), origines dans la
+fenêtre, règle de confirmation. Données SYNTHÉTIQUES : elles testent le code, jamais une prévision de marché."""
+from __future__ import annotations
+
+from datetime import UTC, datetime
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from crypto_signal_intelligence.research import volatility as v1
+from crypto_signal_intelligence.research import volatility_confirm as vc
+from crypto_signal_intelligence.research import volatility_hourly as vh
+from crypto_signal_intelligence.research.experiments import ExperimentRegistry
+from crypto_signal_intelligence.research.protocol import FinalTestLocked
+
+from .conftest import canonical
+
+NOW = datetime(2026, 10, 3, tzinfo=UTC)
+START = pd.Timestamp("2025-04-01", tz="UTC")
+CUTOFF = pd.Timestamp("2025-05-31 23:00", tz="UTC")
+
+
+def fast_trees(monkeypatch) -> None:
+    monkeypatch.setattr(v1, "LGBM_ROUNDS", 20)
+    monkeypatch.setattr(v1, "LGBM_PARAMS", v1.LGBM_PARAMS | {"min_data_in_leaf": 20})
+
+
+def series(symbol: str, seed: int, *, days: int = 560) -> pd.DataFrame:
+    return canonical(24 * days, "1h", symbol=symbol, start="2024-01-01", seed=seed)
+
+
+def falsified_after(frame: pd.DataFrame, cutoff: pd.Timestamp, seed: int) -> pd.DataFrame:
+    frame = frame.copy()
+    future = (pd.to_datetime(frame["open_time"], utc=True) > cutoff).to_numpy()
+    rng = np.random.default_rng(seed)
+    frame.loc[future, "close"] = frame.loc[future, "close"].to_numpy(float) * rng.uniform(0.3, 3.0, int(future.sum()))
+    return frame
+
+
+def test_final_period_is_locked_without_the_flag(settings):
+    with pytest.raises(FinalTestLocked, match="i-understand-final-test"):
+        vc.run(settings, now=NOW)
+
+
+def test_final_period_can_be_read_only_once(settings):
+    ExperimentRegistry(settings.experiments_db).consult_final_test("VOLC-ancien", vc.STRATEGY)
+    with pytest.raises(FinalTestLocked, match="une seule lecture"):
+        vc.run(settings, now=NOW, allow_final_test=True)
+
+
+def test_rehearsal_stays_inside_development():
+    assert vc.REHEARSAL_CUTOFF <= pd.Timestamp("2025-06-30 23:59:59", tz="UTC") < vc.START
+    assert pd.Timestamp("2025-07-01", tz="UTC") == vc.START and pd.Timestamp("2026-09-30 23:00", tz="UTC") == vc.CUTOFF
+
+
+def test_forecasts_ignore_everything_after_the_cutoff_and_stay_in_the_window(monkeypatch):
+    fast_trees(monkeypatch)
+    raw = {"BTCUSDT": series("BTCUSDT", 1), "ETHUSDT": series("ETHUSDT", 2), "SOLUSDT": series("SOLUSDT", 3)}
+
+    def frames(source: dict[str, pd.DataFrame]) -> tuple[dict, dict]:
+        market = source["BTCUSDT"]
+        return ({s: v1.daily_frame(f, market) for s, f in source.items()},
+                {s: vh.hourly_frame(f, market) for s, f in source.items()})
+
+    clean_d, clean_h = frames(raw)
+    fake_d, fake_h = frames({s: falsified_after(f, CUTOFF, seed=i) for i, (s, f) in enumerate(raw.items())})
+    for get_d, get_h in ((clean_d, clean_h), (fake_d, fake_h)):
+        get_d["out"] = vc.daily_forecasts(get_d, seed=1, start=START, cutoff=CUTOFF)
+        get_h["out"] = vc.hourly_forecasts(get_h, seed=1, start=START, cutoff=CUTOFF)
+    for horizon in (1, 3, 7):
+        a, b = clean_d["out"][horizon], fake_d["out"][horizon]
+        assert len(a) > 0
+        pd.testing.assert_frame_equal(a, b)                       # le futur falsifié ne change rien
+        assert a["origin"].min() >= START
+        assert (a["origin"] + pd.Timedelta(days=horizon) - v1.STEP).max() <= CUTOFF
+        assert np.allclose(a[vc.MEAN], (a["M4_HAR_POOLED_BTC"] + a["M5_LGBM_POOLED"]) / 2)
+    a, b = clean_h["out"], fake_h["out"]
+    assert len(a) > 0
+    pd.testing.assert_frame_equal(a, b)
+    assert a["origin"].min() >= START and (a["origin"] + pd.Timedelta(hours=23)).max() <= CUTOFF
+
+
+def wide(days: int, *, model_noise: float, reference_noise: float, seed: int = 0) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    origins = pd.date_range("2025-07-01", periods=days, freq="D", tz="UTC")
+    rows = []
+    for symbol in ("A", "B", "C", "D", "E"):
+        realized = rng.lognormal(-6, 0.5, days)
+        rows.append(pd.DataFrame({"symbol": symbol, "origin": origins, "realized": realized,
+                                  "M5_LGBM_POOLED": realized * rng.lognormal(0, model_noise, days),
+                                  v1.BASELINE: realized * rng.lognormal(0, reference_noise, days)}))
+    return pd.concat(rows, ignore_index=True)
+
+
+def test_rule_confirms_a_clearly_better_model_and_rejects_the_reverse():
+    d1 = vc.COMPARISONS[0]
+    good = vc.judge(d1, wide(450, model_noise=0.2, reference_noise=0.8))
+    assert good.verdict == vc.CONFIRMED and all(good.criteria.values())
+    bad = vc.judge(d1, wide(450, model_noise=0.8, reference_noise=0.2))
+    assert bad.verdict == vc.NOT_CONFIRMED and not bad.criteria["ci_upper_below_zero"]
+
+
+def test_rule_needs_both_years():
+    d1 = vc.COMPARISONS[0]
+    only_2025 = wide(150, model_noise=0.2, reference_noise=0.8)          # juillet à novembre 2025 seulement
+    verdict = vc.judge(d1, only_2025)
+    assert verdict.criteria["both_years"] is False and verdict.verdict == vc.NOT_CONFIRMED
+
+
+def test_comparisons_are_the_five_declared():
+    assert [c.key for c in vc.COMPARISONS] == ["D1", "D3", "D7", "V3", "H24"]
+    assert vc.N_TRIALS == 5 and pytest.approx(0.99) == vc.LEVEL

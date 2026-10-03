@@ -525,6 +525,50 @@ existent : le GARCH demande 365 jours de rendements et le réétalonnage 500 lig
   (+15 à +20 % de QLIKE, moins bon sur presque toutes les paires, intervalle au-dessus de 0 à 7 jours). C'est une
   confirmation utile : la prévision en service apporte réellement quelque chose au-delà du modèle standard.
 
+## 18. Confirmation sur la période finale réservée (déclarée le 2026-10-03, avant toute lecture)
+
+Décision du propriétaire du 2026-10-03 : la période finale réservée est lue **une seule fois, pour la volatilité
+seulement**. C'est le seul résultat positif du programme ; aucune stratégie directionnelle n'est candidate. Code :
+`research/volatility_confirm.py`. Tests : `tests/test_volatility_confirm.py`. Commande :
+`csi volatility-confirm --i-understand-final-test` (après une répétition `--rehearsal`).
+
+**Ce qui est rejoué, sans aucun réglage nouveau** : les mêmes 40 paires, les mêmes fonctions (variables, modèles,
+purge : `volatility.daily_frame`, `fit_at`, `month_forecasts`, `volatility_hourly.hourly_frame`, `fit_at`,
+`quarter_forecasts`), le même rythme de réajustement (mensuel pour 1, 3 et 7 jours ; trimestriel, fenêtre de 3 ans,
+pour 24 h). Les modèles s'entraînent sur tout le passé purgé connu à chaque réajustement (DEVELOPMENT, puis la
+période finale déjà écoulée) : walk-forward strict.
+
+**Fenêtre** : origines du **2025-07-01** au **2026-09-30**, cibles entièrement connues à la bougie de 2026-09-30
+23:00 ; rien au-delà n'est lu (un test falsifie tout ce qui suit et exige les mêmes prévisions).
+
+**Cinq comparaisons** (Bonferroni sur 5, niveau 99 %) :
+
+| Clé | Modèle | Référence | Horizon | Origine |
+|---|---|---|---|---|
+| D1 | LightGBM groupé (M5) | variance des 7 derniers jours (M0) | 1 jour | en service (§ 12-13) |
+| D3 | LightGBM groupé (M5) | M0 | 3 jours | en service |
+| D7 | HAR + BTC (M4) | M0 | 7 jours | en service |
+| V3 | moyenne de M4 et M5 | M5 (le service) | 3 jours | protocole v2 (§ 15), candidat au branchement |
+| H24 | HAR + profil heure × jour (H1) | « les 24 dernières heures » (R0) | 24 h | protocole v3 (§ 16), candidat au branchement |
+
+**Règle de confirmation** (toutes vraies) : borne haute de l'IC de la différence de QLIKE (moyenne par jour
+d'origine, blocs calendaires du protocole d'origine, au moins 20 blocs) sous 0 ; différence moyenne négative en
+2025 (juillet-décembre) **et** en 2026 ; au moins 70 % des paires mieux prévues ; erreur de log RV plus faible.
+Verdict par comparaison : `CONFIRME` ou `NON_CONFIRME`.
+
+**Ce que le résultat décide** :
+- D1, D3, D7 confirmés : la prévision en service est confirmée hors échantillon ; elle peut servir au risque
+  (taille, stop, abstention) en **shadow** d'abord. Non confirmés : rien n'est branché, la prévision reste un
+  affichage.
+- V3 confirmé : la moyenne remplace le service à 3 jours (dans une étape séparée). H24 confirmé : la prévision
+  horaire à 24 h peut servir aux niveaux. Non confirmés : on garde le service.
+- Rien d'autre : aucun seuil n'est choisi sur ce résultat.
+
+**Ce que la lecture coûte** : la période finale cesse d'être vierge pour tout le programme (compteur global des
+consultations). Une future stratégie directionnelle ne pourra plus s'y confirmer ; il lui faudra une observation
+en direct. La consultation est enregistrée **avant** la lecture des données : un plantage ne donne pas droit à un
+second regard ; d'où la répétition préalable, même code, sur avril 2024 → juin 2025 (DEVELOPMENT, rien compté).
+
 ## Historique
 
 - 2026-10-01, v1 : protocole déclaré avant toute exécution.

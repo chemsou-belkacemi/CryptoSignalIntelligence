@@ -712,6 +712,41 @@ def volatility_v4_command(allow_dirty: bool = typer.Option(False, "--allow-dirty
     console.print(f"Verdict : {result.verdict} ; retenu : {result.selected} ; rapport : {settings.reports_dir / result.run_id / 'summary.json'}")
 
 
+@app.command("volatility-confirm")
+def volatility_confirm_command(
+        rehearsal: bool = typer.Option(False, "--rehearsal", help="Répétition sur la fin de DEVELOPMENT (aucune donnée finale lue, rien compté)"),
+        i_understand_final_test: bool = typer.Option(False, "--i-understand-final-test",
+                                                     help="Lecture UNIQUE de la période finale (enregistrée, jamais refaite)"),
+        allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Répétition locale sur du code non commité"),
+        verbose: bool = False):
+    """Confirmation des prévisions de volatilité sur la période finale réservée (docs/VOLATILITY.md § 18) : 5
+    comparaisons déjà choisies sur DEVELOPMENT, une seule lecture, enregistrée avant de lire."""
+    from .research.protocol import FinalTestLocked
+    from .research.volatility import DirtyCode, LeakAuditFailed
+    from .research.volatility_confirm import run
+    settings = _settings(verbose)
+    if allow_dirty and not rehearsal:
+        console.print("[red]--allow-dirty n'est permis que pour la répétition.[/red]")
+        raise typer.Exit(2)
+    _heavy_job(settings)
+    try:
+        with console.status("confirmation de la volatilité…") as status:
+            result = run(settings, now=_now(), allow_final_test=i_understand_final_test, rehearsal=rehearsal,
+                         progress=lambda text: status.update(f"confirmation : {text}"), allow_dirty=allow_dirty)
+    except (FinalTestLocked, DirtyCode, LeakAuditFailed) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    title = "RÉPÉTITION sur DEVELOPMENT (rien compté)" if result.rehearsal else "Période finale (lecture unique)"
+    table = Table("Comparaison", "Modèle", "Référence", "Horizon", "Jours", "Paires", "Écart QLIKE", "IC", "Par année",
+                  "Paires mieux", "Verdict", title=title)
+    for v in result.verdicts:
+        table.add_row(v.key, v.model, v.reference, v.horizon, str(v.days), str(v.pairs), str(v.qlike_diff), str(v.ci),
+                      str(v.by_year), str(v.pairs_better_share), v.verdict)
+    console.print(table)
+    console.print(f"Rapport : {settings.reports_dir / result.run_id / 'summary.json'}"
+                  + ("" if result.rehearsal else f" ; consultations de la période finale (tout le programme) : {result.consultations_total}"))
+
+
 @app.command("screen-seasonality")
 def screen_seasonality_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Essai local sur du code non commité (enregistré comme tel)"),
                                universe_file: str = typer.Option(None, "--universe-file", help="JSON {\"symbols\": [...]} : paires admises par le screening halal"),
