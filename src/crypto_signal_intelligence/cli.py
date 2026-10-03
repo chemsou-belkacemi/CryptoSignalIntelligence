@@ -647,6 +647,25 @@ def screen_pivot_pit_command(allow_dirty: bool = typer.Option(False, "--allow-di
     console.print(f"Paires sans historique 1 h : {payload['missing_hourly']} ; programme : {payload['program_trials']} essais")
 
 
+@app.command("ticks")
+def ticks_command(verbose: bool = False):
+    """Coûts d'exécution mesurés sur les transactions (docs/TICKS.md) : écart, petit achat au marché après 1, 5 et 40 s,
+    remplissage réel d'un ordre limite ; archives publiques aggTrades, 6 paires × 12 journées. 0 essai."""
+    from .research.ticks import run
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    with console.status("transactions…") as status:
+        result = run(settings, progress=lambda text: status.update(f"transactions : {text}"))
+    table = Table("Paire", "Écart médian (pb)", "Achat +1 s (pb)", "Achat +40 s (pb)", "Limite 0 % / 15 min : bougie · traversé · touché seul.")
+    for symbol in result.pairs:
+        fill = result.limit_fill.get(symbol, {}).get("0.0_15", {})
+        table.add_row(symbol, str(result.spread_bps[symbol]["median"]), str(result.market_buy_bps[symbol]["1s"]["mean"]),
+                      str(result.market_buy_bps[symbol]["40s"]["mean"]),
+                      f"{fill.get('bougie_dit_rempli')} · {fill.get('traverse_certain')} · {fill.get('touche_seulement')}")
+    console.print(table)
+    console.print(f"Erreurs : {result.errors or 'aucune'}")
+
+
 @app.command("data-quality")
 def data_quality(symbol: str = typer.Option(..., help="Paire, ex. BTCUSDT"),
                  timeframe: str = typer.Option(None, help="Défaut : timeframe de setup")):
