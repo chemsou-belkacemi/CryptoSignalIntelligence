@@ -487,7 +487,13 @@ async function runMarket() {
     if (run !== state.marketRun) return;                       // relancé entre-temps
     const tr = rows[p.symbol];
     try {
-      const r = await api("/analyze-pair", { symbol: p.symbol, horizon });
+      // Mêmes nouveaux essais que l'onglet Opportunités : une API en redémarrage répond tout de suite par une erreur.
+      let r = null;
+      for (const wait of [0, 5000, 15000]) {
+        if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
+        if (run !== state.marketRun) return;
+        try { r = await api("/analyze-pair", { symbol: p.symbol, horizon }); break; } catch (error) { if (wait === 15000) throw error; }
+      }
       if (run !== state.marketRun) return;
       const plan = r.plan || {};
       const [kind, title] = PLAN_STATES[plan.state] || ["neutral", plan.state || "?"];
