@@ -16,12 +16,16 @@ Au moindre doute, `signal_text` ne rend rien : l'image n'est pas lue, jamais dev
 from __future__ import annotations
 
 import importlib
+import os
 import re
 import time
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+# Borne de taille des images décodées par OpenCV (une image énorme ne doit pas faire tomber la surveillance).
+os.environ.setdefault("CV_IO_MAX_IMAGE_PIXELS", str(40_000_000))
 
 
 def _optional(name: str) -> Any:
@@ -584,3 +588,21 @@ def classify_image(rep: dict, *, caption: str | None = None) -> dict:
     if image is None:
         notes.append("paire donnée par la légende seule")
     return {"status": SURE if not notes else TO_VALIDATE, "text": _levels_text(pair, signal), "notes": notes}
+
+
+def reader_fingerprint() -> str:
+    """Empreinte de la lecture : source de ce module, versions de RapidOCR, onnxruntime et OpenCV, et contenu des
+    modèles ONNX installés. Une reconstruction qui changerait la lecture change cette empreinte."""
+    import hashlib
+    from importlib import metadata
+    digest = hashlib.sha256(Path(__file__).read_bytes())
+    for name in ("rapidocr", "onnxruntime", "opencv-python", "opencv-python-headless"):
+        try:
+            digest.update(f"{name}=={metadata.version(name)}".encode())
+        except metadata.PackageNotFoundError:
+            digest.update(f"{name}:absent".encode())
+    rapid = _optional("rapidocr")
+    if rapid is not None:
+        for model in sorted(Path(rapid.__file__).parent.rglob("*.onnx")):
+            digest.update(model.name.encode() + hashlib.sha256(model.read_bytes()).digest())
+    return digest.hexdigest()[:32]

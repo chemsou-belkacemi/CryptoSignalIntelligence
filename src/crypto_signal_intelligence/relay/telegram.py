@@ -105,8 +105,11 @@ def photo_job(update: dict, *, chats: frozenset[str] = frozenset()) -> dict | No
     if not sizes or not message.get("date"):
         return None
     best = max(sizes, key=lambda p: (p.get("width") or 0) * (p.get("height") or 0))
-    return {"file_id": best["file_id"], "chat": chat, "message_id": str(message.get("message_id")),
-            "received_at": _utc(message["date"]), "caption": str(message.get("caption") or "")}
+    origin = message.get("forward_origin") or {}
+    source = (origin.get("chat") or origin.get("sender_chat") or {}).get("id") or (message.get("forward_from_chat") or {}).get("id")
+    return {"file_id": best["file_id"], "file_unique_id": str(best.get("file_unique_id") or ""), "chat": chat,
+            "message_id": str(message.get("message_id")), "received_at": _utc(message["date"]),
+            "caption": str(message.get("caption") or ""), "origin_chat": str(source or "")}
 
 
 def _download(url: str, timeout: float) -> bytes:
@@ -214,8 +217,17 @@ class Relay:
                 image = self.download(f"{TELEGRAM}/file/bot{self.config.token}/{file_path}", 60)
                 ext = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else "jpg"
                 self.http("POST", f"{self.config.api_url}/telegram/image",
-                          {k: job[k] for k in ("chat", "message_id", "received_at", "caption")}
+                          {k: job.get(k, "") for k in ("chat", "message_id", "received_at", "caption", "file_unique_id",
+                                                        "origin_chat")}
                           | {"ext": ext, "image_b64": base64.b64encode(image).decode()}, headers, 60)
+            except RelayError as exc:
+                if str(exc).startswith("HTTP 4"):                    # refus définitif de CSI : on n'insiste pas
+                    log.warning("photo %s refusée par CSI : %s", path.stem, masked(str(exc), self.config))
+                    path.unlink(missing_ok=True)
+                    continue
+                log.warning("photo %s en attente : %s", path.stem, masked(f"{type(exc).__name__}: {exc}", self.config))
+                out["waiting"] += 1
+                continue
             except Exception as exc:  # noqa: BLE001 - le message peut contenir l'URL, donc le jeton
                 log.warning("photo %s en attente : %s", path.stem, masked(f"{type(exc).__name__}: {exc}", self.config))
                 out["waiting"] += 1
@@ -251,8 +263,15 @@ class Relay:
         return [json.loads(line) for line in self._spool.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+def quiet_http_logs() -> None:
+    """httpx écrit chaque requête (URL complète, donc le jeton du bot) au niveau INFO : jamais dans le journal."""
+    for name in ("httpx", "httpcore"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s : %(message)s")
+    quiet_http_logs()
     config = RelayConfig.from_env()
     relay = Relay(config)
     log.info("relais Telegram démarré (conversations autorisées : %s) → %s",

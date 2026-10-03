@@ -167,3 +167,45 @@ def test_photo_errors_never_show_the_token(tmp_path, caplog):
     relay = tg.Relay(config(tmp_path), http=PhotoHttp([update(7, text=None, photo=PHOTO)]), download=boom)
     relay.cycle()
     assert TOKEN not in caplog.text and "<jeton>" in caplog.text
+
+
+def test_job_carries_file_id_and_forward_origin():
+    job = tg.photo_job(update(8, text=None, photo=[{"file_id": "f", "file_unique_id": "uniq", "file_size": 10, "width": 9,
+                                                    "height": 9}], forward_origin={"type": "channel", "chat": {"id": -1009}}))
+    assert job["file_unique_id"] == "uniq" and job["origin_chat"] == "-1009"
+
+
+def test_photo_refused_by_csi_is_dropped_not_retried(tmp_path):
+    class Refusing(PhotoHttp):
+        def __call__(self, method, url, body, headers, timeout):
+            if url.endswith("/telegram/image"):
+                raise tg.RelayError("HTTP 400 : image refusée")
+            return super().__call__(method, url, body, headers, timeout)
+
+    relay = tg.Relay(config(tmp_path), http=Refusing([update(9, text=None, photo=PHOTO)]), download=lambda u, t: b"x")
+    out = relay.cycle()
+    assert out["photos_sent"] == 0 and out["photos_waiting"] == 0
+    assert list((tmp_path / "photos_en_attente").glob("*.json")) == []
+
+
+def test_real_http_client_logs_never_show_the_token(tmp_path, caplog):
+    """httpx journalise chaque requête avec son URL (le jeton) au niveau INFO : quiet_http_logs le coupe."""
+    import logging
+
+    import httpx
+
+    def handler(request):
+        if "getUpdates" in request.url.path:
+            return httpx.Response(200, json={"ok": True, "result": []})
+        return httpx.Response(200, json={})
+
+    transport = httpx.MockTransport(handler)
+
+    def http(method, url, body, headers, timeout):
+        with httpx.Client(transport=transport) as client:
+            return client.request(method, url, json=body, headers=headers).json()
+
+    caplog.set_level(logging.INFO)
+    tg.quiet_http_logs()
+    tg.Relay(config(tmp_path), http=http).cycle()
+    assert TOKEN not in caplog.text

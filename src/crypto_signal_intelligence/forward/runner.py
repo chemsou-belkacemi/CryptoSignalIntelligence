@@ -167,12 +167,12 @@ def _read_images(settings: Settings, *, now: datetime) -> dict | None:
     les images attendent."""
     try:
         from ..external import chart_ocr, image_queue
-        from .registry import code_fingerprint
+        image_queue.expire(settings, now=now)
         if not chart_ocr.available():
             return None
         if "reader" not in _IMAGE_READER:
             _IMAGE_READER["reader"] = chart_ocr.Lecteur()
-            _IMAGE_READER["code"] = code_fingerprint((chart_ocr,))
+            _IMAGE_READER["code"] = chart_ocr.reader_fingerprint()
         lecteur = _IMAGE_READER["reader"]
 
         def read(path, caption):

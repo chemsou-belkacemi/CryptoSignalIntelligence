@@ -268,6 +268,7 @@ class CsiApi:
         """Image reçue en direct par le relais du 2e bot (`{chat, message_id, received_at, caption, ext, image_b64}`) :
         gardée telle quelle, lue ensuite par la surveillance (OCR local). Aucune évaluation ici, aucun ordre."""
         from ..external import image_queue
+        self._require_token("dépôt d'images")
         try:
             return image_queue.add_b64(self.settings, payload, now=self.now())
         except ValueError as exc:
@@ -276,11 +277,20 @@ class CsiApi:
     def images_pending(self) -> dict:
         """Signaux en image à valider par le propriétaire (image, niveaux lus, remarques) et décompte par issue."""
         from ..external import image_queue
-        return {"pending": image_queue.pending(self.settings), "counts": image_queue.counts(self.settings)}
+        return {"pending": image_queue.pending(self.settings, now=self.now()), "counts": image_queue.counts(self.settings),
+                "validation_delay_hours": image_queue.VALIDATION_DELAY_HOURS}
+
+    @staticmethod
+    def _require_token(what: str) -> None:
+        """Ces routes écrivent des données d'un test en direct : refusées si l'API n'a pas de jeton (réseau Docker
+        partagé avec BinanceSpotManager)."""
+        if not os.environ.get(TOKEN_ENV):
+            raise ApiError(HTTPStatus.FORBIDDEN, f"{what} : l'API doit avoir un jeton ({TOKEN_ENV})")
 
     def images_decide(self, payload: dict) -> dict:
         """Décision du propriétaire : `{id, accept: bool, text?}` (texte corrigé relu par le parseur)."""
         from ..external import image_queue
+        self._require_token("validation des images")
         ident, accept, text = payload.get("id"), payload.get("accept"), payload.get("text")
         if not isinstance(ident, str) or not isinstance(accept, bool) or (text is not None and not isinstance(text, str)):
             raise ApiError(HTTPStatus.BAD_REQUEST, "champs « id » (texte), « accept » (booléen) et « text » (facultatif)")

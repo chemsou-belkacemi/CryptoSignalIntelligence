@@ -1146,15 +1146,24 @@ comme pour les signaux texte audités.
 **Événements.** Chaque image reçue par le 2e bot du propriétaire (relais `relay/telegram.py`, `POST /telegram/image`)
 après le démarrage, gardée dans la file `external/image_queue.py` et lue par la surveillance
 (`external/chart_ocr.classify_image`) :
-- `SUR` (tous les garde-fous passent, lectures concordantes, paire lue sur l'image et concordante avec la légende) :
-  jouable à sa **réception** ;
+- `SUR` (aucune alerte ni remarque, lectures concordantes, paire lue sur l'image ; si la légende donne une paire,
+  elle doit concorder) : jouable à sa **lecture**, `max(réception, lecture)` : ses niveaux n'existent pas avant ;
 - `A_VALIDER` (seulement des remarques non bloquantes, ou paire donnée par la légende seule) : jouable seulement si le
-  propriétaire la valide dans CSI, à l'heure de la **validation** (niveaux lus ou corrigés, relus par le parseur) ;
-  une image refusée est comptée `REFUSEE` ;
-- `IGNOREE` (alerte bloquante, publication de résultat, paire absente, ambiguë ou contradictoire) : comptée.
+  propriétaire la valide dans CSI **dans les 2 heures qui suivent la lecture**, à l'heure de la **validation** (niveaux
+  lus ou corrigés, relus par le parseur ; la paire ne peut pas changer ; une correction est marquée « modifiée ») ;
+  sinon `EXPIREE` ; une image refusée est comptée `REFUSEE` ;
+- `IGNOREE` (alerte bloquante, publication de résultat, paire absente, ambiguë ou contradictoire, ou lecture
+  impossible après 2 essais) : comptée.
+Sont aussi comptés, jamais joués : `DOUBLON` (même image ou même fichier Telegram qu'un signal déjà joué : canal et
+groupe lié, transferts), `SIGNAL_TEXTE_DANS_LA_LEGENDE` (la légende se lit déjà comme un signal complet : F4 le mesure,
+il n'est pas compté deux fois) et, à la fin du recueil, `EN_SUSPENS_A_LA_FIN` (images jamais lues ou jamais décidées).
+Une heure de réception dans le futur est refusée au dépôt.
 L'image d'origine est gardée (empreinte SHA-256 inscrite à chaque décision) avec la légende, la conversation, l'heure
-de réception, l'heure à laquelle elle est devenue jouable, l'issue de lecture et l'empreinte du code de lecture
-(non gelé : inscrite dans chaque décision, comme le parseur de F4). Le texte reconstruit passe par le même
+de réception, de dépôt, de lecture, de décision, l'heure à laquelle elle est devenue jouable, l'issue de lecture,
+l'empreinte du texte lu et l'**empreinte de lecture** (source de `chart_ocr`, versions épinglées de RapidOCR,
+onnxruntime et OpenCV, contenu des modèles) : non gelée, inscrite dans chaque décision comme le parseur de F4 ; un
+changement de lecture change la population, et les statistiques sont aussi données par empreinte. Un transfert
+manuel garde la conversation d'origine comme fournisseur et est marqué. Le texte reconstruit passe par le même
 classement que F4 (`forward/f4.classify` : lisible, long au comptant, liste halal figée, dans la fenêtre).
 
 **Règles** : celles de F4, sans aucune différence (fonctions de `forward/f4.py` réutilisées telles quelles, module
@@ -1170,8 +1179,11 @@ image_queue, telegram_live, costs, registry, journal ; moteur de rejeu, interval
 normalisation des bougies, magasin ; adresse REST et latence supposée.
 
 **Métrique et seuil de décision** : ceux de F4 (`INSUFFISANT`, `SUPERIEUR_AU_HASARD`, `INFERIEUR_AU_HASARD`,
-`NON_DEMONTRE`, par fournisseur et pour l'ensemble), plus la part d'images `SUR`, `A_VALIDER`, `IGNOREE`, validées
-et refusées.
+`NON_DEMONTRE`, par fournisseur et pour l'ensemble ; plusieurs fournisseurs = plusieurs comparaisons, déclaré comme
+pour F4), plus les issues des images (SUR, validées, refusées, expirées, ignorées, doublons, légendes déjà lisibles,
+en suspens), les signaux corrigés et transférés, et, à titre **descriptif** seulement, les mêmes mesures sur les seules
+images SUR et sur les seules images validées (le résultat « propriétaire + fournisseur » des validations n'est pas
+celui du fournisseur seul).
 
 **Date d'évaluation.** Fin du recueil 84 jours après le démarrage ; revue intermédiaire à 42 jours ; verdict une fois
 le dernier signal résolu.
@@ -1184,7 +1196,8 @@ démarre quand même, pour que le recueil commence dès que le jeton est posé).
 
 **Limites déclarées.** Celles de F4 ; en plus : le taux d'erreur de l'OCR hors échantillon est inconnu (seuls les
 signaux `SUR` ou validés sont joués) ; une validation tardive retarde l'entrée (jamais d'avance sur l'information) ;
-les signaux en image d'un groupe qui refuse les bots n'arrivent que transférés à la main.
+les signaux en image d'un groupe qui refuse les bots n'arrivent que transférés à la main (sélection du
+propriétaire en plus : marqués) ; une validation mesure « propriétaire + fournisseur ».
 
 ## MISSION_2026_10_03 : correspondance avec la mission du propriétaire et nouveaux essais
 
