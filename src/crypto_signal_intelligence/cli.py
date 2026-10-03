@@ -606,6 +606,19 @@ def interval_calibration_command(allow_dirty: bool = typer.Option(False, "--allo
     console.print(f"Rapport : {settings.reports_dir / result.run_id / 'summary.json'}")
 
 
+@app.command("minute-history")
+def minute_history_command(verbose: bool = False):
+    """Télécharge les bougies 1 MINUTE des 40 paires de recherche (magasin séparé, archives vérifiées), pour la
+    volatilité réalisée fine (phase 10.1). Données publiques seulement ; environ 6 Go."""
+    from .research.minute_history import download_minutes
+    from .research.universe import RESEARCH_UNIVERSE
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    results = download_minutes(settings, list(RESEARCH_UNIVERSE), progress=lambda text: console.print(text))
+    failed = [r for r in results if r.get("error")]
+    console.print(f"Paires : {len(results)} ; échecs : {len(failed)} {[r['symbol'] for r in failed]}")
+
+
 @app.command("pit-universe")
 def pit_universe_command(verbose: bool = False, no_hourly: bool = typer.Option(False, "--no-hourly", help="Sans télécharger l'historique 1 h des paires hors univers")):
     """Univers à date (docs/UNIVERSE_PIT.md) : recensement des paires USDT cotées et retirées, bougies journalières,
