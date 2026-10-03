@@ -17,11 +17,13 @@ def hourly(days: int, *, start: str = "2022-01-01", seed: int = 1) -> pd.DataFra
                          "low": np.minimum(open_, close) * 0.998, "close": close, "quote_volume": rng.uniform(1, 2, len(times))})
 
 
-def test_daily_bars_keep_complete_days_only():
+def test_daily_bars_tolerate_a_few_missing_hours():
     data = hourly(5)
-    data = data.drop(index=[30])                                       # une heure manque le 2e jour
+    data = data.drop(index=[30])                                       # une heure manque le 2e jour : gardé
+    data = data.drop(index=list(range(48, 53)))                        # cinq heures manquent le 3e jour : écarté
     days = cc.daily_bars(data, end=pd.Timestamp("2030-01-01", tz="UTC"))
-    assert len(days) == 4 and pd.Timestamp("2022-01-02", tz="UTC") not in days.index
+    assert len(days) == 4 and pd.Timestamp("2022-01-03", tz="UTC") not in days.index
+    assert pd.Timestamp("2022-01-02", tz="UTC") in days.index
     first = data.iloc[:24]
     assert days.iloc[0]["open"] == first["open"].iloc[0] and days.iloc[0]["close"] == first["close"].iloc[-1]
     assert days.iloc[0]["high"] == first["high"].max() and days.iloc[0]["volume"] == pytest.approx(first["quote_volume"].sum())
@@ -127,3 +129,35 @@ def test_model_shape_and_training_is_reproducible():
     assert 1 <= len(history) <= 2
     p1, p2 = cc.predict(first, images[30:]), cc.predict(second, images[30:])
     assert np.allclose(p1, p2) and ((p1 >= 0) & (p1 <= 1)).all()
+
+
+def test_run_end_to_end_with_real_config(settings, monkeypatch, tmp_path):
+    """Relecture : `run()` de bout en bout avec la vraie configuration (fuseau de pydantic), données synthétiques,
+    entraînement remplacé par un bouchon ; registre écrit avant le rapport, empreintes des données inscrites."""
+    pytest.importorskip("torch")
+    from crypto_signal_intelligence.research import long_history, pit_universe
+    from crypto_signal_intelligence.research.experiments import ExperimentRegistry
+    symbols = [f"S{i:02d}USDT" for i in range(10)]
+    months = pd.date_range("2018-12-01", "2025-06-01", freq="MS", tz="UTC")
+    membership = pd.DataFrame([{"month": m, "symbol": s} for m in months for s in symbols])
+    (tmp_path / "membership.parquet").write_bytes(b"synthetique")
+    frames = {s: hourly(2440, start="2018-11-01", seed=i) for i, s in enumerate(symbols)}
+    monkeypatch.setattr(pit_universe, "load_membership", lambda settings: membership)
+    monkeypatch.setattr(pit_universe, "pit_dir", lambda settings: tmp_path)
+    monkeypatch.setattr(long_history, "load_long", lambda settings, symbol: frames[symbol])
+    monkeypatch.setattr(cc, "code_state", lambda: "abc123")
+
+    class Model:
+        def state_dict(self):
+            return {}
+    monkeypatch.setattr(cc, "train", lambda *a, **k: (Model(), [{"epoch": 1, "train_loss": 0.7, "stop_loss": 0.69}]))
+    monkeypatch.setattr(cc, "predict", lambda model, images: np.random.default_rng(0).random(len(images)))
+    from datetime import UTC, datetime
+    payload = cc.run(settings, now=datetime(2026, 10, 3, tzinfo=UTC))
+    assert payload["verdict"] in (cc.PASS, cc.FAIL) and payload["n_trials"] == 1
+    assert payload["coverage"]["first_validation"] == "2023-01-30" and payload["coverage"]["last_validation"] == "2025-06-23"
+    assert payload["coverage"]["weeks_without_images"]["validation"] == []
+    assert set(payload["data_hashes"]) == {"membership.parquet", *symbols}
+    entry = ExperimentRegistry(settings.experiments_db).get(payload["run_id"])
+    assert entry is not None and entry["data_hashes"]
+    assert (settings.reports_dir / payload["run_id"] / "summary.json").exists()

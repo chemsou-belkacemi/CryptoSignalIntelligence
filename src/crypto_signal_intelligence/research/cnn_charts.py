@@ -8,6 +8,7 @@ fonctions d'entraînement (extra `cnn`, hors de l'image Docker et du CI).
 """
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable
 from datetime import datetime
@@ -34,21 +35,25 @@ FIRST_VALIDATION = pd.Timestamp("2023-01-30", tz="UTC")
 STOP_SHARE, PICK = 0.30, 8
 SEED = 20261003
 LEARNING_RATE, BATCH, MAX_EPOCHS, PATIENCE = 1e-5, 128, 50, 2
+MIN_HOURS = 20                                         # journée gardée avec au moins 20 bougies 1 h sur 24
+THREADS = 6
+CONCENTRATION = 0.60                                   # part de l'excès au-delà de laquelle une paire ou une année est signalée
 PASS, FAIL = "PASSE", "NE_PASSE_PAS"
 
 
 # --- données ----------------------------------------------------------------------------------------------------
 
 def daily_bars(hourly: pd.DataFrame, *, end: pd.Timestamp) -> pd.DataFrame:
-    """Journées UTC complètes (24 bougies 1 h) agrégées : ouverture, plus haut, plus bas, clôture, volume en USDT.
-    Aucune bougie ouverte après `end` n'est lue. Index : la journée (00:00 UTC)."""
+    """Journées UTC agrégées (au moins 20 bougies 1 h sur 24 : une maintenance de Binance ne supprime pas trois
+    semaines d'images) : ouverture et clôture des bougies présentes, plus haut, plus bas, volume en USDT. Aucune bougie
+    ouverte après `end` n'est lue. Index : la journée (00:00 UTC)."""
     times = pd.to_datetime(hourly["open_time"], utc=True)
     frame = hourly.loc[(times <= end).to_numpy(), ["open", "high", "low", "close", "quote_volume"]].astype(float)
     frame.index = pd.DatetimeIndex(times[times <= end]).floor("D")
     grouped = frame.groupby(level=0)
     out = pd.DataFrame({"open": grouped["open"].first(), "high": grouped["high"].max(), "low": grouped["low"].min(),
                         "close": grouped["close"].last(), "volume": grouped["quote_volume"].sum()})
-    return out[(grouped.size() == 24).to_numpy()]
+    return out[(grouped.size() >= MIN_HOURS).to_numpy()]
 
 
 def image_days(days: pd.DataFrame, monday: pd.Timestamp) -> pd.DataFrame | None:
@@ -240,6 +245,30 @@ def ranking(table: pd.DataFrame) -> dict:
             "auc": auc, "rank_corr_weekly_mean": round(float(np.mean(weekly)), 4) if weekly else None, "weeks": len(weekly)}
 
 
+def concentration(validation: pd.DataFrame, strategy: pd.DataFrame, basket: pd.DataFrame, returns: pd.DataFrame,
+                  excess: pd.Series) -> dict:
+    """Excès moyen par année (valeurs) et part de l'excès brut apportée par chaque paire ; signale une paire ou une
+    année qui en porte plus de 60 %."""
+    by_year = {str(y): round(float(v) * 100, 3) for y, v in excess.groupby(excess.index.year).mean().items()}
+    contribution = ((strategy - basket) * returns.fillna(0.0)).sum()
+    total = float(contribution.sum())
+    shares = (contribution / total).sort_values(ascending=False) if total else pd.Series(dtype=float)
+    year_sum = excess.groupby(excess.index.year).sum()
+    year_shares = (year_sum / float(excess.sum())) if float(excess.sum()) else pd.Series(dtype=float)
+    return {"excess_by_year_pct": by_year,
+            "top_pairs_share": {k: round(float(v), 3) for k, v in shares.head(5).items()},
+            "flag_pairs": [k for k, v in shares.items() if v > CONCENTRATION],
+            "flag_years": [str(k) for k, v in year_shares.items() if v > CONCENTRATION],
+            "nan_return_rows": int(validation["ret"].isna().sum())}
+
+
+def series_hash(frame: pd.DataFrame) -> str:
+    cols = [c for c in ("open_time", "open", "high", "low", "close", "quote_volume") if c in frame.columns]
+    if frame.empty:
+        return "vide"
+    return hashlib.sha256(pd.util.hash_pandas_object(frame[cols], index=False).to_numpy().tobytes()).hexdigest()[:16]
+
+
 def verdict(row: dict) -> str:
     ci = row.get("excess_ci_pct")
     return PASS if ci and ci[0] > 0 else FAIL
@@ -252,12 +281,16 @@ def run(settings: Settings, *, now: datetime, progress: Callable[[str], None] | 
     import torch
 
     from .long_history import load_long
-    from .pit_universe import load_membership
+    from .pit_universe import load_membership, pit_dir
     say = progress or (lambda _text: None)
     state = code_state()
     if (state.endswith("+DIRTY") or state == "NO_GIT_COMMIT") and not allow_dirty:
         raise DirtyCode(f"code non commité ({state}) : exécution refusée (versions reproductibles)")
-    end = pd.Timestamp(development_end(settings))
+    end = pd.Timestamp(development_end(settings)).tz_convert("UTC")
+    torch.set_num_threads(THREADS)
+    torch.use_deterministic_algorithms(True)
+    membership_path = pit_dir(settings) / "membership.parquet"
+    hashes = {"membership.parquet": hashlib.sha256(membership_path.read_bytes()).hexdigest()[:16]}
     table = load_membership(settings)
     members = table.groupby(table["month"].dt.tz_convert(None).dt.to_period("M"))["symbol"].apply(set).to_dict()
     days_by_symbol: dict[str, pd.DataFrame] = {}
@@ -265,7 +298,10 @@ def run(settings: Settings, *, now: datetime, progress: Callable[[str], None] | 
     for symbol in sorted(table["symbol"].unique()):
         say(f"bougies {symbol}")
         try:
-            days_by_symbol[symbol] = daily_bars(load_long(settings, symbol), end=end)
+            hourly = load_long(settings, symbol)
+            hourly = hourly[pd.to_datetime(hourly["open_time"], utc=True) <= end].reset_index(drop=True)
+            hashes[symbol] = series_hash(hourly)
+            days_by_symbol[symbol] = daily_bars(hourly, end=end)
         except MissingData:
             missing.append(symbol)
     closes = pd.DataFrame({s: d["close"] for s, d in days_by_symbol.items()}).sort_index()
@@ -279,7 +315,6 @@ def run(settings: Settings, *, now: datetime, progress: Callable[[str], None] | 
     stop_weeks = set(rng.choice(train_weeks, size=round(STOP_SHARE * len(train_weeks)), replace=False))
     stop_mask = train_mask & samples["monday"].isin(stop_weeks).to_numpy()
     fit_mask = train_mask & ~stop_mask
-    torch.set_num_threads(max(1, torch.get_num_threads()))
     model, history = train(images[fit_mask], samples.loc[fit_mask, "label"].to_numpy(), images[stop_mask],
                            samples.loc[stop_mask, "label"].to_numpy(), max_epochs=max_epochs, say=say)
     validation = samples[validation_mask].copy()
@@ -292,21 +327,29 @@ def run(settings: Settings, *, now: datetime, progress: Callable[[str], None] | 
     rows = {"TOP8_CNN": describe(strategy_net, basket_net) | {"turnover_weekly": round(float(turnover.mean()), 3)},
             "PANIER": describe(basket_net, basket_net * 0) | {"turnover_weekly": round(float(basket_turnover.mean()), 3)}}
     result_verdict = verdict(rows["TOP8_CNN"])
+    excess = (strategy_net - basket_net).dropna()
+    spread = concentration(validation, strategy_w, basket_w, val_returns, excess)
     registry = ExperimentRegistry(settings.experiments_db)
     program = registry.program_trials() + N_TRIALS
     run_id = new_run_id("CNN")
     report_dir = settings.reports_dir / run_id
     report_dir.mkdir(parents=True, exist_ok=True)
+    imaged = set(samples["monday"])
+    best_epoch = min(history, key=lambda e: e["stop_loss"])["epoch"] if history else None
     coverage = {"pairs_missing_hourly": missing, "samples": int(len(samples)), "train": int(fit_mask.sum()), "stop": int(stop_mask.sum()),
+                "weeks_without_images": {"train": [str(m)[:10] for m in mondays if m + pd.Timedelta(days=7) <= TRAIN_TARGET_END and m not in imaged],
+                                         "validation": [str(m)[:10] for m in mondays if m >= FIRST_VALIDATION
+                                                        and m + pd.Timedelta(days=8) <= end + pd.Timedelta(seconds=1) and m not in imaged]},
+                "epochs_run": len(history), "best_epoch": best_epoch,
                 "validation": int(validation_mask.sum()), "train_weeks": int(len(train_weeks)), "stop_weeks": len(stop_weeks),
                 "validation_weeks": int(len(val_mondays)), "first_validation": str(val_mondays.min())[:10] if len(val_mondays) else None,
                 "last_validation": str(val_mondays.max())[:10] if len(val_mondays) else None,
                 "train_label_share": round(float(samples.loc[fit_mask, "label"].mean()), 4) if fit_mask.any() else None}
-    payload = {"run_id": run_id, "n_trials": N_TRIALS, "program_trials": program, "verdict": result_verdict, "rows": rows,
-               "ranking": ranking(validation), "epochs": history, "coverage": coverage, "doc": "docs/CNN.md"}
-    (report_dir / "summary.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
-    validation.drop(columns=["last_day"]).to_parquet(report_dir / "predictions.parquet", index=False)
-    torch.save(model.state_dict(), report_dir / "model.pt")
+    payload = {"run_id": run_id, "n_trials": N_TRIALS, "program_trials": program, "verdict": result_verdict,
+               "verdict_text": f"{result_verdict} (IC à 95 % non ajusté ; essai n° {program} du programme ; lecture déclarée, "
+                               "docs/CNN.md)",
+               "rows": rows, "concentration": spread, "ranking": ranking(validation), "epochs": history, "coverage": coverage,
+               "data_hashes": hashes, "doc": "docs/CNN.md"}
     registry.record(run_id=run_id, created_at=now.isoformat(), kind=KIND,
                     hypothesis="un CNN sur images de 20 journées (prix + volume) classe-t-il les paires du top 40 à date mieux que le "
                                "hasard au point de battre le panier avec les 8 plus fortes probabilités ?",
@@ -314,13 +357,16 @@ def run(settings: Settings, *, now: datetime, progress: Callable[[str], None] | 
                     params={"days": DAYS, "image": [HEIGHT, WIDTH], "pick": PICK, "learning_rate": LEARNING_RATE, "batch": BATCH,
                             "max_epochs": max_epochs, "patience": PATIENCE, "stop_share": STOP_SHARE, "seed": SEED,
                             "train_target_end": str(TRAIN_TARGET_END)[:10], "first_validation": str(FIRST_VALIDATION)[:10],
-                            "cost_per_side": COST_PER_SIDE},
+                            "cost_per_side": COST_PER_SIDE, "min_hours": MIN_HOURS, "threads": THREADS, "deterministic": True},
                     period_label="DEVELOPMENT", period_start=str(FIRST_WEEK)[:10], period_end=end.isoformat(),
-                    universe=sorted(days_by_symbol), data_hashes={}, git_commit=state,
+                    universe=sorted(days_by_symbol), data_hashes=hashes, git_commit=state,
                     dependencies=dependency_versions() | {"torch": torch.__version__}, seed=SEED,
                     cost_scenario="frais 7,5 pb + glissement 5 pb par côté sur la rotation",
                     simulation_rules={"entry": "clôture du lundi (image jusqu'au dimanche)", "exit": "clôture du lundi suivant"},
                     metrics={"n_trials": N_TRIALS, "program_trials": program, "verdict": result_verdict, "rows": rows,
-                             "ranking": payload["ranking"], "coverage": coverage},
+                             "ranking": payload["ranking"], "concentration": spread, "coverage": coverage},
                     status="COMPLETED", report_dir=str(report_dir))
+    (report_dir / "summary.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
+    validation.drop(columns=["last_day"]).to_parquet(report_dir / "predictions.parquet", index=False)
+    torch.save(model.state_dict(), report_dir / "model.pt")
     return payload
