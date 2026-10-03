@@ -1072,6 +1072,51 @@ composants qui auront individuellement passé leur seuil ; un composant sans seu
   (ceux ayant passé leur seuil), la période, le modèle de frais commun et la référence (A seul), puis figée
   comme les autres tests. Jusque-là, rien n'est calculé.
 
+## MISSION_2026_10_03 : correspondance avec la mission du propriétaire et nouveaux essais
+
+Mission collée par le propriétaire le 2026-10-03 (« construire tous les tests en direct maintenant »), confirmée le
+même jour (« 1 ok 2 ok 3 ok pour 1 minute alors »). Elle reprend la mission du 2026-10-02 et y ajoute les phases
+1.4, 1.5, 10 et 11, et la validation des signaux en image. Les tests DÉJÀ démarrés restent figés : les refaire les
+remettrait à zéro.
+
+| Phase de la mission | Où elle est |
+|---|---|
+| 1.1 socle, 1.2 ordres limites | `forward/` (registre, journal chaîné, rapport quotidien) ; F1_MAKER_TAKER |
+| 1.3 données du jour | F0_DERIVES, F0_DONNEES (sources validées le 2026-10-02) ; unlocks : reporté, source payante uniquement |
+| 1.4 indicateurs dérivés du prix | **nouveau** : `docs/INDICATEURS.md` puis `indicators/` (aucun essai : bibliothèque) |
+| 1.5 bougies de 1 seconde | **nouveau** : exécution simulée seulement (`data/seconds.py`), jamais un signal ; F3, F4, F7 restent sur la minute (figés) |
+| 2 modèles A et B | lot 8 v2 (`LONG_HORIZON.md` § 11 : NON_INTERESSANT) ; F5_MODELE_A en direct |
+| 3 Telegram | import et audit faits ; F4_TELEGRAM (texte) ; relais du 2e bot prêt (`TELEGRAM_RELAY.md`) ; **nouveau** : signaux en image validés, test F16 |
+| 4 news | F8_NEWS (liste validée le 2026-10-02) |
+| 5 listings, 6 capitulation, 7 stablecoins | F7_LISTINGS, F6_CAPITULATION, F3_STABLECOINS |
+| 8 feu tricolore | F5_MODELE_A (A avec et sans feu) |
+| 9 vote | VOTE_V1 (définition seule) |
+| 10.1 volatilité réalisée fine | **nouveau** : protocole `VOLATILITY.md` § 20, bougies de 1 minute (choix du propriétaire) |
+| 10.2 CNN sur images | **nouveau** : protocole `CNN.md` |
+| 11 détecteur de figures | **nouveau** : test F15 |
+
+**Décisions du propriétaire du 2026-10-03** :
+- Construire maintenant 1.4, 1.5, 3-images, 10.1, 10.2 et 11.
+- Signaux en image : lecteur local RapidOCR (et non Tesseract : 0 chiffre faux contre 2 dans l'essai, `OCR.md`) ;
+  trois issues : `SUR` (tous les garde-fous passent, lectures concordantes, paire lue sur l'image), `A_VALIDER`
+  (seulement des remarques non bloquantes, ou paire donnée par la légende seule), `IGNOREE` (alerte bloquante ou
+  publication de résultat). Seuls les signaux `SUR` et ceux que le propriétaire valide dans CSI sont simulés ;
+  l'image d'origine est journalisée avec le signal.
+- Phase 10.1 : bougies de 1 minute ; volatilité réalisée à 5 minutes et à 1 minute, deux variantes déclarées.
+
+**Chiffres à jour** (le texte de la mission date du 2026-10-02) : 791 essais sur DEVELOPMENT et 5 sur la période
+finale (lue une fois le 2026-10-03, volatilité seulement) ; 166 paires admises par le screening au 2026-10-03 ; seule
+la prévision horaire à 24 h est confirmée hors échantillon (`VOLATILITY.md` § 19).
+
+**Essais ajoutés au registre par cette mission** (tenu à jour) :
+
+| Essai | Phase | Nombre | État |
+|---|---|---|---|
+| Volatilité réalisée fine (HAR-RV 5 min et 1 min) | 10.1 | 6 comparaisons | à déclarer |
+| CNN sur images de graphiques | 10.2 | 1 | à déclarer |
+| F15 détecteur de figures | 11 | 1 | à déclarer |
+| F16 signaux Telegram en image | 3 | 1 | à déclarer |
+
 ## Démarrages
 
 Historique des démarrages et des arrêts. Cette section est hors empreinte : on y ajoute, on n'y modifie rien.
