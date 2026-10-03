@@ -1072,6 +1072,60 @@ composants qui auront individuellement passé leur seuil ; un composant sans seu
   (ceux ayant passé leur seuil), la période, le modèle de frais commun et la référence (A seul), puis figée
   comme les autres tests. Jusque-là, rien n'est calculé.
 
+## F16_TELEGRAM_IMAGES : signaux Telegram publiés en IMAGE, lus par OCR, mêmes règles que F4, contre placebos
+
+Phase 3 de la mission du 2026-10-03 (partie « signaux en images »), décision du propriétaire du même jour (lecteur
+local RapidOCR, issues SUR / A_VALIDER / IGNOREE, `MISSION_2026_10_03`).
+
+**Hypothèse.** Un signal d'achat spot publié en IMAGE par un fournisseur Telegram, lu par OCR (ou validé par le
+propriétaire), acheté au premier prix après qu'il est devenu jouable et géré avec le stop suiveur du propriétaire,
+rapporte en moyenne plus, en R net, qu'un achat au même moment gardé aussi longtemps et que 20 achats de même
+géométrie à des moments tirés au hasard dans les 30 jours précédents. Attendu : « non démontré » ou « insuffisant »,
+comme pour les signaux texte audités.
+
+**Événements.** Chaque image reçue par le 2e bot du propriétaire (relais `relay/telegram.py`, `POST /telegram/image`)
+après le démarrage, gardée dans la file `external/image_queue.py` et lue par la surveillance
+(`external/chart_ocr.classify_image`) :
+- `SUR` (tous les garde-fous passent, lectures concordantes, paire lue sur l'image et concordante avec la légende) :
+  jouable à sa **réception** ;
+- `A_VALIDER` (seulement des remarques non bloquantes, ou paire donnée par la légende seule) : jouable seulement si le
+  propriétaire la valide dans CSI, à l'heure de la **validation** (niveaux lus ou corrigés, relus par le parseur) ;
+  une image refusée est comptée `REFUSEE` ;
+- `IGNOREE` (alerte bloquante, publication de résultat, paire absente, ambiguë ou contradictoire) : comptée.
+L'image d'origine est gardée (empreinte SHA-256 inscrite à chaque décision) avec la légende, la conversation, l'heure
+de réception, l'heure à laquelle elle est devenue jouable, l'issue de lecture et l'empreinte du code de lecture
+(non gelé : inscrite dans chaque décision, comme le parseur de F4). Le texte reconstruit passe par le même
+classement que F4 (`forward/f4.classify` : lisible, long au comptant, liste halal figée, dans la fenêtre).
+
+**Règles** : celles de F4, sans aucune différence (fonctions de `forward/f4.py` réutilisées telles quelles, module
+gelé) : entrée au marché à l'ouverture de la première bougie de 1 minute qui s'ouvre 60 s ou plus après l'heure où le
+signal est devenu jouable ; 5 objectifs au plus, parts 5/4/3/2/1, stop suiveur à 2 objectifs ; 30 jours au plus ;
+comparaison au même moment ; 20 placebos de 1 à 30 jours aux mêmes niveaux relatifs ; frais du modèle commun,
+central et défavorable ; trous, invalides et déjà joués comptés.
+
+**Paramètres** (figés dans le code, `forward/f16.py`) : ceux de F4 (latence 60 s, 5 objectifs, 43 200 bougies,
+20 placebos, minimum 30 signaux résolus sur 10 jours par fournisseur, 2 comparaisons, 10 000 tirages par blocs de
+7 jours, graine de F4) ; fournisseur = groupe nommé par la légende, sinon la conversation. Gel : modules f16, f4,
+image_queue, telegram_live, costs, registry, journal ; moteur de rejeu, intervalle par blocs, téléchargement et
+normalisation des bougies, magasin ; adresse REST et latence supposée.
+
+**Métrique et seuil de décision** : ceux de F4 (`INSUFFISANT`, `SUPERIEUR_AU_HASARD`, `INFERIEUR_AU_HASARD`,
+`NON_DEMONTRE`, par fournisseur et pour l'ensemble), plus la part d'images `SUR`, `A_VALIDER`, `IGNOREE`, validées
+et refusées.
+
+**Date d'évaluation.** Fin du recueil 84 jours après le démarrage ; revue intermédiaire à 42 jours ; verdict une fois
+le dernier signal résolu.
+
+**Nombre d'événements attendu (estimation NON vérifiée).** Les exports des trois groupes du propriétaire comptent
+348, 9 350 et 251 images sur environ 6 mois, dont une partie seulement sont des signaux ; sur les 26 images
+distinctes de l'essai OCR, 9 étaient des signaux lisibles. Si le 2e bot reçoit ces groupes, de l'ordre de quelques
+dizaines à quelques centaines d'images jouables en 12 semaines ; **zéro tant que le bot n'existe pas** (le test
+démarre quand même, pour que le recueil commence dès que le jeton est posé).
+
+**Limites déclarées.** Celles de F4 ; en plus : le taux d'erreur de l'OCR hors échantillon est inconnu (seuls les
+signaux `SUR` ou validés sont joués) ; une validation tardive retarde l'entrée (jamais d'avance sur l'information) ;
+les signaux en image d'un groupe qui refuse les bots n'arrivent que transférés à la main.
+
 ## MISSION_2026_10_03 : correspondance avec la mission du propriétaire et nouveaux essais
 
 Mission collée par le propriétaire le 2026-10-03 (« construire tous les tests en direct maintenant »), confirmée le
@@ -1115,7 +1169,7 @@ la prévision horaire à 24 h est confirmée hors échantillon (`VOLATILITY.md` 
 | Volatilité réalisée fine (HAR-RV 5 min et 1 min) | 10.1 | 6 comparaisons | à déclarer |
 | CNN sur images de graphiques | 10.2 | 1 | à déclarer |
 | F15 détecteur de figures | 11 | 1 | à déclarer |
-| F16 signaux Telegram en image | 3 | 1 | à déclarer |
+| F16 signaux Telegram en image | 3 | 1 | déclaré (section F16_TELEGRAM_IMAGES) |
 
 ## Démarrages
 
