@@ -23,6 +23,8 @@ signals/*.sqlite3*
 /backups/
 # Historique long de la recherche (bougies depuis la cotation, re-téléchargeables)
 /long_history/
+/minute_history/
+/data/seconds/
 
 # Réglages Claude Code propres à la machine
 .claude/settings.local.json
