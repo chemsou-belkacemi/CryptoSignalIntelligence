@@ -670,6 +670,23 @@ suivante, après confirmation en direct (la période finale a déjà été lue u
 - étiquette corrigée : l'IC de `volatility_v2._row` est au niveau 1 − 0,05/12 = 99,58 % ; l'affichage « 99,17 % » du
   § 17 était faux (le verdict v4 ne change pas).
 
+**Résultat (exécution unique, `VOL-20261003T164450Z-8ae122`, 2026-10-03, essais 793 à 798) : `AUCUNE_AMELIORATION`.**
+38 paires, 2 201 à 2 320 jours d'origines par horizon.
+
+| Candidat | Horizon | QLIKE | Service | Écart | IC (99,58 %) | Années mieux | Paires mieux |
+|---|---|---|---|---|---|---|---|
+| C5_HAR_RV5 | 1 j | 0,388 | 0,424 | −0,036 | [−0,074 ; +0,002] | 4 | 87 % |
+| C1_HAR_RV1 | 1 j | 0,395 | 0,424 | −0,029 | [−0,066 ; +0,008] | 4 | 68 % |
+| C5_HAR_RV5 | 3 j | 0,318 | 0,345 | −0,027 | [−0,060 ; +0,006] | 7 | 97 % |
+| C1_HAR_RV1 | 3 j | 0,321 | 0,345 | −0,024 | [−0,054 ; +0,007] | 5 | 82 % |
+| C5_HAR_RV5 | 7 j | 0,279 | 0,285 | −0,006 | [−0,015 ; +0,004] | 6 | 84 % |
+| C1_HAR_RV1 | 7 j | 0,282 | 0,285 | −0,003 | [−0,017 ; +0,012] | 4 | 74 % |
+
+Lecture : toutes les estimations sont en faveur des minutes (QLIKE plus bas), surtout avec les rendements de
+5 minutes, mais aucun intervalle au niveau déclaré n'est entièrement sous 0 : rien n'est démontré, rien n'est branché.
+C5 à 3 jours (7 années sur 7, 97 % des paires, borne haute +0,006) est la piste la plus nette ; la confirmer
+demanderait une nouvelle déclaration et un suivi en direct (la période finale est déjà lue).
+
 ## Historique
 
 - 2026-10-01, v1 : protocole déclaré avant toute exécution.
@@ -687,3 +704,5 @@ suivante, après confirmation en direct (la période finale a déjà été lue u
   nombre de fils enregistré ; test de la jointure BTC vers le passé ; commande `csi volatility` et
   verdict au tableau de bord ; paires renommées déclarées.
 - 2026-10-03, protocole v4 (§ 17) : déclaré puis exécuté (`VOL-20261003T005910Z-a26dfe`, 6 comparaisons, programme 765), AUCUNE_AMELIORATION.
+- 2026-10-03, protocole v5 (§ 20) : corrigé avant exécution après relecture, puis exécuté une fois
+  (`VOL-20261003T164450Z-8ae122`, programme 798) : `AUCUNE_AMELIORATION`, estimations favorables aux minutes non démontrées.
