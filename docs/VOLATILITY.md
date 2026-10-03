@@ -621,6 +621,39 @@ celles des protocoles d'origine sur toutes les lignes communes. 5 essais compté
   n'est retirée.
 - La période finale n'est plus vierge pour le programme : une stratégie future devra se confirmer en direct.
 
+## 20. Protocole v5 — volatilité réalisée fine, HAR-RV sur bougies de 1 minute (déclaré le 2026-10-03, avant exécution)
+
+Mission du 2026-10-03, phase 10.1 ; choix du propriétaire : la minute plutôt que la seconde. Code :
+`research/volatility_rv.py`. Données : magasin minute (`research/minute_history.py`, archives officielles vérifiées).
+DEVELOPMENT seulement.
+
+**Question.** La volatilité réalisée calculée à partir des bougies de 1 minute (au lieu des 24 rendements horaires
+d'une journée) donne-t-elle de meilleures prévisions que le modèle en service ?
+
+**Variables, connues à l'origine** (00:00 UTC du jour `T`, comme au § 12) : pour chaque journée UTC `D` complète
+(au moins 95 % de ses 1 440 minutes) :
+- `RV5_D` : somme des carrés des rendements logarithmiques de 5 minutes (clôtures toutes les 5 minutes) ;
+- `RV1_D` : somme des carrés des rendements logarithmiques de 1 minute.
+Pour `T`, avec `D = T − 1 jour` : `d = RV_D` ; `w` = moyenne des 7 dernières journées (au moins 6 complètes) ;
+`m` = moyenne des 30 dernières (au moins 27 complètes). Seules les minutes ouvertes avant `T` sont lues.
+
+**Candidats** (2 variantes déclarées) : `C5_HAR_RV5` et `C1_HAR_RV1`, régression **groupée** (toutes les paires) de
+`log RV²_H` (la cible du § 12 : somme des carrés des rendements horaires des H jours suivants) sur
+`log d`, `log w`, `log m`, avec retour à la variance par Duan (`volatility.fit_har`), réajustée le 1er de chaque mois
+sur le passé purgé (cible terminée au plus tard au réajustement), comme au § 12.
+
+**Référence** : le modèle en service (`REF_SERVICE` : LightGBM groupé à 1 et 3 jours, HAR + BTC à 7 jours), prévisions
+hors échantillon du run v2 `VOL-20261002T170500Z-c3bda6`, sur les mêmes origines (échantillon commun : origines où la
+référence et les deux candidats ont une prévision).
+
+**Comparaisons** : 2 candidats × 3 horizons (1, 3, 7 jours) = **6**, comptées au registre. Règle et niveau : ceux du
+protocole v4 (§ 17, `volatility_v2._row` : IC de la différence de QLIKE au niveau 1 − 0,05/12, plus strict qu'une
+correction sur 6, années couvertes moins une, 70 % des paires, erreur de log RV plus faible). Verdict
+`MIEUX_QUE_SERVICE` si un candidat est utile à un horizon, sinon `AUCUNE_AMELIORATION`.
+
+**Ce que le résultat décide** : rien pour les tests en cours (figés) ; un candidat utile servirait à la période
+suivante, après confirmation en direct (la période finale a déjà été lue une fois).
+
 ## Historique
 
 - 2026-10-01, v1 : protocole déclaré avant toute exécution.
