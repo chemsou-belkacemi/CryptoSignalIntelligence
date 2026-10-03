@@ -315,7 +315,7 @@ async function loadImages() {
           el("button", { text: "Refuser", onclick: () => decide(false) })));
     });
     target.replaceChildren(card(`Signaux en image à valider (${items.length})`,
-      el("p", { class: "muted small", text: `Images reçues par le 2e bot : ${counts}. Une image validée est jouée à l'heure de la validation, jamais avant ; une image refusée ne l'est jamais. Information : aucun ordre.` }),
+      el("p", { class: "muted small", text: `Images reçues par le 2e bot : ${counts}. À valider dans les ${d.validation_delay_hours || 2} h qui suivent la lecture (sinon expirée). Une image validée est jouée à l'heure de la validation, jamais avant ; la paire ne peut pas changer ; une image refusée ne l'est jamais. Information : aucun ordre.` }),
       ...(items.length ? items : [el("p", { class: "muted", text: "Rien à valider." })])));
   } catch (error) {
     showError(target, error);
