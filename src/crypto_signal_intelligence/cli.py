@@ -746,18 +746,18 @@ def volatility_v4_command(allow_dirty: bool = typer.Option(False, "--allow-dirty
 
 
 @app.command("volatility-v5")
-def volatility_v5_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Essai local sur du code non commité"),
+def volatility_v5_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Code non commité : enregistré et COMPTÉ, consomme l'essai unique"),
                           verbose: bool = False):
     """Prévision de volatilité, protocole v5 (docs/VOLATILITY.md § 20) : HAR sur la volatilité réalisée des bougies de
     1 minute (5 min et 1 min) contre le service ; 6 comparaisons, DEVELOPMENT seulement."""
     from .research.volatility import DirtyCode
-    from .research.volatility_rv import run
+    from .research.volatility_rv import IncompleteMinutes, run
     settings = _settings(verbose)
     _heavy_job(settings)
     try:
         with console.status("volatilité v5…") as status:
             result = run(settings, now=_now(), progress=lambda text: status.update(f"volatilité v5 : {text}"), allow_dirty=allow_dirty)
-    except (DirtyCode, FileNotFoundError) as exc:
+    except (DirtyCode, FileNotFoundError, IncompleteMinutes) as exc:
         console.print(f"[red]Aucun résultat :[/red] {exc}")
         raise typer.Exit(3) from None
     table = Table("Candidat", "Horizon", "Jours", "Paires", "QLIKE", "Service", "Écart", "IC", "Années", "Paires mieux", "Utile")

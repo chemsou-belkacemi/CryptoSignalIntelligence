@@ -654,6 +654,22 @@ correction sur 6, années couvertes moins une, 70 % des paires, erreur de log RV
 **Ce que le résultat décide** : rien pour les tests en cours (figés) ; un candidat utile servirait à la période
 suivante, après confirmation en direct (la période finale a déjà été lue une fois).
 
+**Précisions avant exécution (relecture du 2026-10-03, aucune perte calculée)** :
+- **entraînement** : toutes les journées passées et purgées où les minutes existent (depuis 2018 selon la paire), pas
+  seulement les lignes du service (qui commencent en 2019, 400 jours après la cotation) : sinon janvier 2019 n'avait
+  aucun modèle et le premier semestre 2019 quelques centaines de lignes, alors que la référence a tout le passé. La
+  cible d'entraînement est recalculée par la fonction du service (`volatility.daily_frame`, `rv2_H`) ; l'exécution est
+  refusée (rien compté) si elle diffère au bit près de `realized` sur une ligne du service. L'évaluation porte
+  seulement sur les lignes du service ;
+- exécution refusée (rien compté) si les variables minute couvrent moins de 99 % des lignes du service d'une paire
+  (relevé avant exécution : 99,94 à 100 %) ;
+- empreintes inscrites (prévisions du run source, minutes et bougies 1 h coupées) ; registre écrit avant le rapport ;
+  `--allow-dirty` enregistre et compte l'essai ;
+- à lire avec le résultat : RV1 contient du bruit de microstructure propre à chaque paire, qu'une constante commune
+  n'absorbe pas (c'est l'hypothèse testée) ; la référence a été choisie sur DEVELOPMENT (avantage pour elle) ;
+- étiquette corrigée : l'IC de `volatility_v2._row` est au niveau 1 − 0,05/12 = 99,58 % ; l'affichage « 99,17 % » du
+  § 17 était faux (le verdict v4 ne change pas).
+
 ## Historique
 
 - 2026-10-01, v1 : protocole déclaré avant toute exécution.
