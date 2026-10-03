@@ -42,6 +42,34 @@ nous si elles font mieux que de simplement garder la crypto, ou que de rester en
   (paires retirées comprises) : le DCA est la stratégie la plus exposée au biais de survivance (il achète davantage
   ce qui baisse, y compris ce qui finit retiré de la cote).
 
+## Résultats sur les 40 paires de recherche (`GRID-20261003T010525Z-cb125c`, 4 essais, programme 777)
+
+2 347 paire-mois (40 paires, janvier 2019 à juin 2025). « Garder » : +6,78 % par mois en moyenne (écart-type 45,6 %,
+pire mois −67 %) — moyenne gonflée par la survivance, voir la lecture à date.
+
+| Variante | Rendement mensuel (central) [IC] | Écart à « garder » [IC] | Écart-type | Pire mois | Rendement / écart-type | Ordres par mois |
+|---|---|---|---|---|---|---|
+| Garder | +6,78 % | — | 45,6 % | −67,0 % | 0,149 | 2 |
+| G1 grille ±10 % | +0,52 % [−2,08 ; +3,12] | −6,26 % [−13,88 ; +1,36] | 13,1 % | −57,3 % | 0,040 | 44 |
+| G2 grille ±20 % | +0,88 % [−1,04 ; +2,81] | −5,90 % [−14,07 ; +2,27] | 10,4 % | −54,7 % | 0,085 | 18 |
+| D1 DCA par paliers | +2,60 % [−2,49 ; +7,68] | −4,19 % [−9,43 ; +1,05] | 24,8 % | −64,3 % | 0,105 | 3 |
+| D2 DCA + prise de gain | +1,61 % [−3,39 ; +6,62] | **−5,17 % [−9,66 ; −0,68]** | 20,7 % | −57,8 % | 0,078 | 35 |
+
+Par régime du mois (descriptif, central), écart à « garder » : en **baisse** (702 paire-mois) +4 à +14 % (les grilles
+perdent bien moins) ; en **hausse** (1 133) −12 à −23 % (elles ratent la hausse) ; **plat** (512) −0,4 à +4 %.
+
+Lecture (règles déclarées) :
+- **Aucune variante ne fait mieux que garder**, et aucune ne fait démontrablement mieux que les liquidités (tous les
+  intervalles de rendement couvrent 0). Le DCA avec prise de gain fait démontrablement moins bien que garder.
+- **Elles réduisent le risque, mais moins bien qu'une position réduite.** Leur rendement par unité d'écart-type
+  (0,04 à 0,11) est plus faible que celui de « garder » (0,15) : garder une plus petite position en crypto donne,
+  pour le même risque, un meilleur rendement qu'une grille ou un DCA. Leurs pires mois restent proches de celui de
+  « garder » (−55 à −64 % contre −67 %) : une baisse continue piège la grille comme le DCA.
+- Ce qu'elles font réellement : **parier sur un marché plat ou baissier** (gain en baisse, perte en hausse). Sur une
+  période globalement haussière (2019-2025), c'est perdant. Ce n'est pas un avantage, c'est un choix de régime, et nos
+  prévisions ne savent pas prévoir le régime.
+
 ## Historique
 
 - 2026-10-03 : déclaré avant toute exécution.
+- 2026-10-03 : exécuté sur les survivantes (`GRID-20261003T010525Z-cb125c`) ; lecture à date à venir.
