@@ -141,8 +141,13 @@ def record_read(settings: Settings, ident: str, *, status: str, text: str | None
                                   text if status == SURE else None, playable, ident))
 
 
-def process(settings: Settings, reader, *, code: str, now: datetime, limit: int = 20) -> dict:
-    """Lit les images reçues : `reader(chemin, légende) -> {status, text, notes}` (classify_image après analyse)."""
+def process(settings: Settings, reader, *, code: str, now: datetime, limit: int = 20, clock=None) -> dict:
+    """Lit les images reçues : `reader(chemin, légende) -> {status, text, notes}` (classify_image après analyse).
+    L'heure de lecture inscrite est celle de la FIN de chaque lecture (`clock`, par défaut l'horloge UTC), jamais le
+    début du passage : une image n'est jamais jouable avant que ses niveaux soient connus."""
+    from datetime import UTC
+    from datetime import datetime as _dt
+    clock = clock or (lambda: _dt.now(UTC))
     counts: dict[str, int] = {}
     for row in to_read(settings, limit):
         with connect(settings) as db:            # compté AVANT la lecture : un plantage ne fait pas boucler la surveillance
@@ -156,7 +161,7 @@ def process(settings: Settings, reader, *, code: str, now: datetime, limit: int 
             except Exception as exc:  # noqa: BLE001 - une image illisible est ignorée, jamais devinée
                 out = {"status": IGNORED, "text": None, "notes": [f"lecture impossible : {type(exc).__name__}"]}
         record_read(settings, row["id"], status=out["status"], text=out["text"], notes=list(out["notes"]), code=code,
-                    now=now)
+                    now=max(now, clock()))
         counts[out["status"]] = counts.get(out["status"], 0) + 1
     return counts
 

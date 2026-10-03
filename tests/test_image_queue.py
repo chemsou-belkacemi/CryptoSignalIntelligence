@@ -118,3 +118,14 @@ def test_api_routes_require_a_token(settings, monkeypatch):
     assert api.dispatch("POST", "/images/decide", {}, {"id": out["id"], "accept": True})["status"] == iq.VALIDATED
     with pytest.raises(ApiError):
         api.dispatch("POST", "/images/decide", {}, {"id": out["id"], "accept": "oui"})
+
+
+def test_read_time_is_the_end_of_each_reading(settings):
+    """Un lot lent : l'heure de lecture inscrite est la fin de chaque lecture, pas le début du passage."""
+    ident = put(settings, "20")
+    ticks = iter([NOW + timedelta(minutes=7)])
+    out = iq.process(settings, lambda path, caption: {"status": iq.SURE, "text": TEXT, "notes": []}, code="abc", now=NOW,
+                     clock=lambda: next(ticks))
+    assert out == {iq.SURE: 1}
+    [row] = iq.playable(settings, since=NOW.isoformat())
+    assert row["id"] == ident and row["playable_at"] == (NOW + timedelta(minutes=7)).isoformat()

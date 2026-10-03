@@ -28,6 +28,9 @@ UPDATES = ("message", "edited_message", "channel_post", "edited_channel_post")
 POLL_SECONDS = 50
 MAX_BATCH = 50                       # l'API CSI limite le corps à 16 Ko
 MAX_PHOTO_BYTES = 4 * 1024 * 1024     # plus grande taille de photo Telegram acceptée par CSI
+#: Réponses de CSI qui refusent le CONTENU (image invalide, trop lourde, mauvais format) : la photo est écartée et
+#: notée ; toute autre erreur (accès 401/403, débit 429, panne) la garde en attente.
+DEFINITIVE_REFUSALS = ("HTTP 400", "HTTP 413", "HTTP 415")
 
 
 class RelayError(RuntimeError):
@@ -216,15 +219,20 @@ class Relay:
                     raise RelayError("getFile refusé")
                 image = self.download(f"{TELEGRAM}/file/bot{self.config.token}/{file_path}", 60)
                 ext = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else "jpg"
-                self.http("POST", f"{self.config.api_url}/telegram/image",
-                          {k: job.get(k, "") for k in ("chat", "message_id", "received_at", "caption", "file_unique_id",
-                                                        "origin_chat")}
-                          | {"ext": ext, "image_b64": base64.b64encode(image).decode()}, headers, 60)
+                try:
+                    self.http("POST", f"{self.config.api_url}/telegram/image",
+                              {k: job.get(k, "") for k in ("chat", "message_id", "received_at", "caption", "file_unique_id",
+                                                            "origin_chat")}
+                              | {"ext": ext, "image_b64": base64.b64encode(image).decode()}, headers, 60)
+                except RelayError as exc:
+                    if str(exc).startswith(DEFINITIVE_REFUSALS):     # contenu refusé par CSI : on n'insiste pas
+                        log.warning("photo %s refusée par CSI : %s", path.stem, masked(str(exc), self.config))
+                        with (self._photo_spool.parent / "photos_refusees.jsonl").open("a", encoding="utf-8") as handle:
+                            handle.write(json.dumps({"job": job, "error": masked(str(exc), self.config)}) + "\n")
+                        path.unlink(missing_ok=True)
+                        continue
+                    raise                                        # 401, 403, 429, 5xx : on réessaiera
             except RelayError as exc:
-                if str(exc).startswith("HTTP 4"):                    # refus définitif de CSI : on n'insiste pas
-                    log.warning("photo %s refusée par CSI : %s", path.stem, masked(str(exc), self.config))
-                    path.unlink(missing_ok=True)
-                    continue
                 log.warning("photo %s en attente : %s", path.stem, masked(f"{type(exc).__name__}: {exc}", self.config))
                 out["waiting"] += 1
                 continue

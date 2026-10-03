@@ -175,17 +175,32 @@ def test_job_carries_file_id_and_forward_origin():
     assert job["file_unique_id"] == "uniq" and job["origin_chat"] == "-1009"
 
 
-def test_photo_refused_by_csi_is_dropped_not_retried(tmp_path):
+@pytest.mark.parametrize(("error", "kept"), [("HTTP 400 : image refusée", False), ("HTTP 413 : trop lourde", False),
+                                             ("HTTP 401 : jeton", True), ("HTTP 403 : pas de jeton", True),
+                                             ("HTTP 429 : trop de requêtes", True), ("HTTP 502 : panne", True)])
+def test_only_content_refusals_drop_a_photo(tmp_path, error, kept):
     class Refusing(PhotoHttp):
         def __call__(self, method, url, body, headers, timeout):
             if url.endswith("/telegram/image"):
-                raise tg.RelayError("HTTP 400 : image refusée")
+                raise tg.RelayError(error)
             return super().__call__(method, url, body, headers, timeout)
 
     relay = tg.Relay(config(tmp_path), http=Refusing([update(9, text=None, photo=PHOTO)]), download=lambda u, t: b"x")
     out = relay.cycle()
-    assert out["photos_sent"] == 0 and out["photos_waiting"] == 0
-    assert list((tmp_path / "photos_en_attente").glob("*.json")) == []
+    assert out["photos_sent"] == 0 and out["photos_waiting"] == int(kept)
+    assert len(list((tmp_path / "photos_en_attente").glob("*.json"))) == int(kept)
+    assert (tmp_path / "photos_refusees.jsonl").exists() is (not kept)
+
+
+def test_telegram_errors_keep_the_photo_waiting(tmp_path):
+    class Busy(PhotoHttp):
+        def __call__(self, method, url, body, headers, timeout):
+            if url.endswith("/getFile"):
+                raise tg.RelayError("HTTP 429 : trop de requêtes")
+            return super().__call__(method, url, body, headers, timeout)
+
+    out = tg.Relay(config(tmp_path), http=Busy([update(10, text=None, photo=PHOTO)]), download=lambda u, t: b"x").cycle()
+    assert out["photos_waiting"] == 1
 
 
 def test_real_http_client_logs_never_show_the_token(tmp_path, caplog):
