@@ -136,6 +136,7 @@ def synthetic_final(settings, monkeypatch):
     fast_trees(monkeypatch)
     data = {s: series(s, i, days=560) for i, s in enumerate(("BTCUSDT", "ETHUSDT", "SOLUSDT"), start=1)}
     monkeypatch.setattr(vc, "load_long", lambda settings_, symbol: data[symbol].copy())
+    monkeypatch.setattr(vc, "open_times", lambda settings_, symbol: pd.to_datetime(data[symbol]["open_time"], utc=True))
     monkeypatch.setattr(vc, "START", START)
     monkeypatch.setattr(vc, "CUTOFF", CUTOFF)
     monkeypatch.setattr(vc, "YEARS", (2025,))
@@ -183,6 +184,7 @@ def test_rehearsal_counts_nothing(settings, synthetic_final):
 def test_incomplete_store_does_not_consume_the_read(settings, synthetic_final, monkeypatch):
     short = {s: f[pd.to_datetime(f["open_time"], utc=True) <= CUTOFF - pd.Timedelta(days=5)] for s, f in synthetic_final.items()}
     monkeypatch.setattr(vc, "load_long", lambda settings_, symbol: short[symbol].copy())
+    monkeypatch.setattr(vc, "open_times", lambda settings_, symbol: pd.to_datetime(short[symbol]["open_time"], utc=True))
     with pytest.raises(v1.IncompleteData, match="rien n'est lu"):
         vc.run(settings, now=NOW, allow_final_test=True, symbols=["ETHUSDT", "SOLUSDT"])
     assert consultations(settings) == 0
@@ -192,3 +194,15 @@ def test_final_read_refuses_uncommitted_code(settings, synthetic_final):
     with pytest.raises(v1.DirtyCode):
         vc.run(settings, now=NOW, allow_final_test=True, allow_dirty=True)
     assert consultations(settings) == 0
+
+
+def test_coverage_reads_only_open_times_from_the_real_store_layout(settings):
+    """Sur un magasin long réel (synthétique), la couverture lit la colonne des heures sans charger de prix."""
+    from crypto_signal_intelligence.data.store import CandleStore
+    from crypto_signal_intelligence.research.long_history import long_settings
+    frame = series("ETHUSDT", 1, days=30)
+    CandleStore(long_settings(settings).data_dir).save(frame, "ETHUSDT", "1h")
+    times = vc.open_times(settings, "ETHUSDT")
+    assert len(times) == len(frame) and str(times.dt.tz) == "UTC"
+    with pytest.raises(v1.MissingData):
+        vc.open_times(settings, "XYZUSDT")

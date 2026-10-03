@@ -576,13 +576,15 @@ aurait été dépensée pour rien.
 99 % des heures de la fenêtre et la bougie de coupure pour chaque paire ; sinon rien n'est lu ni compté) ;
 consultation vérifiée et enregistrée dans une seule transaction, sous verrou d'instance ; code commité exigé.
 
-**Ce que le résultat décide** :
+**Ce que le résultat décide** (seul le **verdict de la séquence** compte ; une issue propre affichée sous
+`NON_TESTE` est descriptive et ne décide rien ; chaque horizon est lu séparément) :
 - D1, D3, D7 `CONFIRME` : la prévision en service est confirmée hors échantillon ; elle peut servir au risque
   (taille, stop, abstention) en **shadow** d'abord. Sinon rien n'est branché : la prévision reste un affichage, et
   F12 continue de la mesurer en direct.
 - V3 `CONFIRME` : la moyenne remplace le service à 3 jours (étape séparée). H24 `CONFIRME` : la prévision horaire
   à 24 h peut servir aux niveaux. Sinon on garde le service.
-- `CONTREDIT` sur une comparaison en service : la prévision correspondante est retirée de l'affichage.
+- `CONTREDIT` sur une comparaison en service, **même seulement descriptif sous `NON_TESTE`** (par prudence) : la
+  prévision correspondante est retirée de l'affichage.
 - **Portée** : la confirmation porte sur la **spécification** des modèles (variables, ajustement, réajustement)
   telle que la recherche l'a sélectionnée. Le service l'instancie autrement (magasin courant depuis 2021, univers
   du service) : avant tout branchement sur la taille ou les stops, le service est aligné ou son écart mesuré.

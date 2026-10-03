@@ -108,6 +108,31 @@ services:
     entrypoint: ["python", "-m", "crypto_signal_intelligence"]
     command: ["doctor"]
 
+  # Relais Telegram → F4 (docs/TELEGRAM_RELAY.md) : lit le DEUXIÈME bot du propriétaire et dépose les messages dans
+  # l'entrée en direct de F4. Ne démarre que sur demande : `docker compose --profile telegram up -d telegram-relay`.
+  # Le jeton du bot vient du fichier .env (CSI_TELEGRAM_RELAY_TOKEN), jamais du code ni de ce fichier ; seul ce
+  # service le reçoit.
+  telegram-relay:
+    image: crypto-signal-intelligence:latest
+    init: true
+    profiles: ["telegram"]
+    restart: unless-stopped
+    depends_on:
+      - api
+    volumes:
+      - csi-relay:/srv/relay        # décalage Telegram et messages en attente si l'API est arrêtée
+    environment:
+      CSI_TELEGRAM_RELAY_TOKEN: ${CSI_TELEGRAM_RELAY_TOKEN:-}
+      CSI_TELEGRAM_RELAY_CHATS: ${CSI_TELEGRAM_RELAY_CHATS:-}
+      CSI_TELEGRAM_RELAY_API: http://csi-api:8503
+      CSI_API_TOKEN: ${CSI_API_TOKEN:-}
+    command: ["python", "-m", "crypto_signal_intelligence.relay.telegram"]
+    networks:
+      default: {}
+      csi-bridge: {}
+    mem_limit: 128m
+    cpus: 0.25
+
   # Intégration Demo (DÉSACTIVÉE) : ne rien monter du volume de BinanceSpotManager tant que
   # `integration_verified` est false (docs/SIGNAL_FORMAT.md). Le jour venu, et seulement après
   # fusion de la branche BSM par son propriétaire :
@@ -118,6 +143,7 @@ services:
 
 volumes:
   csi-state:
+  csi-relay:
   # Volume de données de BinanceSpotManager, lu par `monitor` (F4_TELEGRAM) ; il doit exister (`make up` côté BSM).
   binance-spot-manager_bsm-data:
     external: true

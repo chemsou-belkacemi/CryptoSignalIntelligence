@@ -229,6 +229,18 @@ def apply_sequence(verdicts: list[Verdict]) -> list[Verdict]:
     return [by_key[key] for key in SEQUENCE]
 
 
+def open_times(settings: Settings, symbol: str) -> pd.Series:
+    """Heures d'ouverture des bougies 1 h du magasin long, en ne lisant QUE cette colonne (aucun prix chargé)."""
+    import pyarrow.parquet as pq
+
+    from ..data.store import CandleStore
+    from .long_history import TIMEFRAME, long_settings
+    path = CandleStore(long_settings(settings).data_dir).path(symbol, TIMEFRAME)
+    if not path.exists():
+        raise v1.MissingData(f"{symbol} absente du magasin long")
+    return pd.to_datetime(pd.Series(pq.read_table(path, columns=["open_time"]).column("open_time").to_pandas()), utc=True)
+
+
 def coverage_problems(settings: Settings, symbols: list[str], start: pd.Timestamp, cutoff: pd.Timestamp) -> list[str]:
     """Contrôle AVANT la consultation, sur les seules heures d'ouverture des bougies : au moins 99 % des heures de la
     fenêtre présentes et une bougie à `cutoff`, pour chaque paire. Aucun prix n'est lu."""
@@ -236,7 +248,7 @@ def coverage_problems(settings: Settings, symbols: list[str], start: pd.Timestam
     problems = []
     for symbol in dict.fromkeys([*symbols, MARKET]):
         try:
-            times = pd.to_datetime(load_long(settings, symbol)["open_time"], utc=True)
+            times = open_times(settings, symbol)
         except v1.MissingData:
             problems.append(f"{symbol} : absente du magasin long")
             continue
