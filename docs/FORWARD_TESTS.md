@@ -1124,13 +1124,19 @@ Une famille ou une unité de temps n'a jamais de verdict propre (descriptif seul
 **Date d'évaluation.** Fin du recueil 84 jours après le démarrage ; revue intermédiaire à 42 jours ; verdict une fois
 la dernière transaction résolue.
 
-**Nombre d'événements attendu.** Estimé avant le démarrage en comptant les figures détectées par le code, sans leurs
-résultats, sur les 12 dernières semaines de DEVELOPMENT des 40 paires de recherche (chiffre inscrit dans la ligne
-« Démarrages » au démarrage).
+**Nombre d'événements attendu.** Compté avant le démarrage avec le code du test, sans aucun résultat de transaction,
+sur les 12 dernières semaines de DEVELOPMENT (2025-04-07 → 2025-06-30) des 40 paires de recherche : **2 177 figures
+haussières jouables** (et 2 077 baissières), dont triangles 1 099, ABCD 594, lignes de tendance 151, ICT 115,
+harmoniques 218 ; 1 h 1 455, 4 h 551, 1 jour 171. Sur 166 paires, de l'ordre de **9 000 ordres** en 12 semaines ; la
+part exécutée (prix qui traverse la limite dans les 20 bougies) n'est pas estimée. L'échantillon suffira pour
+l'ensemble ; il reste corrélé (figures simultanées d'une même paire, mêmes jours de marché), d'où l'intervalle par
+blocs de 7 jours.
 
 **Limites déclarées.** Marché Spot public, pas Binance Demo ; les définitions mécaniques ne sont qu'une lecture parmi
 d'autres des figures publiées ; figures d'une même paire corrélées ; bougies 1 minute avec départage à la seconde ;
-12 semaines ne valident rien.
+une heure manquante comblée plus tard par l'API peut modifier une figure pas encore détectée (jamais une figure déjà
+inscrite) ; les placebos sont résolus sur la minute seule (stop d'abord en cas d'ambiguïté) ; 12 semaines ne
+valident rien.
 
 ## F16_TELEGRAM_IMAGES : signaux Telegram publiés en IMAGE, lus par OCR, mêmes règles que F4, contre placebos
 

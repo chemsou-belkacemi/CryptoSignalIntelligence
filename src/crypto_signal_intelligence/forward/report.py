@@ -89,6 +89,21 @@ def markdown(report: dict) -> str:
         if "stop" in item:
             lines.append(f"ARRÊTÉ : {item['stop']['reason']}.")
         stats = item["stats"]
+        if "groups" in stats and "overall" in stats:          # F15 : détecteur de figures contre placebos
+            whole = stats["overall"]["scenarios"].get("central", {})
+            lines += [f"Figures : {stats['figures']} (haussières {stats['bull']}, baissières {stats['bear']}, géométrie invalide "
+                      f"{stats['invalid']}) ; ordres : {stats['orders']} (exécutés {stats['executed']}, annulés {stats['cancelled']}, "
+                      f"trous {stats['gaps']}, en cours {stats['pending']}) ; ensemble, central : {whole.get('n', 0)} résolues, "
+                      f"R moyen {_fmt(whole.get('r_mean'))} {whole.get('r_ci95') or ''}, excès sur les placebos "
+                      f"{_fmt(whole.get('placebo_excess'))} {whole.get('placebo_excess_ci') or ''}.", "",
+                      "| Famille / unité | Figures haussières | Exécutées | R moyen (central) | Excès placebos | TP1 atteint |",
+                      "|---|---|---|---|---|---|"]
+            for name, g in stats["groups"].items():
+                c = g["central"]
+                lines.append(f"| {name} | {g['bull_figures']} | {g['executed']} | {_fmt(c.get('r_mean'))} | "
+                             f"{_fmt(c.get('placebo_excess'))} | {_fmt((c.get('tp_reached') or {}).get('TP1'), True)} |")
+            lines += ["", "Familles et unités : descriptif seulement.", f"Verdict : **{stats['verdict']}**.", ""]
+            continue
         if "news_items" in stats:                             # F8 : filtre de news sur A
             per = stats["scenarios"]
             lines += [f"News avec terme : {stats['news_items']} (appliquées : {stats['applied']}, ambiguës : {stats['ambiguous']}) ; "

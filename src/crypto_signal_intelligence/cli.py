@@ -606,6 +606,26 @@ def interval_calibration_command(allow_dirty: bool = typer.Option(False, "--allo
     console.print(f"Rapport : {settings.reports_dir / result.run_id / 'summary.json'}")
 
 
+@app.command("figures-backfill")
+def figures_backfill_command(verbose: bool = False):
+    """Remplit le magasin des bougies 1 h du test F15 (paires de la liste halal en vigueur, depuis le 2025-08-01 ;
+    archives vérifiées puis REST). À lancer une fois avant le démarrage de F15, dans le conteneur de surveillance."""
+    from .data.pipeline import download
+    from .forward import f15
+    from .forward.halal import admitted
+    settings = _settings(verbose)
+    symbols = sorted(admitted(settings).symbols)
+    failed = []
+    for symbol in symbols:
+        try:
+            download(f15.figure_settings(settings), symbol, "1h")
+            console.print(f"{symbol} : prêt")
+        except Exception as exc:  # noqa: BLE001 - une paire en échec n'arrête pas les autres
+            failed.append(symbol)
+            console.print(f"[red]{symbol} : {type(exc).__name__}[/red]")
+    console.print(f"Paires : {len(symbols)} ; échecs : {len(failed)} {failed}")
+
+
 @app.command("minute-history")
 def minute_history_command(verbose: bool = False):
     """Télécharge les bougies 1 MINUTE des 40 paires de recherche (magasin séparé, archives vérifiées), pour la

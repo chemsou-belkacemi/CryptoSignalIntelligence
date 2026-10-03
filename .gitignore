@@ -24,6 +24,7 @@ signals/*.sqlite3*
 # Historique long de la recherche (bougies depuis la cotation, re-téléchargeables)
 /long_history/
 /minute_history/
+/forward_figures/
 /data/seconds/
 
 # Réglages Claude Code propres à la machine
