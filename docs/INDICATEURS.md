@@ -113,6 +113,79 @@ de [0 ; 5] reçoit 10 / 50 = 0,2, chaque tranche de [5 ; 10] reçoit 0,2 + 10 / 
 (égalité : la plus basse) ; la zone de valeur s'étend vers le haut (tranches voisines de 0,6 contre 0,2) et s'arrête
 dès 70 % : 24 tranches, de 5 à 9,8 (14,4 sur 20, soit 72 %).
 
+## 9. Figures du détecteur (phase 11, test F15)
+
+Unités de temps : **1 h, 4 h et 1 jour** seulement (bougies 4 h et 1 jour agrégées à partir des bougies 1 h
+clôturées, alignées sur 00:00 UTC). Pivots : ZigZag en ATR (§ 1, m = 3,0 / 2,5 / 2,0). Une figure est **détectée** à
+la clôture de la bougie où son dernier pivot nécessaire est connu (ou, pour une cassure, où la cassure a lieu) ;
+rien de postérieur n'est lu. Seules les figures **haussières** sont jouées ; les baissières sont inscrites pour
+information.
+
+**Tolérance des ratios : ± 5 % relatifs.** Un ratio mesuré `r` « vaut » une valeur publiée `v` si
+`0,95 v ≤ r ≤ 1,05 v` ; il est « dans » une plage `[a ; b]` si `0,95 a ≤ r ≤ 1,05 b`.
+
+### 9.1 Harmoniques (Carney ; Gartley, Bat, Butterfly, Crab) et ABCD
+
+Figure haussière : pivots ZigZag consécutifs `X` (bas), `A` (haut), `B` (bas), `C` (haut), connus ; `D` est le
+point à venir. `XA = A − X`, `AB = A − B`, `BC = C − B`. Ratios : `B/XA = AB / XA`, `C/AB = BC / AB`.
+
+| Figure | B (part de XA) | C (part de AB) | D : retracement de XA | D : extension de BC |
+|---|---|---|---|---|
+| Gartley | 0,618 | 0,382 – 0,886 | 0,786 | 1,272 – 1,618 |
+| Bat | 0,382 – 0,50 | 0,382 – 0,886 | 0,886 | 1,618 – 2,618 |
+| Butterfly | 0,786 | 0,382 – 0,886 | 1,272 | 1,618 – 2,24 |
+| Crab | 0,382 – 0,618 | 0,382 – 0,886 | 1,618 | 2,24 – 3,618 |
+
+**Zone de retournement (PRZ)** : intersection de deux intervalles de prix pour `D` : (1) `A − r × XA` pour
+`r ∈ [0,95 r_D ; 1,05 r_D]` (retracement de XA) ; (2) `C − e × BC` pour `e` dans la plage d'extension de BC
+(± 5 %). Intersection vide : pas de figure. Une figure dont le prix est déjà sous la PRZ à la détection est écartée.
+
+**ABCD** (haussier) : pivots `A` (haut), `B` (bas), `C` (haut) connus, `C/AB ∈ [0,382 ; 0,886]` ; PRZ = intersection
+de `C − (A − B) × [0,95 ; 1,05]` (AB = CD) et de `C − e × BC` pour `e ∈ [1,272 ; 1,618]` (± 5 %).
+
+### 9.2 Triangles et biseaux
+
+Ligne haute par les **deux derniers pivots hauts** ZigZag connus, ligne basse par les **deux derniers pivots bas**,
+les quatre pivots alternés et la ligne haute au-dessus de la ligne basse sur toute la figure ; lignes
+**convergentes** (pente haute < pente basse : elles se croisent après la dernière bougie). Couvre triangles
+(symétrique, ascendant, descendant) et biseaux (montant, descendant). **Cassure haussière** : première clôture au-dessus
+de la ligne haute, avant le point de croisement ; baissière : sous la ligne basse. **Hauteur** = écart entre les deux
+lignes à l'indice du premier des quatre pivots.
+
+### 9.3 Cassure de ligne de tendance
+
+Ligne **descendante** de résistance par le premier et le dernier de **trois pivots hauts** ZigZag consécutifs connus
+(`P1`, `P2`, `P3`, prix décroissants) : `P2` à moins de **0,5 × ATR** de la ligne, et aucun plus haut entre `P1` et
+`P3` au-dessus de la ligne de plus de 0,5 × ATR. **Cassure haussière** : première clôture au-dessus de la ligne
+après `P3`. Hauteur = écart entre la ligne et le plus bas atteint entre `P1` et la cassure (mesuré à l'indice de ce
+plus bas). Symétrique (ligne montante de support, cassure baissière) pour information.
+
+### 9.4 Configuration ICT/SMC
+
+**Haussière** : un sweep haussier (§ 4) suivi, dans les **10 bougies**, d'un **MSS haussier** (§ 5). Zone d'entrée :
+le FVG haussier qui a fait le MSS (le plus récent avant la cassure).
+
+### 9.5 Règles de transaction simulée (identiques pour toutes les familles)
+
+| Famille | Ordre limite d'achat | Stop | Objectifs (sortie par tiers) |
+|---|---|---|---|
+| Harmoniques, ABCD | haut de la PRZ | sous le plus bas de `X` et de la PRZ, moins 0,25 × ATR | `D + 0,382 AD`, `D + 0,618 AD`, `A` (D = prix d'entrée) |
+| Triangles, biseaux | valeur de la ligne haute à la cassure (retest) | valeur de la ligne basse à la cassure | entrée + ⅓, ⅔ et 1 × hauteur |
+| Ligne de tendance | valeur de la ligne à la cassure (retest) | plus bas entre `P3` et la cassure, moins 0,25 × ATR | entrée + ⅓, ⅔ et 1 × hauteur |
+| ICT/SMC | haut du FVG du MSS | plus bas du sweep, moins 0,25 × ATR | entrée + 1, 2 et 3 R (R = entrée − stop) |
+
+- L'ordre limite vaut **20 bougies** de l'unité de temps de la figure (annulé sinon, ou dès que le stop est touché
+  avant l'entrée) ; exécuté seulement si le prix **traverse** la limite (bougies 1 minute, et 1 seconde pour départager
+  une minute ambiguë ; phase 1.5).
+- Sortie par **tiers** au premier, deuxième et troisième objectif ; **stop fixe** sur le reste ; durée maximale
+  **60 bougies** de l'unité de temps (60 h, 10 jours, 60 jours), le reste vendu à la clôture ; dans une même minute,
+  stop avant objectif si l'ordre ne peut pas être établi (prudence).
+- Une figure dont le stop est au-dessus ou à moins de 0,1 % de l'entrée, ou dont le premier objectif est sous
+  l'entrée, est écartée (géométrie invalide), comptée.
+- Frais du modèle commun (central et défavorable) : entrée limite (maker, sans glissement), sorties aux objectifs
+  limites (maker), stop et sortie à l'échéance au marché (taker, avec glissement).
+
 ## Historique
 
-- 2026-10-03 : définitions écrites avant le code (mission, phase 1.4).
+- 2026-10-03 : définitions écrites avant le code (mission, phase 1.4) ; § 9 (figures du détecteur, phase 11) écrit
+  avant le code du détecteur.

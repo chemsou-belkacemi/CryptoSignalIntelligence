@@ -1072,6 +1072,66 @@ composants qui auront individuellement passé leur seuil ; un composant sans seu
   (ceux ayant passé leur seuil), la période, le modèle de frais commun et la référence (A seul), puis figée
   comme les autres tests. Jusque-là, rien n'est calculé.
 
+## F15_FIGURES : détecteur automatique de figures sur les paires admises, contre placebos (phase 11)
+
+Phase 11 de la mission du 2026-10-03 : produire mécaniquement des analyses du type de celles des analystes
+(harmoniques, triangles et biseaux, cassures de lignes de tendance, configurations ICT/SMC) et les comparer au
+hasard et aux analystes humains (F4, F16). **Un seul essai** : toutes les familles et unités de temps sont fixées ici ;
+aucune ne peut être ajoutée ni retirée en cours de route.
+
+**Hypothèse.** Une figure haussière détectée mécaniquement (définitions de `docs/INDICATEURS.md` § 9, écrites avant
+le code), jouée avec les règles fixes du § 9.5, rapporte en moyenne plus, en R net, que 20 transactions placebo de
+même géométrie sur la même paire à des moments tirés au hasard dans les 30 jours précédents. Attendu, au vu de tout le
+programme : « non démontré » ou « insuffisant ».
+
+**Univers et données.** Paires de la liste halal figée au démarrage ; unités de temps 1 h, 4 h, 1 jour (4 h et 1 jour
+agrégés depuis les bougies 1 h clôturées, alignées sur 00:00 UTC). Bougies 1 h publiques de Binance Spot, gardées dans
+un magasin séparé (`<racine>/forward_figures/`), un an d'historique au démarrage pour les pivots ; détection à chaque
+passage horaire sur les bougies clôturées seulement. Exécution des transactions sur les bougies de 1 minute, la
+seconde servant à départager une minute ambiguë (phase 1.5) ; sinon, stop avant objectif.
+
+**Règles.** Celles de `docs/INDICATEURS.md` § 9.5, sans aucune différence : ordre limite d'achat valable 20 bougies
+de l'unité de temps de la figure, exécuté seulement si le prix traverse la limite ; sortie par tiers aux trois
+objectifs ; stop fixe ; 60 bougies au plus ; frais du modèle commun (maker à l'entrée et aux objectifs, taker au stop
+et à l'échéance), central et défavorable. Une figure n'est jouée qu'une fois (une figure = sa famille, son unité de
+temps, sa paire et ses pivots) ; plusieurs figures simultanées sur une même paire sont toutes jouées et comptées
+séparément (déclaré : corrélées). Figures baissières : inscrites, jamais jouées.
+
+**Placebos.** Pour chaque transaction exécutée : 20 achats au marché sur la même paire à des moments tirés sans
+remise dans les 30 jours précédant l'entrée (graine déduite de l'identifiant de la figure, inscrits à la décision),
+avec exactement les mêmes distances de stop et d'objectifs en pourcentage du prix d'entrée, la même sortie par tiers,
+la même durée maximale et les mêmes frais (taker à l'entrée). Excès = R de la figure − moyenne des R des placebos.
+Le même placebo sert d'échelle aux analystes de F4 et F16 (leurs propres placebos sont de même construction).
+
+**Paramètres** (figés dans le code, `forward/f15.py`, et `patterns/` gelé) : tolérance des ratios ± 5 % relatifs ;
+ZigZag m = 3,0 / 2,5 / 2,0 ATR (1 h / 4 h / 1 jour) ; ATR de Wilder 14 ; validité de l'ordre 20 bougies ; durée
+maximale 60 bougies ; marge du stop 0,25 ATR ; 20 placebos de 1 à 30 jours ; minimum **30 transactions résolues** sur
+**10 jours** pour conclure ; 2 comparaisons (R moyen, excès sur les placebos) au niveau 1 − 0,05/2 pour l'excès ;
+10 000 tirages par blocs de 7 jours.
+
+**Métrique.** Par famille × unité de temps (descriptif) et pour l'ensemble (décisionnel), par scénario de frais :
+figures détectées (haussières, baissières), ordres exécutés, annulés, géométries invalides ; taux d'atteinte de
+chaque objectif avant le stop ; R net moyen et son intervalle ; part gagnante ; excès sur les placebos et son
+intervalle. Comparaison à trois (descriptive) : détecteur, analystes de F4 et F16, placebos, sur les mêmes paires et
+la même période ; figure du détecteur et signal d'un analyste sur la même paire à moins de 24 h d'écart : noté.
+
+**Seuil de décision** (ensemble, à la date d'évaluation, toutes les transactions résolues) : `INSUFFISANT` (moins de
+30 résolues ou de 10 jours, ou intervalle non calculable) ; `SUPERIEUR_AU_HASARD` (intervalle du R moyen ET
+intervalle de l'excès sur les placebos entièrement au-dessus de 0, en central ET en défavorable) ;
+`INFERIEUR_AU_HASARD` (intervalle du R moyen entièrement sous 0 dans les deux scénarios) ; sinon `NON_DEMONTRE`.
+Une famille ou une unité de temps n'a jamais de verdict propre (descriptif seulement).
+
+**Date d'évaluation.** Fin du recueil 84 jours après le démarrage ; revue intermédiaire à 42 jours ; verdict une fois
+la dernière transaction résolue.
+
+**Nombre d'événements attendu.** Estimé avant le démarrage en comptant les figures détectées par le code, sans leurs
+résultats, sur les 12 dernières semaines de DEVELOPMENT des 40 paires de recherche (chiffre inscrit dans la ligne
+« Démarrages » au démarrage).
+
+**Limites déclarées.** Marché Spot public, pas Binance Demo ; les définitions mécaniques ne sont qu'une lecture parmi
+d'autres des figures publiées ; figures d'une même paire corrélées ; bougies 1 minute avec départage à la seconde ;
+12 semaines ne valident rien.
+
 ## F16_TELEGRAM_IMAGES : signaux Telegram publiés en IMAGE, lus par OCR, mêmes règles que F4, contre placebos
 
 Phase 3 de la mission du 2026-10-03 (partie « signaux en images »), décision du propriétaire du même jour (lecteur
@@ -1168,7 +1228,7 @@ la prévision horaire à 24 h est confirmée hors échantillon (`VOLATILITY.md` 
 |---|---|---|---|
 | Volatilité réalisée fine (HAR-RV 5 min et 1 min) | 10.1 | 6 comparaisons | à déclarer |
 | CNN sur images de graphiques | 10.2 | 1 | à déclarer |
-| F15 détecteur de figures | 11 | 1 | à déclarer |
+| F15 détecteur de figures | 11 | 1 | déclaré (section F15_FIGURES) |
 | F16 signaux Telegram en image | 3 | 1 | déclaré (section F16_TELEGRAM_IMAGES) |
 
 ## Démarrages
