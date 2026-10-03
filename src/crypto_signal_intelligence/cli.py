@@ -606,6 +606,47 @@ def interval_calibration_command(allow_dirty: bool = typer.Option(False, "--allo
     console.print(f"Rapport : {settings.reports_dir / result.run_id / 'summary.json'}")
 
 
+@app.command("pit-universe")
+def pit_universe_command(verbose: bool = False, no_hourly: bool = typer.Option(False, "--no-hourly", help="Sans télécharger l'historique 1 h des paires hors univers")):
+    """Univers à date (docs/UNIVERSE_PIT.md) : recensement des paires USDT cotées et retirées, bougies journalières,
+    top 40 mensuel causal, historique 1 h des paires hors univers. Données publiques, lecture seule, DEVELOPMENT."""
+    from .research.pit_universe import build
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    with console.status("univers à date…") as status:
+        report = build(settings, progress=lambda text: status.update(f"univers à date : {text}"), download_hourly=not no_hourly)
+    cov = report["coverage"]
+    console.print(f"Paires USDT recensées : {report['symbols_listed']} ; gardées : {report['symbols_kept']} ; exclusions : {report['excluded']}")
+    console.print(f"Places du top 40 (mois × place) : {cov['member_months']} ; parts : {cov['shares']}")
+    console.print(f"Paires hors univers entrées au moins une fois : {len(cov['extra_symbols'])} (dont retirées ou renommées : {len(cov['extra_delisted'])})")
+    failed = [d for d in report.get("hourly_downloads", []) if d.get("error")]
+    console.print(f"Historique 1 h téléchargé : {len(report.get('hourly_downloads', [])) - len(failed)} ; échecs : {len(failed)}")
+
+
+@app.command("screen-pivot-pit")
+def screen_pivot_pit_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Essai local sur du code non commité (enregistré comme tel)"),
+                             verbose: bool = False):
+    """Criblage K sur l'univers à date (docs/UNIVERSE_PIT.md § 2) : K1 et K2, 4 h et 1 jour, top 40 du mois de
+    l'événement, paires retirées comprises. 4 essais, DEVELOPMENT seulement."""
+    from .research.factors import DirtyCode
+    from .research.pit_universe import run_k_pit
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    try:
+        with console.status("criblage K à date…") as status:
+            payload = run_k_pit(settings, now=_now(), progress=lambda text: status.update(f"criblage K à date : {text}"), allow_dirty=allow_dirty)
+    except (DirtyCode, FileNotFoundError) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    console.rule(f"Criblage K à date — {payload['run_id']}")
+    table = Table("Condition", "Horizon", "Événements", "Paires", "Rendement", "Excès", "IC95 excès", "Paires > 0", "Passe")
+    for r in payload["rows"]:
+        table.add_row(r["condition"], f"{r['horizon_h']} h", str(r["events"]), str(r["pairs"]), str(r["mean_return_pct"]), str(r["mean_excess_pct"]),
+                      str(r["ci95_excess_pct"]), str(r["pairs_positive_share"]), "oui" if r["beats_costs"] else "non")
+    console.print(table)
+    console.print(f"Paires sans historique 1 h : {payload['missing_hourly']} ; programme : {payload['program_trials']} essais")
+
+
 @app.command("data-quality")
 def data_quality(symbol: str = typer.Option(..., help="Paire, ex. BTCUSDT"),
                  timeframe: str = typer.Option(None, help="Défaut : timeframe de setup")):

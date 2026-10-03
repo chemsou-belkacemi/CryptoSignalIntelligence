@@ -218,6 +218,10 @@ Tableau complet : `reports/SCREEN-20261002T170108Z-e89978/summary.json`.
   finale réservée, décision du propriétaire.
 - Programme : 737 essais sur DEVELOPMENT.
 
+## Criblage K à date (déclaré le 2026-10-03, avant exécution)
+
+Les conditions K1 et K2, mêmes règles, sur le **top 40 à date** (paires retirées de la cote comprises) : déclaration complète, lecture et limites dans [UNIVERSE_PIT.md](UNIVERSE_PIT.md) § 2. 4 essais. Question unique : K2 à 1 jour tient-il hors biais de survivance ?
+
 ## Historique
 
 - `SCREEN-20260930T093324Z-20101b` : premier passage, **intervalles faux** (moyenne pondérée par jour

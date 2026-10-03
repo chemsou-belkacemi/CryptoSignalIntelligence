@@ -178,3 +178,79 @@ def load_membership(settings: Settings) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"appartenance à date absente : {path} (lancer `csi pit-universe`)")
     return pd.read_parquet(path)
+
+
+# --- Criblage K sur l'univers à date (docs/SCREENING.md, « Criblage K à date ») ------------------------------------
+
+def run_k_pit(settings: Settings, *, now: datetime, progress: Callable[[str], None] | None = None, allow_dirty: bool = False):
+    """Le criblage K (mêmes conditions, mêmes cadres, mêmes horizons, fonctions du criblage) sur les paires du top 40
+    À DATE : un événement ne compte que si sa paire appartient au top du mois de l'événement. Paires retirées ou
+    renommées comprises (historique 1 h du magasin long) ; une paire sans historique 1 h est signalée et sautée."""
+    from ..features.loader import MissingData
+    from . import factors as fa
+    from . import pivot_screen as ps
+    from .derivatives_screen import fingerprint
+    from .experiments import ExperimentRegistry, code_state, dependency_versions, new_run_id
+    from .long_history import load_long
+    from .protocol import development_end
+    from .screen import _row
+    say = progress or (lambda _text: None)
+    state = code_state()
+    if (state.endswith("+DIRTY") or state == "NO_GIT_COMMIT") and not allow_dirty:
+        raise fa.DirtyCode(f"code non commité ({state}) : exécution refusée (versions reproductibles)")
+    end = pd.Timestamp(development_end(settings))
+    members = load_membership(settings)
+    members = members[members["month"] <= end]
+    by_month = members.groupby(members["month"].dt.tz_convert(None).dt.to_period("M"))["symbol"].apply(set).to_dict()
+    symbols = sorted(set(members["symbol"]))
+    costs = settings.costs["central"]
+    hurdle_pct = (2 * costs.fee_bps + 2 * (costs.slippage_bps + costs.half_spread_bps)) / 100
+    collected: dict[tuple[str, str], list[pd.DataFrame]] = {(c, f): [] for c in ps.CONDITIONS for f in ps.FRAMES}
+    hashes, missing = {}, []
+    for symbol in symbols:
+        say(symbol)
+        try:
+            h1 = load_long(settings, symbol)
+        except MissingData:
+            missing.append(symbol)
+            continue
+        h1 = h1[h1["open_time"] <= end].reset_index(drop=True)
+        if h1.empty:
+            missing.append(symbol)
+            continue
+        hashes[symbol] = fingerprint(h1)
+        for name, spec in ps.FRAMES.items():
+            bars = ps.aggregate(h1, spec["bars"])
+            for condition, flags in ps.events_of(bars).items():
+                frame = ps.collect(bars, flags, spec["horizon_bars"], symbol)
+                if frame.empty:
+                    continue
+                periods = pd.DatetimeIndex(frame["time"]).tz_convert(None).to_period("M")
+                keep = [symbol in by_month.get(p, set()) for p in periods]
+                collected[(condition, name)].append(frame[keep])
+    rows = []
+    for (condition, name), parts in collected.items():
+        frame = pd.concat([p for p in parts if not p.empty], ignore_index=True) if any(not p.empty for p in parts) \
+            else pd.DataFrame(columns=["time", "symbol", "ret", "excess"])
+        if not frame.empty:
+            frame["time"] = pd.to_datetime(frame["time"], utc=True)
+        rows.append(_row(f"{condition}_{name.upper()}_A_DATE", ps.FRAMES[name]["horizon_h"], frame, hurdle_pct, settings))
+    run_id = new_run_id("SCREEN")
+    registry = ExperimentRegistry(settings.experiments_db)
+    program = registry.program_trials() + len(rows)
+    report_dir = settings.reports_dir / run_id
+    report_dir.mkdir(parents=True, exist_ok=True)
+    from dataclasses import asdict
+    payload = {"run_id": run_id, "n_trials": len(rows), "program_trials": program, "cost_hurdle_pct": round(hurdle_pct, 4),
+               "symbols": symbols, "missing_hourly": missing, "rows": [asdict(r) for r in rows], "doc": "docs/SCREENING.md"}
+    (report_dir / "summary.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
+    registry.record(run_id=run_id, created_at=now.isoformat(), kind="SCREEN",
+                    hypothesis="criblage K sur l'univers à date (paires retirées comprises) : K2 tient-il sans biais de survivance ?",
+                    strategy="SCREEN_PIVOT_K_PIT", strategy_version=1, variant="conditions du criblage K, top 40 à date",
+                    params={"top_n": TOP_N, "window_days": WINDOW_DAYS, "frames": ps.FRAMES, "conditions": ps.CONDITIONS},
+                    period_label="DEVELOPMENT", period_start=str(ps.FIRST_DAY)[:10], period_end=end.isoformat(), universe=symbols,
+                    data_hashes=hashes, git_commit=state, dependencies=dependency_versions(), seed=settings.protocol.seed,
+                    cost_scenario="central (seuil aller-retour)", simulation_rules={"entry": "ouverture t+1", "exit": "clôture t+h"},
+                    metrics={"n_trials": len(rows), "program_trials": program, "rows": [asdict(r) for r in rows],
+                             "missing_hourly": missing}, status="COMPLETED", report_dir=str(report_dir))
+    return payload
