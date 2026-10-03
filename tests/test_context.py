@@ -194,3 +194,26 @@ def test_new_hosts_stay_within_the_whitelist():
 def test_state_file_is_json(settings, clients):
     collect.backfill(settings, now=NOW, clients=clients, archives=False, only=["ecb"])
     json.loads((store.context_dir(settings) / "_journal.json").read_text(encoding="utf-8"))
+
+
+def test_backfill_never_overwrites_a_daily_record_written_meanwhile(settings, clients, monkeypatch):
+    """Défaut du 2026-10-04 : le téléchargement gardait le journal lu au départ et effaçait, en le sauvant, le relevé
+    quotidien écrit entre-temps par la surveillance."""
+    real = fetch.ecb_rates
+
+    def concurrent(client, *, start):
+        state = collect.load_state(settings)
+        state.setdefault("days", {})["2026-10-04"] = {"done": ["flows"], "errors": {}}
+        collect.save_state(settings, state)                    # écrit « pendant » le téléchargement
+        return real(client, start=start)
+
+    monkeypatch.setattr(fetch, "ecb_rates", concurrent)
+    collect.backfill(settings, now=NOW, clients=clients, archives=False, only=["ecb"])
+    assert collect.load_state(settings)["days"]["2026-10-04"]["done"] == ["flows"]
+
+
+def test_protocol_without_tvl_is_absent_not_an_error():
+    class NoTvl:
+        def get_json(self, url, params=None, headers=None):
+            raise SourceError("JSON illisible : https://api.llama.fi/tvl/x")
+    assert fetch.defillama_tvl(NoTvl(), "FIL", "filecoin", day=pd.Timestamp("2026-10-04", tz="UTC")) == []

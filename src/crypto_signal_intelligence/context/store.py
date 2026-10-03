@@ -5,6 +5,9 @@ Règle d'écriture : une ligne `RELEVE` déjà présente n'est JAMAIS réécrite
 `HISTORIQUE` est remplacée par le dernier téléchargement (valeurs telles que publiées aujourd'hui)."""
 from __future__ import annotations
 
+import fcntl
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -25,6 +28,19 @@ def path_for(settings: Settings, series: str) -> Path:
     if not series.replace("_", "").isalnum():
         raise ValueError(f"nom de série invalide : {series}")
     return context_dir(settings) / f"{series}.parquet"
+
+
+@contextmanager
+def locked(settings: Settings) -> Iterator[None]:
+    """Un seul écrivain à la fois (relevé quotidien de la surveillance et téléchargement de l'historique)."""
+    folder = context_dir(settings)
+    folder.mkdir(parents=True, exist_ok=True)
+    with open(folder / ".lock", "a") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 def rows(records: list[dict], *, kind: str, source: str, now: datetime) -> pd.DataFrame:
@@ -50,6 +66,11 @@ def upsert(settings: Settings, series: str, new: pd.DataFrame) -> int:
     """Ajoute des lignes ; renvoie le nombre de lignes nouvelles ou remplacées."""
     if new.empty:
         return 0
+    with locked(settings):
+        return _upsert(settings, series, new)
+
+
+def _upsert(settings: Settings, series: str, new: pd.DataFrame) -> int:
     path = path_for(settings, series)
     path.parent.mkdir(parents=True, exist_ok=True)
     old = load(settings, series)

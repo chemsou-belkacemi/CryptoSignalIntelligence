@@ -13,7 +13,7 @@ from ..config import Settings
 from ..data.http import HttpError, PublicHttpClient
 from ..forward.sources import PublicSources, SourceError
 from . import fetch
-from .store import HISTORY, OBSERVED, context_dir, rows, upsert
+from .store import HISTORY, OBSERVED, context_dir, locked, rows, upsert
 
 RECORD_AFTER = pd.Timedelta(hours=3)                 # CoinMetrics publie la veille vers 02-03 h UTC
 LISTING_REFRESH = pd.Timedelta(days=7)
@@ -162,7 +162,10 @@ def _run(settings: Settings, names: list[str], *, now: datetime, history: bool, 
         written = _write(settings, name, result["records"], kind=kind, now=now,
                          since=None if kind == HISTORY or name in SNAPSHOTS else recent)
         out[name] = {"rows": written, **{k: v for k, v in result.items() if k != "records"}}
-    save_state(settings, state)
+    with locked(settings):                    # relu juste avant d'écrire : ne jamais écraser le journal d'un autre
+        fresh = load_state(settings)
+        fresh.setdefault("listed", {}).update(state.get("listed", {}))
+        save_state(settings, fresh)
     return out
 
 
@@ -203,10 +206,11 @@ def record_day(settings: Settings, *, now: datetime, clients: Clients | None = N
     if not pending:
         return None
     out = _run(settings, pending, now=now, history=False, clients=clients, say=lambda _t: None)
-    state = load_state(settings)
-    entry = state.setdefault("days", {}).setdefault(day, {"done": [], "errors": {}})
-    entry["done"] = sorted(set(entry["done"]) | {n for n, r in out.items() if "error" not in r})
-    entry["errors"] = {n: r["error"] for n, r in out.items() if "error" in r}
-    state["days"] = dict(sorted(state["days"].items())[-60:])
-    save_state(settings, state)
+    with locked(settings):
+        state = load_state(settings)
+        entry = state.setdefault("days", {}).setdefault(day, {"done": [], "errors": {}})
+        entry["done"] = sorted(set(entry["done"]) | {n for n, r in out.items() if "error" not in r})
+        entry["errors"] = {n: r["error"] for n, r in out.items() if "error" in r}
+        state["days"] = dict(sorted(state["days"].items())[-60:])
+        save_state(settings, state)
     return {"done": len(entry["done"]), "errors": entry["errors"]}

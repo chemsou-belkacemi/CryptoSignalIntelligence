@@ -46,9 +46,9 @@ def _day(value) -> pd.Timestamp:
 
 # --- CoinMetrics (flux vers les plateformes) ------------------------------------------------------------------
 
-def coinmetrics_flows(client: PublicSources, *, start: str = "2010-01-01", pages: int = 20) -> list[dict]:
+def coinmetrics_flows(client: PublicSources, *, start: str = "2010-01-01", pages: int = 40) -> list[dict]:
     params: dict | None = {"assets": ",".join(FLOW_ASSETS), "metrics": ",".join(FLOW_METRICS), "frequency": "1d",
-              "page_size": 10000, "start_time": start}
+              "page_size": 4000, "start_time": start}           # 10 000 lignes ≈ 3 Mo : au-delà de MAX_BYTES
     url, out = COINMETRICS, []
     for _ in range(pages):
         payload = client.get_json(url, params)
@@ -265,7 +265,12 @@ def defillama_revenue(client: PublicSources, token: str, slug: str) -> list[dict
 
 
 def defillama_tvl(client: PublicSources, token: str, slug: str, *, day: pd.Timestamp) -> list[dict]:
-    value = client.get_json(f"https://api.llama.fi/tvl/{slug}")
+    try:
+        value = client.get_json(f"https://api.llama.fi/tvl/{slug}")
+    except SourceError as exc:
+        if "JSON illisible" in str(exc):                 # protocole sans TVL (frais seulement) : absent, pas une panne
+            return []
+        raise
     return [{"key": token, "date": day, "field": "tvl_usd", "value": _number(value)}]
 
 
@@ -280,7 +285,7 @@ def stablecoin_supply(client: PublicSources) -> list[dict]:
 # --- Macro, or, attention ----------------------------------------------------------------------------------------
 
 def fred(client: PublicSources, series: str, *, start: str = "1990-01-01") -> list[dict]:
-    text = client.get("https://fred.stlouisfed.org/graph/fredgraph.csv", {"id": series, "cosd": start}).decode()
+    text = client.get("https://fred.stlouisfed.org/graph/fredgraph.csv", {"id": series, "cosd": start}, timeout=120).decode()
     reader = csv.reader(io.StringIO(text))
     header = next(reader, None)
     if not header or len(header) < 2:
