@@ -148,16 +148,19 @@ de `C − (A − B) × [0,95 ; 1,05]` (AB = CD) et de `C − e × BC` pour `e �
 Ligne haute par les **deux derniers pivots hauts** ZigZag connus, ligne basse par les **deux derniers pivots bas**,
 les quatre pivots alternés et la ligne haute au-dessus de la ligne basse sur toute la figure ; lignes
 **convergentes** (pente haute < pente basse : elles se croisent après la dernière bougie). Couvre triangles
-(symétrique, ascendant, descendant) et biseaux (montant, descendant). **Cassure haussière** : première clôture au-dessus
-de la ligne haute, avant le point de croisement ; baissière : sous la ligne basse. **Hauteur** = écart entre les deux
-lignes à l'indice du premier des quatre pivots.
+(symétrique, ascendant, descendant) et biseaux (montant, descendant) ; le type est descriptif, une ligne étant
+« plate » si elle varie de moins de 10 % de la hauteur sur la figure. **Cassure haussière** : première clôture
+au-dessus de la ligne haute **à partir de la bougie où le 4e pivot devient connu (incluse)**, avant le point de
+croisement ; baissière : sous la ligne basse. Une clôture déjà au-dessus avant que le 4e pivot soit connu n'existe pas
+pour la figure (elle n'était pas encore formée) : si le prix est encore au-dessus à la confirmation, la cassure est
+datée de cette bougie. **Hauteur** = écart entre les deux lignes à l'indice du premier des quatre pivots.
 
 ### 9.3 Cassure de ligne de tendance
 
 Ligne **descendante** de résistance par le premier et le dernier de **trois pivots hauts** ZigZag consécutifs connus
 (`P1`, `P2`, `P3`, prix décroissants) : `P2` à moins de **0,5 × ATR** de la ligne, et aucun plus haut entre `P1` et
 `P3` au-dessus de la ligne de plus de 0,5 × ATR. **Cassure haussière** : première clôture au-dessus de la ligne
-après `P3`. Hauteur = écart entre la ligne et le plus bas atteint entre `P1` et la cassure (mesuré à l'indice de ce
+à partir de la bougie où `P3` devient connu (incluse). Hauteur = écart entre la ligne et le plus bas atteint entre `P1` et la cassure (mesuré à l'indice de ce
 plus bas). Symétrique (ligne montante de support, cassure baissière) pour information.
 
 ### 9.4 Configuration ICT/SMC
@@ -169,17 +172,23 @@ le FVG haussier qui a fait le MSS (le plus récent avant la cassure).
 
 | Famille | Ordre limite d'achat | Stop | Objectifs (sortie par tiers) |
 |---|---|---|---|
-| Harmoniques, ABCD | haut de la PRZ | sous le plus bas de `X` et de la PRZ, moins 0,25 × ATR | `D + 0,382 AD`, `D + 0,618 AD`, `A` (D = prix d'entrée) |
+| Harmoniques | haut de la PRZ | sous le plus bas de `X` et de la PRZ, moins 0,25 × ATR | `D + 0,382 AD`, `D + 0,618 AD`, `A` (D = prix d'entrée) |
+| ABCD | haut de la PRZ | sous le bas de la PRZ, moins 0,25 × ATR (pas de `X`) | `D + 0,382 AD`, `D + 0,618 AD`, `A` (D = prix d'entrée) |
 | Triangles, biseaux | valeur de la ligne haute à la cassure (retest) | valeur de la ligne basse à la cassure | entrée + ⅓, ⅔ et 1 × hauteur |
 | Ligne de tendance | valeur de la ligne à la cassure (retest) | plus bas entre `P3` et la cassure, moins 0,25 × ATR | entrée + ⅓, ⅔ et 1 × hauteur |
 | ICT/SMC | haut du FVG du MSS | plus bas du sweep, moins 0,25 × ATR | entrée + 1, 2 et 3 R (R = entrée − stop) |
 
-- L'ordre limite vaut **20 bougies** de l'unité de temps de la figure (annulé sinon, ou dès que le stop est touché
-  avant l'entrée) ; exécuté seulement si le prix **traverse** la limite (bougies 1 minute, et 1 seconde pour départager
-  une minute ambiguë ; phase 1.5).
+- L'ordre limite vaut **20 bougies** de l'unité de temps de la figure, comptées depuis la clôture de la bougie de
+  détection (annulé sinon, ou dès que le stop est touché avant l'entrée) ; il est posé à la première minute qui suit
+  cette clôture plus la latence et son inscription ; exécuté seulement si le prix **traverse** la limite (bougies 1
+  minute, et 1 seconde pour départager une minute ambiguë ; phase 1.5) ; si la première minute ouvre déjà sous la
+  limite, il est exécuté à cette ouverture comme un ordre au marché (glissement compté).
 - Sortie par **tiers** au premier, deuxième et troisième objectif ; **stop fixe** sur le reste ; durée maximale
-  **60 bougies** de l'unité de temps (60 h, 10 jours, 60 jours), le reste vendu à la clôture ; dans une même minute,
-  stop avant objectif si l'ordre ne peut pas être établi (prudence).
+  **60 bougies** de l'unité de temps (60 h, 10 jours, 60 jours), comptées en temps depuis l'exécution, le reste vendu
+  à la clôture ; minute où le stop et un objectif sont touchés : les secondes décident ; « objectif d'abord » ne prend
+  que **ce premier objectif**, le reste sort au stop dans la même minute ; stop d'abord si l'ordre ne peut pas être
+  établi (prudence).
+- **R** = résultat net / (entrée prévue − stop) : le risque prévu, pas celui du prix d'exécution.
 - Une figure dont le stop est au-dessus ou à moins de 0,1 % de l'entrée, ou dont le premier objectif est sous
   l'entrée, est écartée (géométrie invalide), comptée.
 - Frais du modèle commun (central et défavorable) : entrée limite (maker, sans glissement), sorties aux objectifs
@@ -189,3 +198,8 @@ le FVG haussier qui a fait le MSS (le plus récent avant la cassure).
 
 - 2026-10-03 : définitions écrites avant le code (mission, phase 1.4) ; § 9 (figures du détecteur, phase 11) écrit
   avant le code du détecteur.
+- 2026-10-03, avant le démarrage de F15 (relecture) : cassure des triangles et des lignes de tendance comptée dès la
+  bougie qui confirme le dernier pivot (le code partait de la suivante et datait en retard ~40 % des triangles) ;
+  type de triangle avec une tolérance de 10 % (« ascendant » et « descendant » n'arrivaient jamais) ; stop des ABCD
+  écrit ; minute ambiguë « objectif d'abord » limitée au premier objectif ; R au risque prévu ; ordre exécutable dès
+  la pose compté au marché ; échéance en temps.

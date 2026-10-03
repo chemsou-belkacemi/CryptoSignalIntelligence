@@ -39,6 +39,10 @@ def build(settings: Settings, *, now: datetime) -> dict:
             if "stop" in state:
                 item["stop"] = state["stop"]
             item["stats"] = module.stats(journal, start, now=now)
+            if hasattr(module, "analyst_overlap"):              # F15 : comparaison à trois (descriptive)
+                overlap = module.analyst_overlap(settings, journal)
+                item["stats"]["analyst_overlap"] = {"figures": overlap["figures"], "analyst_signals": overlap["analyst_signals"],
+                                                    "same_pair_24h": len(overlap["same_pair_24h"])}
             if "verdict" in state:                              # verdict inscrit au journal : il fait foi
                 item["stats"]["verdict"] = state["verdict"]["verdict"]
                 item["verdict_recorded"] = True
@@ -102,7 +106,11 @@ def markdown(report: dict) -> str:
                 c = g["central"]
                 lines.append(f"| {name} | {g['bull_figures']} | {g['executed']} | {_fmt(c.get('r_mean'))} | "
                              f"{_fmt(c.get('placebo_excess'))} | {_fmt((c.get('tp_reached') or {}).get('TP1'), True)} |")
-            lines += ["", "Familles et unités : descriptif seulement.", f"Verdict : **{stats['verdict']}**.", ""]
+            overlap = stats.get("analyst_overlap") or {}
+            lines += ["", f"Comparaison aux analystes (descriptive) : {overlap.get('figures', 0)} ordres du détecteur, "
+                      f"{overlap.get('analyst_signals', 0)} signaux joués de F4 et F16, {overlap.get('same_pair_24h', 0)} "
+                      "paires figure–signal sur la même paire à moins de 24 h.",
+                      "", "Familles et unités : descriptif seulement.", f"Verdict : **{stats['verdict']}**.", ""]
             continue
         if "news_items" in stats:                             # F8 : filtre de news sur A
             per = stats["scenarios"]

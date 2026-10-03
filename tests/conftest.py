@@ -11,7 +11,7 @@ import pytest
 from crypto_signal_intelligence.data.schema import RAW_COLUMNS, normalize
 
 PROJECT = Path(__file__).resolve().parents[1]
-STEP_MS = {"15m": 900_000, "1h": 3_600_000}
+STEP_MS = {"1m": 60_000, "15m": 900_000, "1h": 3_600_000}
 
 
 def raw_klines(n: int, timeframe: str = "15m", start: str = "2024-01-01", seed: int = 0, unit: str = "ms",

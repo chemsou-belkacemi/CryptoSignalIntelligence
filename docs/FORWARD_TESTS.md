@@ -1087,20 +1087,28 @@ programme : « non démontré » ou « insuffisant ».
 **Univers et données.** Paires de la liste halal figée au démarrage ; unités de temps 1 h, 4 h, 1 jour (4 h et 1 jour
 agrégés depuis les bougies 1 h clôturées, alignées sur 00:00 UTC). Bougies 1 h publiques de Binance Spot, gardées dans
 un magasin séparé (`<racine>/forward_figures/`), un an d'historique au démarrage pour les pivots ; détection à chaque
-passage horaire sur les bougies clôturées seulement. Exécution des transactions sur les bougies de 1 minute, la
-seconde servant à départager une minute ambiguë (phase 1.5) ; sinon, stop avant objectif.
+passage horaire sur les bougies clôturées seulement, jusqu'à la fin du recueil. Exécution des transactions sur les
+bougies de 1 minute, la seconde servant à départager une minute ambiguë (phase 1.5) : « objectif d'abord » ne prend
+que ce premier objectif, le reste sort au stop dans la même minute ; sans secondes, stop avant objectif.
 
 **Règles.** Celles de `docs/INDICATEURS.md` § 9.5, sans aucune différence : ordre limite d'achat valable 20 bougies
 de l'unité de temps de la figure, exécuté seulement si le prix traverse la limite ; sortie par tiers aux trois
 objectifs ; stop fixe ; 60 bougies au plus ; frais du modèle commun (maker à l'entrée et aux objectifs, taker au stop
 et à l'échéance), central et défavorable. Une figure n'est jouée qu'une fois (une figure = sa famille, son unité de
 temps, sa paire et ses pivots) ; plusieurs figures simultanées sur une même paire sont toutes jouées et comptées
-séparément (déclaré : corrélées). Figures baissières : inscrites, jamais jouées.
+séparément (déclaré : corrélées). Figures baissières : inscrites, jamais jouées. **Ordre posé en direct** : à la
+première minute qui suit la clôture de la bougie de détection plus la latence ET son inscription ; une figure
+inscrite plus de **2 heures** après sa clôture (machine éteinte, paire en échec) est inscrite `late` et **jamais
+jouée** (jamais comblée après coup) ; comptée. R = résultat net / (entrée prévue − stop) ; un ordre déjà exécutable à
+la pose (première minute ouvrant sous la limite) est exécuté au marché, glissement compté. Échéance comptée en temps
+depuis l'exécution ; si les cotations s'arrêtent avant l'échéance (retrait de la cote) et que le délai de constat
+(2 jours) est passé, le reste est vendu à la dernière clôture (issue `COTATION_ARRETEE`, gardée dans la mesure).
 
 **Placebos.** Pour chaque transaction exécutée : 20 achats au marché sur la même paire à des moments tirés sans
 remise dans les 30 jours précédant l'entrée (graine déduite de l'identifiant de la figure, inscrits à la décision),
 avec exactement les mêmes distances de stop et d'objectifs en pourcentage du prix d'entrée, la même sortie par tiers,
-la même durée maximale et les mêmes frais (taker à l'entrée). Excès = R de la figure − moyenne des R des placebos.
+la même durée maximale, les mêmes frais (taker à l'entrée) et le **même départage à la seconde** que la figure.
+Excès = R de la figure − moyenne des R des placebos.
 Le même placebo sert d'échelle aux analystes de F4 et F16 (leurs propres placebos sont de même construction).
 
 **Paramètres** (figés dans le code, `forward/f15.py`, et `patterns/` gelé) : tolérance des ratios ± 5 % relatifs ;
@@ -1122,12 +1130,13 @@ intervalle de l'excès sur les placebos entièrement au-dessus de 0, en central 
 Une famille ou une unité de temps n'a jamais de verdict propre (descriptif seulement).
 
 **Date d'évaluation.** Fin du recueil 84 jours après le démarrage ; revue intermédiaire à 42 jours ; verdict une fois
-la dernière transaction résolue.
+la dernière transaction résolue : jusqu'à ~164 jours après le démarrage (84 + 20 + 60 jours pour une figure 1 jour,
+plus 2 jours de constat), soit vers mi-mars 2027, pas à la date d'évaluation des autres tests.
 
 **Nombre d'événements attendu.** Compté avant le démarrage avec le code du test, sans aucun résultat de transaction,
-sur les 12 dernières semaines de DEVELOPMENT (2025-04-07 → 2025-06-30) des 40 paires de recherche : **2 177 figures
-haussières jouables** (et 2 077 baissières), dont triangles 1 099, ABCD 594, lignes de tendance 151, ICT 115,
-harmoniques 218 ; 1 h 1 455, 4 h 551, 1 jour 171. Sur 166 paires, de l'ordre de **9 000 ordres** en 12 semaines ; la
+sur les 12 dernières semaines de DEVELOPMENT (2025-04-07 → 2025-06-30) des 40 paires de recherche : **2 189 figures
+haussières jouables** (et 2 095 baissières), dont triangles 1 111, ABCD 594, lignes de tendance 151, ICT 115,
+harmoniques 218 ; 1 h 1 456, 4 h 560, 1 jour 173 (recompté après les corrections de la relecture ; avant : 2 177). Sur 166 paires, de l'ordre de **9 000 ordres** en 12 semaines ; la
 part exécutée (prix qui traverse la limite dans les 20 bougies) n'est pas estimée. L'échantillon suffira pour
 l'ensemble ; il reste corrélé (figures simultanées d'une même paire, mêmes jours de marché), d'où l'intervalle par
 blocs de 7 jours.
@@ -1135,8 +1144,8 @@ blocs de 7 jours.
 **Limites déclarées.** Marché Spot public, pas Binance Demo ; les définitions mécaniques ne sont qu'une lecture parmi
 d'autres des figures publiées ; figures d'une même paire corrélées ; bougies 1 minute avec départage à la seconde ;
 une heure manquante comblée plus tard par l'API peut modifier une figure pas encore détectée (jamais une figure déjà
-inscrite) ; les placebos sont résolus sur la minute seule (stop d'abord en cas d'ambiguïté) ; 12 semaines ne
-valident rien.
+inscrite) ; les tenues longues (10 jours en 4 h, 60 jours en 1 jour) dépassent les blocs de 7 jours de
+l'intervalle, qui peut donc être trop étroit (déclaré) ; 12 semaines ne valident rien.
 
 ## F16_TELEGRAM_IMAGES : signaux Telegram publiés en IMAGE, lus par OCR, mêmes règles que F4, contre placebos
 

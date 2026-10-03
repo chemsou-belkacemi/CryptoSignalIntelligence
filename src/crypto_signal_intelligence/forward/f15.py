@@ -6,7 +6,7 @@ agrégées en 4 h et 1 jour (alignées sur 00:00 UTC, bougies complètes seuleme
 depuis HISTORY_START (point de départ fixe : le ZigZag ne dépend pas d'une fenêtre glissante) ; chaque figure
 nouvelle est inscrite (FIGURE), et une figure haussière jouable devient un ordre limite simulé (DECISION). Résolution
 sur les bougies 1 minute (la seconde départage une minute ambiguë ; sinon stop d'abord), sortie par tiers, stop fixe,
-60 bougies au plus ; 20 placebos de même géométrie.
+60 bougies au plus ; 20 placebos de même géométrie, mêmes règles d'exécution (départage compris).
 """
 from __future__ import annotations
 
@@ -41,7 +41,10 @@ WEIGHTS = (1 / 3, 1 / 3, 1 / 3)
 ALPHA = 0.05
 SAMPLES, SEED, BLOCK_DAYS = 10_000, 20261003, 7
 GAP_AFTER = pd.Timedelta(days=2)
+LATE_AFTER = pd.Timedelta(hours=2)                  # figure inscrite plus tard que cela après sa clôture : non jouée
+HEAD_CHUNK = pd.Timedelta(minutes=f4.MAX_PAGES * 1000 - 1000)
 EXECUTED, CANCELLED, GAP = "EXECUTE", "ANNULE", "TROU"
+DELISTED = "COTATION_ARRETEE"
 ALL = "ensemble"
 
 
@@ -97,14 +100,25 @@ def placebo_offsets(figure_key: str) -> list[int]:
 def record_decisions(settings: Settings, journal: Journal, start: dict, *, now: datetime,
                      rest: PublicHttpClient | None = None) -> dict:
     """Met à jour les bougies 1 h, détecte, inscrit chaque figure nouvelle (détectée après le démarrage) et chaque
-    ordre d'une figure haussière jouable."""
+    ordre d'une figure haussière jouable. L'ordre part à la première minute qui suit à la fois la clôture de la bougie
+    de détection (plus la latence) et l'inscription ; une figure inscrite plus de 2 h après sa clôture (machine
+    éteinte, paire en échec) est inscrite mais jamais jouée (`late`). Aucune détection après la fin du recueil."""
     from ..data.pipeline import download
     moment = pd.Timestamp(now)
     started, final = pd.Timestamp(start["started_at"]), pd.Timestamp(start["final_at"])
-    known = {e["data"]["figure_id"] for e in journal.entries({FIGURE})}
+    counts = {"figures": 0, "orders": 0, "late": 0, "repaired": 0, "errors": 0}
+    figures = [e["data"] for e in journal.entries({FIGURE})]
+    known = {f["figure_id"] for f in figures}
+    ordered = {e["data"]["figure_id"] for e in journal.entries({DECISION})}
+    for f in figures:                                   # arrêt brutal entre les deux inscriptions : décision reprise
+        if f.get("played") and f.get("decision") and f["figure_id"] not in ordered:
+            journal.append(DECISION, f["decision"], now=now)
+            counts["repaired"] += 1
+    if moment >= final:
+        return counts
+    latency = pd.Timedelta(seconds=settings.data.assumed_availability_latency_seconds)
     client = rest or PublicHttpClient.rest(settings.data.rest_base_url)
     store = figure_store(settings)
-    counts = {"figures": 0, "orders": 0, "errors": 0}
     for symbol in start["halal"]["symbols"]:
         try:
             download(figure_settings(settings), symbol, "1h", now=now, rest_client=client, rest_only=True)
@@ -126,20 +140,23 @@ def record_decisions(settings: Settings, journal: Journal, start: dict, *, now: 
                 if key in known:
                     continue
                 known.add(key)
+                late = moment - at > LATE_AFTER
+                played = figure.side == "bull" and figure.valid and at < final and not late
+                decision = ({"figure_id": key, "symbol": symbol, "timeframe": timeframe, "family": figure.family,
+                             "entry": figure.entry, "stop": figure.stop, "targets": list(figure.targets),
+                             "order_from": utc_iso(max(at + latency, moment).ceil("min")),
+                             "order_until": utc_iso(at + ORDER_BARS * step), "hold_minutes": int(HOLD_BARS * step / MINUTE),
+                             "placebo_minutes": placebo_offsets(key)} if played else None)
                 data = {"figure_id": key, "symbol": symbol, "timeframe": timeframe, "family": figure.family,
                         "side": figure.side, "detected_at": utc_iso(at), "anchors": [utc_iso(frame["open_time"].iloc[i]) for i in figure.anchors],
                         "entry": figure.entry, "stop": figure.stop, "targets": list(figure.targets),
                         "zone": list(figure.zone) if figure.zone else None, "notes": figure.notes,
-                        "valid": figure.valid, "played": figure.side == "bull" and figure.valid and at < final}
+                        "valid": figure.valid, "late": late, "played": played, "decision": decision}
                 journal.append(FIGURE, data, now=now)
                 counts["figures"] += 1
-                if data["played"]:
-                    journal.append(DECISION, {"figure_id": key, "symbol": symbol, "timeframe": timeframe,
-                                              "family": figure.family, "entry": figure.entry, "stop": figure.stop,
-                                              "targets": list(figure.targets), "order_from": utc_iso(at),
-                                              "order_until": utc_iso(at + ORDER_BARS * step),
-                                              "hold_minutes": int(HOLD_BARS * step / MINUTE),
-                                              "placebo_minutes": placebo_offsets(key)}, now=now)
+                counts["late"] += int(late and figure.side == "bull" and figure.valid)
+                if decision is not None:
+                    journal.append(DECISION, decision, now=now)
                     counts["orders"] += 1
     return counts
 
@@ -165,10 +182,14 @@ def _second_order(settings: Settings, symbol: str, minute: pd.Timestamp, stop: f
 
 def simulate(bars: pd.DataFrame, *, entry: float, stop: float, targets: list[float], order_from: pd.Timestamp,
              order_until: pd.Timestamp | None, hold_minutes: int, symbol: str, scenario: str, market_entry: bool = False,
-             resolver=None) -> dict:
+             resolver=None, late: bool = False) -> dict:
     """Une transaction : ordre limite (exécuté si le prix traverse, annulé si une bougie ouvre au stop ou dessous
-    avant l'exécution) ou achat au marché (placebo) ; puis tiers aux objectifs (limite, maker), stop fixe et sortie
-    à l'échéance au marché (taker). `resolver(minute, stop, objectif)` départage une minute ambiguë."""
+    avant l'exécution ; déjà sous la limite à la pose : exécuté à l'ouverture, au marché) ou achat au marché
+    (placebo) ; puis tiers aux objectifs (limite, maker), stop fixe et sortie à l'échéance au marché (taker).
+    R rapporté au risque prévu (entrée − stop). `resolver(minute, stop, objectif)` départage une minute où le stop et
+    un objectif sont touchés : « objectif » ne prend que ce premier objectif, le reste sort au stop dans la minute.
+    Échéance en temps (exécution + `hold_minutes`) ; données arrêtées avant l'échéance et constat passé (`late`) :
+    le reste est vendu à la dernière clôture (issue COTATION_ARRETEE)."""
     costs = costs_for(symbol, scenario)
     times = pd.to_datetime(bars["open_time"], utc=True)
     o, h, lo, c = (bars[k].to_numpy(float) for k in ("open", "high", "low", "close"))
@@ -187,6 +208,9 @@ def simulate(bars: pd.DataFrame, *, entry: float, stop: float, targets: list[flo
                 return {"status": CANCELLED, "reason": "ordre expiré"}
             if o[i] <= stop:
                 return {"status": CANCELLED, "reason": "stop atteint avant l'entrée"}
+            if i == start and o[i] < entry:                         # exécutable dès la pose : au marché
+                fill_i, fill_price = i, float(o[i]) * (1 + costs.market)
+                break
             if lo[i] < entry:
                 fill_i, fill_price = i, min(entry, float(o[i]))
                 break
@@ -195,19 +219,24 @@ def simulate(bars: pd.DataFrame, *, entry: float, stop: float, targets: list[flo
             return {"status": CANCELLED, "reason": "ordre expiré"} if ended else {"status": "EN_COURS"}
     assert fill_i is not None and fill_price is not None
     entry_cost = fill_price * (1 + costs.fee)
-    risk = fill_price - stop
+    risk = entry - stop
     remaining, proceeds, hits = 1.0, 0.0, 0
-    last = fill_i + hold_minutes
+    horizon = ns[fill_i] + hold_minutes * MINUTE.value
+    last = int(np.searchsorted(ns, horizon, side="left"))          # bougies ouvertes avant l'échéance : [fill_i, last)
     exit_at, outcome = None, None
-    for i in range(fill_i, len(bars)):
-        if i >= last:
-            break
+    for i in range(fill_i, last):
         stop_hit = lo[i] <= stop
-        reachable = [t for t in targets[hits:]]
-        target_hit = bool(reachable) and h[i] > reachable[0] and i > fill_i
+        target_hit = hits < len(targets) and h[i] > targets[hits] and i > fill_i
         if stop_hit and target_hit:
-            order = resolver(times.iloc[i], stop, reachable[0]) if resolver else "stop"
-            stop_hit = order == "stop"
+            order = resolver(times.iloc[i], stop, targets[hits]) if resolver else "stop"
+            if order != "stop":                                     # objectif d'abord : celui-là seul, puis le stop
+                share = WEIGHTS[hits] if hits < len(targets) - 1 else remaining
+                proceeds += share * max(targets[hits], float(o[i])) * (1 - costs.fee)
+                remaining -= share
+                hits += 1
+                if remaining <= 1e-12:
+                    exit_at, outcome = times.iloc[i], f"TP{hits}"
+                    break
         if stop_hit:
             price = min(stop, float(o[i])) if i > fill_i else stop
             proceeds += remaining * price * (1 - costs.market) * (1 - costs.fee)
@@ -225,14 +254,35 @@ def simulate(bars: pd.DataFrame, *, entry: float, stop: float, targets: list[flo
         if remaining <= 1e-12:
             break
     if remaining > 1e-12:
-        if len(bars) < last:
+        if ns[-1] + MINUTE.value >= horizon:
+            k, label = last - 1, "TEMPS"
+        elif late:
+            k, label = len(bars) - 1, DELISTED
+        else:
             return {"status": "EN_COURS"}
-        k = last - 1
         proceeds += remaining * float(c[k]) * (1 - costs.market) * (1 - costs.fee)
-        exit_at, outcome = times.iloc[k], "TEMPS" if hits == 0 else f"TEMPS_APRES_TP{hits}"
+        exit_at, outcome = times.iloc[k], label if hits == 0 else f"{label}_APRES_TP{hits}"
     r = (proceeds - entry_cost) / risk
     return {"status": EXECUTED, "fill_at": utc_iso(times.iloc[fill_i]), "fill_price": fill_price, "outcome": outcome,
             "hits": hits, "r": round(float(r), 6), "exit_at": utc_iso(exit_at)}
+
+
+def _fill_head(settings: Settings, store: CandleStore, client: PublicHttpClient, symbol: str, begin: pd.Timestamp, *,
+               now: pd.Timestamp) -> None:
+    """Comble le début manquant des bougies 1 min à reculons, par tranches que `f4.ensure_minutes` remplit en entier
+    (sinon un début de plus de 60 000 minutes laisserait un trou intérieur jamais repris)."""
+    for _ in range(20):
+        stored = store.load_since(symbol, "1m", begin)
+        if stored.empty:
+            return                                          # rien en magasin : ensure_minutes part de `begin`
+        first = pd.Timestamp(stored["open_time"].min())
+        if first <= begin + MINUTE:
+            return
+        lo = max(begin, first - HEAD_CHUNK)
+        f4.ensure_minutes(settings, store, client, symbol, lo, first, now=now)
+        after = pd.Timestamp(store.load_since(symbol, "1m", begin)["open_time"].min())
+        if after >= first:                                  # rien avant (paire cotée plus tard) : fin
+            return
 
 
 def _horizon_end(d: dict) -> pd.Timestamp:
@@ -252,7 +302,7 @@ def resolve_one(settings: Settings, d: dict, bars: pd.DataFrame, *, late: bool) 
     for scenario in SCENARIOS:
         trade = simulate(bars, entry=d["entry"], stop=d["stop"], targets=d["targets"], order_from=order_from,
                          order_until=order_until, hold_minutes=d["hold_minutes"], symbol=d["symbol"], scenario=scenario,
-                         resolver=resolver)
+                         resolver=resolver, late=late)
         status = trade["status"]
         results[scenario] = trade
     if status == "EN_COURS" and not late:
@@ -261,7 +311,6 @@ def resolve_one(settings: Settings, d: dict, bars: pd.DataFrame, *, late: bool) 
         final_status = CANCELLED if status == CANCELLED else GAP
         return {"figure_id": d["figure_id"], "status": final_status, "reason": results[CENTRAL].get("reason"), "results": None}
     fill_at = pd.Timestamp(results[CENTRAL]["fill_at"])
-    fill_price = results[CENTRAL]["fill_price"]
     pending = False
     times = bars["open_time"]
     for scenario in SCENARIOS:
@@ -273,9 +322,9 @@ def resolve_one(settings: Settings, d: dict, bars: pd.DataFrame, *, late: bool) 
                 placebos.append(None)
                 continue
             q0 = float(ref["open"].iloc[0])
-            p = simulate(bars, entry=q0, stop=q0 * d["stop"] / fill_price, targets=[q0 * t / fill_price for t in d["targets"]],
+            p = simulate(bars, entry=q0, stop=q0 * d["stop"] / d["entry"], targets=[q0 * t / d["entry"] for t in d["targets"]],
                          order_from=when, order_until=None, hold_minutes=d["hold_minutes"], symbol=d["symbol"],
-                         scenario=scenario, market_entry=True)
+                         scenario=scenario, market_entry=True, resolver=resolver, late=late)
             pending = pending or p["status"] == "EN_COURS"
             placebos.append(p.get("r") if p["status"] == EXECUTED else None)
         usable = [x for x in placebos if x is not None]
@@ -305,6 +354,7 @@ def resolve(settings: Settings, journal: Journal, *, now: datetime, rest: Public
         begin = min(pd.Timestamp(d["order_from"]) for d in decisions) - pd.Timedelta(minutes=PLACEBO_MAX_MINUTES)
         stop_at = max(_horizon_end(d) for d in decisions)
         try:
+            _fill_head(settings, store, client, symbol, begin, now=moment)
             bars = f4.ensure_minutes(settings, store, client, symbol, begin, stop_at, now=moment)
         except (HttpError, ValueError):
             bars = store.load_since(symbol, "1m", begin)
@@ -351,6 +401,7 @@ def stats(journal: Journal, start: dict, *, now: datetime) -> dict:
     out: dict = {"figures": len(figures), "bull": sum(1 for f in figures if f["side"] == "bull"),
                  "bear": sum(1 for f in figures if f["side"] == "bear"),
                  "invalid": sum(1 for f in figures if f["side"] == "bull" and not f["valid"]),
+                 "late": sum(1 for f in figures if f["side"] == "bull" and f["valid"] and f.get("late")),
                  "orders": len(decisions), "executed": len(executed),
                  "cancelled": sum(1 for r in resolutions.values() if r["status"] == CANCELLED),
                  "gaps": sum(1 for r in resolutions.values() if r["status"] == GAP),
@@ -397,8 +448,8 @@ def analyst_overlap(settings: Settings, journal: Journal, *, window: pd.Timedelt
     for f in figures:
         t = pd.Timestamp(f["order_from"])
         for s in signals:
-            if s.get("symbol") == f["symbol"] and abs(pd.Timestamp(s["entry_at"]) - t) <= window:
-                pairs.append({"figure_id": f["figure_id"], "signal_id": s["signal_id"], "test": s["test"]})
+            if s.get("symbol") == f["symbol"] and s.get("entry_at") and abs(pd.Timestamp(s["entry_at"]) - t) <= window:
+                pairs.append({"figure_id": f["figure_id"], "signal_id": s.get("signal_id"), "test": s["test"]})
     return {"figures": len(figures), "analyst_signals": len(signals), "same_pair_24h": pairs}
 
 
@@ -412,7 +463,9 @@ TEST = ForwardTest(
             "placebos": PLACEBOS, "placebo_minutes": [PLACEBO_MIN_MINUTES, PLACEBO_MAX_MINUTES],
             "history_start": str(HISTORY_START), "min_resolved": f4.MIN_RESOLVED, "min_days": f4.MIN_DAYS, "alpha": ALPHA,
             "samples": SAMPLES, "seed": SEED, "block_days": BLOCK_DAYS,
-            "execution": "bougies 1 min, la seconde départage une minute ambiguë, sinon stop d'abord"},
+            "execution": "bougies 1 min, la seconde départage une minute ambiguë (objectif d'abord : ce seul objectif, "
+                         "puis le stop), sinon stop d'abord ; placebos : mêmes règles",
+            "late_after_hours": LATE_AFTER / pd.Timedelta(hours=1), "risk": "entrée prévue − stop"},
     rule_objects=(), config_keys=("data.rest_base_url", "data.assumed_availability_latency_seconds"),
     frozen_modules=("crypto_signal_intelligence.forward.f15", "crypto_signal_intelligence.patterns.figures",
                     "crypto_signal_intelligence.patterns.smc", "crypto_signal_intelligence.patterns.primitives",

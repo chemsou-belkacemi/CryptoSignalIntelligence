@@ -57,6 +57,15 @@ def test_triangle_breakout_levels():
     assert fig.targets == pytest.approx((101.6 + height / 3, 101.6 + 2 * height / 3, 101.6 + height))
 
 
+def test_triangle_breakout_on_the_bar_that_confirms_the_last_pivot():
+    """Relecture C1 : la clôture de la bougie où le 4e pivot devient connu compte déjà comme cassure."""
+    pivots = [Pivot(0, "high", 110.0, 2), Pivot(5, "low", 90.0, 7), Pivot(10, "high", 106.0, 12), Pivot(15, "low", 94.0, 17)]
+    close = np.full(30, 100.0)
+    close[17] = 104.0                                    # ligne haute à 17 : 110 − 0,4 × 17 = 103,2
+    [fig] = fg.triangles(pivots, close + 1, close - 1, close)
+    assert fig.side == "bull" and fig.detected_at == 17 and fig.entry == pytest.approx(103.2)
+
+
 def test_trendline_break():
     n = 40
     high, low, close = np.full(n, 100.0), np.full(n, 95.0), np.full(n, 97.0)

@@ -14,6 +14,7 @@ from .primitives import Pivot, atr, zigzag
 TOLERANCE = 0.05
 STOP_ATR = 0.25
 TRENDLINE_ATR = 0.5
+TRIANGLE_FLAT = 0.10                 # descriptif : ligne « plate » (triangle ascendant ou descendant)
 ICT_WINDOW = 10
 MIN_STOP_DISTANCE = 0.001
 
@@ -161,7 +162,8 @@ def _line(p: Pivot, q: Pivot):
 
 def triangles(pivots: list[Pivot], high: np.ndarray, low: np.ndarray, close: np.ndarray) -> list[Figure]:
     """Lignes par les deux derniers pivots hauts et les deux derniers pivots bas (4 pivots alternés), convergentes ;
-    cassure = première clôture au-delà d'une ligne, avant leur croisement."""
+    cassure = première clôture au-delà d'une ligne à partir de la bougie où le 4e pivot est connu (incluse), avant
+    leur croisement."""
     out: list[Figure] = []
     done: set[tuple[int, ...]] = set()
     for k in range(3, len(pivots)):
@@ -185,28 +187,31 @@ def triangles(pivots: list[Pivot], high: np.ndarray, low: np.ndarray, close: np.
             continue
         height = upper(first) - lower(first)
         next_known = pivots[k + 1].known_at if k + 1 < len(pivots) else len(close)
-        for i in range(known + 1, min(len(close), int(np.floor(cross)), next_known + 1)):
+        length = known - first
+        for i in range(known, min(len(close), int(np.floor(cross)), next_known + 1)):
             if close[i] > upper(i):
                 entry, stop = upper(i), lower(i)
                 out.append(Figure("TRIANGLE", "bull", i, anchors, entry=entry, stop=stop,
                                   targets=(entry + height / 3, entry + 2 * height / 3, entry + height),
-                                  notes={"kind": _triangle_kind(su, sl), "height": height}))
+                                  notes={"kind": _triangle_kind(su, sl, length, height), "height": height}))
                 done.add(anchors)
                 break
             if close[i] < lower(i):
-                out.append(Figure("TRIANGLE", "bear", i, anchors, notes={"kind": _triangle_kind(su, sl), "height": height}))
+                out.append(Figure("TRIANGLE", "bear", i, anchors, notes={"kind": _triangle_kind(su, sl, length, height), "height": height}))
                 done.add(anchors)
                 break
     return out
 
 
-def _triangle_kind(su: float, sl: float) -> str:
+def _triangle_kind(su: float, sl: float, length: float, height: float) -> str:
+    """Descriptif : une ligne est « plate » si elle varie de moins de 10 % de la hauteur sur la figure."""
+    flat = TRIANGLE_FLAT * height
+    if abs(su) * length <= flat:
+        return "ascendant"
+    if abs(sl) * length <= flat:
+        return "descendant"
     if su < 0 < sl:
         return "symetrique"
-    if abs(su) < 1e-12:
-        return "ascendant"
-    if abs(sl) < 1e-12:
-        return "descendant"
     return "biseau_montant" if su > 0 else "biseau_descendant"
 
 
@@ -215,8 +220,8 @@ def _triangle_kind(su: float, sl: float) -> str:
 def trendlines(pivots: list[Pivot], high: np.ndarray, low: np.ndarray, close: np.ndarray,
                atr_values: np.ndarray) -> list[Figure]:
     """Résistance descendante par trois pivots hauts consécutifs (P2 à moins de 0,5 ATR de la ligne P1-P3, aucun plus
-    haut au-dessus de plus de 0,5 ATR) ; cassure = première clôture au-dessus après P3. Support montant : baissière,
-    pour information."""
+    haut au-dessus de plus de 0,5 ATR) ; cassure = première clôture au-dessus à partir de la bougie où P3 est connu
+    (incluse). Support montant : baissière, pour information."""
     out: list[Figure] = []
     for kind, side in (("high", "bull"), ("low", "bear")):
         same = [p for p in pivots if p.kind == kind]
@@ -236,7 +241,7 @@ def trendlines(pivots: list[Pivot], high: np.ndarray, low: np.ndarray, close: np
                 continue
             anchors = (p1.index, p2.index, p3.index)
             nxt = same[k + 1].known_at if k + 1 < len(same) else len(close)
-            for i in range(p3.known_at + 1, min(len(close), nxt + 1)):
+            for i in range(p3.known_at, min(len(close), nxt + 1)):
                 broke = close[i] > line(i) if kind == "high" else close[i] < line(i)
                 if not broke:
                     continue

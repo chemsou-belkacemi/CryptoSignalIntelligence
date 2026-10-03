@@ -69,10 +69,14 @@ def run_tests(settings: Settings, *, now: datetime) -> dict:
         if state["state"] not in {RUNNING, ENDED}:
             continue
         journal = journal_for(settings, test.test_id)
-        out[test.test_id] = out.get(test.test_id, {}) | {
-            "recorded": module.record_decisions(settings, journal, state["start"], now=now),
-            "resolved": module.resolve(settings, journal, now=now),
-            "finalized": module.finalize(journal, state["start"], now=now)}
+        try:
+            out[test.test_id] = out.get(test.test_id, {}) | {
+                "recorded": module.record_decisions(settings, journal, state["start"], now=now),
+                "resolved": module.resolve(settings, journal, now=now),
+                "finalized": module.finalize(journal, state["start"], now=now)}
+        except Exception as exc:  # noqa: BLE001 - un test en échec n'arrête pas les suivants (repris au passage suivant)
+            log.exception("test %s : passage en échec", test.test_id)
+            out[test.test_id] = out.get(test.test_id, {}) | {"error": f"{type(exc).__name__}: {exc}"}
     return out
 
 

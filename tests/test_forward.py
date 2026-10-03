@@ -705,3 +705,39 @@ def test_a_recorded_verdict_survives_a_later_stop(settings):
     assert registry.status(settings, f1.TEST)["state"] == registry.STOPPED
     assert report.build(settings, now=NOW + timedelta(days=86))["tests"][0]["stats"]["verdict"] == f1.NO_DIFFERENCE
     assert start["test_id"] == f1.TEST_ID
+
+
+def test_one_failing_test_does_not_stop_the_others(settings, monkeypatch):
+    """Relecture F15, C5 : une exception dans un test est inscrite au passage, et les tests suivants tournent."""
+    from types import SimpleNamespace
+
+    from crypto_signal_intelligence.forward import runner
+
+    class Broken:
+        @staticmethod
+        def record_decisions(*a, **k):
+            raise ValueError("parquet abîmé")
+
+    calls = []
+
+    class Fine:
+        @staticmethod
+        def record_decisions(*a, **k):
+            calls.append("record")
+            return {}
+
+        @staticmethod
+        def resolve(*a, **k):
+            return {}
+
+        @staticmethod
+        def finalize(*a, **k):
+            return None
+
+    tests = ((SimpleNamespace(test_id="A"), Broken), (SimpleNamespace(test_id="B"), Fine))
+    monkeypatch.setattr(runner, "TESTS", tests)
+    monkeypatch.setattr(runner, "status", lambda *a, **k: {"state": runner.RUNNING, "start": {}})
+    monkeypatch.setattr(runner, "check_frozen", lambda *a, **k: None)
+    monkeypatch.setattr(runner, "journal_for", lambda *a, **k: None)
+    out = runner.run_tests(settings, now=datetime(2026, 10, 3, tzinfo=UTC))
+    assert out["A"] == {"error": "ValueError: parquet abîmé"} and calls == ["record"] and "recorded" in out["B"]
