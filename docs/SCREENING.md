@@ -222,6 +222,34 @@ Tableau complet : `reports/SCREEN-20261002T170108Z-e89978/summary.json`.
 
 Les conditions K1 et K2, mêmes règles, sur le **top 40 à date** (paires retirées de la cote comprises) : déclaration complète, lecture et limites dans [UNIVERSE_PIT.md](UNIVERSE_PIT.md) § 2. 4 essais. Question unique : K2 à 1 jour tient-il hors biais de survivance ?
 
+## Criblage S : saisonnalité du sens (déclaré le 2026-10-03, avant exécution)
+
+Point 6 du plan de travail. La saisonnalité de la **volatilité** est démontrée chez nous (volatilité v3) ; celle du
+**rendement** n'a jamais été criblée. Code : `research/seasonality_screen.py` ; commande `csi screen-seasonality`.
+
+- Bougies 1 h du magasin long, 40 paires de recherche (survivantes, déclaré), DEVELOPMENT, événements depuis le
+  2019-01-01. Achat à l'**ouverture** de la bougie de l'heure T, vente à la clôture de la bougie qui finit à
+  T + durée. Le calendrier seul décide : aucune donnée de marché n'est lue (sauf S8, sur le passé seulement).
+
+| Condition | Règle | Durée |
+|---|---|---|
+| S1_WEEKEND | samedi 00:00 UTC | 48 h |
+| S2_LUNDI | lundi 00:00 UTC | 24 h |
+| S3_TOURNANT_DU_MOIS | 00:00 UTC deux jours avant la fin du mois | 72 h |
+| S4_APRES_FINANCEMENT | 00:00, 08:00, 16:00 UTC (règlement du financement des perpétuels) | 4 h |
+| S5_EXPIRATION_OPTIONS | dernier vendredi du mois, 08:00 UTC (expiration Deribit) | 24 h |
+| S6_OUVERTURE_USA | 14:00 UTC, jours ouvrés | 4 h |
+| S7_SEANCE_ASIE | 00:00 UTC | 8 h |
+| S8_MEILLEURE_HEURE | l'heure au plus fort rendement moyen sur 1 h pendant les 365 journées précédentes (au moins 200) | 1 h |
+
+- Excès = rendement − rendement moyen de la paire sur la même durée, toutes heures confondues ; IC95 par blocs de
+  max(10 jours, 2 × durée) ; « passe » = rendement brut moyen > seuil de coûts (0,21 %) ET borne basse de l'IC95 > 0.
+  **8 essais.**
+- Attendu : rien ne passe sur 1 à 8 h (le seuil de coûts écrase tout effet horaire) ; les effets de calendrier
+  publiés (week-end, tournant du mois) sont petits et instables ; S8 teste si une heure « favorable » se répète
+  d'une année sur l'autre. Le contrôle positif rappelle que ces criblages sont prudents et peu puissants : un effet
+  de +0,25 % par événement passerait souvent inaperçu.
+
 ## Historique
 
 - `SCREEN-20260930T093324Z-20101b` : premier passage, **intervalles faux** (moyenne pondérée par jour

@@ -712,6 +712,37 @@ def volatility_v4_command(allow_dirty: bool = typer.Option(False, "--allow-dirty
     console.print(f"Verdict : {result.verdict} ; retenu : {result.selected} ; rapport : {settings.reports_dir / result.run_id / 'summary.json'}")
 
 
+@app.command("screen-seasonality")
+def screen_seasonality_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Essai local sur du code non commité (enregistré comme tel)"),
+                               universe_file: str = typer.Option(None, "--universe-file", help="JSON {\"symbols\": [...]} : paires admises par le screening halal"),
+                               verbose: bool = False):
+    """Criblage S (docs/SCREENING.md) : week-end, lundi, tournant du mois, financement, expiration d'options, séances,
+    meilleure heure apprise ; 8 essais, DEVELOPMENT seulement."""
+    from .research.factors import DirtyCode
+    from .research.seasonality_screen import run
+    from .research.universe import RESEARCH_UNIVERSE
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    symbols = None
+    if universe_file:
+        with open(universe_file, encoding="utf-8") as handle:
+            admitted = set(json.load(handle).get("symbols", []))
+        symbols = [s for s in RESEARCH_UNIVERSE if s in admitted]
+    try:
+        with console.status("criblage S…") as status:
+            payload = run(settings, now=_now(), symbols=symbols, progress=lambda text: status.update(f"criblage S : {text}"), allow_dirty=allow_dirty)
+    except (DirtyCode, FileNotFoundError) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    console.rule(f"Criblage S — {payload['run_id']}")
+    table = Table("Condition", "Durée", "Événements", "Rendement", "Excès", "IC95 excès", "Paires > 0", "Années > 0", "Passe")
+    for r in payload["rows"]:
+        table.add_row(r["condition"], f"{r['horizon_h']} h", str(r["events"]), str(r["mean_return_pct"]), str(r["mean_excess_pct"]),
+                      str(r["ci95_excess_pct"]), str(r["pairs_positive_share"]), str(r["years_positive_share"]), "oui" if r["beats_costs"] else "non")
+    console.print(table)
+    console.print(f"Programme : {payload['program_trials']} essais")
+
+
 @app.command("data-quality")
 def data_quality(symbol: str = typer.Option(..., help="Paire, ex. BTCUSDT"),
                  timeframe: str = typer.Option(None, help="Défaut : timeframe de setup")):
