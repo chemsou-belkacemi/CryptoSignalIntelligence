@@ -1224,6 +1224,30 @@ signaux `SUR` ou validés sont joués) ; une validation tardive retarde l'entré
 les signaux en image d'un groupe qui refuse les bots n'arrivent que transférés à la main (sélection du
 propriétaire en plus : marqués) ; une validation mesure « propriétaire + fournisseur ».
 
+## LECTURE_TP_MAHWASHI : vendre surtout aux TP lointains sur AL-MAHWASHI (lecture déclarée le 2026-10-04)
+
+**Origine.** Analyse du 2026-10-04 du fichier `BotHistory.json` (robot d'un ami du propriétaire, 6-30 septembre 2026,
+110 entrées exécutées) : chaque tranche vendue à un TP a un résultat moyen proche de 0 (TP atteints au taux
+d'équilibre) ; sur AL-MAHWASHI seul (53 trades), les tranches TP4-TP5 ont des estimations positives (TP5 : +2,1 % par
+tranche, IC [−1,7 ; +5,3]), portées par environ 6 gains et des positions encore ouvertes. Idée vue APRÈS COUP : on la
+mesure seulement sur des signaux postérieurs, sans y toucher.
+
+**Question.** Sur les signaux AL-MAHWASHI VIP reçus du **2026-10-05 au 2026-12-05** (fichier du robot ré-exporté par
+le propriétaire, ou journal de F4 s'il les reçoit), l'échelle « 50 % au TP4, 50 % au TP5 » (TP5 absent : tout au TP4)
+a-t-elle un résultat net moyen par signal **positif** ?
+
+**Méthode (fixée).** Celle du 2026-10-04 (`tp_ladder.py`, à verser dans le dépôt avant la lecture, sans changement) :
+signaux lus par l'audit des groupes (doublons, déjà joués, illisibles écartés) ; ordre limite à l'entrée 1 valable
+24 h ; bougies 15 min de Binance, stop d'abord dans une bougie ambiguë ; stop du signal **fixe** ; suivi 30 jours, une
+tranche encore ouverte est valorisée au dernier prix (nombre donné) ; frais 0,10 % par côté, glissement 0,05 % au
+stop et à l'échéance. Mesure : moyenne des rendements nets par signal exécuté, IC95 par blocs de 2 jours (au moins
+8 blocs). À titre descriptif : la même mesure pour la tranche TP1 et les taux d'atteinte TP1 à TP5.
+
+**Lecture.** `PISTE` si au moins **30 entrées exécutées** et l'IC95 entièrement au-dessus de 0 ; `NON_DEMONTRE` sinon
+(`INSUFFISANT` sous 30 entrées). Une `PISTE` ne change aucune gestion : elle ouvrirait un test déclaré sur la période
+suivante. Compté comme **1 essai** au registre à la lecture. Le choix « TP4-TP5 » ayant été fait sur septembre,
+septembre n'entre jamais dans la mesure.
+
 ## MISSION_2026_10_03 : correspondance avec la mission du propriétaire et nouveaux essais
 
 Mission collée par le propriétaire le 2026-10-03 (« construire tous les tests en direct maintenant »), confirmée le
