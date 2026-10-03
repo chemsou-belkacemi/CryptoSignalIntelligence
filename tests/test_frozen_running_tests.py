@@ -50,6 +50,12 @@ STARTED = {
     "F12_VOL_FORWARD": {"doc": "66db0d0ca744a8922accde416af6130d",
                         "params": "4832f3d7ee2ba366a1147f1e7726a8fd",
                         "code": "e25ca34972a0b487d9e087ffb805b0ad"},
+    "F13_PIVOT_BREAK_1D_24": {"doc": "7f453a6358aca0ea4b0fae60156074d5",
+                              "params": "c4a6717cc3341b31bcf0e8c0b51abc96",
+                              "code": "ae87e63584ea4c27ee0ff29165bc9731"},
+    "F14_PIVOT_BREAK_VOL_LEVELS": {"doc": "c62f16f1d21fbfe432e9a201411280f1",
+                                   "params": "a18fdecd93b54a18645a21b4c3e69c65",
+                                   "code": "aed755011889bbc043733c1030f921a3"},
 }
 
 
