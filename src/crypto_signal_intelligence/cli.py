@@ -1334,6 +1334,8 @@ def audit_telegram(file: str = typer.Option(None, "--file", help="Export JSON de
                    bsm_inbox: str = typer.Option(None, "--bsm-inbox", help="Boîte signals.sqlite3 de BinanceSpotManager (messages reçus en direct)"),
                    source: str = typer.Option("", help="Nom du groupe si l'export ou le texte ne le donne pas"),
                    weights: str = typer.Option("early", help="Parts vendues à chaque objectif : early | equal"),
+                   ocr: bool = typer.Option(False, "--ocr", help="Lire aussi les signaux publiés en image (dossier de "
+                                            "l'export ; extra « ocr »), au moindre doute l'image est ignorée"),
                    verbose: bool = False):
     """Bilan mesuré d'un groupe Telegram sur son historique : chaque signal passé est rejoué sur les bougies
     publiques, selon trois conventions (TP1 au contact, stop à la clôture du signal, tous les objectifs comme BSM).
@@ -1343,6 +1345,7 @@ def audit_telegram(file: str = typer.Option(None, "--file", help="Export JSON de
         CONVENTION_LABELS,
         CONVENTIONS,
         audit,
+        chart_reader,
         read_bsm_inbox,
         read_telegram_export,
         save_history,
@@ -1354,11 +1357,19 @@ def audit_telegram(file: str = typer.Option(None, "--file", help="Export JSON de
         raise typer.Exit(2)
     try:
         if file:
+            reader = None
+            if ocr:
+                with console.status("chargement du lecteur d'images…"):
+                    reader = chart_reader()
             with open(file, encoding="utf-8") as handle:
-                items = read_telegram_export(json.load(handle))
+                payload = json.load(handle)
+            with console.status("lecture de l'historique (images comprises)…" if ocr else "lecture de l'historique…"):
+                items = read_telegram_export(payload, images_dir=Path(file).parent, image_reader=reader)
+            if ocr:
+                console.print(f"Images lues comme signaux : {sum(i.from_image for i in items)}")
         else:
             items = read_bsm_inbox(Path(bsm_inbox))
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, RuntimeError) as exc:
         console.print(f"[red]Historique illisible :[/red] {exc}")
         raise typer.Exit(2) from None
     with console.status("rejeu des signaux…") as status:

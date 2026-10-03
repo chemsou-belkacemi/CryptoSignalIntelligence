@@ -35,6 +35,9 @@ forecast = ["lightgbm>=4.6"]
 # (ccxt : jamais de clé, jamais d'ordre ; le relevé en service passe par la liste blanche de forward/sources.py).
 # Hors de l'image Docker de surveillance.
 research = ["arch>=8.0", "hftbacktest>=2.4", "numba>=0.68", "ccxt>=4.5"]
+# Signaux Telegram publiés en image (docs/OCR.md) : lecture locale pour l'audit des groupes. Tesseract (tesserocr)
+# reste facultatif. omegaconf ≥ 2.3 : RapidOCR plante avec la 2.0 que pip peut choisir seul.
+ocr = ["opencv-python-headless>=5.0", "rapidocr>=3.9", "onnxruntime>=1.30", "omegaconf>=2.3"]
 # Groupes des lots suivants, ajoutés à leur étape : agents, streaming, reports.
 
 [project.scripts]

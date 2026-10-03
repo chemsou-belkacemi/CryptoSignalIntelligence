@@ -70,6 +70,7 @@ class HistoryItem:
     edited: bool = False
     group: str = ""
     missing_share: float | None = None     # part de numéros absents dans le chat exporté ; None : reçu en direct
+    from_image: bool = False               # niveaux lus sur l'image du message (external/chart_ocr.py)
 
 
 @dataclass
@@ -89,6 +90,7 @@ class AuditRow:
     message_id: str = ""
     missing_share: float | None = None
     outcomes: dict[str, dict] = field(default_factory=dict)       # convention → {issue, r}
+    from_image: bool = False
 
 
 @dataclass
@@ -116,9 +118,30 @@ def _flatten(text) -> str:
     return ""
 
 
-def read_telegram_export(payload) -> list[HistoryItem]:
+ImageReader = Callable[[Path, str], str | None]
+
+
+def chart_reader() -> ImageReader:
+    """Lecteur d'images de signaux (OpenCV + RapidOCR, extra « ocr ») : chemin de l'image et légende du message →
+    texte de signal standard, ou None au moindre doute. Lève RuntimeError si les bibliothèques manquent."""
+    from . import chart_ocr
+    if not chart_ocr.available():
+        raise RuntimeError("lecture des images impossible : installer l'extra « ocr » (opencv-python-headless, rapidocr, onnxruntime)")
+    reader = chart_ocr.Lecteur()
+
+    def read(path: Path, caption: str) -> str | None:
+        return chart_ocr.signal_text(reader.analyse(path), symbol_hint=chart_ocr.caption_symbol(caption))
+
+    return read
+
+
+def read_telegram_export(payload, *, images_dir: Path | None = None, image_reader: ImageReader | None = None) -> list[HistoryItem]:
     """Export JSON de Telegram Desktop (« Exporter l'historique », format JSON) : un groupe, ou tous les chats.
-    L'heure vient de `date_unixtime` (UTC) ; un message transféré porte le nom de son groupe d'origine."""
+    L'heure vient de `date_unixtime` (UTC) ; un message transféré porte le nom de son groupe d'origine.
+
+    Avec `images_dir` (dossier de l'export) et `image_reader`, un message à IMAGE dont le texte n'est pas un signal
+    lisible est lu sur son image ; le texte reconstruit remplace la légende et l'élément porte `from_image`. Une image
+    illisible ou douteuse laisse le message tel quel (illisible au rejeu) : jamais de niveau deviné."""
     if not isinstance(payload, dict):
         raise ValueError("export Telegram attendu : un objet JSON avec « messages » ou « chats »")
     chats = payload.get("chats", {}).get("list") if isinstance(payload.get("chats"), dict) else [payload]
@@ -137,7 +160,14 @@ def read_telegram_export(payload) -> list[HistoryItem]:
         for message in messages:
             if not isinstance(message, dict) or message.get("type") != "message":
                 continue
-            text = _flatten(message.get("text"))
+            text = caption = _flatten(message.get("text"))
+            from_image = False
+            photo = message.get("photo")
+            if image_reader is not None and images_dir is not None and isinstance(photo, str) and parse(text).errors:
+                path = Path(images_dir) / photo
+                rebuilt = image_reader(path, text) if path.is_file() else None
+                if rebuilt:
+                    text, from_image = rebuilt, True
             if not text.strip():
                 continue
             try:
@@ -148,8 +178,8 @@ def read_telegram_export(payload) -> list[HistoryItem]:
             origin = message.get("forwarded_from")
             items.append(HistoryItem(text=text, received_at=received, message_id=str(message.get("id", "")),
                                      edited="edited_unixtime" in message or "edited" in message,
-                                     group=group_of(text) or (str(origin).strip() if origin else name),
-                                     missing_share=round(missing, 4)))
+                                     group=group_of(caption) or group_of(text) or (str(origin).strip() if origin else name),
+                                     missing_share=round(missing, 4), from_image=from_image))
     return items
 
 
@@ -446,7 +476,8 @@ def audit(settings: Settings, items: Iterable[HistoryItem], *, now: datetime, so
         received = received.tz_localize("UTC") if received.tzinfo is None else received.tz_convert("UTC")
         signal = parse(item.text)
         row = AuditRow(received_at=received.isoformat(), group=item.group or group_of(item.text) or source or "inconnu",
-                       status=OK, edited=item.edited, message_id=item.message_id, missing_share=item.missing_share)
+                       status=OK, edited=item.edited, message_id=item.message_id, missing_share=item.missing_share,
+                       from_image=item.from_image)
         rows.append(row)
         if signal.errors:
             row.status, row.reason = UNREADABLE, " ; ".join(signal.errors)[:300]
