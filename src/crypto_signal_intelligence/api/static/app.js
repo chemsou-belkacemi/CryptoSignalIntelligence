@@ -888,7 +888,6 @@ async function loadFollow(force = false) {
           { node: el("span", {}, el("strong", { class: verdictClass(m.verdict), text: m.verdict || m.status }),
             m.detail ? el("div", { class: "small muted", text: m.detail }) : null) }, when(m.created_at), m.source]),
         "aucun modèle évalué")),
-      admissionsCard(admissions),
       card("Suivi en direct des plans indicatifs",
         el("p", { class: "muted small", text: `Chaque jour, le plan de chaque paire (1, 3 et 7 jours) est enregistré puis suivi sur les bougies qui arrivent ensuite : des données que personne n'avait vues. ${plans.rule || ""}.` }),
         table(["Horizon", "État au moment du plan", { label: "Enregistrés", num: true }, { label: "Terminés", num: true }, { label: "R moyen", num: true }, "IC95", { label: "Gagnants", num: true }, "Preuve"],
@@ -897,11 +896,6 @@ async function loadFollow(force = false) {
             { node: el("span", { class: g.proven ? "ok" : "muted", text: g.proven ? "prouvé en direct" : g.progress }) }]),
           "aucun plan encore enregistré : le premier passage a lieu chaque jour après 00:10 UTC")),
       forwardCard(forward),
-      card("Groupes Telegram : avis lié au groupe",
-        el("p", { class: "muted small", text: "Un groupe prouvé (en direct, ou sur son historique importé depuis l'onglet « Évaluer un signal ») rend ses signaux favorables malgré une géométrie défavorable. Preuve sur historique valable 30 jours." }),
-        table(["Groupe", "Preuve sur historique", "Importé le"], (history.groups || []).map((g) => [g.source,
-          { node: el("span", { class: g.proven ? "ok" : "warn", text: g.text || "–" }) }, when(g.generated_at)]),
-          "aucun historique importé : exporte un groupe depuis Telegram Desktop (JSON) puis importe-le dans « Évaluer un signal »")),
       card("Signaux évalués récemment", table(["Reçu", "Source", "Paire", "Entrée · stop · TP1", "Avis", "Issue", "R"],
         (recent.signals || []).map((x) => [when(x.received_at), x.source, pair(x.symbol), `${price(x.entry)} · ${price(x.stop)} · ${price(x.tp1)}`,
           x.verdict, x.outcome || "en cours", fmt(x.outcome_r, 2, true)]), "aucun signal évalué")),
@@ -913,10 +907,33 @@ async function loadFollow(force = false) {
         table(["Stratégie", { label: "Résolus", num: true }, { label: "Remplis", num: true }, { label: "R moyen des remplis", num: true }, { label: "Gagnants", num: true }],
           (generated.summary || []).map((s) => [s.strategy, s.resolved, s.filled, isNum(s.r_mean) ? `${fmt(s.r_mean, 2, true)} R` : "–", pctFrac(s.win_share)]),
           "aucun signal encore résolu (24 h après la fin de validité de l'entrée)"),
-        generatedBrowser(generated)));
+        generatedBrowser(generated)),
+      groupsCard(history),
+      admissionsCard(admissions));
+    if (state.scrollToAdmissions) {
+      state.scrollToAdmissions = false;
+      document.getElementById("admissions-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   } catch (error) {
     showError(target, error);
   }
+}
+
+// Repli : une ligne de résumé, le détail au clic (cartes longues en fin de page).
+function folded(summary, ...children) {
+  return el("details", {}, el("summary", { text: summary }), ...children);
+}
+
+function groupsCard(history) {
+  const groups = history.groups || [];
+  const proven = groups.filter((g) => g.proven).length;
+  return card("Groupes Telegram : avis lié au groupe",
+    el("p", { class: "muted small", text: "Un groupe prouvé (en direct, ou sur son historique importé depuis l'onglet « Évaluer un signal ») rend ses signaux favorables malgré une géométrie défavorable. Preuve sur historique valable 30 jours." }),
+    groups.length
+      ? folded(`${groups.length} groupe${groups.length > 1 ? "s" : ""}, ${proven} prouvé${proven > 1 ? "s" : ""} — afficher le détail`,
+        table(["Groupe", "Preuve sur historique", "Importé le"], groups.map((g) => [g.source,
+          { node: el("span", { class: g.proven ? "ok" : "warn", text: g.text || "–" }) }, when(g.generated_at)]), ""))
+      : el("p", { class: "muted", text: "aucun historique importé : exporte un groupe depuis Telegram Desktop (JSON) puis importe-le dans « Évaluer un signal »" }));
 }
 
 // --- signaux des stratégies de CSI : tous consultables, par pages de 20, filtrables par stratégie ----------
@@ -1058,14 +1075,18 @@ function admissionsCard(data) {
     const [kind, label] = ADMISSION_LABELS[d.decision] || ["muted", d.decision];
     return [pair(d.symbol), { node: el("span", { class: `pill ${kind}`, text: label }) }, d.decided_by, d.reason, when(d.decided_at)];
   });
-  return card("Univers : avis halal et décisions d'ajout",
-    el("p", { class: "muted small", text: data.rule }),
+  const section = card("Univers : avis halal et décisions d'ajout",
+    folded("Règle du screening — afficher", el("p", { class: "muted small", text: data.rule })),
     el("div", { class: "row" }, run, (data.pending || []).length ? addAll : null),
     el("h3", { text: `Cryptos à décider (${pending.length})` }),
     pending.length ? null : el("p", { class: "muted", text: "rien à décider" }),
     ...groups,
-    el("h3", { text: "Décisions" }),
-    table(["Paire", "Décision", "Par", "Motif", "Date"], decisions, "aucune décision pour l'instant"));
+    decisions.length
+      ? folded(`Décisions déjà prises (${decisions.length}) — afficher`,
+        table(["Paire", "Décision", "Par", "Motif", "Date"], decisions, ""))
+      : el("p", { class: "muted", text: "aucune décision pour l'instant" }));
+  section.id = "admissions-card";
+  return section;
 }
 
 // --- navigation et démarrage ---------------------------------------------------------------------------
@@ -1093,7 +1114,16 @@ function start() {
     document.getElementById("token-box").classList.add("hidden");
     boot();
   });
-  document.getElementById("admissions-badge").addEventListener("click", () => openTab("follow"));
+  document.getElementById("admissions-badge").addEventListener("click", () => {
+    state.scrollToAdmissions = true;
+    if (state.followLoaded) {
+      openTab("follow");
+      state.scrollToAdmissions = false;
+      document.getElementById("admissions-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else {
+      openTab("follow");
+    }
+  });
   boot();
   setInterval(refreshHealth, 60000);
   setInterval(refreshAdmissions, 300000);
