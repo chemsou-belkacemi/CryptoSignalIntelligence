@@ -145,6 +145,26 @@ Code : `research/interval_calibration.py` ; commande `csi interval-calibration` 
   la plus grande puissance moyenne ; la méthode actuelle est gardée si aucune autre ne fait mieux. Les résultats
   passés ne sont pas recalculés.
 
+## 7. Contrôle positif de l'ajustement (déclaré le 2026-10-03, avant exécution)
+
+Point 4 du plan. Le § 1-3 testait la **mesure** ; ici on teste l'**apprentissage** : un modèle, avec nos réglages et
+notre entraînement glissant, retrouve-t-il une variable faiblement informative cachée parmi les vraies ? Code :
+`research/fit_control.py` ; commande `csi fit-control` ; 0 essai.
+
+- **Données** : lignes journalières du lot 7 (40 paires, DEVELOPMENT, les sept variables). **Cible** : rendement log à
+  7 jours moins la moyenne des paires au même instant (excès, dérive retirée).
+- **Variable plantée** : v = ρ · z(cible) + √(1 − ρ²) · ε, ρ = 0 ; 0,02 ; 0,05 ; 0,10 (z : cible standardisée à
+  l'instant). Elle s'ajoute aux sept variables réelles.
+- **Modèles**, réglages déjà utilisés au programme : LightGBM (15 feuilles, apprentissage 0,05, 200 lignes par
+  feuille, 300 arbres) et régression linéaire de référence. Réajustement le 1er de chaque mois depuis 2020, sur les
+  lignes dont la cible est connue avant la date (purge), au moins 2 000 lignes.
+- **Mesure** : corrélation de rang quotidienne hors échantillon entre la prévision et la cible, IC calendaire par
+  blocs de 14 jours ; à côté, la corrélation de la variable plantée seule (le plafond).
+- **Lecture déclarée** : si un modèle retrouve à ρ = 0,05 une corrélation proche du plafond, l'apprentissage sait
+  extraire une information de cette taille, et l'absence d'information des lots ML ne vient pas d'un modèle trop
+  faible ; s'il ne la retrouve qu'à ρ = 0,10, il faut le dire : nos modèles ML ne pouvaient voir qu'une information
+  de cette taille, et le « non » des lots ML vaut seulement à ce niveau.
+
 ## Historique
 
 - 2026-10-03 : déclaré avant toute exécution.

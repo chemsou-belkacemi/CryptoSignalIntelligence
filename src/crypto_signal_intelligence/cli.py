@@ -666,6 +666,29 @@ def ticks_command(verbose: bool = False):
     console.print(f"Erreurs : {result.errors or 'aucune'}")
 
 
+@app.command("fit-control")
+def fit_control_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Essai local sur du code non commité (enregistré comme tel)"),
+                        verbose: bool = False):
+    """Contrôle positif de l'ajustement (docs/POSITIVE_CONTROL.md § 7) : LightGBM et une régression linéaire retrouvent-ils
+    une variable faiblement informative plantée parmi les variables du lot 7 ? 0 essai."""
+    from .research.factors import DirtyCode
+    from .research.fit_control import run
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    try:
+        with console.status("contrôle de l'ajustement…") as status:
+            result = run(settings, now=_now(), progress=lambda text: status.update(f"ajustement : {text}"), allow_dirty=allow_dirty)
+    except (DirtyCode, FileNotFoundError) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    table = Table("ρ planté", "Modèle", "Variable seule (plafond)", "Hors échantillon", "IC95", "Vu")
+    for r in result.rows:
+        table.add_row(str(r["rho"]), r["model"], str(r["planted_alone"]["rank_ic"]), str(r["oos"]["rank_ic"]), str(r["oos"]["ci95"]),
+                      "oui" if r["oos"]["detected"] else "non")
+    console.print(table)
+    console.print(f"Rapport : {settings.reports_dir / result.run_id / 'summary.json'}")
+
+
 @app.command("data-quality")
 def data_quality(symbol: str = typer.Option(..., help="Paire, ex. BTCUSDT"),
                  timeframe: str = typer.Option(None, help="Défaut : timeframe de setup")):
