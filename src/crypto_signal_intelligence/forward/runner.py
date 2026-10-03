@@ -122,8 +122,9 @@ def daily(settings: Settings, *, now: datetime, force: bool = False) -> dict | N
             if not acquired:
                 return {"skipped": "un autre passage est en cours"}
             _LAST["poll"] = moment
+            spreads_note = _record_spreads(settings, now=now)
             if not hourly:
-                return {"poll": poll_tests(settings, now=now)}
+                return {"poll": poll_tests(settings, now=now), "spreads": spreads_note}
             _LAST["run"] = moment
             out: dict = {"tests": run_tests(settings, now=now)}
             if moment - moment.floor("D") >= derivlog.RECORD_AFTER:
@@ -146,6 +147,16 @@ def daily(settings: Settings, *, now: datetime, force: bool = False) -> dict | N
             return out
     finally:
         _LOCK.release()
+
+
+def _record_spreads(settings: Settings, *, now: datetime) -> dict | None:
+    """Relevé F0_ECARTS (forward/spreads.py), au plus toutes les 10 minutes ; jamais bloquant."""
+    from . import spreads
+    try:
+        return spreads.maybe_record(settings, now=now)
+    except Exception as exc:  # noqa: BLE001 - un relevé en panne n'arrête pas les tests
+        log.exception("relevé des écarts entre bourses")
+        return {"error": f"{type(exc).__name__}: {exc}"[:200]}
 
 
 def start_background(settings: Settings, *, now: datetime) -> bool:

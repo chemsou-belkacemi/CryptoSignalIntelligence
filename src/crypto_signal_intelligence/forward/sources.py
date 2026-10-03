@@ -25,7 +25,7 @@ ALLOWED = {
     "data-api.ecb.europa.eu": ("/service/data/EXR/",),
     "api.kraken.com": ("/0/public/Ticker",),
     "www.bitstamp.net": ("/api/v2/ticker/",),
-    "www.okx.com": ("/api/v5/public/liquidation-orders",),
+    "www.okx.com": ("/api/v5/public/liquidation-orders", "/api/v5/market/ticker"),
     "api.nasdaq.com": ("/api/quote/NDX/historical",),
     # Émissions de stablecoins (F3_STABLECOINS) : événements publics des contrats, sans clé.
     "api.trongrid.io": ("/v1/contracts/",),
@@ -37,6 +37,8 @@ ALLOWED = {
     "api.exchange.coinbase.com": ("/products",),
     # Valeur on-chain (criblage J) : API communautaire de CoinMetrics, sans clé, MVRV journalier.
     "community-api.coinmetrics.io": ("/v4/timeseries/asset-metrics",),
+    # Relevé des écarts entre bourses (F0_ECARTS) : carnet public d'Upbit (prime coréenne).
+    "api.upbit.com": ("/v1/orderbook",),
 }
 TRON_API = "https://api.trongrid.io"
 ETH_RPC = "https://ethereum-rpc.publicnode.com"

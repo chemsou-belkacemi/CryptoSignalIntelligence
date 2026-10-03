@@ -793,6 +793,20 @@ def xsection_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", he
     console.print(f"Rapport : {settings.reports_dir / payload['run_id'] / 'summary.json'} ; programme : {payload['program_trials']} essais")
 
 
+@app.command("spreads")
+def spreads_command(verbose: bool = False):
+    """Résumé du relevé des écarts entre bourses et de la prime coréenne (docs/SPREADS.md) : écart brut moyen et maximal,
+    part des relevés à écart NET positif après les frais d'un particulier. Lecture seule."""
+    from .forward.spreads import summary
+    settings = _settings(verbose)
+    out = summary(settings)
+    table = Table("Bourse / actif", "Relevés", "Écart brut moyen (pb)", "Écart brut max (pb)", "Relevés à écart net > 0")
+    for key, s in sorted(out["pairs"].items()):
+        table.add_row(key, str(s["n"]), str(s["gross_mean_bps"]), str(s["gross_max_bps"]), f"{s['net_positive_share']:.1%}")
+    console.print(table)
+    console.print(f"Relevés : {out['snapshots']} ; prime coréenne (pb) : {out['korea']}")
+
+
 @app.command("data-quality")
 def data_quality(symbol: str = typer.Option(..., help="Paire, ex. BTCUSDT"),
                  timeframe: str = typer.Option(None, help="Défaut : timeframe de setup")):
