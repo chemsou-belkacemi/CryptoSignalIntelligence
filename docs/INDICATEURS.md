@@ -35,7 +35,8 @@ des oscillations de quelques jours à quelques semaines, l'échelle des figures 
 sont fixées a priori et ne seront pas réglées.
 
 *Exemple vérifiable* (1 jour, m = 2, ATR = 1 constant pour l'exemple) : plus hauts 10, 11, 12, 11, 10 et plus bas 9,
-10, 11, 10, 9,5 : le plus haut 12 (indice 2) devient pivot haut à l'indice 4, car `L_4 = 9,5 ≤ 12 − 2`.
+10, 11, 10,5, 9,5. À l'indice 1, `H_1 = 11 ≥ 9 + 2` : le plus bas 9 (indice 0) devient pivot bas, connu à 1. Le plus
+haut 12 (indice 2) devient pivot haut à l'indice 4, car `L_3 = 10,5 > 12 − 2` mais `L_4 = 9,5 ≤ 10`.
 
 ## 2. Fair Value Gap (FVG)
 
@@ -109,7 +110,8 @@ pivot, avec `P_i = (H_i + L_i + C_i) / 3`.
 
 *Exemple* : deux bougies, `[L ; H]` = [0 ; 10] volume 10 et [5 ; 10] volume 10, 50 tranches de 0,2 : chaque tranche
 de [0 ; 5] reçoit 10 / 50 = 0,2, chaque tranche de [5 ; 10] reçoit 0,2 + 10 / 25 = 0,6 ; POC = la tranche [5 ; 5,2]
-(égalité : la plus basse) ; la zone de valeur couvre les 25 tranches de [5 ; 10] (75 % du volume) plus rien d'autre.
+(égalité : la plus basse) ; la zone de valeur s'étend vers le haut (tranches voisines de 0,6 contre 0,2) et s'arrête
+dès 70 % : 24 tranches, de 5 à 9,8 (14,4 sur 20, soit 72 %).
 
 ## Historique
 
