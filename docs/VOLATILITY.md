@@ -505,6 +505,26 @@ réalisée est 30 à 43 % plus forte ; à 7 jours, la prévision est trop haute 
   rendements journaliers de la paire, sans BTC ni variances intrajournalières) ; s'il fait mieux, c'est une
   information importante sur nos modèles. Rien n'est branché.
 
+### Résultats du protocole v4 (`VOL-20261003T005910Z-a26dfe`, 6 comparaisons, programme 765)
+
+**Verdict : `AUCUNE_AMELIORATION`** aux trois horizons ; 33 paires, 1 685 à 1 806 jours (lignes où les trois prévisions
+existent : le GARCH demande 365 jours de rendements et le réétalonnage 500 lignes connues).
+
+| Candidat | Horizon | QLIKE | Service | Écart [IC 99,17 %] | Années | Paires mieux |
+|---|---|---|---|---|---|---|
+| C1 réétalonné | 1 j | 0,373 | 0,372 | +0,002 [−0,015 ; +0,018] | 3/5 | 55 % |
+| C1 réétalonné | 3 j | 0,299 | 0,292 | +0,007 [−0,007 ; +0,022] | 2/5 | 45 % |
+| C1 réétalonné | 7 j | 0,249 | 0,247 | +0,002 [−0,010 ; +0,015] | 4/5 | 70 % |
+| C2 GARCH(1,1) | 1 j | 0,430 | 0,372 | +0,058 [−0,005 ; +0,121] | 1/5 | 9 % |
+| C2 GARCH(1,1) | 3 j | 0,337 | 0,292 | +0,045 [−0,002 ; +0,092] | 1/5 | 9 % |
+| C2 GARCH(1,1) | 7 j | 0,296 | 0,247 | **+0,049 [+0,011 ; +0,087]** | 1/5 | 3 % |
+
+- **Le réétalonnage ne gagne rien** : l'écart d'étalonnage aux extrêmes vu dans le rapport d'information pèse trop
+  peu dans la QLIKE moyenne pour qu'une correction se voie. Le service reste tel quel.
+- **Le GARCH(1,1), référence classique de la littérature, est nettement moins bon que nos modèles en service**
+  (+15 à +20 % de QLIKE, moins bon sur presque toutes les paires, intervalle au-dessus de 0 à 7 jours). C'est une
+  confirmation utile : la prévision en service apporte réellement quelque chose au-delà du modèle standard.
+
 ## Historique
 
 - 2026-10-01, v1 : protocole déclaré avant toute exécution.
@@ -521,3 +541,4 @@ réalisée est 30 à 43 % plus forte ; à 7 jours, la prévision est trop haute 
   commité (commit du code exécuté enregistré) ; refus si un horizon a moins de 20 blocs de jours ;
   nombre de fils enregistré ; test de la jointure BTC vers le passé ; commande `csi volatility` et
   verdict au tableau de bord ; paires renommées déclarées.
+- 2026-10-03, protocole v4 (§ 17) : déclaré puis exécuté (`VOL-20261003T005910Z-a26dfe`, 6 comparaisons, programme 765), AUCUNE_AMELIORATION.
