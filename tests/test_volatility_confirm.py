@@ -206,3 +206,14 @@ def test_coverage_reads_only_open_times_from_the_real_store_layout(settings):
     assert len(times) == len(frame) and str(times.dt.tz) == "UTC"
     with pytest.raises(v1.MissingData):
         vc.open_times(settings, "XYZUSDT")
+
+
+def test_coverage_accepts_a_pair_listed_during_the_window_but_not_a_hole(settings, monkeypatch):
+    hours = pd.date_range(pd.Timestamp("2025-01-01", tz="UTC"), CUTOFF, freq="h")
+    late = hours[hours >= pd.Timestamp("2025-05-01", tz="UTC")]                     # cotée pendant la fenêtre
+    hole = hours[(hours < pd.Timestamp("2025-04-10", tz="UTC")) | (hours > pd.Timestamp("2025-04-20", tz="UTC"))]
+    store = {"BTCUSDT": pd.Series(hours), "LATEUSDT": pd.Series(late), "HOLEUSDT": pd.Series(hole)}
+    monkeypatch.setattr(vc, "open_times", lambda settings_, symbol: store[symbol])
+    assert vc.coverage_problems(settings, ["LATEUSDT"], START, CUTOFF) == []
+    problems = vc.coverage_problems(settings, ["HOLEUSDT"], START, CUTOFF)
+    assert len(problems) == 1 and problems[0].startswith("HOLEUSDT")

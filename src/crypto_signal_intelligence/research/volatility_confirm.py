@@ -242,9 +242,10 @@ def open_times(settings: Settings, symbol: str) -> pd.Series:
 
 
 def coverage_problems(settings: Settings, symbols: list[str], start: pd.Timestamp, cutoff: pd.Timestamp) -> list[str]:
-    """Contrôle AVANT la consultation, sur les seules heures d'ouverture des bougies : au moins 99 % des heures de la
-    fenêtre présentes et une bougie à `cutoff`, pour chaque paire. Aucun prix n'est lu."""
-    expected = int((cutoff - start) / v1.STEP) + 1
+    """Contrôle AVANT la consultation, sur les seules heures d'ouverture des bougies : pour chaque paire, au moins
+    99 % des heures attendues présentes et une bougie à `cutoff`. Heures attendues : de `start`, ou de la première
+    bougie de la paire si elle a été cotée pendant la fenêtre (ses premières origines sont de toute façon exclues
+    par l'ancienneté minimale de 400 jours). Aucun prix n'est lu."""
     problems = []
     for symbol in dict.fromkeys([*symbols, MARKET]):
         try:
@@ -252,8 +253,13 @@ def coverage_problems(settings: Settings, symbols: list[str], start: pd.Timestam
         except v1.MissingData:
             problems.append(f"{symbol} : absente du magasin long")
             continue
-        inside = times[(times >= start) & (times <= cutoff)]
-        share = inside.nunique() / expected
+        if times.empty:
+            problems.append(f"{symbol} : aucune bougie")
+            continue
+        first = max(start, times.min())
+        expected = int((cutoff - first) / v1.STEP) + 1
+        inside = times[(times >= first) & (times <= cutoff)]
+        share = inside.nunique() / expected if expected > 0 else 0.0
         if share < MIN_COVERAGE or cutoff not in set(inside):
             problems.append(f"{symbol} : {share:.1%} des heures, dernière {inside.max() if len(inside) else 'aucune'}")
     return problems
