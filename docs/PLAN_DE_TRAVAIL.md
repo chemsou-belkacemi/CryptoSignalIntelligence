@@ -24,7 +24,16 @@ F1 maker/taker · F2 échelles de TP · F3 émissions de stablecoins · F4 signa
 feu tricolore · F6 capitulation · F7 listings Upbit/Coinbase · F8 filtre de news · F9 purge de l'intérêt ouvert ·
 F10 cassure journalière d'un pivot (K2) · F11 veto pression vendeuse (J2) · F12 prévisions de volatilité.
 
-## 3. À faire — mesure et données (gratuit), dans cet ordre
+## 3. À faire — validé par le propriétaire le 2026-10-03
+
+- **Élargir le scanner shadow aux 24 autres paires de recherche** (les 40 de `RESEARCH_UNIVERSE`, déjà admises par
+  le screening halal, moins les 16 de la configuration) : liste séparée `live.shadow_extra_symbols`, **sans toucher
+  à `data.symbols`** (figé par F5, F9, F10, F11, F12). Signaux marqués « 16 d'origine » / « 24 nouvelles » dans le
+  registre et le tableau de bord ; test en direct pré-inscrit **F13** : A, B, C sur ces 24 paires jamais vues par
+  les stratégies (vrai hors échantillon par actif), mêmes règles de suivi, réponse attendue écrite d'avance
+  (négative, comme sur les 16) ; effet daté sur les entrées de F2 ; charge du PC vérifiée avant validation.
+
+## 3 bis. À faire — mesure et données (gratuit), dans cet ordre
 
 1. **Régler les intervalles sous contrôle positif** : les criblages sont trop prudents (0 % de fausses alarmes
    pour 2,5 % attendus), l'intraday un peu trop étroit (8 %). Méthode de référence : bootstrap stationnaire et
