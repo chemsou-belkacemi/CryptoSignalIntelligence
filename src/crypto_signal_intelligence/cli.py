@@ -743,6 +743,32 @@ def screen_seasonality_command(allow_dirty: bool = typer.Option(False, "--allow-
     console.print(f"Programme : {payload['program_trials']} essais")
 
 
+@app.command("grid-dca")
+def grid_dca_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Essai local sur du code non commité (enregistré comme tel)"),
+                     point_in_time: bool = typer.Option(False, "--point-in-time", help="Univers à date (top 40 du mois, paires retirées comprises)"),
+                     verbose: bool = False):
+    """Grille et DCA (docs/GRID_DCA.md) : quatre variantes figées contre « garder » et les liquidités, par mois, frais
+    maker, ordres remplis seulement si le prix les traverse ; 4 essais, DEVELOPMENT seulement."""
+    from .research.factors import DirtyCode
+    from .research.grid_dca import run
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    try:
+        with console.status("grille et DCA…") as status:
+            payload = run(settings, now=_now(), progress=lambda text: status.update(f"grille et DCA : {text}"), allow_dirty=allow_dirty,
+                          point_in_time=point_in_time)
+    except (DirtyCode, FileNotFoundError) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    table = Table("Variante", "Coûts", "Paire-mois", "Rendement %", "IC", "Garder %", "Écart %", "IC écart", "Pire mois % (garder)", "Exposition")
+    for variant, scenarios in payload["summary"].items():
+        for scenario, s in scenarios.items():
+            table.add_row(variant, scenario, str(s["pair_months"]), str(s["ret_pct"]), str(s["ret_ci_pct"]), str(s["hold_pct"]), str(s["excess_vs_hold_pct"]),
+                          str(s["excess_ci_pct"]), f"{s['worst_month_pct']} ({s['hold_worst_month_pct']})", str(s["mean_max_exposure"]))
+    console.print(table)
+    console.print(f"Rapport : {settings.reports_dir / payload['run_id'] / 'summary.json'} ; programme : {payload['program_trials']} essais")
+
+
 @app.command("data-quality")
 def data_quality(symbol: str = typer.Option(..., help="Paire, ex. BTCUSDT"),
                  timeframe: str = typer.Option(None, help="Défaut : timeframe de setup")):
