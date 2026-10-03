@@ -1255,7 +1255,7 @@ la prévision horaire à 24 h est confirmée hors échantillon (`VOLATILITY.md` 
 | Essai | Phase | Nombre | État |
 |---|---|---|---|
 | Volatilité réalisée fine (HAR-RV 5 min et 1 min) | 10.1 | 6 comparaisons | déclaré (`VOLATILITY.md` § 20) |
-| CNN sur images de graphiques | 10.2 | 1 | déclaré (`CNN.md`) |
+| CNN sur images de graphiques | 10.2 | 1 | `NE_PASSE_PAS` (essai 792, `CNN-20261003T163025Z-70e39d`) |
 | F15 détecteur de figures | 11 | 1 | déclaré (section F15_FIGURES) |
 | F16 signaux Telegram en image | 3 | 1 | démarré le 2026-10-03 (FWD-20261003T154234Z-62639a) |
 

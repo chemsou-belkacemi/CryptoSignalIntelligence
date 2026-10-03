@@ -82,3 +82,14 @@ période finale a déjà été lue une fois).
   - limites de mesure reprises de `XSECTION.md` : la rotation ignore la dérive des poids (~1 pb par semaine de coûts
     en moins, pour la stratégie comme pour le panier) ; une paire retirée de la cote sort à sa dernière journée
     présente (peut être optimiste) ; un rendement manquant compte 0 (nombre de lignes concernées au rapport).
+- 2026-10-03, **exécution unique** (`CNN-20261003T163025Z-70e39d`, essai n° 792 du programme) : **`NE_PASSE_PAS`**.
+  - 126 semaines de validation (2023-01-30 → 2025-06-23), 5 022 images ; entraînement 5 232 images, arrêt 2 242.
+  - Top 8 du CNN : +0,224 %/semaine net, Sharpe 0,12, perte max −80 % ; panier : +0,27 %/semaine, perte max −69 %.
+    Excès hebdomadaire −0,046 %, IC [−1,27 ; +1,18] ; par année : 2023 +0,04, 2024 +0,64, 2025 −1,64 (en %).
+    Rotation 1,54 par semaine.
+  - Classement : AUC 0,506, corrélation de rang moyenne −0,009 ; exactitude 0,56, qui ne vient que du déséquilibre
+    des classes (41 % au-dessus de la moyenne à l'entraînement).
+  - Arrêt précoce à l'**époque 1** (3 époques jouées) : le modèle est resté près de l'initialisation, cas prévu et
+    déclaré avant l'exécution ; c'est une non-détection avec ce budget, pas une réfutation de l'article. Les parts de
+    l'excès par paire (> 100 %) n'ont pas de sens ici : l'excès total est proche de zéro.
+  - Aucune relance avec d'autres réglages sans nouvelle déclaration (ce serait un nouvel essai).
