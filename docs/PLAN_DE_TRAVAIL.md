@@ -77,7 +77,7 @@ Aucun calcul de recherche en cours.
 4. **Boucle Demo (lot 4)** : dès que BSM remonte des exécutions, rapport frais réels / glissement / entrées
    manquées, sur au moins 4 semaines.
 5. **Branches BSM** : fusionnées et poussées le 2026-10-03 sur demande du propriétaire (`REVUE_BRANCHES_BSM.md`) ;
-   **[propriétaire]** redémarrer le bot (`make backup && make up`).
+   le bot tourne avec le code fusionné (image reconstruite le 2026-10-03 à 16:14, après la fusion).
 6. **Recherche** : gelée, sauf source d'information nouvelle et gratuite, sur demande du propriétaire, déclarée et
    comptée.
 7. **2026-12-25** : un test qui passe est confirmé sur données jamais vues puis en Demo ; si rien ne passe,
@@ -104,7 +104,6 @@ Aucun calcul de recherche en cours.
 - **[propriétaire] Deuxième bot Telegram** : jeton dans `.env`, puis `docker compose --profile telegram up -d
   telegram-relay` (`TELEGRAM_RELAY.md`).
 - **[propriétaire] Exports avec photos** de tes groupes (`TELEGRAM_RELAY.md` § 2).
-- **[propriétaire] Redémarrage de BSM** après la fusion du 2026-10-03 (`make backup && make up`).
 - **[propriétaire] Réserves de stablecoins sur les plateformes** : reporter (recommandé) ou DefiLlama malgré des
   réponses de 28 à 43 Mo et des portefeuilles déclarés seulement (`CONTEXTE.md`).
 - **[propriétaire] VPS** : refusé pour l'instant (2026-10-03) ; kit prêt dans `VPS.md`.
