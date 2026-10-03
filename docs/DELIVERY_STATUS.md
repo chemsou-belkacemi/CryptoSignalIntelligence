@@ -37,6 +37,10 @@ stratégies actuelles sont **REJECTED** hors échantillon (README). Vérificatio
 | Test croisé CSI ↔ BSM sur les messages Telegram réels (mêmes prix lus) | TESTÉ | `test_csi_and_bsm_read_the_same_telegram_signal` (main et branche) |
 | MAX_ENTRY_DEVIATION_BPS couvrant l'écart réel référence → ENTRY_1 (+ tolérance 25 pb) | TESTÉ | `test_published_band_accepts_the_price_at_publication` |
 | Registre des publications portable entre machines (chemins relatifs, chemins étrangers ramenés) | TESTÉ | `test_registry_paths_survive_a_move_between_machines` |
+| Bibliothèque d'indicateurs (INDICATEURS.md § 1-10) : pivots, ZigZag, FVG, OB, sweeps, structure, volume, figures, niveaux de période, sessions, chiffres ronds, RSI et divergences, MACD, stochastique, CCI, EMA, Bollinger, Keltner, Ichimoku, Supertrend, pivots, flux, ICT avancé | TESTÉ | définitions écrites avant le code ; `test_patterns*`, `test_figures`, `test_indicators` (valeurs à la main, falsification du futur) |
+| Détecteur de figures en direct (F15, figures classiques comprises) | EN SERVICE | démarré le 2026-10-03, relu trois fois ; verdict vers mi-mars 2027 |
+| Données de contexte gratuites (CONTEXTE.md) : historique et relevé quotidien | EN SERVICE | `test_context` (clients factices) ; sources validées par le propriétaire le 2026-10-04 ; réserves de stablecoins, flux ETF, Google Trends, gap CME : reportés |
+| CNN sur images (phase 10.2) et volatilité sur minutes (phase 10.1) | TESTÉ, EXÉCUTÉ | `NE_PASSE_PAS` et `AUCUNE_AMELIORATION` (CNN.md, VOLATILITY.md § 20) |
 
 ## Intégration avec BinanceSpotManager (Binance Demo uniquement)
 

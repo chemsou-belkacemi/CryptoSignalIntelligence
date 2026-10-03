@@ -1,8 +1,8 @@
-# Plan de travail — état au 2026-10-03 (plan d'octobre 2026 à janvier 2027, validé)
+# Plan de travail — état au 2026-10-04 (plan d'octobre 2026 à janvier 2027, validé)
 
 Document vivant : ce qui est fait, ce qui tourne, ce qui reste. Chaque ligne « à faire » se fait comme d'habitude :
 déclarée avant, mesurée avec intervalle (et placebos en direct), comptée au programme. Les décisions du
-propriétaire sont marquées **[propriétaire]**. Programme au 2026-10-03 : **791 essais** sur DEVELOPMENT ; période
+propriétaire sont marquées **[propriétaire]**. Programme au 2026-10-04 : **798 essais** sur DEVELOPMENT ; période
 finale réservée consultée **une fois**, le 2026-10-03, pour la volatilité seulement (décision du
 propriétaire).
 
@@ -38,6 +38,11 @@ refusé (aucune donnée payante) ; points 6 à 10 en attente (voir § 5).
 | **B10** — signaux Telegram en image | lecture locale branchée sur l'audit des groupes (`--ocr`) ; ignorée au moindre doute | `OCR.md` |
 | **B11** — news de risque | classement par mots-clés en observation ; étude d'événements déclarée ; modèle local en attente d'Ollama | `NEWS.md` |
 | Onglet Marché | nouveaux essais automatiques comme l'onglet Opportunités | — |
+| **Mission du 2026-10-03** — phase 10.2, CNN sur images de graphiques (un essai) | `NE_PASSE_PAS` (AUC 0,506 ; arrêt à l'époque 1 : non-détection avec ce budget) | `CNN.md` |
+| Phase 10.1, volatilité réalisée sur bougies de 1 minute (v5, 6 comparaisons) | `AUCUNE_AMELIORATION` : estimations favorables aux minutes (C5 à 3 j : 7 années sur 7), non démontrées | `VOLATILITY.md` § 20 |
+| Phases 1.4 et 11 — bibliothèque d'indicateurs et détecteur de figures | F15 démarré le 2026-10-03 (figures classiques comprises) ; bibliothèque § 10 (niveaux, sessions, indicateurs classiques, flux, ICT avancé), utilisée par aucun test | `INDICATEURS.md`, `FORWARD_TESTS.md` |
+| Phase 1.3, ajout du 2026-10-03 — données de contexte gratuites | sources validées le 2026-10-04 ; historique téléchargé, relevé quotidien en service | `CONTEXTE.md` |
+| Tableau de bord — signaux des stratégies de CSI | tous consultables (pages de 20, filtre par stratégie) | — |
 
 ## 2. En cours
 
@@ -45,7 +50,9 @@ refusé (aucune donnée payante) ; points 6 à 10 en attente (voir § 5).
 TP · F3 émissions de stablecoins · F4 signaux Telegram en direct · F5 modèle A et feu tricolore · F6 capitulation ·
 F7 listings Upbit/Coinbase · F8 filtre de news · F9 purge de l'intérêt ouvert · F10 cassure journalière d'un pivot
 (K2) · F11 veto pression vendeuse (J2) · F12 prévisions de volatilité · F13 K2 sur 24 paires · F14 K2 à niveaux
-par la volatilité. Relevés : F0_ECARTS (écarts entre bourses), news de risque (étude évaluée si 30 événements).
+par la volatilité · F16 signaux Telegram en image (démarré le 2026-10-03) · **F15 détecteur de figures** (démarré le
+2026-10-03 ; verdict vers mi-mars 2027, figures 1 jour tenues 60 jours). Relevés : F0_ECARTS (écarts entre bourses),
+news de risque (étude évaluée si 30 événements), données de contexte (`CONTEXTE.md`).
 
 Aucun calcul de recherche en cours.
 
@@ -69,8 +76,8 @@ Aucun calcul de recherche en cours.
    - ensuite : garder seulement les groupes prouvés sur historique, F4 mesure les autres en direct.
 4. **Boucle Demo (lot 4)** : dès que BSM remonte des exécutions, rapport frais réels / glissement / entrées
    manquées, sur au moins 4 semaines.
-5. **Branches BSM** : dossier de relecture prêt (`REVUE_BRANCHES_BSM.md`) ; **[propriétaire]** fusion après ta
-   relecture, dans l'ordre recommandé.
+5. **Branches BSM** : fusionnées et poussées le 2026-10-03 sur demande du propriétaire (`REVUE_BRANCHES_BSM.md`) ;
+   **[propriétaire]** redémarrer le bot (`make backup && make up`).
 6. **Recherche** : gelée, sauf source d'information nouvelle et gratuite, sur demande du propriétaire, déclarée et
    comptée.
 7. **2026-12-25** : un test qui passe est confirmé sur données jamais vues puis en Demo ; si rien ne passe,
@@ -97,7 +104,9 @@ Aucun calcul de recherche en cours.
 - **[propriétaire] Deuxième bot Telegram** : jeton dans `.env`, puis `docker compose --profile telegram up -d
   telegram-relay` (`TELEGRAM_RELAY.md`).
 - **[propriétaire] Exports avec photos** de tes groupes (`TELEGRAM_RELAY.md` § 2).
-- **[propriétaire] Fusion des branches BSM** après relecture (`REVUE_BRANCHES_BSM.md`).
+- **[propriétaire] Redémarrage de BSM** après la fusion du 2026-10-03 (`make backup && make up`).
+- **[propriétaire] Réserves de stablecoins sur les plateformes** : reporter (recommandé) ou DefiLlama malgré des
+  réponses de 28 à 43 Mo et des portefeuilles déclarés seulement (`CONTEXTE.md`).
 - **[propriétaire] VPS** : refusé pour l'instant (2026-10-03) ; kit prêt dans `VPS.md`.
 - **[propriétaire] Ollama** (modèle local des news de risque) : installation par `sudo` dans ton terminal,
   `curl -fsSL https://ollama.com/install.sh | sh` puis `ollama pull qwen3:8b` (environ 5 Go, tient dans les 6 Go
