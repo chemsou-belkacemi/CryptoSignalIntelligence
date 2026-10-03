@@ -9,7 +9,8 @@ demande de clé Binance. Pages : `/` (application : analyser une paire, évaluer
     GET  /sources              bilan de chaque groupe Telegram contre le taux de base
     GET  /signals/recent?limit=N   dernières évaluations de signaux externes
     GET  /execution-report     signaux publiés : backtest, prospectif et Demo séparés
-    GET  /signals/generated?limit=N  derniers signaux trouvés par les stratégies de CSI (shadow)
+    GET  /signals/generated?limit=N&offset=K&strategy=S  signaux trouvés par les stratégies de CSI (shadow), du plus
+                                     récent au plus ancien, par pages ; total et stratégies présentes
     GET  /universe             paires configurées et paires ajoutées par le propriétaire (état)
     GET  /pairs                paires analysables, avec la fraîcheur de leurs données
     GET  /models               verdicts de tous les modèles de CSI (registre des expériences)
@@ -375,8 +376,10 @@ class CsiApi:
         from ..feedback.reconcile import execution_report
         return {"rows": _jsonable(execution_report(self.settings))}
 
-    def generated(self, limit: int) -> dict:
-        """Derniers signaux trouvés par les stratégies de CSI (dossier shadow), du plus récent au plus ancien.
+    def generated(self, limit: int, offset: int = 0, strategy: str = "") -> dict:
+        """Signaux trouvés par les stratégies de CSI (dossier shadow), du plus récent au plus ancien, par pages
+        (`offset` = nombre de signaux plus récents à sauter), filtrables par stratégie ; `total` = nombre de signaux
+        correspondant au filtre.
 
         `bsm_text` : le même signal au format texte que BinanceSpotManager lit déjà (PAIR / ENTRY / T / SL),
         pour un test manuel en Demo. Aucune stratégie n'étant validée, chaque signal porte son statut de
@@ -386,13 +389,19 @@ class CsiApi:
         from ..signals.outcomes import outcomes, summary
         from ..signals.txt import parse
         if not self.settings.signals_db.exists():
-            return {"signals": [], "note": "aucun signal trouvé pour l'instant"}
+            return {"signals": [], "total": 0, "strategies": [], "note": "aucun signal trouvé pour l'instant"}
         verdicts = {s["strategy"]: s for s in self.strategies()["strategies"]}
         registry = SignalRegistry(self.settings.signals_db, self.settings.publication_dir(), root=self.settings.root)
         now = self.now()
         resolved = outcomes(self.settings)
         out = []
-        for row in reversed(registry.rows()[-max(1, min(limit, 100)):]):
+        rows = list(reversed(registry.rows()))
+        strategies = sorted({str(r["strategy"]) for r in rows if r["strategy"]})
+        if strategy:
+            rows = [r for r in rows if r["strategy"] == strategy]
+        total = len(rows)
+        start = max(0, offset)
+        for row in rows[start:start + max(1, min(limit, 100))]:
             try:
                 signal = parse(row["payload"])
             except Exception:  # noqa: BLE001 - un enregistrement illisible n'empêche pas les autres
@@ -416,7 +425,7 @@ class CsiApi:
                 "outcome": resolved.get(signal.signal_id, {}).get("outcome"),
                 "outcome_r": resolved.get(signal.signal_id, {}).get("r"),
             })
-        return {"signals": out, "summary": summary(self.settings),
+        return {"signals": out, "total": total, "offset": start, "strategies": strategies, "summary": summary(self.settings),
                 "note": "stratégies non validées (walk-forward) : signaux à observer ou à tester à la main en Demo, "
                         "jamais une promesse de gain"}
 
@@ -764,7 +773,9 @@ class CsiApi:
                 "/health": self.health, "/strategies": self.strategies, "/sources": self.sources,
                 "/execution-report": self.execution_report, "/universe": self.universe,
                 "/signals/recent": lambda: self.recent(_int(query.get("limit", ["20"])[0])),
-                "/signals/generated": lambda: self.generated(_int(query.get("limit", ["20"])[0])),
+                "/signals/generated": lambda: self.generated(_int(query.get("limit", ["20"])[0]),
+                                                             _int(query.get("offset", ["0"])[0]),
+                                                             query.get("strategy", [""])[0]),
                 "/pairs": self.pairs, "/models": self.models,
                 "/derivatives": lambda: self.derivatives(query.get("symbol", [""])[0]),
                 "/admissions": self.admissions, "/sources/history": self.sources_history,
@@ -822,7 +833,7 @@ def _int(value: str) -> int:
     try:
         return int(value)
     except ValueError:
-        raise ApiError(HTTPStatus.BAD_REQUEST, "limit : entier attendu") from None
+        raise ApiError(HTTPStatus.BAD_REQUEST, "limit / offset : entier attendu") from None
 
 
 def allowed_hosts() -> set[str]:

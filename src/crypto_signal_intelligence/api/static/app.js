@@ -864,7 +864,7 @@ async function loadFollow(force = false) {
   busy(target, "Chargement…");
   try {
     const [health, models, recent, sources, generated, universe, admissions, history, plans, forward] = await Promise.all([
-      api("/health"), api("/models"), api("/signals/recent?limit=15"), api("/sources"), api("/signals/generated?limit=10"), api("/universe"),
+      api("/health"), api("/models"), api("/signals/recent?limit=15"), api("/sources"), api(`/signals/generated?limit=${GENERATED_PAGE}`), api("/universe"),
       refreshAdmissions(), api("/sources/history"), api("/plans/live"), api("/forward").catch(() => null),
     ]);
     state.followLoaded = true;
@@ -913,13 +913,52 @@ async function loadFollow(force = false) {
         table(["Stratégie", { label: "Résolus", num: true }, { label: "Remplis", num: true }, { label: "R moyen des remplis", num: true }, { label: "Gagnants", num: true }],
           (generated.summary || []).map((s) => [s.strategy, s.resolved, s.filled, isNum(s.r_mean) ? `${fmt(s.r_mean, 2, true)} R` : "–", pctFrac(s.win_share)]),
           "aucun signal encore résolu (24 h après la fin de validité de l'entrée)"),
-        table(["Créé", "Paire", "Stratégie", "Entrée · stop · TP1", "Verdict stratégie", "Issue", { label: "R", num: true }],
-          (generated.signals || []).map((x) => [when(x.created_at), pair(x.symbol), x.strategy, `${price(x.entry)} · ${price(x.stop_loss)} · ${price(x.targets[0])}`,
-            x.strategy_verdict || "–", OUTCOME_LABELS[x.outcome] || (x.expired ? "en cours de suivi" : "actif"),
-            isNum(x.outcome_r) ? `${fmt(x.outcome_r, 2, true)} R` : "–"]), "aucun signal trouvé")));
+        generatedBrowser(generated)));
   } catch (error) {
     showError(target, error);
   }
+}
+
+// --- signaux des stratégies de CSI : tous consultables, par pages de 20, filtrables par stratégie ----------
+const GENERATED_PAGE = 20;
+
+function generatedTable(data) {
+  return table(["Créé", "Paire", "Stratégie", "Entrée · stop · TP1", "Verdict stratégie", "Issue", { label: "R", num: true }],
+    (data.signals || []).map((x) => [when(x.created_at), pair(x.symbol), x.strategy, `${price(x.entry)} · ${price(x.stop_loss)} · ${price(x.targets[0])}`,
+      x.strategy_verdict || "–", OUTCOME_LABELS[x.outcome] || (x.expired ? "en cours de suivi" : "actif"),
+      isNum(x.outcome_r) ? `${fmt(x.outcome_r, 2, true)} R` : "–"]), "aucun signal trouvé");
+}
+
+function generatedBrowser(first) {
+  const view = { offset: 0, strategy: "" };
+  const holder = el("div", {});
+  const status = el("span", { class: "muted small" });
+  const newer = el("button", { type: "button", class: "ghost", text: "← plus récents" });
+  const older = el("button", { type: "button", class: "ghost", text: "plus anciens →" });
+  const select = el("select", { "aria-label": "Stratégie" }, el("option", { value: "", text: "toutes les stratégies" }),
+    (first.strategies || []).map((name) => el("option", { value: name, text: name })));
+  function render(data) {
+    const total = data.total || 0;
+    const shown = (data.signals || []).length;
+    status.textContent = total ? `signaux ${view.offset + 1} à ${view.offset + shown} sur ${total}, du plus récent au plus ancien` : "";
+    newer.disabled = view.offset === 0;
+    older.disabled = view.offset + GENERATED_PAGE >= total;
+    holder.replaceChildren(generatedTable(data));
+  }
+  async function load() {
+    busy(holder, "Chargement…");
+    try {
+      const query = `limit=${GENERATED_PAGE}&offset=${view.offset}` + (view.strategy ? `&strategy=${encodeURIComponent(view.strategy)}` : "");
+      render(await api(`/signals/generated?${query}`));
+    } catch (error) {
+      showError(holder, error);
+    }
+  }
+  newer.addEventListener("click", () => { view.offset = Math.max(0, view.offset - GENERATED_PAGE); load(); });
+  older.addEventListener("click", () => { view.offset += GENERATED_PAGE; load(); });
+  select.addEventListener("change", () => { view.strategy = select.value; view.offset = 0; load(); });
+  render(first);
+  return el("div", {}, el("div", { class: "pager" }, select, newer, older, status), holder);
 }
 
 // --- univers : avis halal et décisions d'ajout ---------------------------------------------------------

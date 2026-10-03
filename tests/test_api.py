@@ -91,6 +91,31 @@ def test_generated_signals_are_listed_with_their_strategy_status_and_a_bsm_text(
                                f"SL: {signal.stop_loss}\nPLATFORM: Binance")
 
 
+def test_generated_signals_can_be_browsed_by_page_and_strategy(api, settings):
+    """Tous les anciens signaux restent consultables : pages (offset), filtre par stratégie, total."""
+    from datetime import timedelta
+
+    from crypto_signal_intelligence.signals.outbox import SignalRegistry
+    from crypto_signal_intelligence.signals.schema import idempotency_key
+    from tests.test_signals import one_tp_signal
+    registry = SignalRegistry(settings.signals_db, settings.publication_dir(), root=settings.root)
+    base = one_tp_signal()
+    for i in range(5):
+        created = base.created_at + timedelta(minutes=15 * i)
+        strategy = "DONCHIAN_VOLUME_BREAKOUT" if i % 2 == 0 else "RANGE_REENTRY"
+        key = idempotency_key(market_type="SPOT", symbol="ETHUSDT", strategy=strategy, strategy_version=1,
+                              setup_time=created, exit_policy_id="FIXED_SL_ONE_TP_V1")
+        signal = base.model_copy(update={"signal_id": f"CSI-TEST-{i}", "idempotency_key": key, "strategy": strategy})
+        registry.publish(signal, created)
+    first = api.dispatch("GET", "/signals/generated", {"limit": ["2"]}, None)
+    assert first["total"] == 5 and [x["signal_id"] for x in first["signals"]] == ["CSI-TEST-4", "CSI-TEST-3"]
+    assert first["strategies"] == ["DONCHIAN_VOLUME_BREAKOUT", "RANGE_REENTRY"]
+    older = api.dispatch("GET", "/signals/generated", {"limit": ["2"], "offset": ["4"]}, None)
+    assert [x["signal_id"] for x in older["signals"]] == ["CSI-TEST-0"]
+    only = api.dispatch("GET", "/signals/generated", {"strategy": ["RANGE_REENTRY"]}, None)
+    assert only["total"] == 2 and {x["strategy"] for x in only["signals"]} == {"RANGE_REENTRY"}
+
+
 def test_explanation_defines_every_number():
     text = explain({"verdict": "INDETERMINE", "checks": [], "source": "g",
                     "base_rate": {"samples": 412, "tp_first": 0.37, "expectancy_r": -0.08,

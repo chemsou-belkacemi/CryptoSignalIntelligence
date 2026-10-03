@@ -81,3 +81,6 @@ tr.selected td { background: var(--soft-neutral); }
 
 /* Signaux Telegram en image à valider */
 .signal-image { max-width: 100%; height: auto; border-radius: 6px; }
+/* Navigation dans les signaux des stratégies de CSI (pages de 20). */
+.pager { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0 8px; }
+.pager button:disabled { opacity: 0.45; cursor: default; }
