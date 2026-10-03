@@ -121,10 +121,17 @@ def structure(high, low, close, atr_values) -> list[Break]:
     out: list[Break] = []
     trend = 0
     used: set[int] = set()
+    ordered = sorted(pivots, key=lambda p: (p.known_at, p.index))       # j + k croissant : même ordre que les indices
+    pointer = 0
+    last_high: Pivot | None = None
+    last_low: Pivot | None = None
     for i in range(len(c)):
-        known_pivots = [p for p in pivots if p.known_at < i]
-        last_high = next((p for p in reversed(known_pivots) if p.kind == "high"), None)
-        last_low = next((p for p in reversed(known_pivots) if p.kind == "low"), None)
+        while pointer < len(ordered) and ordered[pointer].known_at < i:  # pivots connus avant la bougie i
+            if ordered[pointer].kind == "high":
+                last_high = ordered[pointer]
+            else:
+                last_low = ordered[pointer]
+            pointer += 1
         for pivot, side in ((last_high, "bull"), (last_low, "bear")):
             if pivot is None or pivot.index in used:
                 continue
