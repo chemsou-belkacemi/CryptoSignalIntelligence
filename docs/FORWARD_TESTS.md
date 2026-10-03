@@ -942,6 +942,101 @@ origine résolue (7 jours après la fin du recueil).
 corrélées ; les modèles horaires sont réajustés sur le magasin de la surveillance (bougies depuis 2021), pas sur le
 magasin long ; aucune mesure de rentabilité, aucune direction.
 
+## F13_PIVOT_BREAK_1D_24 : la condition de F10 sur les 24 autres paires de recherche, en direct
+
+Plan de travail du 2026-10-03, validé par le propriétaire. F10 mesure la cassure journalière d'un pivot haut
+confirmé (K2, seule condition qui a passé un criblage) sur les 16 paires de la configuration, avec environ 35 à 45
+événements attendus en 12 semaines : un verdict `INSUFFISANT` est probable. Ce test applique **exactement les mêmes
+règles** aux 24 autres paires de recherche, pour avoir, avec F10, la mesure sur 40 paires.
+
+**Hypothèse.** Sur ces 24 paires, quand la clôture journalière passe pour la première fois au-dessus du dernier
+pivot haut confirmé, un achat simulé le lendemain matin fait mieux, net de frais, que 20 achats placebo de la même
+paire aux mêmes heures dans les 30 jours précédents, à 24 h et 168 h. Réponse attendue : « pas de différence
+démontrée ».
+
+**Règles.** Celles de F10, sans exception : les fonctions de F10 (lecture du jour, placebos, rendement net,
+résolution, mesures, verdict) sont **réutilisées telles quelles** et gelées avec ce test. Seule la liste des paires
+change : APT, ARB, BCH, DASH, DOGE, EGLD, FET, ICP, IOTA, LTC, NEO, OP, POL, QNT, RENDER, ROSE, SEI, SUI, TAO, THETA,
+TIA, VET, XTZ, ZEC (toutes contre USDT, les 40 paires de `research/universe.py` moins les 16 de la configuration,
+toutes admises par le screening halal au 2026-10-03), figée dans `forward/f13.py`. Les bougies 1 h de ces paires
+sont rafraîchies à chaque cycle de 15 minutes par la surveillance.
+
+**Paramètres** (figés : `forward/f13.py` et `forward/f10.py`) : ceux de F10 (k = 3, 110 journées, 130 jours lus,
+24 h et 168 h, 20 placebos de 1 à 30 jours, **30 événements résolus** minimum, 2 comparaisons au niveau 1 − 0,05/2,
+10 000 tirages par blocs de 7 jours, graine de F10) et la liste des 24 paires ; gel : modules f13, f10, costs,
+registry, journal, fonctions du criblage K, intervalle par blocs, magasin de bougies.
+
+**Métrique.** Celle de F10 : par horizon et scénario, événements résolus, jours distincts, rendement net de l'achat
+et des placebos, excès moyen et son intervalle, part des événements qui battent leurs placebos ; événements par
+paire, contrôles, paires évaluables, en attente, trous.
+
+**Seuil de décision.** Celui de F10, par horizon : `INSUFFISANT` (moins de 30 résolus ou intervalle non calculable) ;
+`EXCES_POSITIF` (intervalle au-dessus de 0 en central ET en défavorable) ; `EXCES_NEGATIF` ; sinon
+`PAS_DE_DIFFERENCE_DEMONTREE`. Lecture commune avec F10 déclarée maintenant : la condition ne sera dite
+« confirmée en direct » que si F10 et F13 sont tous deux `EXCES_POSITIF` à 168 h, ou si l'un l'est et l'autre
+`INSUFFISANT` avec un excès du même signe.
+
+**Date d'évaluation.** 84 jours après le démarrage (revue intermédiaire à 42 jours) ; verdict une fois le dernier
+événement résolu.
+
+**Nombre d'événements attendu.** Environ 11 par paire et par an au criblage : de l'ordre de 50 à 65 en 12 semaines
+sur 24 paires, corrélés entre paires.
+
+**Limites déclarées.** Démarrage environ 22 heures après F10 (périodes presque identiques) ; paires moins liquides
+(coûts « autres » du modèle commun) ; ces 24 paires figuraient dans le criblage K (DEVELOPMENT) : ce n'est pas un
+hors-échantillon par actif, c'est un hors-échantillon dans le temps, comme F10.
+
+## F14_PIVOT_BREAK_VOL_LEVELS : les événements K2 avec niveaux placés par la volatilité prévue, en direct
+
+Plan de travail du 2026-10-03, validé par le propriétaire. Les modèles de volatilité ne disent pas le sens ; ce
+test les utilise pour ce qu'ils savent faire : placer les niveaux.
+
+**Hypothèse.** Sur les 40 paires de recherche, un achat après une cassure journalière d'un pivot haut confirmé,
+avec un stop à 1 σ̂ et un objectif à 1,5 σ̂ (σ̂ : mouvement typique prévu à 3 jours par la prévision en service),
+fait mieux, net de frais et en R, (1) que 20 achats placebo de même géométrie et (2) que le même achat sorti à date
+fixe (168 h). Réponse attendue : « pas de différence démontrée » pour les deux.
+
+**Événements et règles.**
+- Événements : la condition de F10 (fonctions gelées de F10) sur les 40 paires (les 16 de la configuration et les
+  24 de F13), contrôle après 00:10 UTC, une fois par jour, **seulement après l'écriture de la prévision de
+  volatilité du jour** (`state/volatility.json`, origine du jour) ; une paire sans prévision ce jour-là donne un
+  événement inscrit « sans prévision », non joué.
+- σ̂ = `move_pct` à 3 jours de la prévision en service (LightGBM du lot 7), divisé par 100, lu à la détection.
+- Achat au premier prix (ouverture de la première bougie de 1 minute) après la détection ; **stop** à entrée ×
+  (1 − 1,0 σ̂), **objectif** à entrée × (1 + 1,5 σ̂) ; sinon sortie au marché à 168 h.
+- Chemin : bougies 1 h du magasin de la surveillance, de l'heure pleine qui suit l'entrée jusqu'à 168 h ; ouverture
+  au-delà d'une barrière → sortie à l'ouverture ; stop et objectif dans la même bougie → stop. Frais du modèle
+  commun (objectif : ordre limite, frais seulement ; stop et sortie à date : ordre au marché).
+- R = rendement net / (1,0 σ̂). Placebos : 20 achats de la même paire aux mêmes heures 1 à 30 jours avant (graine
+  déduite de l'événement), **même σ̂** que l'événement, mêmes règles. Référence appariée : le même événement sorti à
+  date fixe (168 h), exprimé en R du même risque.
+- Résolution 168 h après l'entrée ; bougie 1 min plus de 10 minutes en retard ou trou dans les bougies 1 h : `TROU` ;
+  source muette : nouvel essai, trou constaté 2 jours après l'horizon.
+
+**Paramètres** (figés dans le code, `forward/f14.py`) : 40 paires listées ; σ̂ à 3 jours ; stop 1,0 σ̂, objectif
+1,5 σ̂ ; 168 h ; 20 placebos de 1 à 30 jours ; minimum **30 événements résolus** ; 2 comparaisons (contre les
+placebos, contre la sortie à date) au niveau 1 − 0,05/2 ; 10 000 tirages par blocs de 7 jours (au moins 8 blocs),
+graine 20261014 ; gel : modules f14, f13, f10, costs, registry, journal, fonctions du criblage K, intervalle par
+blocs, magasin de bougies.
+
+**Métrique.** Par comparaison et scénario : événements résolus, R moyen de l'achat, écart moyen (contre les
+placebos, contre la sortie à date) et son intervalle, part des écarts positifs ; événements par paire, sans
+prévision, en attente, trous.
+
+**Seuil de décision**, par comparaison : `INSUFFISANT` (moins de 30 résolus ou intervalle non calculable) ;
+`EXCES_POSITIF` (intervalle au-dessus de 0 en central ET en défavorable) ; `EXCES_NEGATIF` ; sinon
+`PAS_DE_DIFFERENCE_DEMONTREE`.
+
+**Date d'évaluation.** 84 jours après le démarrage (revue intermédiaire à 42 jours) ; verdict une fois le dernier
+événement résolu (7 jours après la fin du recueil au plus, 9 si des bougies manquent).
+
+**Nombre d'événements attendu.** La somme de F10 et F13 : environ 85 à 110 en 12 semaines, moins ceux sans
+prévision (paires de moins de 400 jours d'historique : aucune parmi les 40).
+
+**Limites déclarées.** σ̂ vient d'un modèle sélectionné sur DEVELOPMENT (non confirmé sur la période finale) ; les
+multiples 1,0 et 1,5 sont ceux du plan du tableau de bord, choisis sans optimisation ; la première heure partielle
+après l'entrée n'est pas surveillée (bougies 1 h) ; placebos de même σ̂ que l'événement, pas de leur propre jour.
+
 ## VOTE_V1 : modèle de vote, définition pré-enregistrée (phase 9, NON évalué)
 
 Défini maintenant, conformément à la mission ; **aucun code d'évaluation, aucune mesure sur les 12 semaines en

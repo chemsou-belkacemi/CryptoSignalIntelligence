@@ -113,6 +113,38 @@ Score réel `p` (lecture descriptive) : swing **+0,006** [−0,027 ; +0,038] ; i
   criblages (trop larges) et de l'intraday (trop étroits) avec une méthode de référence (bootstrap stationnaire,
   bibliothèque `arch`), sous contrôle positif.
 
+## 6. Calibrage des intervalles sous la nulle (déclaré le 2026-10-03, avant exécution)
+
+**Correction de lecture du § 5.** Le « 0 % de fausses alarmes » des criblages ne prouve pas que nos intervalles sont
+trop prudents. Les événements du § 1 étaient tirés au hasard, **jour par jour et paire par paire** : sans grappes dans
+le temps, la composante commune du marché se moyenne sur presque tous les jours, et la moyenne de leur excès varie
+beaucoup moins que pour une vraie condition, qui arrive en grappes (les mêmes jours sur beaucoup de paires). Un
+calibrage demande des conditions groupées comme les vraies. Les tailles minimales détectables du § 5 restent valables
+pour des conditions peu groupées ; pour des conditions groupées, elles sont plus grandes.
+
+Code : `research/interval_calibration.py` ; commande `csi interval-calibration` ; 0 essai.
+
+- **Criblage.** Drapeaux de trois **conditions réelles** connues à l'instant : J1 (part des achats au marché
+  ≥ 90e centile), J2 (≤ 10e centile), et « BTC en baisse de plus de 3 % sur la journée » appliquée à toutes les
+  paires (la plus groupée possible). Les rendements à terme (1 et 7 jours) sont remplacés par une **histoire
+  rééchantillonnée** par blocs stationnaires de journées entières (toutes les paires ensemble, longueur moyenne
+  max(10, 2·h) jours), remise sur le calendrier d'origine : les drapeaux restent à leur place, leur lien avec le
+  futur est cassé, la dépendance dans le temps et entre paires est conservée. **200 répétitions** sous la nulle,
+  **100** avec un avantage planté (+0,25 % à 1 jour, +1 % à 7 jours).
+- **Décisions ML.** Scores aléatoires (nulle exacte) et plantés (ρ = 0,02) sur les décisions réelles du swing et de
+  l'intraday ; corrélation de rang quotidienne. 200 et 100 répétitions.
+- **Méthodes comparées** :
+  - `blocs_de_jours` : celle des criblages (blocs de jours à événement, percentile) ;
+  - `calendaire_student` : celle des protocoles ML et volatilité (`calendar_mean_ci`) ;
+  - `stationnaire_arch` : bootstrap stationnaire de Politis et Romano (`arch`), sur les sommes et comptes par jour
+    calendaire, longueur moyenne de bloc max(10, 2·h) jours, percentile.
+- **Lu** : part des bornes basses > 0 et des bornes hautes < 0 sous la nulle (cible 2,5 % chacune) ; part des bornes
+  basses > 0 avec l'avantage planté (puissance).
+- **Règle déclarée** : pour chaque chaîne, la méthode retenue pour les **protocoles futurs** est celle dont le taux de
+  bornes basses > 0 sous la nulle reste dans **[1,5 % ; 4 %]** pour toutes les conditions et tous les horizons, avec
+  la plus grande puissance moyenne ; la méthode actuelle est gardée si aucune autre ne fait mieux. Les résultats
+  passés ne sont pas recalculés.
+
 ## Historique
 
 - 2026-10-03 : déclaré avant toute exécution.

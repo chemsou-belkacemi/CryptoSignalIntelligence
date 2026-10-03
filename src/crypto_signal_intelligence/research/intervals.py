@@ -38,3 +38,29 @@ def calendar_mean_ci(values, times, *, block_days: int, min_blocks: int = 20,
     variance = (u @ u + 2 * max(0.0, float(u[1:] @ u[:-1]))) * filled / (filled - 1) / counts.sum() ** 2
     half = float(student_t.ppf(0.5 + level / 2, filled - 1)) * math.sqrt(variance)
     return [round(mean - half, 6), round(mean + half, 6)]
+
+
+def stationary_bootstrap_ci(values, times, *, level: float = 0.95, reps: int = 2000, seed: int = 0,
+                            block_days: float | None = None, min_days: int = 100) -> tuple[list[float] | None, float | None]:
+    """IC d'une moyenne par événement par bootstrap STATIONNAIRE (Politis et Romano) de la bibliothèque `arch` :
+    sommes et comptes par jour CALENDAIRE (jours sans événement compris), blocs de longueur aléatoire de moyenne
+    `block_days` (par défaut : longueur optimale de Politis et White estimée sur la série des moyennes quotidiennes),
+    moyenne = somme des sommes / somme des comptes, intervalle percentile. Retourne (IC, longueur de bloc)."""
+    from arch.bootstrap import StationaryBootstrap, optimal_block_length
+
+    values = np.asarray(values, dtype=float)
+    if len(values) == 0:
+        return None, None
+    days = pd.to_datetime(pd.Series(times), utc=True).dt.floor("D")
+    index = ((days - days.min()) // pd.Timedelta(days=1)).to_numpy(np.int64)
+    sums = np.bincount(index, weights=values)
+    counts = np.bincount(index).astype(float)
+    if int((counts > 0).sum()) < min_days:
+        return None, None
+    if block_days is None:
+        daily = np.where(counts > 0, sums / np.where(counts > 0, counts, 1.0), 0.0)
+        block_days = float(max(1.0, optimal_block_length(daily)["stationary"].iloc[0]))
+    bootstrap = StationaryBootstrap(max(1, round(block_days)), sums, counts, seed=np.random.default_rng(seed))
+    draws = np.array([s.sum() / c.sum() for (s, c), _ in bootstrap.bootstrap(reps) if c.sum() > 0])
+    low, high = np.percentile(draws, [(1 - level) / 2 * 100, (1 + level) / 2 * 100])
+    return [round(float(low), 6), round(float(high), 6)], round(float(block_days), 2)

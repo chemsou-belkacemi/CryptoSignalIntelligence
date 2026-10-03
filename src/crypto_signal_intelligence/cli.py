@@ -573,6 +573,39 @@ def information_report_command(allow_dirty: bool = typer.Option(False, "--allow-
     console.print(f"Rapport : {settings.reports_dir / report.run_id / 'summary.json'}")
 
 
+@app.command("interval-calibration")
+def interval_calibration_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Essai local sur du code non commité (enregistré comme tel)"),
+                                 universe_file: str = typer.Option(None, "--universe-file", help="JSON {\"symbols\": [...]} : paires admises par le screening halal"),
+                                 verbose: bool = False):
+    """Calibrage des intervalles sous la nulle (docs/POSITIVE_CONTROL.md § 6) : conditions réelles groupées, histoire
+    rééchantillonnée par blocs ; méthode actuelle contre bootstrap stationnaire (arch). 0 essai."""
+    from .research.factors import DirtyCode
+    from .research.interval_calibration import run
+    from .research.universe import RESEARCH_UNIVERSE
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    symbols = None
+    if universe_file:
+        with open(universe_file, encoding="utf-8") as handle:
+            admitted = set(json.load(handle).get("symbols", []))
+        symbols = [s for s in RESEARCH_UNIVERSE if s in admitted]
+    try:
+        with console.status("calibrage des intervalles…") as status:
+            result = run(settings, now=_now(), symbols=symbols, progress=lambda text: status.update(f"calibrage : {text}"), allow_dirty=allow_dirty)
+    except (DirtyCode, FileNotFoundError) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    console.rule(f"Calibrage des intervalles — {result.run_id}")
+    table = Table("Chaîne", "Horizon / système", "Condition", "Planté", "Méthode", "Bornes basses > 0", "Bornes hautes < 0")
+    for r in result.screen:
+        table.add_row("criblage", f"{r['horizon_days']} j", r["condition"], f"{r['planted_pct']} %", r["method"], f"{r['low_above_zero']:.1%}", f"{r['high_below_zero']:.1%}")
+    for r in result.ml:
+        table.add_row("ML", r["system"], "score aléatoire", f"ρ {r['rho']}", r["method"], f"{r['low_above_zero']:.1%}", f"{r['high_below_zero']:.1%}")
+    console.print(table)
+    console.print(f"Choix (règle déclarée) : {result.choice}")
+    console.print(f"Rapport : {settings.reports_dir / result.run_id / 'summary.json'}")
+
+
 @app.command("data-quality")
 def data_quality(symbol: str = typer.Option(..., help="Paire, ex. BTCUSDT"),
                  timeframe: str = typer.Option(None, help="Défaut : timeframe de setup")):

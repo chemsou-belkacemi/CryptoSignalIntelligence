@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from crypto_signal_intelligence.forward import f9, f10, f12, registry, report
+from crypto_signal_intelligence.forward import f9, f10, f12, f14, registry, report
 from crypto_signal_intelligence.forward.halal import HalalList
 
 HALAL = HalalList(("BTCUSDT", "ETHUSDT", "SOLUSDT"), {}, "a" * 64, "b" * 64)
@@ -13,7 +13,7 @@ HALAL = HalalList(("BTCUSDT", "ETHUSDT", "SOLUSDT"), {}, "a" * 64, "b" * 64)
 
 def test_daily_report_handles_every_running_test_shape(settings):
     now = datetime(2026, 10, 5, 9, tzinfo=UTC)
-    for test in (f9.TEST, f10.TEST, f12.TEST):
+    for test in (f9.TEST, f10.TEST, f12.TEST, f14.TEST):
         registry.start(settings, test, now=now, allow_dirty=True, halal=HALAL)
     path = report.write(settings, now=datetime(2026, 10, 6, 1, tzinfo=UTC))
     text = path.read_text(encoding="utf-8")
@@ -21,4 +21,5 @@ def test_daily_report_handles_every_running_test_shape(settings):
         assert f"## {test_id}" in text
     assert "Prévisions journalisées : 0" in text and "| Horizon | Candidat | Référence |" in text
     assert "Contrôles : 0 ; événements : 0" in text and "Pas encore démarré." in text
+    assert "sans prévision : 0" in text and "| Coûts | Comparaison |" in text
     assert "Traceback" not in text

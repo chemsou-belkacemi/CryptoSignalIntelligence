@@ -125,6 +125,17 @@ def markdown(report: dict) -> str:
                              f"{c.get('ci') or '—'} | {c['verdict']} |")
             lines += ["", f"Verdicts : **{stats['verdict']}**.", ""]
             continue
+        if "without_forecast" in stats:                       # F14 : niveaux par la volatilité prévue, en R
+            lines += [f"Contrôles : {stats['checks']} ; événements : {stats['events']} (joués : {stats['decisions']}, sans prévision : "
+                      f"{stats['without_forecast']}) ; par actif : {stats['by_asset'] or 'aucun'} ; en attente : {stats['pending']} ; "
+                      f"trous : {stats['gaps']}.", "",
+                      "| Coûts | Comparaison | Résolus | R de l'achat | Écart moyen (R) | Écarts positifs | IC |", "|---|---|---|---|---|---|---|"]
+            for scenario, comparisons in stats["scenarios"].items():
+                for name, s in comparisons.items():
+                    lines.append(f"| {scenario} | {name} | {s.get('n', 0)} | {_fmt(s.get('event_r'))} | {_fmt(s.get('mean'))} | "
+                                 f"{_fmt(s.get('win_share'), True)} | {s.get('ci') or '—'} |")
+            lines += ["", f"Verdicts : **{stats['verdict']}**.", ""]
+            continue
         if "checks" in stats and "latest" not in stats:       # F9, F10, F11 : contrôle quotidien, achat contre placebos
             lines += [f"Contrôles : {stats['checks']} ; événements : {stats['events']} ; par actif : {stats['by_asset'] or 'aucun'} ; "
                       f"en attente : {stats['pending']} ; trous : {stats['gaps']}.", "",
