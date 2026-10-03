@@ -17,9 +17,12 @@ def test_census_excludes_structural_and_haram_and_keeps_delisted():
         {"symbol": "USDCUSDT", "baseAsset": "USDC", "quoteAsset": "USDT", "status": "TRADING"},
         {"symbol": "BTCUPUSDT", "baseAsset": "BTCUP", "quoteAsset": "USDT", "status": "BREAK"},
         {"symbol": "XYZUSDT", "baseAsset": "XYZ", "quoteAsset": "USDT", "status": "TRADING"},
+        {"symbol": "BUSDUSDT", "baseAsset": "BUSD", "quoteAsset": "USDT", "status": "BREAK"},
+        {"symbol": "BULLUSDT", "baseAsset": "BULL", "quoteAsset": "USDT", "status": "BREAK"},
         {"symbol": "ETHBTC", "baseAsset": "ETH", "quoteAsset": "BTC", "status": "TRADING"}]}
     table = pit.census(info, SCREEN, {"BTC": "FAVORABLE", "XYZ": "DEFAVORABLE"}).set_index("symbol")
-    assert set(table.index) == {"BTCUSDT", "EOSUSDT", "USDCUSDT", "BTCUPUSDT", "XYZUSDT"}
+    assert set(table.index) == {"BTCUSDT", "EOSUSDT", "USDCUSDT", "BTCUPUSDT", "XYZUSDT", "BUSDUSDT", "BULLUSDT"}
+    assert "stablecoin" in table.loc["BUSDUSDT", "excluded"] and "levier" in table.loc["BULLUSDT", "excluded"]
     assert pd.isna(table.loc["EOSUSDT", "excluded"]) and table.loc["EOSUSDT", "halal_status"] == "NON_RELEVE"
     assert table.loc["USDCUSDT", "excluded"] == "stablecoins" and table.loc["BTCUPUSDT", "excluded"] == "levier"
     assert "haram" in table.loc["XYZUSDT", "excluded"]

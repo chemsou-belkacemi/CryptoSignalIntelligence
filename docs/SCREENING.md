@@ -250,6 +250,30 @@ Point 6 du plan de travail. La saisonnalité de la **volatilité** est démontr�
   d'une année sur l'autre. Le contrôle positif rappelle que ces criblages sont prudents et peu puissants : un effet
   de +0,25 % par événement passerait souvent inaperçu.
 
+### Résultat (`SCREEN-20261003T010221Z-bea15e`, 8 essais, programme 773) : rien ne passe
+
+| Condition | Durée | Événements | Brut | Excès | IC95 excès | Paires > 0 | Années > 0 |
+|---|---|---|---|---|---|---|---|
+| S1 week-end | 48 h | 10 258 | +0,31 % | −0,02 % | [−0,74 ; +0,65] | 43 % | 4/7 |
+| S2 lundi | 24 h | 10 259 | +0,16 % | −0,01 % | [−0,46 ; +0,39] | 48 % | 3/7 |
+| S3 tournant du mois | 72 h | 2 331 | +1,48 % | +0,98 % | non calculable | 78 % | 3/7 |
+| S4 après le financement | 4 h | 214 954 | −0,01 % | **−0,04 %** | **[−0,08 ; −0,00]** | **0 %** | 1/7 |
+| S5 expiration des options | 24 h | 2 371 | +0,94 % | +0,77 % | non calculable | 88 % | **7/7** |
+| S6 ouverture américaine | 4 h | 51 198 | −0,01 % | −0,04 % | [−0,13 ; +0,05] | 23 % | 3/7 |
+| S7 séance asiatique | 8 h | 71 633 | +0,06 % | −0,00 % | [−0,09 ; +0,09] | 43 % | 4/7 |
+| S8 meilleure heure apprise | 1 h | 65 891 | +0,02 % | +0,01 % | [−0,01 ; +0,03] | 53 % | 4/7 |
+
+- **Aucune condition ne passe.** Les effets de jour et de séance (S1, S2, S6, S7) sont nuls après la dérive ; la
+  « meilleure heure » de l'année passée ne se répète pas (S8, +0,01 %).
+- **S3 et S5 n'ont pas d'intervalle** : un seul jour d'événement par mois (≈ 78 journées en 6,5 ans), sous le minimum
+  de 10 blocs de 10 journées à événement ; la règle déclarée ne peut pas les faire passer. S5 (achat le dernier
+  vendredi du mois à 08:00 UTC, 24 h) a pourtant un excès de +0,77 %, 88 % des paires et les 7 années positives :
+  c'est une **piste après coup**, à pré-inscrire et à mesurer sur des données jamais vues (une expiration par mois :
+  plusieurs années de direct ou la période finale réservée), pas un résultat.
+- **S4 est négatif et cohérent** : acheter juste à l'heure du règlement du financement (00, 08, 16 UTC) fait moins bien
+  que la moyenne des 4 h, sur les 40 paires. L'effet est petit (−0,04 %, sous les coûts) : au mieux une règle de
+  calendrier pour éviter ces heures d'entrée, pas un signal.
+
 ## Historique
 
 - `SCREEN-20260930T093324Z-20101b` : premier passage, **intervalles faux** (moyenne pondérée par jour

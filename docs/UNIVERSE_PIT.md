@@ -24,6 +24,11 @@ retirées (statut `BREAK` : 253 paires USDT au 2026-10-03, dont des renommages c
 - Rapport : part des places du top tenues par l'univers de recherche, par des paires cotées hors univers, par des
   paires retirées ou renommées, par année.
 
+- **Exclusions historiques** (ajoutées le 2026-10-03 avant le criblage K à date, après la lecture du premier
+  recensement) : les listes du cadre ne visent que les actifs encore cotés ; s'y ajoutent les stablecoins retirés
+  (BUSD, PAX, USDSOLD, UST…), les tokens à levier retirés (BULL, BEAR et leurs variantes) et LEND, prédécesseur
+  d'AAVE (haram pour au moins une source). L'appartenance est recalculée sans nouveau téléchargement.
+
 ## 2. Criblage K à date (4 essais)
 
 Les conditions K1 et K2 du criblage K (`SCREENING.md`), mêmes cadres (4 h, 1 jour), mêmes horizons, mêmes fonctions

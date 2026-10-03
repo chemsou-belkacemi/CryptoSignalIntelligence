@@ -25,6 +25,14 @@ from ..data.http import PublicHttpClient
 from .universe import RESEARCH_UNIVERSE
 
 TOP_N, WINDOW_DAYS, MIN_DAYS = 40, 30, 30
+#: Exclusions propres à l'historique (les listes du cadre ne visent que les actifs encore cotés) : stablecoins retirés,
+#: tokens à levier de Binance retirés (BULL, BEAR et dérivés), et prédécesseurs d'une crypto jugée haram (LEND → AAVE).
+HISTORIC_EXCLUSIONS: dict[str, str] = {
+    **dict.fromkeys(("BUSD", "PAX", "USDSOLD", "UST", "USDS", "USDSB", "SUSD", "TUSDB"), "stablecoin retiré de la cote"),
+    **dict.fromkeys(("BULL", "BEAR", "ETHBULL", "ETHBEAR", "BNBBULL", "BNBBEAR", "XRPBULL", "XRPBEAR", "EOSBULL", "EOSBEAR"),
+                    "token à levier retiré de la cote"),
+    "LEND": "prédécesseur d'AAVE (haram pour au moins une source)",
+}
 FIRST_MONTH = pd.Timestamp("2018-01-01", tz="UTC")
 PIT_DIR = "pit"
 
@@ -44,7 +52,7 @@ def census(exchange_info: dict, screen: dict, statuses: dict[str, str]) -> pd.Da
         if item.get("quoteAsset") != "USDT":
             continue
         base = str(item["baseAsset"]).upper()
-        reason = structural_reason(base, screen)
+        reason = structural_reason(base, screen) or HISTORIC_EXCLUSIONS.get(base)
         if reason is None and statuses.get(base) == "DEFAVORABLE":
             reason = "haram pour au moins une source du relevé halal"
         rows.append({"symbol": item["symbol"], "base": base, "status": item.get("status"),
@@ -254,3 +262,29 @@ def run_k_pit(settings: Settings, *, now: datetime, progress: Callable[[str], No
                     metrics={"n_trials": len(rows), "program_trials": program, "rows": [asdict(r) for r in rows],
                              "missing_hourly": missing}, status="COMPLETED", report_dir=str(report_dir))
     return payload
+
+
+def rebuild_membership(settings: Settings) -> dict:
+    """Recalcule l'appartenance à partir des bougies journalières déjà lues et du recensement réévalué avec les
+    exclusions courantes (sans nouveau téléchargement) ; met à jour le rapport."""
+    import yaml
+
+    from ..config import config_file
+    from ..external.admission import load_screening
+    out_dir = pit_dir(settings)
+    screen = yaml.safe_load((config_file().parent / "halal_screen.yaml").read_text(encoding="utf-8")) or {}
+    statuses = {base: verdict.status for base, verdict in load_screening(settings)[0].items()}
+    old = pd.read_csv(out_dir / "census.csv")
+    info = {"symbols": [{"symbol": s, "baseAsset": b, "quoteAsset": "USDT", "status": st} for s, b, st in zip(old["symbol"], old["base"], old["status"], strict=True)]}
+    table = census(info, screen, statuses)
+    kept = set(table[table["excluded"].isna()]["symbol"])
+    daily = pd.read_parquet(out_dir / "daily.parquet")
+    members = membership(daily[daily["symbol"].isin(kept)])
+    table.to_csv(out_dir / "census.csv", index=False)
+    members.to_parquet(out_dir / "membership.parquet", index=False)
+    report_path = out_dir / "report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.exists() else {}
+    report |= {"rebuilt_at": datetime.now(UTC).isoformat(), "symbols_kept": int(len(kept)),
+               "excluded": table["excluded"].dropna().value_counts().to_dict(), "coverage": coverage(members, table)}
+    report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
+    return report
