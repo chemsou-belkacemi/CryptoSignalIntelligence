@@ -38,6 +38,9 @@ research = ["arch>=8.0", "hftbacktest>=2.4", "numba>=0.68", "ccxt>=4.5"]
 # Signaux Telegram publiés en image (docs/OCR.md) : lecture locale pour l'audit des groupes. Tesseract (tesserocr)
 # reste facultatif. Versions épinglées : elles entrent dans l'empreinte de lecture de F16 (chart_ocr.reader_fingerprint).
 ocr = ["opencv-python==5.0.0.93", "rapidocr==3.9.2", "onnxruntime==1.30.0", "omegaconf==2.3.1"]
+# CNN sur images de graphiques (docs/CNN.md) : recherche seulement, hors de l'image Docker et du CI (tests sautés sans
+# torch). Sur PC, la version CPU : pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu
+cnn = ["torch==2.14.1"]
 # Groupes des lots suivants, ajoutés à leur étape : agents, streaming, reports.
 
 [project.scripts]

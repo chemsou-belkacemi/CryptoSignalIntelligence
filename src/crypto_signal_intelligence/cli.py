@@ -860,6 +860,31 @@ def grid_dca_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", he
     console.print(f"Rapport : {settings.reports_dir / payload['run_id'] / 'summary.json'} ; programme : {payload['program_trials']} essais")
 
 
+@app.command("cnn-charts")
+def cnn_charts_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Essai local sur du code non commité (enregistré comme tel)"),
+                       verbose: bool = False):
+    """CNN sur images de graphiques (docs/CNN.md) : images de 20 journées des paires du top 40 à date, 8 plus fortes
+    probabilités contre le panier ; un essai, DEVELOPMENT seulement. Demande l'extra `cnn` (torch)."""
+    from .research.cnn_charts import run
+    from .research.factors import DirtyCode
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    try:
+        with console.status("CNN sur images…") as status:
+            payload = run(settings, now=_now(), progress=lambda text: status.update(f"CNN : {text}"), allow_dirty=allow_dirty)
+    except (DirtyCode, FileNotFoundError, ModuleNotFoundError, ValueError) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    table = Table("Portefeuille", "Semaines", "Moyenne/sem. %", "Sharpe", "Perte max %", "Excès/sem. %", "IC excès", "Années > 0", "Rotation")
+    for name, r in payload["rows"].items():
+        table.add_row(name, str(r["weeks"]), str(r["weekly_mean_pct"]), str(r["sharpe"]), str(r["max_drawdown_pct"]),
+                      str(r["excess_weekly_pct"]), str(r["excess_ci_pct"]), r["years_positive"], str(r["turnover_weekly"]))
+    console.print(table)
+    console.print(f"Classement : {payload['ranking']}")
+    console.print(f"Verdict : {payload['verdict']} ; rapport : {settings.reports_dir / payload['run_id'] / 'summary.json'} ; "
+                  f"programme : {payload['program_trials']} essais")
+
+
 @app.command("xsection")
 def xsection_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Essai local sur du code non commité (enregistré comme tel)"),
                      verbose: bool = False):

@@ -23,7 +23,10 @@ Finance, 2023), adapté au spot long seulement. Code : `research/cnn_charts.py` 
 - **Cible** : rendement de la semaine suivante, de la clôture du lundi à celle du lundi suivant (un jour de retard sur
   l'image, comme dans `XSECTION.md`), **supérieur à la moyenne de l'univers** cette semaine-là (classement entre
   actifs, pas direction absolue) : 1 ou 0.
-- **Entraînement** : semaines dont la cible finit au plus tard le 2022-12-26. Arrêt précoce sur un tirage aléatoire de
+- **Univers mesuré** d'une semaine : les paires du top 40 du mois qui ont une image complète ; la moyenne de la cible et
+  le panier portent sur ces paires-là (précisé avant exécution).
+- **Entraînement** : semaines du 2019-01-07 (premier lundi de 2019, comme `XSECTION.md`) à celle dont la cible finit
+  au plus tard le 2022-12-26 (précisé avant exécution). Arrêt précoce sur un tirage aléatoire de
   30 % des **semaines** d'entraînement (graine fixe), comme dans l'article.
 - **Validation (mesure)** : semaines dont l'image commence après la fin de la dernière cible d'entraînement, avec
   4 semaines d'écart (première semaine mesurée : 2023-01-30), jusqu'à la fin de DEVELOPMENT (juin 2025). Aucun
@@ -56,3 +59,5 @@ période finale a déjà été lue une fois).
 ## Historique
 
 - 2026-10-03 : déclaré avant toute exécution.
+- 2026-10-03 : code écrit (`research/cnn_charts.py`, extra `cnn` : torch 2.14.1, version CPU) ; précisions avant
+  exécution : première semaine d'entraînement, univers mesuré = paires imagées.
