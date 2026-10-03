@@ -74,6 +74,8 @@ F10 cassure journalière d'un pivot (K2) · F11 veto pression vendeuse (J2) · F
 - **VPS** **[propriétaire]** : migration CSI + BSM (kit dans `VPS.md`), un seul bot à la fois.
 - **Location de BSM** **[propriétaire]** : branche dédiée, verrou Demo conservé, profils de risque, rapport lisible.
 - **VOTE_V1** : activation seulement avec les composants qui auront passé leur seuil le 2026-12-25.
+- **Tableau de bord, onglet Marché** : mêmes nouveaux essais automatiques que l'onglet Opportunités (une API en
+  redémarrage fait échouer les paires suivantes).
 
 ## 5. Décisions qui attendent le propriétaire
 
