@@ -11,6 +11,7 @@ sur les bougies 1 minute (la seconde départage une minute ambiguë ; sinon stop
 from __future__ import annotations
 
 import hashlib
+import math
 import random
 from datetime import datetime
 
@@ -405,7 +406,14 @@ def stats(journal: Journal, start: dict, *, now: datetime) -> dict:
                  "orders": len(decisions), "executed": len(executed),
                  "cancelled": sum(1 for r in resolutions.values() if r["status"] == CANCELLED),
                  "gaps": sum(1 for r in resolutions.values() if r["status"] == GAP),
-                 "pending": sum(1 for k in decisions if k not in resolutions), "ended": bool(ended), "groups": {}}
+                 "pending": sum(1 for k in decisions if k not in resolutions), "ended": bool(ended), "groups": {},
+                 # Descriptif : figures différentes sur les mêmes pivots (tête-épaules et triangle, par exemple) donnent
+                 # souvent le même ordre ; ordres distincts = (paire, unité, départ de l'ordre, entrée à 0,1 % près).
+                 "distinct_orders": len({(d["symbol"], d["timeframe"], d["order_from"], round(math.log(d["entry"]) / 0.001))
+                                         for d in decisions.values() if d.get("entry", 0) > 0}),
+                 "distinct_executed": len({(r["symbol"], r["timeframe"], r["entry_at"],
+                                            round(math.log(decisions[r["figure_id"]]["entry"]) / 0.001))
+                                           for r in executed if decisions.get(r["figure_id"], {}).get("entry", 0) > 0})}
     whole = {s: _measure(executed, s, level) for s in SCENARIOS}
     out["overall"] = {"scenarios": whole, "verdict": f4.verdict(whole, ended=ended)}
     for family in fg.FAMILIES:
@@ -454,7 +462,8 @@ def analyst_overlap(settings: Settings, journal: Journal, *, window: pd.Timedelt
 
 
 TEST = ForwardTest(
-    test_id=TEST_ID, title="Détecteur automatique de figures (harmoniques, triangles, lignes de tendance, ICT/SMC) contre placebos",
+    test_id=TEST_ID, title="Détecteur automatique de figures (harmoniques, triangles, lignes de tendance, ICT/SMC, figures "
+                           "classiques) contre placebos",
     hypothesis=("Une figure haussière détectée mécaniquement (docs/INDICATEURS.md § 9), jouée avec les règles fixes du § 9.5, "
                 "rapporte en moyenne plus, en R net, que 20 transactions placebo de même géométrie sur la même paire à des "
                 "moments tirés au hasard dans les 30 jours précédents."),

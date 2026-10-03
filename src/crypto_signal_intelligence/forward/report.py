@@ -97,7 +97,8 @@ def markdown(report: dict) -> str:
             whole = stats["overall"]["scenarios"].get("central", {})
             lines += [f"Figures : {stats['figures']} (haussières {stats['bull']}, baissières {stats['bear']}, géométrie invalide "
                       f"{stats['invalid']}) ; ordres : {stats['orders']} (exécutés {stats['executed']}, annulés {stats['cancelled']}, "
-                      f"trous {stats['gaps']}, en cours {stats['pending']}) ; ensemble, central : {whole.get('n', 0)} résolues, "
+                      f"trous {stats['gaps']}, en cours {stats['pending']} ; ordres distincts {stats.get('distinct_orders', '—')}, "
+                      f"exécutés distincts {stats.get('distinct_executed', '—')}) ; ensemble, central : {whole.get('n', 0)} résolues, "
                       f"R moyen {_fmt(whole.get('r_mean'))} {whole.get('r_ci95') or ''}, excès sur les placebos "
                       f"{_fmt(whole.get('placebo_excess'))} {whole.get('placebo_excess_ci') or ''}.", "",
                       "| Famille / unité | Figures haussières | Exécutées | R moyen (central) | Excès placebos | TP1 atteint |",

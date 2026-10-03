@@ -181,10 +181,11 @@ ATR = ATR de Wilder 14 de la bougie du dernier pivot.
   `H1` et `H2` ; profondeur `P` = ligne de cou à l'indice de `L2` − `L2` ; épaules de même niveau : `|L1 − L3| ≤ 0,25 P` ;
   symétrie de durée : `(L3 − L2) / (L2 − L1)` (en bougies) dans `[0,5 ; 2]`. Cassure : clôture au-dessus de la ligne de cou.
 - **Double creux** (`DOUBLE`) : 3 pivots `L1` (bas), `H` (haut), `L2` (bas) ; hauteur `P = H − min(L1, L2)` ; creux égaux :
-  `|L1 − L2| ≤ 0,10 P` ; au moins **5 bougies** entre `L1` et `L2`. Cassure : clôture au-dessus de `H` (ligne de cou
+  `|L1 − L2| ≤ 0,10 P` ; écart d'indices `L2 − L1 ≥ 5` bougies. Cassure : clôture au-dessus de `H` (ligne de cou
   horizontale).
 - **Drapeau / fanion** (`FLAG`) : 3 pivots `P0` (bas), `P1` (haut), `P2` (bas). Mât `P0 → P1` : hauteur `M = P1 − P0` d'au
-  moins **2 m × ATR** (deux fois le seuil du ZigZag) en au plus **10 bougies** ; repli `P1 → P2` d'au plus **50 %** du
+  moins **2 m × ATR** (deux fois le seuil du ZigZag ; ATR de la bougie du dernier pivot `P2`, comme partout au
+  § 9.6) en au plus **10 bougies** ; repli `P1 → P2` d'au plus **50 %** du
   mât, en au plus **2 fois** la durée du mât. Cassure : clôture au-dessus de `P1`. Drapeaux et fanions ne sont pas
   distingués (la forme intérieure du repli est plus fine que le ZigZag) : déclaré.
 - **Coupe avec anse** (`CUP_HANDLE`) : 4 pivots `H1` (haut, bord gauche), `L1` (bas, fond), `H2` (haut, bord droit),
@@ -305,3 +306,7 @@ compte comme « au-dessus »). Exemple : `p = 67 300` → `k = 4`, majeurs 60 00
   type de triangle avec une tolérance de 10 % (« ascendant » et « descendant » n'arrivaient jamais) ; stop des ABCD
   écrit ; minute ambiguë « objectif d'abord » limitée au premier objectif ; R au risque prévu ; ordre exécutable dès
   la pose compté au marché ; échéance en temps.
+- 2026-10-03, avant le démarrage de F15 : § 9.6 (figures chartistes classiques, ajout du plan du même jour) écrit
+  avant le code, puis relu : ATR du mât du drapeau = celui du dernier pivot (le code prenait celui de `P1`), écart du
+  double creux écrit en indices ; § 10 (bibliothèque) écrit avant le code.
+

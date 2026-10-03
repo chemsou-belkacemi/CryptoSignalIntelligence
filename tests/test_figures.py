@@ -111,3 +111,117 @@ def test_figures_already_detected_never_change_when_the_future_is_falsified(cut)
     true = [f for f in fg.detect(o, h, lo, c, m=2.0) if f.detected_at <= cut]
     fake = [f for f in fg.detect(fo, fh, flo, fc, m=2.0) if f.detected_at <= cut]
     assert true and true == fake
+
+
+def _classics(pivots, close, family):
+    out = fg.classics(pivots, np.asarray(close, float), np.ones(len(close)), m=2.0)
+    return [f for f in out if f.family == family]
+
+
+def test_inverse_head_and_shoulders_levels_and_confirmation_bar():
+    pivots = [Pivot(0, "low", 90.0, 3), Pivot(5, "high", 100.0, 8), Pivot(10, "low", 80.0, 13),
+              Pivot(15, "high", 100.0, 18), Pivot(20, "low", 91.0, 23)]
+    close = np.full(30, 95.0)
+    close[25] = 101.0
+    [fig] = _classics(pivots, close, "HEAD_SHOULDERS")
+    assert fig.side == "bull" and fig.detected_at == 25 and fig.entry == pytest.approx(100.0)
+    assert fig.stop == pytest.approx(91.0 - 0.25) and fig.targets == pytest.approx((100 + 20 / 3, 100 + 40 / 3, 120.0))
+    close[23] = 101.0                                     # clôture au-dessus dès la bougie qui confirme L3
+    assert _classics(pivots, close, "HEAD_SHOULDERS")[0].detected_at == 23
+
+
+def test_head_and_shoulders_needs_level_shoulders_and_symmetry():
+    close = np.full(40, 95.0)
+    close[35] = 101.0
+    uneven = [Pivot(0, "low", 90.0, 3), Pivot(5, "high", 100.0, 8), Pivot(10, "low", 80.0, 13),
+              Pivot(15, "high", 100.0, 18), Pivot(20, "low", 96.0, 23)]           # |90 − 96| > 0,25 × 20
+    assert not _classics(uneven, close, "HEAD_SHOULDERS")
+    lopsided = [Pivot(0, "low", 90.0, 3), Pivot(5, "high", 100.0, 8), Pivot(8, "low", 80.0, 11),
+                Pivot(20, "high", 100.0, 23), Pivot(30, "low", 91.0, 33)]         # 22 / 8 > 2
+    assert not _classics(lopsided, close, "HEAD_SHOULDERS")
+
+
+def test_bearish_head_and_shoulders_is_mirrored_without_levels():
+    pivots = [Pivot(0, "high", 110.0, 3), Pivot(5, "low", 100.0, 8), Pivot(10, "high", 120.0, 13),
+              Pivot(15, "low", 100.0, 18), Pivot(20, "high", 109.0, 23)]
+    close = np.full(30, 105.0)
+    close[25] = 99.0
+    [fig] = _classics(pivots, close, "HEAD_SHOULDERS")
+    assert fig.side == "bear" and fig.detected_at == 25 and fig.entry is None and not fig.valid
+
+
+def test_double_bottom_levels():
+    pivots = [Pivot(0, "low", 90.0, 3), Pivot(5, "high", 100.0, 8), Pivot(10, "low", 90.5, 13)]
+    close = np.full(20, 95.0)
+    close[14] = 101.0
+    [fig] = _classics(pivots, close, "DOUBLE")
+    assert fig.side == "bull" and fig.detected_at == 14 and fig.entry == pytest.approx(100.0)
+    assert fig.stop == pytest.approx(89.75) and fig.targets[-1] == pytest.approx(110.0)
+    unequal = [Pivot(0, "low", 90.0, 3), Pivot(5, "high", 100.0, 8), Pivot(10, "low", 92.0, 13)]
+    assert not _classics(unequal, close, "DOUBLE")
+    close_together = [Pivot(0, "low", 90.0, 2), Pivot(2, "high", 100.0, 4), Pivot(4, "low", 90.5, 6)]
+    assert not _classics(close_together, close, "DOUBLE")
+
+
+def test_flag_levels_and_slow_pole_rejected():
+    pivots = [Pivot(0, "low", 80.0, 3), Pivot(5, "high", 100.0, 8), Pivot(9, "low", 92.0, 12)]
+    close = np.full(20, 95.0)
+    close[14] = 101.0
+    [fig] = _classics(pivots, close, "FLAG")
+    assert fig.entry == pytest.approx(100.0) and fig.stop == pytest.approx(91.75)
+    assert fig.targets == pytest.approx((100 + 20 / 3, 100 + 40 / 3, 120.0))
+    slow = [Pivot(0, "low", 80.0, 3), Pivot(15, "high", 100.0, 18), Pivot(19, "low", 92.0, 22)]
+    assert not _classics(slow, np.full(30, 95.0), "FLAG")
+    deep = [Pivot(0, "low", 80.0, 3), Pivot(5, "high", 100.0, 8), Pivot(9, "low", 88.0, 12)]   # repli de 60 %
+    assert not _classics(deep, close, "FLAG")
+
+
+def test_cup_with_handle_levels():
+    pivots = [Pivot(0, "high", 100.0, 3), Pivot(10, "low", 80.0, 13), Pivot(20, "high", 99.0, 23),
+              Pivot(23, "low", 94.0, 26)]
+    close = np.full(32, 96.0)
+    close[28] = 101.0
+    [fig] = _classics(pivots, close, "CUP_HANDLE")
+    assert fig.side == "bull" and fig.detected_at == 28 and fig.entry == pytest.approx(100.0)
+    assert fig.stop == pytest.approx(93.75) and fig.targets[-1] == pytest.approx(119.0)
+    deep_handle = pivots[:3] + [Pivot(23, "low", 88.0, 26)]                          # anse sous la moitié
+    assert not _classics(deep_handle, close, "CUP_HANDLE")
+    off_center = [Pivot(0, "high", 100.0, 3), Pivot(2, "low", 80.0, 5), Pivot(20, "high", 99.0, 23),
+                  Pivot(23, "low", 94.0, 26)]
+    assert not _classics(off_center, close, "CUP_HANDLE")
+
+
+def test_breakout_must_come_before_the_next_pivot_is_known():
+    pivots = [Pivot(0, "low", 90.0, 3), Pivot(5, "high", 100.0, 8), Pivot(10, "low", 90.5, 13),
+              Pivot(16, "high", 99.0, 18)]
+    close = np.full(25, 95.0)
+    close[20] = 101.0                                     # après la confirmation du pivot suivant (18)
+    assert not [f for f in _classics(pivots, close, "DOUBLE") if f.anchors == (0, 5, 10)]
+
+
+def test_flag_pole_uses_the_atr_of_the_last_pivot():
+    """Relecture : le mât est comparé à 2 m × ATR de P2 (dernier pivot), pas de P1."""
+    pivots = [Pivot(0, "low", 80.0, 3), Pivot(5, "high", 100.0, 8), Pivot(9, "low", 92.0, 12)]
+    close = np.full(20, 95.0)
+    close[14] = 101.0
+    atr = np.ones(20)
+    atr[9] = 3.0                                          # 2 × 2 × 3 = 12 ≤ 20 : drapeau gardé
+    assert [f.family for f in fg.classics(pivots, close, atr, m=2.0) if f.family == "FLAG"] == ["FLAG"]
+    atr[9] = 6.0                                          # 24 > 20 : écarté (avec l'ATR de P1 = 1, il serait gardé)
+    assert not [f for f in fg.classics(pivots, close, atr, m=2.0) if f.family == "FLAG"]
+    assert fg.classics(pivots, close, np.where(np.arange(20) == 9, 3.0, 1.0), m=2.0)[0].stop == pytest.approx(92.0 - 0.75)
+
+
+def test_breakout_on_the_bar_where_the_next_pivot_becomes_known_is_kept():
+    pivots = [Pivot(0, "low", 90.0, 3), Pivot(5, "high", 100.0, 8), Pivot(10, "low", 90.5, 13),
+              Pivot(16, "high", 99.0, 18)]
+    close = np.full(25, 95.0)
+    close[18] = 101.0
+    assert [f.detected_at for f in _classics(pivots, close, "DOUBLE") if f.anchors == (0, 5, 10)] == [18]
+
+
+def test_non_alternating_pivots_give_no_classic_figure():
+    pivots = [Pivot(0, "low", 90.0, 3), Pivot(5, "low", 100.0, 8), Pivot(10, "low", 90.5, 13)]
+    close = np.full(20, 95.0)
+    close[14] = 101.0
+    assert not fg.classics(pivots, close, np.ones(20), m=2.0)

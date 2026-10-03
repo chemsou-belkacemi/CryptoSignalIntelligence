@@ -1075,12 +1075,14 @@ composants qui auront individuellement passé leur seuil ; un composant sans seu
 ## F15_FIGURES : détecteur automatique de figures sur les paires admises, contre placebos (phase 11)
 
 Phase 11 de la mission du 2026-10-03 : produire mécaniquement des analyses du type de celles des analystes
-(harmoniques, triangles et biseaux, cassures de lignes de tendance, configurations ICT/SMC) et les comparer au
+(harmoniques, triangles et biseaux, cassures de lignes de tendance, configurations ICT/SMC, et les figures
+chartistes classiques ajoutées au plan le 2026-10-03 avant le démarrage : tête-épaules, double creux, drapeau ou fanion,
+coupe avec anse, `INDICATEURS.md` § 9.6) et les comparer au
 hasard et aux analystes humains (F4, F16). **Un seul essai** : toutes les familles et unités de temps sont fixées ici ;
 aucune ne peut être ajoutée ni retirée en cours de route.
 
-**Hypothèse.** Une figure haussière détectée mécaniquement (définitions de `docs/INDICATEURS.md` § 9, écrites avant
-le code), jouée avec les règles fixes du § 9.5, rapporte en moyenne plus, en R net, que 20 transactions placebo de
+**Hypothèse.** Une figure haussière détectée mécaniquement (définitions de `docs/INDICATEURS.md` § 9, § 9.6 compris,
+écrites avant le code), jouée avec les règles fixes du § 9.5, rapporte en moyenne plus, en R net, que 20 transactions placebo de
 même géométrie sur la même paire à des moments tirés au hasard dans les 30 jours précédents. Attendu, au vu de tout le
 programme : « non démontré » ou « insuffisant ».
 
@@ -1111,7 +1113,8 @@ la même durée maximale, les mêmes frais (taker à l'entrée) et le **même d�
 Excès = R de la figure − moyenne des R des placebos.
 Le même placebo sert d'échelle aux analystes de F4 et F16 (leurs propres placebos sont de même construction).
 
-**Paramètres** (figés dans le code, `forward/f15.py`, et `patterns/` gelé) : tolérance des ratios ± 5 % relatifs ;
+**Paramètres** (figés dans le code, `forward/f15.py`, et `patterns/` gelé ; seuils des figures classiques au § 9.6) :
+tolérance des ratios ± 5 % relatifs ;
 ZigZag m = 3,0 / 2,5 / 2,0 ATR (1 h / 4 h / 1 jour) ; ATR de Wilder 14 ; validité de l'ordre 20 bougies ; durée
 maximale 60 bougies ; marge du stop 0,25 ATR ; 20 placebos de 1 à 30 jours ; minimum **30 transactions résolues** sur
 **10 jours** pour conclure ; 2 comparaisons (R moyen, excès sur les placebos) au niveau 1 − 0,05/2 pour l'excès ;
@@ -1121,7 +1124,8 @@ maximale 60 bougies ; marge du stop 0,25 ATR ; 20 placebos de 1 à 30 jours ; mi
 figures détectées (haussières, baissières), ordres exécutés, annulés, géométries invalides ; taux d'atteinte de
 chaque objectif avant le stop ; R net moyen et son intervalle ; part gagnante ; excès sur les placebos et son
 intervalle. Comparaison à trois (descriptive) : détecteur, analystes de F4 et F16, placebos, sur les mêmes paires et
-la même période ; figure du détecteur et signal d'un analyste sur la même paire à moins de 24 h d'écart : noté.
+la même période ; figure du détecteur et signal d'un analyste sur la même paire à moins de 24 h d'écart : noté. Le
+détecteur n'utilise aucun des niveaux ni indicateurs ajoutés au § 10 de `INDICATEURS.md` (non pré-enregistrés).
 
 **Seuil de décision** (ensemble, à la date d'évaluation, toutes les transactions résolues) : `INSUFFISANT` (moins de
 30 résolues ou de 10 jours, ou intervalle non calculable) ; `SUPERIEUR_AU_HASARD` (intervalle du R moyen ET
@@ -1134,9 +1138,15 @@ la dernière transaction résolue : jusqu'à ~164 jours après le démarrage (84
 plus 2 jours de constat), soit vers mi-mars 2027, pas à la date d'évaluation des autres tests.
 
 **Nombre d'événements attendu.** Compté avant le démarrage avec le code du test, sans aucun résultat de transaction,
-sur les 12 dernières semaines de DEVELOPMENT (2025-04-07 → 2025-06-30) des 40 paires de recherche : **2 189 figures
-haussières jouables** (et 2 095 baissières), dont triangles 1 111, ABCD 594, lignes de tendance 151, ICT 115,
-harmoniques 218 ; 1 h 1 456, 4 h 560, 1 jour 173 (recompté après les corrections de la relecture ; avant : 2 177). Sur 166 paires, de l'ordre de **9 000 ordres** en 12 semaines ; la
+sur les 12 dernières semaines de DEVELOPMENT (2025-04-07 → 2025-06-30) des 40 paires de recherche : **2 437 figures
+haussières jouables** (et 2 350 baissières), dont triangles 1 111, ABCD 594, lignes de tendance 151, ICT 115,
+harmoniques 218, tête-épaules 111, double creux 112, coupe avec anse 15, drapeau 10 ; 1 h 1 626, 4 h 614, 1 jour 197
+(recompté après les corrections des relectures et l'ajout des figures classiques ; avant : 2 177 puis 2 189).
+**Doublons déclarés** : 107 des 111 tête-épaules ont un triangle jouable sur les mêmes pivots `H1 L2 H2 L3`, même
+bougie et **même entrée** (la ligne haute du triangle est la ligne de cou) : même ordre, stop et objectifs différents ;
+recouvrements moindres pour les doubles creux (12/112), coupes (5/15) et drapeaux (1/11). Ces figures sont jouées et
+comptées séparément (règle inchangée) ; le rapport donne aussi, à titre descriptif, le nombre d'**ordres distincts**
+(paire, unité, départ, entrée à 0,1 % près). Sur 166 paires, de l'ordre de **10 000 ordres** en 12 semaines ; la
 part exécutée (prix qui traverse la limite dans les 20 bougies) n'est pas estimée. L'échantillon suffira pour
 l'ensemble ; il reste corrélé (figures simultanées d'une même paire, mêmes jours de marché), d'où l'intervalle par
 blocs de 7 jours.

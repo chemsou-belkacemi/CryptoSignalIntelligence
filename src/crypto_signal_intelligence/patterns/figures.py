@@ -1,5 +1,6 @@
 """Détecteur de figures (docs/INDICATEURS.md § 9, phase 11, test F15) : harmoniques (Gartley, Bat, Butterfly, Crab),
-ABCD, triangles et biseaux, cassures de lignes de tendance, configuration ICT/SMC. Fonctions pures sur des bougies
+ABCD, triangles et biseaux, cassures de lignes de tendance, configuration ICT/SMC, figures chartistes classiques
+(tête-épaules, double creux/sommet, drapeau/fanion, coupe avec anse, § 9.6). Fonctions pures sur des bougies
 clôturées d'une unité de temps ; chaque figure porte `detected_at`, la bougie à la clôture de laquelle elle est
 détectée (rien de postérieur n'est lu), et, si elle est haussière, ses niveaux de transaction (§ 9.5)."""
 from __future__ import annotations
@@ -26,7 +27,20 @@ HARMONICS: dict[str, tuple] = {
     "BUTTERFLY": (0.786, (0.382, 0.886), 1.272, (1.618, 2.24)),
     "CRAB": ((0.382, 0.618), (0.382, 0.886), 1.618, (2.24, 3.618)),
 }
-FAMILIES = (*HARMONICS, "ABCD", "TRIANGLE", "TRENDLINE", "ICT")
+CLASSICS = ("HEAD_SHOULDERS", "DOUBLE", "FLAG", "CUP_HANDLE")
+FAMILIES = (*HARMONICS, "ABCD", "TRIANGLE", "TRENDLINE", "ICT", *CLASSICS)
+HS_SHOULDERS = 0.25                  # |L1 − L3| ≤ 0,25 × profondeur
+HS_SYMMETRY = (0.5, 2.0)             # (L3 − L2) / (L2 − L1) en bougies
+DOUBLE_EQUAL = 0.10                  # |L1 − L2| ≤ 0,10 × hauteur
+DOUBLE_MIN_BARS = 5
+FLAG_POLE_M = 2.0                    # mât d'au moins 2 m × ATR
+FLAG_POLE_BARS = 10
+FLAG_RETRACE = 0.50
+FLAG_DURATION = 2.0
+CUP_RIMS = 0.10
+CUP_CENTER = 0.60                    # fond dans les 60 % centraux de la coupe
+CUP_HANDLE_DEPTH = 0.50              # anse dans la moitié haute
+CUP_LENGTH = 3.0                     # coupe ≥ 3 × anse
 
 
 @dataclass(frozen=True)
@@ -298,5 +312,104 @@ def detect(open_, high, low, close, *, m: float) -> list[Figure]:
     a = atr(h, lo, c)
     pivots = zigzag(h, lo, a, m)
     figures = (harmonics(pivots, c, a) + abcd(pivots, c, a) + triangles(pivots, h, lo, c)
-               + trendlines(pivots, h, lo, c, a) + ict_setups(o, h, lo, c, a))
+               + trendlines(pivots, h, lo, c, a) + ict_setups(o, h, lo, c, a) + classics(pivots, c, a, m=m))
     return sorted(figures, key=lambda f: (f.detected_at, f.family, f.anchors))
+
+
+# --- Figures chartistes classiques (§ 9.6) ------------------------------------------------------------------------
+
+def _breakout(signed_close: np.ndarray, level, start: int, stop: int) -> int | None:
+    """Première bougie de [start ; stop] dont la clôture (dans le sens de la figure) passe au-dessus de `level`
+    (constante, ou fonction de l'indice pour une ligne oblique)."""
+    for i in range(start, min(len(signed_close), stop + 1)):
+        if signed_close[i] > (level(i) if callable(level) else level):
+            return i
+    return None
+
+
+def _v(p: Pivot, sign: int) -> float:
+    """Prix dans le sens de la figure (changé de signe pour la version baissière)."""
+    return sign * p.price
+
+
+def _classic(family: str, sign: int, i: int, anchors: tuple[int, ...], entry: float, stop: float, height: float,
+             notes: dict) -> Figure:
+    if sign < 0:
+        return Figure(family, "bear", i, anchors, notes=notes)
+    return Figure(family, "bull", i, anchors, entry=entry, stop=stop,
+                  targets=(entry + height / 3, entry + 2 * height / 3, entry + height), notes=notes)
+
+
+def classics(pivots: list[Pivot], close: np.ndarray, atr_values: np.ndarray, *, m: float) -> list[Figure]:
+    """Tête-épaules, double creux, drapeau/fanion et coupe avec anse sur des pivots ZigZag consécutifs ; version
+    baissière en miroir (prix changés de signe), inscrite sans niveaux."""
+    close = np.asarray(close, dtype=float)
+    out: list[Figure] = []
+    n = len(pivots)
+    alternating = [k == 0 or pivots[k].kind != pivots[k - 1].kind for k in range(n)]
+    for k in range(n):
+        last = pivots[k]
+        sign = 1 if last.kind == "low" else -1       # haussière : la figure finit sur un creux (anse, épaule, repli)
+        if not all(alternating[max(1, k - 4):k + 1]):
+            continue                                  # pivots non alternés (jamais avec le ZigZag) : aucune figure
+        next_known = pivots[k + 1].known_at if k + 1 < n else len(close)
+        known = last.known_at
+        atr_last = float(atr_values[last.index]) if np.isfinite(atr_values[last.index]) else np.nan
+        signed = sign * close
+
+        # Tête-épaules (inverse en haussier) : L1 H1 L2 H2 L3
+        if k >= 4 and np.isfinite(atr_last):
+            l1, h1, l2, h2, l3 = pivots[k - 4:k + 1]
+            slope = (_v(h2, sign) - _v(h1, sign)) / (h2.index - h1.index)
+            neck_base = _v(h1, sign)
+
+            def neck(i, base=neck_base, at=h1.index, slope=slope):
+                return base + slope * (i - at)
+            depth = neck(l2.index) - _v(l2, sign)
+            left, right = l2.index - l1.index, l3.index - l2.index
+            head, shoulders = _v(l2, sign), (_v(l1, sign), _v(l3, sign))
+            if (head < min(shoulders) and depth > 0 and abs(shoulders[0] - shoulders[1]) <= HS_SHOULDERS * depth
+                    and left > 0 and HS_SYMMETRY[0] <= right / left <= HS_SYMMETRY[1]):
+                i = _breakout(signed, neck, known, next_known)
+                if i is not None:
+                    entry = sign * neck(i)
+                    out.append(_classic("HEAD_SHOULDERS", sign, i, (l1.index, h1.index, l2.index, h2.index, l3.index),
+                                        entry, l3.price - STOP_ATR * atr_last, depth, {"depth": depth}))
+        # Double creux / sommet : L1 H L2
+        if k >= 2 and np.isfinite(atr_last):
+            l1, top, l2 = pivots[k - 2:k + 1]
+            height = _v(top, sign) - min(_v(l1, sign), _v(l2, sign))
+            if (height > 0 and abs(_v(l1, sign) - _v(l2, sign)) <= DOUBLE_EQUAL * height
+                    and l2.index - l1.index >= DOUBLE_MIN_BARS):
+                i = _breakout(signed, _v(top, sign), known, next_known)
+                if i is not None:
+                    low = min(l1.price, l2.price) if sign > 0 else max(l1.price, l2.price)
+                    out.append(_classic("DOUBLE", sign, i, (l1.index, top.index, l2.index), top.price,
+                                        low - STOP_ATR * atr_last, height, {"height": height}))
+        # Drapeau / fanion : P0 P1 P2 (mât P0 → P1, repli P1 → P2)
+        if k >= 2 and np.isfinite(atr_last):
+            p0, p1, p2 = pivots[k - 2:k + 1]
+            pole = _v(p1, sign) - _v(p0, sign)
+            pole_bars = p1.index - p0.index
+            if (pole >= FLAG_POLE_M * m * atr_last and 0 < pole_bars <= FLAG_POLE_BARS
+                    and _v(p1, sign) - _v(p2, sign) <= FLAG_RETRACE * pole and p2.index - p1.index <= FLAG_DURATION * pole_bars):
+                i = _breakout(signed, _v(p1, sign), known, next_known)
+                if i is not None:
+                    out.append(_classic("FLAG", sign, i, (p0.index, p1.index, p2.index), p1.price,
+                                        p2.price - STOP_ATR * atr_last, pole, {"pole": pole, "pole_bars": pole_bars}))
+        # Coupe avec anse : H1 L1 H2 L2
+        if k >= 3 and np.isfinite(atr_last):
+            h1, l1, h2, l2 = pivots[k - 3:k + 1]
+            depth = min(_v(h1, sign), _v(h2, sign)) - _v(l1, sign)
+            width = h2.index - h1.index
+            margin = (1 - CUP_CENTER) / 2 * width
+            if (depth > 0 and abs(_v(h1, sign) - _v(h2, sign)) <= CUP_RIMS * depth
+                    and h1.index + margin <= l1.index <= h2.index - margin
+                    and _v(l2, sign) >= _v(l1, sign) + CUP_HANDLE_DEPTH * depth and width >= CUP_LENGTH * (l2.index - h2.index)):
+                rim = max(_v(h1, sign), _v(h2, sign))
+                i = _breakout(signed, rim, known, next_known)
+                if i is not None:
+                    out.append(_classic("CUP_HANDLE", sign, i, (h1.index, l1.index, h2.index, l2.index), sign * rim,
+                                        l2.price - STOP_ATR * atr_last, depth, {"depth": depth}))
+    return out
+
