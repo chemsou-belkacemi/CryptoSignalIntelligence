@@ -98,9 +98,9 @@ def test_only_telegram_and_csi_are_called(tmp_path):
 def test_relay_delivers_then_advances_the_offset(tmp_path):
     http = FakeHttp([update(1), update(2)])
     relay = tg.Relay(config(tmp_path), http=http)
-    assert relay.cycle() == {"updates": 2, "relayed": 2, "waiting": 0}
+    assert relay.cycle().items() >= {"updates": 2, "relayed": 2, "waiting": 0}.items()
     assert relay.offset() == 3
-    assert relay.cycle() == {"updates": 0, "relayed": 0, "waiting": 0}            # rien de relu
+    assert relay.cycle().items() >= {"updates": 0, "relayed": 0, "waiting": 0}.items()   # rien de relu
     assert [r["signal_id"] for r in http.posted[0]] == ["-100:10", "-100:20"]
 
 
@@ -115,3 +115,55 @@ def test_nothing_is_lost_when_csi_is_down(tmp_path):
     out = relay.cycle()
     assert [r["signal_id"] for batch in http.posted for r in batch] == ["-100:10", "-100:20"]
     assert out["waiting"] == 0 and not (tmp_path / "en_attente.jsonl").exists()
+
+
+PHOTO = [{"file_id": "small", "file_size": 1000, "width": 90, "height": 60},
+         {"file_id": "big", "file_size": 200_000, "width": 1280, "height": 720},
+         {"file_id": "huge", "file_size": 9_000_000, "width": 4000, "height": 3000}]
+
+
+class PhotoHttp(FakeHttp):
+    def __init__(self, updates, *, api_up=True):
+        super().__init__(updates, api_up=api_up)
+        self.images = []
+
+    def __call__(self, method, url, body, headers, timeout):
+        if url.endswith("/getFile"):
+            assert body == {"file_id": "big"}                       # la plus grande sous 4 Mo
+            return {"ok": True, "result": {"file_path": "photos/file_1.jpg"}}
+        if url.endswith("/telegram/image"):
+            if not self.api_up:
+                raise ConnectionError("CSI arrêté")
+            self.images.append(body)
+            return {"id": "x", "new": True}
+        return super().__call__(method, url, body, headers, timeout)
+
+
+def test_photos_are_forwarded_with_caption_and_reception_time(tmp_path):
+    http = PhotoHttp([update(5, text=None, photo=PHOTO, caption="#SOL")])
+    downloads = []
+    relay = tg.Relay(config(tmp_path), http=http, download=lambda url, timeout: downloads.append(url) or b"jpegdata")
+    out = relay.cycle()
+    assert out["photos_sent"] == 1 and out["relayed"] == 1                          # la légende part aussi vers F4
+    [image] = http.images
+    assert image["caption"] == "#SOL" and image["chat"] == "-100" and image["message_id"] == "50"
+    assert image["received_at"] == at(1790000005) and image["ext"] == "jpg"
+    assert downloads == [f"https://api.telegram.org/file/bot{TOKEN}/photos/file_1.jpg"]
+
+
+def test_photos_wait_when_csi_is_down(tmp_path):
+    http = PhotoHttp([update(6, text=None, photo=PHOTO)], api_up=False)
+    relay = tg.Relay(config(tmp_path), http=http, download=lambda url, timeout: b"jpegdata")
+    out = relay.cycle()
+    assert out["photos_waiting"] == 1 and relay.offset() == 7                      # décalage avancé : photo gardée
+    http.api_up = True
+    assert relay.cycle()["photos_sent"] == 1 and len(http.images) == 1
+
+
+def test_photo_errors_never_show_the_token(tmp_path, caplog):
+    def boom(url, timeout):
+        raise ConnectionError(f"échec sur {url}")
+
+    relay = tg.Relay(config(tmp_path), http=PhotoHttp([update(7, text=None, photo=PHOTO)]), download=boom)
+    relay.cycle()
+    assert TOKEN not in caplog.text and "<jeton>" in caplog.text

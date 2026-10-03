@@ -286,6 +286,42 @@ async function loadRisk() {
   }
 }
 
+// Signaux Telegram reçus en IMAGE à valider (phase 3) : jamais simulés sans la validation du propriétaire.
+const IMAGE_STATUS = { RECUE: "à lire", SUR: "sûres", A_VALIDER: "à valider", IGNOREE: "ignorées", VALIDEE: "validées", REFUSEE: "refusées" };
+
+async function loadImages() {
+  const target = document.getElementById("images-result");
+  if (!target) return;
+  busy(target, "Signaux en image…");
+  try {
+    const d = await api("/images/pending");
+    const counts = Object.entries(d.counts || {}).map(([k, v]) => `${v} ${IMAGE_STATUS[k] || k}`).join(" · ") || "aucune image reçue";
+    const items = (d.pending || []).map((item) => {
+      const text = el("textarea", { rows: 7, spellcheck: "false" });
+      text.value = item.ocr_text || "";
+      const decide = async (accept) => {
+        try {
+          await api("/images/decide", { id: item.id, accept, text: accept ? text.value : undefined });
+          loadImages();
+        } catch (error) { showError(target, error); }
+      };
+      return el("div", { class: "card" },
+        el("p", { class: "muted small", text: `Reçue ${when(item.received_at)} · conversation ${item.chat} · légende : ${item.caption || "aucune"}` }),
+        item.image ? el("img", { src: item.image, alt: "capture du signal", class: "signal-image" }) : el("p", { text: "image absente" }),
+        el("p", { class: "small", text: "Pourquoi à valider : " + (item.ocr_notes || []).join(" ; ") }),
+        el("label", { class: "field block" }, "Niveaux lus (corrigez si besoin, puis validez)", text),
+        el("div", { class: "row wrap" },
+          el("button", { class: "primary", text: "Valider", onclick: () => decide(true) }),
+          el("button", { text: "Refuser", onclick: () => decide(false) })));
+    });
+    target.replaceChildren(card(`Signaux en image à valider (${items.length})`,
+      el("p", { class: "muted small", text: `Images reçues par le 2e bot : ${counts}. Une image validée est jouée à l'heure de la validation, jamais avant ; une image refusée ne l'est jamais. Information : aucun ordre.` }),
+      ...(items.length ? items : [el("p", { class: "muted", text: "Rien à valider." })])));
+  } catch (error) {
+    showError(target, error);
+  }
+}
+
 // Marché à terme : données PUBLIQUES de positionnement, information seulement (aucune décision, aucun contrat).
 const usd = (v) => (isNum(v) ? new Intl.NumberFormat("fr-FR", { notation: "compact", maximumFractionDigits: 2 }).format(v) + " $" : "–");
 const rankText = (r, days) => (isNum(r) ? `rang ${pctFrac(r, 0)} sur ${fmt(days, 0)} j` : "rang –");
@@ -1001,6 +1037,7 @@ function openTab(name) {
   }
   for (const pane of document.querySelectorAll(".tabpane")) pane.classList.toggle("hidden", pane.id !== `tab-${name}`);
   if (name === "follow") loadFollow();
+  if (name === "signal") loadImages();
   if (name === "market") { loadVolatility(); loadRisk(); }
 }
 

@@ -70,7 +70,7 @@ log = logging.getLogger(__name__)
 
 MAX_BODY_BYTES = 16 * 1024
 # Un historique de groupe exporté de Telegram (texte seul, extrait par la page) dépasse vite 16 Ko.
-ROUTE_BODY_LIMITS = {"/sources/history": 8 * 1024 * 1024}
+ROUTE_BODY_LIMITS = {"/sources/history": 8 * 1024 * 1024, "/telegram/image": 6 * 1024 * 1024}
 MAX_AUDIT_ROWS = 400                    # lignes de détail renvoyées à la page (le rapport complet est écrit)
 MAX_SOURCE_CHARS = 80
 TOKEN_ENV = "CSI_API_TOKEN"
@@ -263,6 +263,31 @@ class CsiApi:
             return {"available": True, "origin": current["origin"], "note": current["note"], "symbol": symbol,
                     "model_names": current["model_names"], "forecast": entry}
         return {"available": True} | current
+
+    def telegram_image(self, payload: dict) -> dict:
+        """Image reçue en direct par le relais du 2e bot (`{chat, message_id, received_at, caption, ext, image_b64}`) :
+        gardée telle quelle, lue ensuite par la surveillance (OCR local). Aucune évaluation ici, aucun ordre."""
+        from ..external import image_queue
+        try:
+            return image_queue.add_b64(self.settings, payload, now=self.now())
+        except ValueError as exc:
+            raise ApiError(HTTPStatus.BAD_REQUEST, str(exc)) from None
+
+    def images_pending(self) -> dict:
+        """Signaux en image à valider par le propriétaire (image, niveaux lus, remarques) et décompte par issue."""
+        from ..external import image_queue
+        return {"pending": image_queue.pending(self.settings), "counts": image_queue.counts(self.settings)}
+
+    def images_decide(self, payload: dict) -> dict:
+        """Décision du propriétaire : `{id, accept: bool, text?}` (texte corrigé relu par le parseur)."""
+        from ..external import image_queue
+        ident, accept, text = payload.get("id"), payload.get("accept"), payload.get("text")
+        if not isinstance(ident, str) or not isinstance(accept, bool) or (text is not None and not isinstance(text, str)):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "champs « id » (texte), « accept » (booléen) et « text » (facultatif)")
+        try:
+            return image_queue.decide(self.settings, ident, accept=accept, text=text, now=self.now())
+        except ValueError as exc:
+            raise ApiError(HTTPStatus.BAD_REQUEST, str(exc)) from None
 
     def risk(self) -> dict:
         """Conseil de risque à 24 h en shadow (risk/advice.py) : ampleur typique et taille relative à risque égal,
@@ -735,6 +760,7 @@ class CsiApi:
                 "/admissions": self.admissions, "/sources/history": self.sources_history,
                 "/volatility": lambda: self.volatility(query.get("symbol", [""])[0]),
                 "/plans/live": self.plans_live, "/forward": self.forward, "/risk": self.risk,
+                "/images/pending": self.images_pending,
             }
             if path in routes:
                 return routes[path]()
@@ -756,6 +782,10 @@ class CsiApi:
             return self.sources_history_run(body or {})
         elif method == "POST" and path == "/telegram/live":
             return self.telegram_live(body or {})
+        elif method == "POST" and path == "/telegram/image":
+            return self.telegram_image(body or {})
+        elif method == "POST" and path == "/images/decide":
+            return self.images_decide(body or {})
         raise ApiError(HTTPStatus.NOT_FOUND, f"route inconnue : {method} {path}")
 
     def telegram_live(self, payload: dict) -> dict:

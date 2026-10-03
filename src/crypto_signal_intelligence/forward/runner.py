@@ -123,6 +123,7 @@ def daily(settings: Settings, *, now: datetime, force: bool = False) -> dict | N
                 return {"skipped": "un autre passage est en cours"}
             _LAST["poll"] = moment
             spreads_note = _record_spreads(settings, now=now)
+            _read_images(settings, now=now)
             if not hourly:
                 polled: dict = {"poll": poll_tests(settings, now=now)}
                 if spreads_note is not None:                     # None : pas de relevé dû (moins de 10 minutes)
@@ -156,6 +157,31 @@ def daily(settings: Settings, *, now: datetime, force: bool = False) -> dict | N
             return out
     finally:
         _LOCK.release()
+
+
+_IMAGE_READER: dict = {}
+
+
+def _read_images(settings: Settings, *, now: datetime) -> dict | None:
+    """Lit les signaux reçus en image (OCR local, external/image_queue.py) ; jamais bloquant ; sans l'extra « ocr »,
+    les images attendent."""
+    try:
+        from ..external import chart_ocr, image_queue
+        from .registry import code_fingerprint
+        if not chart_ocr.available():
+            return None
+        if "reader" not in _IMAGE_READER:
+            _IMAGE_READER["reader"] = chart_ocr.Lecteur()
+            _IMAGE_READER["code"] = code_fingerprint((chart_ocr,))
+        lecteur = _IMAGE_READER["reader"]
+
+        def read(path, caption):
+            return chart_ocr.classify_image(lecteur.analyse(path), caption=caption)
+
+        return image_queue.process(settings, read, code=_IMAGE_READER["code"], now=now)
+    except Exception as exc:  # noqa: BLE001 - une lecture en panne n'arrête pas les tests
+        log.exception("lecture des signaux en image")
+        return {"error": f"{type(exc).__name__}: {exc}"[:200]}
 
 
 def _record_spreads(settings: Settings, *, now: datetime) -> dict | None:

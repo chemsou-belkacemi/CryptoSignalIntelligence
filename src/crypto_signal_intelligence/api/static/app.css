@@ -78,3 +78,6 @@ tr.selected td { background: var(--soft-neutral); }
 .spinner { color: var(--muted); padding: 16px 2px; }
 .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; white-space: pre-wrap; }
 .error { color: var(--bad); font-weight: 600; }
+
+/* Signaux Telegram en image à valider */
+.signal-image { max-width: 100%; height: auto; border-radius: 6px; }
