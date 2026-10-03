@@ -18,6 +18,9 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta, timezone
 
 NUMBER = r"(?:\d+(?:\.\d+)?|\.\d+)"
+# Prix lus dans une valeur : comme NUMBER, plus un entier suivi d'un point sans décimale (« Stop: 223. ») qui vaut
+# 223 (même règle que BinanceSpotManager, branche fix/parser-stop-tp) ; « 1.442. », « 223.. », « 1.2.3 » refusés.
+PRICE_NUMBER = r"(?:\d+(?:\.\d+)?|\.\d+|\d+\.(?![\d.]))"
 # Vente à découvert : même règle que BinanceSpotManager (signal_parser.SHORT_SIGNAL). « SELL » en début de ligne,
 # après DIRECTION/SIDE/POSITION/TYPE, ou suivi de LIMIT/NOW/MARKET/ZONE ; jamais « T1: 2.9 SELL (1.40%) », qui
 # veut dire « vendre à cet objectif » (prise de bénéfice d'un achat).
@@ -161,8 +164,8 @@ def _read_prices(value: str, kind: str) -> tuple[list[float], str, str]:
         timeframe = ""
     if re.search(r"\d\s*,\d|\d\s*\+|\d[A-Z]|^\s*[-−]\s*\.?\d", text):
         return [], "", "prix ambigu (virgule, +, suffixe ou signe négatif)"
-    numbers = re.findall(rf"(?<![\d.]){NUMBER}(?![\d.])", text)
-    if re.search(r"\d", re.sub(rf"(?<![\d.]){NUMBER}(?![\d.])", " ", text)):
+    numbers = re.findall(rf"(?<![\d.]){PRICE_NUMBER}(?![\d.])", text)
+    if re.search(r"\d", re.sub(rf"(?<![\d.]){PRICE_NUMBER}(?![\d.])", " ", text)):
         return [], "", "prix mal formé"
     return [float(n) for n in numbers], timeframe, ""
 

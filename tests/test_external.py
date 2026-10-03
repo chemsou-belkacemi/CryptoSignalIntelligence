@@ -441,3 +441,31 @@ def test_a_limit_above_the_market_scales_with_atr_and_never_puts_the_stop_above_
     pos = int(np.flatnonzero(in_atr.times == frame["decision_time"].to_numpy()[i])[0])
     assert {br.TP: "TP1_FIRST", br.SL: "SL_FIRST", br.TIMEOUT: "TIMEOUT"}[in_atr.outcome[pos]] == outcome
     assert in_atr.r[pos] == pytest.approx(r, abs=1e-4)
+
+
+# --- Prix entier suivi d'un point (« Stop: 223. »), même règle que BSM (branche fix/parser-stop-tp) ----------------
+
+QNT_TRAILING_DOT = """👑AL-MAHWASHI VIP👑
+#QNT/USDT
+📍 Entry1: 234.04
+🎯 TARGETS
+🎯 TP1: 240.30 (2.67%)
+🎯 TP2: 246.90 (5.50%)
+🎯 TP3: 253.87 (8.47%)
+🎯 TP4: 263.18 (12.45%)
+🎯 TP5: 273.36 (16.80%)
+🛑 Stop: 223.
+📅 Date: Saturday - 2026-10-03"""
+
+
+def test_integer_price_with_trailing_dot_is_read():
+    from crypto_signal_intelligence.external.parser import parse
+    signal = parse(QNT_TRAILING_DOT)
+    assert signal.errors == [] and signal.symbol == "QNTUSDT" and signal.stop == 223.0
+    assert signal.targets[-1] == 273.36
+
+
+@pytest.mark.parametrize("stop", ["223.5.", "1.442.", "2.2.3", "223.."])
+def test_malformed_prices_stay_refused(stop):
+    from crypto_signal_intelligence.external.parser import parse
+    assert parse(QNT_TRAILING_DOT.replace("Stop: 223.", f"Stop: {stop}")).stop is None

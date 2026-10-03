@@ -10,10 +10,27 @@ fusion. `main` de BSM : `c5a8d5c`, propre, identique à `origin/main`.
 - `fix/reprise-audit` (déjà poussée, correctifs de sécurité anti-double-achat) **entre en conflit** avec elles :
   il faut choisir l'ordre et résoudre avec soin.
 
+## Nouvelle branche du 2026-10-03 : `fix/parser-stop-tp` (petite, à fusionner en premier)
+
+Deux soucis signalés par le propriétaire, corrigés dans une branche partie de `main` (worktree
+`.claude/worktrees/parser-stop-tp`), ni fusionnée ni poussée :
+
+- **« Stop: 223. »** (point sans décimale) était refusé comme « prix mal formé » : il vaut maintenant 223.
+  « 1.442. », « 223.. », « 1.2.3 » restent refusés. Même règle dans le parser de CSI.
+- **Répartition personnalisée des TP réglée pour 5 TP** : un signal à 4 TP était refusé (« la répartition doit
+  contenir 5 pourcentages »). C'est maintenant un **maximum** : les 4 premières parts sont gardées et remises à
+  l'échelle pour faire 100 % (40;25;15;10;10 → 44,4 / 27,8 / 16,7 / 11,1). Un signal qui a plus de TP que la
+  répartition garde les N premiers (comme avant). Même chose pour les entrées.
+- Tests : 522 réussis sur la branche (7 nouveaux, dont le signal QNT réel) ; fusion simulée sans conflit avec
+  `main`, `feat/csi-v2-drop`, `feat/signal-routing`, `fix/reprise-audit` et `feat/location` ; fusion d'essai avec
+  `feat/signal-routing` : 700 tests réussis.
+- Pour l'avoir en service : la fusionner dans `main`, puis `make up` (reconstruit l'image du bot).
+
 ## Les branches
 
 | Branche | Avance / retard sur main | Contenu |
 |---|---|---|
+| `fix/parser-stop-tp` | +2 / 0 | prix « 223. » accepté ; répartition personnalisée = maximum de TP |
 | `feat/csi-v2-drop` | +15 / 0 | lecture des signaux TXT V3 de CSI par dossier de dépôt, retour d'exécution vers CSI |
 | `feat/signal-routing` | +21 / 0 | contient `csi-v2-drop` + routage AUTO / « À confirmer » / rejeté |
 | `fix/reprise-audit` | +7 / 0 | achat unique par signal, ordres orphelins, SL incertain, « au marché » |
@@ -83,6 +100,7 @@ Non vérifié : `make integration` (clés Demo), un cycle Demo de bout en bout, 
 
 ## Recommandation
 
+0. Fusionner `fix/parser-stop-tp` (petite, sans conflit, corrige tes deux soucis du jour).
 1. Fusionner `feat/csi-v2-drop` dans `main` (avance rapide).
 2. Fusionner `feat/signal-routing` (avance rapide).
 3. Supprimer `feat/ml-signal-drop`, absorbée.
