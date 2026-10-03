@@ -52,6 +52,7 @@ ALPHA = 0.05
 SAMPLES, SEED = 10_000, 20261014
 BLOCK_DAYS = 7
 GAP_AFTER = pd.Timedelta(days=2)
+FORECAST_DEADLINE = pd.Timedelta(hours=23)  # sans prévision du jour à 23:00 UTC : contrôle quand même (traçabilité)
 CHECK, EVENT, RESOLUTION = "CONTROLE", "EVENEMENT", "RESOLUTION"
 COMPARISONS = ("vs_placebos", "vs_sortie_a_date")
 POSITIVE, NEGATIVE, NO_DIFFERENCE, INSUFFICIENT, RUNNING = ("EXCES_POSITIF", "EXCES_NEGATIF",
@@ -78,7 +79,7 @@ def play(entry: float, sigma: float, bars: pd.DataFrame, exit_open: float) -> tu
         if o <= stop:
             return "SL", o
         if o >= target:
-            return "TP", o
+            return "TP", target                  # ordre limite posé d'avance : rempli à son prix, pas à l'ouverture
         if lo <= stop:
             return "SL", stop
         if h >= target:
@@ -140,7 +141,9 @@ def poll(settings: Settings, journal: Journal, start: dict, *, now: datetime) ->
         return {"checks": 0}
     forecast = read_forecast(settings)
     if forecast is None or str(forecast.get("origin", ""))[:10] != key:
-        return {"checks": 0, "waiting": "prévision de volatilité du jour pas encore écrite"}
+        if moment < day + FORECAST_DEADLINE:
+            return {"checks": 0, "waiting": "prévision de volatilité du jour pas encore écrite"}
+        forecast = None                          # échéance passée : contrôle quand même, événements « sans prévision »
     symbols = [s for s in SYMBOLS if s in set(start["halal"]["symbols"])]
     values: dict[str, dict] = {}
     events = 0
@@ -150,14 +153,16 @@ def poll(settings: Settings, journal: Journal, start: dict, *, now: datetime) ->
         if read is None:
             values[symbol] = {"evaluable": False, "bars": int(len(bars)), "triggered": False}
             continue
-        sigma = sigma_for(forecast, symbol)
+        sigma = sigma_for(forecast, symbol) if forecast is not None else None
         values[symbol] = {"evaluable": True, **read, "sigma": round(sigma, 6) if sigma else None}
         if read["triggered"]:
             event_id = hashlib.sha256(f"{TEST_ID}:{symbol}:{key}".encode()).hexdigest()[:16]
             days = placebo_days(event_id)
             journal.append(EVENT, {"event_id": event_id, "symbol": symbol, "day": key, "detected_at": utc_iso(moment),
                                    "entry_at": utc_iso(moment), "sigma": sigma, "playable": sigma is not None,
-                                   "forecast_origin": forecast.get("origin"), "resistance": read["resistance"],
+                                   "forecast_origin": forecast.get("origin") if forecast else None,
+                                   "forecast_source_run": forecast.get("source_run") if forecast else None,
+                                   "forecast_models": forecast.get("models") if forecast else None, "resistance": read["resistance"],
                                    "placebo_days": days, "placebo_entries": [utc_iso(moment - pd.Timedelta(days=d)) for d in days]},
                            now=moment)
             events += 1
@@ -179,8 +184,15 @@ def hourly_after(settings: Settings, symbol: str, entry: pd.Timestamp) -> pd.Dat
 
 
 def contiguous(bars: pd.DataFrame, entry: pd.Timestamp) -> bool:
+    """Toutes les bougies 1 h attendues : de l'heure pleine qui suit l'entrée à la dernière qui ferme avant 168 h,
+    sans trou, ni au début ni à la fin."""
     expected = int(((entry + HOLD) - entry.ceil("h")) / pd.Timedelta(hours=1))
-    return len(bars) >= expected - 1 and (len(bars) == 0 or bars["open_time"].diff().dropna().le(pd.Timedelta(hours=1)).all())
+    if expected <= 0 or len(bars) != expected:
+        return False
+    first, last = pd.Timestamp(bars["open_time"].iloc[0]), pd.Timestamp(bars["open_time"].iloc[-1])
+    hour = pd.Timedelta(hours=1)
+    return (first == entry.ceil("h") and last + hour <= entry + HOLD < last + 2 * hour
+            and bool(bars["open_time"].diff().dropna().eq(hour).all()))
 
 
 def resolve(settings: Settings, journal: Journal, *, now: datetime, rest: PublicHttpClient | None = None) -> dict:
@@ -296,10 +308,16 @@ TEST = ForwardTest(
             "stop_sigma": STOP_SIGMA, "target_sigma": TARGET_SIGMA, "hold_hours": 168, "placebos": PLACEBOS,
             "placebo_days": [PLACEBO_MIN_DAYS, PLACEBO_MAX_DAYS], "min_events": MIN_EVENTS, "alpha": ALPHA,
             "comparisons": list(COMPARISONS), "samples": SAMPLES, "seed": SEED, "block_days": BLOCK_DAYS,
-            "gap_after_days": GAP_AFTER.days, "max_bar_delay_minutes": 10, "events": "règles de F10 (fonctions gelées)"},
+            "gap_after_days": GAP_AFTER.days, "max_bar_delay_minutes": 10, "events": "règles de F10 (fonctions gelées)",
+            "forecast_deadline_hours": 23, "target_gap_fill": "prix limite"},
     rule_objects=(), config_keys=("data.rest_base_url",),
     frozen_modules=("crypto_signal_intelligence.forward.f14", "crypto_signal_intelligence.forward.f13",
                     "crypto_signal_intelligence.forward.f10", "crypto_signal_intelligence.forward.costs",
-                    "crypto_signal_intelligence.forward.registry", "crypto_signal_intelligence.forward.journal"),
-    frozen_functions=f10.TEST.frozen_functions,
+                    "crypto_signal_intelligence.forward.registry", "crypto_signal_intelligence.forward.journal",
+                    "crypto_signal_intelligence.outlook.volatility"),
+    frozen_functions=f10.TEST.frozen_functions + (
+        ("crypto_signal_intelligence.research.volatility", "daily_frame"),
+        ("crypto_signal_intelligence.research.volatility", "complete_rows"),
+        ("crypto_signal_intelligence.research.volatility", "fit_at"),
+        ("crypto_signal_intelligence.research.volatility", "month_forecasts")),
 )

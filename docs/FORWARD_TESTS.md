@@ -973,8 +973,9 @@ paire, contrôles, paires évaluables, en attente, trous.
 **Seuil de décision.** Celui de F10, par horizon : `INSUFFISANT` (moins de 30 résolus ou intervalle non calculable) ;
 `EXCES_POSITIF` (intervalle au-dessus de 0 en central ET en défavorable) ; `EXCES_NEGATIF` ; sinon
 `PAS_DE_DIFFERENCE_DEMONTREE`. Lecture commune avec F10 déclarée maintenant : la condition ne sera dite
-« confirmée en direct » que si F10 et F13 sont tous deux `EXCES_POSITIF` à 168 h, ou si l'un l'est et l'autre
-`INSUFFISANT` avec un excès du même signe.
+« confirmée en direct » que si F10 **et** F13 sont tous deux `EXCES_POSITIF` à 168 h (une seule chance de
+confirmation, pas deux ; F14 regarde les mêmes événements avec d'autres sorties et ne compte pas dans cette
+lecture).
 
 **Date d'évaluation.** 84 jours après le démarrage (revue intermédiaire à 42 jours) ; verdict une fois le dernier
 événement résolu.
@@ -984,7 +985,11 @@ sur 24 paires, corrélés entre paires.
 
 **Limites déclarées.** Démarrage environ 22 heures après F10 (périodes presque identiques) ; paires moins liquides
 (coûts « autres » du modèle commun) ; ces 24 paires figuraient dans le criblage K (DEVELOPMENT) : ce n'est pas un
-hors-échantillon par actif, c'est un hors-échantillon dans le temps, comme F10.
+hors-échantillon par actif, c'est un hors-échantillon dans le temps, comme F10. Comme pour F10, les placebos de 1 à
+6 jours avant l'événement couvrent dans leur fenêtre la journée de cassure, qui monte par construction (environ un
+placebo sur cinq) : la comparaison aux placebos est prudente. Les intervalles regroupent des blocs de 7 jours
+**ayant un événement** : il faut au moins 50 jours distincts avec événement ; les cassures se groupent dans les
+journées de hausse, un verdict `INSUFFISANT` reste plausible.
 
 ## F14_PIVOT_BREAK_VOL_LEVELS : les événements K2 avec niveaux placés par la volatilité prévue, en direct
 
@@ -1001,12 +1006,17 @@ fixe (168 h). Réponse attendue : « pas de différence démontrée » pour les 
   24 de F13), contrôle après 00:10 UTC, une fois par jour, **seulement après l'écriture de la prévision de
   volatilité du jour** (`state/volatility.json`, origine du jour) ; une paire sans prévision ce jour-là donne un
   événement inscrit « sans prévision », non joué.
-- σ̂ = `move_pct` à 3 jours de la prévision en service (LightGBM du lot 7), divisé par 100, lu à la détection.
+- σ̂ = `move_pct` à 3 jours de la prévision en service (LightGBM du lot 7), divisé par 100, lu à la détection ;
+  l'origine, l'exécution source et les modèles du fichier sont inscrits avec l'événement. Si la prévision du jour
+  n'est pas écrite à 23:00 UTC, le contrôle a lieu quand même et les événements sont inscrits « sans prévision »
+  (une cassure n'émet qu'un événement par niveau : sinon elle serait perdue sans trace).
 - Achat au premier prix (ouverture de la première bougie de 1 minute) après la détection ; **stop** à entrée ×
   (1 − 1,0 σ̂), **objectif** à entrée × (1 + 1,5 σ̂) ; sinon sortie au marché à 168 h.
 - Chemin : bougies 1 h du magasin de la surveillance, de l'heure pleine qui suit l'entrée jusqu'à 168 h ; ouverture
-  au-delà d'une barrière → sortie à l'ouverture ; stop et objectif dans la même bougie → stop. Frais du modèle
-  commun (objectif : ordre limite, frais seulement ; stop et sortie à date : ordre au marché).
+  sous le stop → sortie à l'ouverture ; ouverture au-dessus de l'objectif → sortie au prix de l'objectif (ordre
+  limite posé d'avance) ; stop et objectif dans la même bougie → stop. Frais du modèle commun (objectif : ordre
+  limite, frais seulement ; stop et sortie à date : ordre au marché). Toutes les bougies 1 h attendues doivent être
+  là (première, dernière et sans trou), sinon `TROU`.
 - R = rendement net / (1,0 σ̂). Placebos : 20 achats de la même paire aux mêmes heures 1 à 30 jours avant (graine
   déduite de l'événement), **même σ̂** que l'événement, mêmes règles. Référence appariée : le même événement sorti à
   date fixe (168 h), exprimé en R du même risque.
@@ -1016,8 +1026,9 @@ fixe (168 h). Réponse attendue : « pas de différence démontrée » pour les 
 **Paramètres** (figés dans le code, `forward/f14.py`) : 40 paires listées ; σ̂ à 3 jours ; stop 1,0 σ̂, objectif
 1,5 σ̂ ; 168 h ; 20 placebos de 1 à 30 jours ; minimum **30 événements résolus** ; 2 comparaisons (contre les
 placebos, contre la sortie à date) au niveau 1 − 0,05/2 ; 10 000 tirages par blocs de 7 jours (au moins 8 blocs),
-graine 20261014 ; gel : modules f14, f13, f10, costs, registry, journal, fonctions du criblage K, intervalle par
-blocs, magasin de bougies.
+graine 20261014 ; échéance de la prévision 23:00 UTC ; gel : modules f14, f13, f10, costs, registry, journal,
+`outlook.volatility` (source de σ̂), fonctions `daily_frame`, `complete_rows`, `fit_at`, `month_forecasts` du lot 7,
+fonctions du criblage K, intervalle par blocs, magasin de bougies.
 
 **Métrique.** Par comparaison et scénario : événements résolus, R moyen de l'achat, écart moyen (contre les
 placebos, contre la sortie à date) et son intervalle, part des écarts positifs ; événements par paire, sans
@@ -1035,7 +1046,10 @@ prévision (paires de moins de 400 jours d'historique : aucune parmi les 40).
 
 **Limites déclarées.** σ̂ vient d'un modèle sélectionné sur DEVELOPMENT (non confirmé sur la période finale) ; les
 multiples 1,0 et 1,5 sont ceux du plan du tableau de bord, choisis sans optimisation ; la première heure partielle
-après l'entrée n'est pas surveillée (bougies 1 h) ; placebos de même σ̂ que l'événement, pas de leur propre jour.
+après l'entrée (≈ 40 min) et les minutes entre la dernière bougie 1 h et la sortie à 168 h (≈ 15 min) ne sont pas
+surveillées ; placebos de même σ̂ que l'événement, pas de leur propre jour ; le LightGBM « commun » en service est
+réajusté chaque mois sur l'univers du moment (les paires ajoutées par le screening y entrent) : σ̂ n'est pas une
+définition fixe ; mêmes réserves que F13 sur les placebos proches de la cassure et le nombre de jours à événement.
 
 ## VOTE_V1 : modèle de vote, définition pré-enregistrée (phase 9, NON évalué)
 

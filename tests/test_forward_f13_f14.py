@@ -46,6 +46,8 @@ def test_f14_play_by_hand():
     assert f14.play(100.0, 0.10, falling, 99.0) == ("SL", pytest.approx(90.0))               # stop 1,0 σ̂ = 90
     both = pd.DataFrame({"open": [100.0], "high": [120.0], "low": [85.0]})
     assert f14.play(100.0, 0.10, both, 99.0) == ("SL", pytest.approx(90.0))                  # les deux : stop d'abord
+    above = pd.DataFrame({"open": [120.0], "high": [121.0], "low": [119.0]})
+    assert f14.play(100.0, 0.10, above, 99.0) == ("TP", pytest.approx(115.0))   # objectif en gap : prix limite
     gap = pd.DataFrame({"open": [88.0], "high": [89.0], "low": [87.0]})
     assert f14.play(100.0, 0.10, gap, 99.0) == ("SL", 88.0)                   # ouverture sous le stop
     flat = pd.DataFrame({"open": [100.0], "high": [101.0], "low": [99.0]})
@@ -77,6 +79,11 @@ def test_f14_waits_for_the_forecast_and_marks_events_without_one(settings, monke
     assert not events["DOGEUSDT"]["playable"]
     out = f14.stats(journal, start, now=now)
     assert out["decisions"] == 1 and out["without_forecast"] == 1 and set(out["verdicts"].values()) == {f14.RUNNING}
+    late = datetime(2026, 10, 11, 23, 30, tzinfo=UTC)                         # prévision du jour jamais écrite
+    assert f14.poll(settings, journal, start, now=datetime(2026, 10, 11, 12, tzinfo=UTC))["checks"] == 0
+    assert f14.poll(settings, journal, start, now=late) == {"checks": 1, "events": 2}
+    latest = [e["data"] for e in journal.entries({f14.EVENT}) if e["data"]["day"] == "2026-10-11"]
+    assert len(latest) == 2 and not any(e["playable"] for e in latest)
 
 
 class FakeRest:
@@ -102,6 +109,9 @@ def test_f14_resolution_compares_to_placebos_and_to_the_timed_exit(settings, mon
         return pd.DataFrame({"open_time": index, "open": 100.0, "high": high, "low": 99.0})
 
     monkeypatch.setattr(f14, "hourly_after", hours)
+    full = hours(settings, "APTUSDT", event_entry)
+    assert f14.contiguous(full, event_entry) and not f14.contiguous(full.iloc[:-1], event_entry)
+    assert not f14.contiguous(full.iloc[1:], event_entry) and not f14.contiguous(full.drop(index=50), event_entry)
     assert f14.resolve(settings, journal, now=datetime(2026, 10, 12, tzinfo=UTC), rest=FakeRest()) == {}
     assert f14.resolve(settings, journal, now=datetime(2026, 10, 17, 1, tzinfo=UTC), rest=FakeRest()) == {"RESOLU": 1}
     result = next(journal.entries({f14.RESOLUTION}))["data"]["results"][CENTRAL]
