@@ -168,6 +168,34 @@ plus bas). Symétrique (ligne montante de support, cassure baissière) pour info
 **Haussière** : un sweep haussier (§ 4) suivi, dans les **10 bougies**, d'un **MSS haussier** (§ 5). Zone d'entrée :
 le FVG haussier qui a fait le MSS (le plus récent avant la cassure).
 
+### 9.6 Figures chartistes classiques (ajout du 2026-10-03, écrit avant le code)
+
+Toutes sur les pivots ZigZag de l'unité de temps (§ 1), pivots **consécutifs** (donc alternés) ; « connu » = bougie où
+le dernier pivot de la figure est confirmé. **Cassure** : première clôture au-delà de la ligne de cou (ou du bord) **à
+partir de la bougie où le dernier pivot est connu (incluse)**, et au plus tard à la bougie où le pivot suivant devient
+connu ; sinon pas de figure. Version haussière décrite ; la baissière est le miroir exact (inscrite, jamais jouée).
+ATR = ATR de Wilder 14 de la bougie du dernier pivot.
+
+- **Tête-épaules inverse** (`HEAD_SHOULDERS`) : 5 pivots `L1` (bas, épaule gauche), `H1` (haut), `L2` (bas, tête),
+  `H2` (haut), `L3` (bas, épaule droite). Tête plus basse que les deux épaules (`L2 < L1`, `L2 < L3`) ; ligne de cou par
+  `H1` et `H2` ; profondeur `P` = ligne de cou à l'indice de `L2` − `L2` ; épaules de même niveau : `|L1 − L3| ≤ 0,25 P` ;
+  symétrie de durée : `(L3 − L2) / (L2 − L1)` (en bougies) dans `[0,5 ; 2]`. Cassure : clôture au-dessus de la ligne de cou.
+- **Double creux** (`DOUBLE`) : 3 pivots `L1` (bas), `H` (haut), `L2` (bas) ; hauteur `P = H − min(L1, L2)` ; creux égaux :
+  `|L1 − L2| ≤ 0,10 P` ; au moins **5 bougies** entre `L1` et `L2`. Cassure : clôture au-dessus de `H` (ligne de cou
+  horizontale).
+- **Drapeau / fanion** (`FLAG`) : 3 pivots `P0` (bas), `P1` (haut), `P2` (bas). Mât `P0 → P1` : hauteur `M = P1 − P0` d'au
+  moins **2 m × ATR** (deux fois le seuil du ZigZag) en au plus **10 bougies** ; repli `P1 → P2` d'au plus **50 %** du
+  mât, en au plus **2 fois** la durée du mât. Cassure : clôture au-dessus de `P1`. Drapeaux et fanions ne sont pas
+  distingués (la forme intérieure du repli est plus fine que le ZigZag) : déclaré.
+- **Coupe avec anse** (`CUP_HANDLE`) : 4 pivots `H1` (haut, bord gauche), `L1` (bas, fond), `H2` (haut, bord droit),
+  `L2` (bas, anse). Profondeur `P = min(H1, H2) − L1` ; bords égaux : `|H1 − H2| ≤ 0,10 P` ; fond « arrondi » : `L1` dans
+  les 60 % centraux de `[H1 ; H2]` (en bougies) ; anse dans la moitié haute de la coupe : `L2 ≥ L1 + 0,5 P` ; coupe au
+  moins **3 fois** plus longue que l'anse (`H2 − H1 ≥ 3 (L2 − H2)` en bougies). Cassure : clôture au-dessus de
+  `max(H1, H2)`.
+
+Le détecteur de F15 n'utilise aucun des niveaux ni indicateurs du § 10 (rien n'est écrit en ce sens dans son
+pré-enregistrement).
+
 ### 9.5 Règles de transaction simulée (identiques pour toutes les familles)
 
 | Famille | Ordre limite d'achat | Stop | Objectifs (sortie par tiers) |
@@ -177,6 +205,10 @@ le FVG haussier qui a fait le MSS (le plus récent avant la cassure).
 | Triangles, biseaux | valeur de la ligne haute à la cassure (retest) | valeur de la ligne basse à la cassure | entrée + ⅓, ⅔ et 1 × hauteur |
 | Ligne de tendance | valeur de la ligne à la cassure (retest) | plus bas entre `P3` et la cassure, moins 0,25 × ATR | entrée + ⅓, ⅔ et 1 × hauteur |
 | ICT/SMC | haut du FVG du MSS | plus bas du sweep, moins 0,25 × ATR | entrée + 1, 2 et 3 R (R = entrée − stop) |
+| Tête-épaules inverse | ligne de cou à la cassure (retest) | plus bas de l'épaule droite `L3`, moins 0,25 × ATR | entrée + ⅓, ⅔ et 1 × `P` |
+| Double creux | `H` (retest) | `min(L1, L2)` moins 0,25 × ATR | entrée + ⅓, ⅔ et 1 × `P` |
+| Drapeau / fanion | `P1` (retest) | `P2` moins 0,25 × ATR | entrée + ⅓, ⅔ et 1 × `M` (mât) |
+| Coupe avec anse | `max(H1, H2)` (retest) | bas de l'anse `L2`, moins 0,25 × ATR | entrée + ⅓, ⅔ et 1 × `P` |
 
 - L'ordre limite vaut **20 bougies** de l'unité de temps de la figure, comptées depuis la clôture de la bougie de
   détection (annulé sinon, ou dès que le stop est touché avant l'entrée) ; il est posé à la première minute qui suit
