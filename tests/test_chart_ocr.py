@@ -123,7 +123,8 @@ def fake_reader(calls: list | None = None):
     def read(path: Path, caption: str) -> str | None:
         if calls is not None:
             calls.append((path.name, caption))
-        return co.signal_text(rep(symbole="SOLUSDT" if path.name == "a.jpg" else None), caption=caption)
+        out = co.classify_image(rep(symbole="SOLUSDT" if path.name == "a.jpg" else None), caption=caption)
+        return out["status"], out["text"]
     return read
 
 
@@ -153,7 +154,7 @@ def test_a_failing_image_never_stops_the_audit(tmp_path, monkeypatch):
 
     monkeypatch.setattr(co, "available", lambda: True)
     monkeypatch.setattr(co, "Lecteur", Boom)
-    assert au.chart_reader()(tmp_path / "x.png", "") is None
+    assert au.chart_reader()(tmp_path / "x.png", "") == (co.IGNORED, None)
 
 
 def test_audit_counts_images_apart_from_the_text_measure(settings, tmp_path):
@@ -283,3 +284,28 @@ def test_a_misread_label_blocks_the_image(reader, tmp_path, old, misread):
     result = reader.analyse(tmp_path / "chart.png")
     assert any(a.startswith("LIGNE_ORPHELINE_DANS_LE_SIGNAL") for a in result["alertes"])
     assert co.signal_text(result) is None
+
+
+# --- Issue d'une image : SUR / A_VALIDER / IGNOREE (décision du 2026-10-03) ----------------------------------------
+
+@pytest.mark.parametrize(("changes", "caption", "status"), [
+    ({}, None, co.SURE),
+    ({}, "SOL/USDT", co.SURE),
+    ({}, "#SOL", co.SURE),
+    ({"alertes": ["LIGNE_SANS_ETIQUETTE vert y=1 prix~120"]}, None, co.TO_VALIDATE),       # remarque non bloquante
+    ({"symbole": None}, "#SOL", co.TO_VALIDATE),                                         # paire de la légende seule
+    ({"symbole": None}, "SOL/USDT", co.TO_VALIDATE),
+    ({"symbole": None}, None, co.IGNORED),                                               # aucune paire
+    ({}, "LINK/USDT", co.IGNORED),                                                       # contradiction
+    ({}, "#SOL #LINK", co.IGNORED),                                                      # ambiguë
+    ({"alertes": ["DESACCORD_OCR 1 ['1', '2']"]}, None, co.IGNORED),                     # bloquante
+    ({"resultat_mesure": True}, None, co.IGNORED),
+    ({"signal": {"entrees": [1.0], "stop": [], "objectifs": [2.0]}}, None, co.IGNORED),
+])
+def test_image_outcome(changes, caption, status):
+    out = co.classify_image(rep(**changes), caption=caption)
+    assert out["status"] == status
+    if status == co.IGNORED:
+        assert out["text"] is None
+    else:
+        assert parse(out["text"]).symbol == "SOLUSDT" and parse(out["text"]).stop == 103.15

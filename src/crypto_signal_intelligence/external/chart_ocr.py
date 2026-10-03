@@ -542,3 +542,45 @@ def signal_text(rep: dict, *, caption: str | None = None) -> str | None:
     lines += [f"TP{i}: {v:.12g}" for i, v in enumerate(sorted(targets), start=1)]
     lines.append(f"Stop: {stops[0]:.12g}")
     return "\n".join(lines)
+
+
+# --- Issue d'une image (décision du propriétaire du 2026-10-03, docs/FORWARD_TESTS.md MISSION_2026_10_03) ----------
+
+SURE, TO_VALIDATE, IGNORED = "SUR", "A_VALIDER", "IGNOREE"
+
+
+def _levels_text(pair: str, signal: dict) -> str:
+    entries, stops, targets = signal["entrees"], signal["stop"], signal["objectifs"]
+    lines = [f"#{pair[:-4]}/USDT"]
+    lines += [f"Entry{i}: {v:.12g}" for i, v in enumerate(sorted(entries, reverse=True), start=1)]
+    lines += [f"TP{i}: {v:.12g}" for i, v in enumerate(sorted(targets), start=1)]
+    lines.append(f"Stop: {stops[0]:.12g}")
+    return "\n".join(lines)
+
+
+def classify_image(rep: dict, *, caption: str | None = None) -> dict:
+    """Issue d'une image lue : `SUR` (aucune alerte ni remarque, paire lue sur l'image et concordante avec la
+    légende), `A_VALIDER` (seulement des remarques non bloquantes, ou paire donnée par la légende seule : simulée
+    uniquement après validation du propriétaire dans CSI), `IGNOREE` (alerte bloquante, publication de résultat,
+    niveaux incomplets, paire absente, ambiguë ou contradictoire). Rend {status, text, notes}."""
+    notes = list(rep.get("alertes", []))
+    if rep.get("resultat_mesure"):
+        return {"status": IGNORED, "text": None, "notes": ["publication de résultat", *notes]}
+    if any(a.startswith(BLOCKING) for a in notes):
+        return {"status": IGNORED, "text": None, "notes": notes}
+    signal = rep.get("signal") or {}
+    if len(signal.get("stop") or []) != 1 or not signal.get("entrees") or not signal.get("objectifs"):
+        return {"status": IGNORED, "text": None, "notes": ["niveaux incomplets", *notes]}
+    image = ticker(rep.get("symbole"))
+    explicit, tags = caption_pairs(caption)
+    if len(explicit) > 1 or (not explicit and len(tags) > 1):
+        return {"status": IGNORED, "text": None, "notes": ["légende ambiguë", *notes]}
+    from_caption = next(iter(explicit)) if explicit else (next(iter(tags)) if tags else None)
+    if image and from_caption and image != from_caption:
+        return {"status": IGNORED, "text": None, "notes": [f"paire de l'image {image} ≠ légende {from_caption}", *notes]}
+    pair = image or from_caption
+    if not pair:
+        return {"status": IGNORED, "text": None, "notes": ["paire absente", *notes]}
+    if image is None:
+        notes.append("paire donnée par la légende seule")
+    return {"status": SURE if not notes else TO_VALIDATE, "text": _levels_text(pair, signal), "notes": notes}

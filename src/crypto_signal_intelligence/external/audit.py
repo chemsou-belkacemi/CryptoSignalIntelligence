@@ -72,6 +72,7 @@ class HistoryItem:
     missing_share: float | None = None     # part de numéros absents dans le chat exporté ; None : reçu en direct
     from_image: bool = False               # niveaux lus sur l'image du message (external/chart_ocr.py)
     image_rejected: bool = False           # image lue mais ignorée (lecture douteuse) : comptée comme illisible
+    image_status: str = ""                 # SUR, A_VALIDER ou IGNOREE (seules les SUR sont mesurées)
 
 
 @dataclass
@@ -120,7 +121,8 @@ def _flatten(text) -> str:
     return ""
 
 
-ImageReader = Callable[[Path, str], str | None]
+#: Lecteur d'image : (chemin, légende) → (issue, texte) ; issue SUR, A_VALIDER ou IGNOREE (external/chart_ocr.py).
+ImageReader = Callable[[Path, str], tuple[str, str | None]]
 
 
 def chart_reader() -> ImageReader:
@@ -131,11 +133,12 @@ def chart_reader() -> ImageReader:
         raise RuntimeError("lecture des images impossible : installer l'extra « ocr » (opencv-python-headless, rapidocr, onnxruntime)")
     reader = chart_ocr.Lecteur()
 
-    def read(path: Path, caption: str) -> str | None:
+    def read(path: Path, caption: str) -> tuple[str, str | None]:
         try:
-            return chart_ocr.signal_text(reader.analyse(path), caption=caption)
+            out = chart_ocr.classify_image(reader.analyse(path), caption=caption)
         except Exception:  # noqa: BLE001 - une image qui fait échouer la lecture est ignorée, l'audit continue
-            return None
+            return chart_ocr.IGNORED, None
+        return out["status"], out["text"]
 
     return read
 
@@ -169,15 +172,16 @@ def read_telegram_export(payload, *, images_dir: Path | None = None, image_reade
                 continue
             text = caption = _flatten(message.get("text"))
             from_image = rejected = False
+            image_status = ""
             photo = message.get("photo")
             if image_reader is not None and images_dir is not None and isinstance(photo, str) and parse(text).errors \
                     and "reply_to_message_id" not in message:
                 path = _inside(Path(images_dir), photo)
                 if path is not None:
-                    rebuilt = image_reader(path, text)
-                    if rebuilt:
+                    image_status, rebuilt = image_reader(path, text)
+                    if image_status == "SUR" and rebuilt:
                         text, from_image = rebuilt, True
-                    else:
+                    else:                  # A_VALIDER : jamais simulée sans validation ; IGNOREE : illisible
                         text, rejected = text if text.strip() else "[image non lue]", True
             if not text.strip():
                 continue
@@ -190,7 +194,8 @@ def read_telegram_export(payload, *, images_dir: Path | None = None, image_reade
             items.append(HistoryItem(text=text, received_at=received, message_id=str(message.get("id", "")),
                                      edited="edited_unixtime" in message or "edited" in message,
                                      group=group_of(caption) or group_of(text) or (str(origin).strip() if origin else name),
-                                     missing_share=round(missing, 4), from_image=from_image, image_rejected=rejected))
+                                     missing_share=round(missing, 4), from_image=from_image, image_rejected=rejected,
+                                     image_status=image_status))
     return items
 
 
@@ -512,7 +517,9 @@ def audit(settings: Settings, items: Iterable[HistoryItem], *, now: datetime, so
                        from_image=item.from_image, image_rejected=item.image_rejected)
         rows.append(row)
         if item.image_rejected:
-            row.status, row.reason = UNREADABLE, "image ignorée : lecture douteuse (external/chart_ocr.py)"
+            row.status, row.reason = UNREADABLE, ("image à valider dans CSI : jamais simulée sans validation"
+                                                  if item.image_status == "A_VALIDER" else
+                                                  "image ignorée : lecture douteuse (external/chart_ocr.py)")
             continue
         if signal.errors:
             row.status, row.reason = UNREADABLE, " ; ".join(signal.errors)[:300]
