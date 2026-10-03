@@ -1,11 +1,13 @@
-# Plan de travail — état au 2026-10-03 (après « 1 à 4 ok, 5 non, 6 à 10 attendre »)
+# Plan de travail — état au 2026-10-03 (plan d'octobre 2026 à janvier 2027, validé)
 
 Document vivant : ce qui est fait, ce qui tourne, ce qui reste. Chaque ligne « à faire » se fait comme d'habitude :
 déclarée avant, mesurée avec intervalle (et placebos en direct), comptée au programme. Les décisions du
 propriétaire sont marquées **[propriétaire]**. Programme au 2026-10-03 : **791 essais** sur DEVELOPMENT ; période
 finale réservée **jamais consultée**.
 
-Décision du propriétaire du 2026-10-03 : points 1 à 4 validés (24 paires / F13 / variante K2, ordre de la liste
+**Plan validé par le propriétaire le 2026-10-03 (« oui pour tout à part le VPS »)** : plus de nouvelle recherche
+directionnelle sur les bougies ; rendre utile ce qui marche (volatilité, filtrage des signaux Telegram, boucle Demo).
+Détail en § 2 bis. Décision précédente du même jour : points 1 à 4 validés (24 paires / F13 / variante K2, ordre de la liste
 « mesure et données », installation d'`arch`, `hftbacktest`, `ccxt`, correction de l'onglet Marché) ; point 5
 refusé (aucune donnée payante) ; points 6 à 10 en attente (voir § 5).
 
@@ -46,6 +48,31 @@ par la volatilité. Relevés : F0_ECARTS (écarts entre bourses), news de risque
 
 Aucun calcul de recherche en cours.
 
+## 2 bis. Plan d'octobre 2026 à janvier 2027 (validé le 2026-10-03)
+
+1. **Tests en direct** : rien n'y touche ; revue intermédiaire le 2026-11-13, verdicts le 2026-12-25.
+2. **Volatilité, confirmation puis branchement** :
+   - confirmation sur la période finale réservée, **une seule lecture, pour la volatilité seulement**
+     (`VOLATILITY.md` § 18 : séquence H24 → D7 → D3 → D1 → V3, déclarée et relue avant lecture) ;
+   - si confirmée : utilisation pour le **risque** (taille selon la volatilité prévue, stop en multiple du
+     mouvement prévu, abstention quand elle est extrême), en **shadow** d'abord, puis vers BSM en Demo ; le
+     service est d'abord aligné sur la spécification confirmée.
+3. **Telegram** :
+   - **[propriétaire]** créer le deuxième bot et poser son jeton, puis démarrer le relais (guide :
+     `TELEGRAM_RELAY.md`) ; le relais, son service Docker et ses tests sont prêts ;
+   - **[propriétaire]** refaire les exports de tes groupes **avec les photos** (les trois exports actuels ont été
+     faits sans : 348, 9 350 et 251 images manquantes) ; l'audit d'un dossier entier est prêt
+     (`audit-telegram --dir … --ocr`) ;
+   - ensuite : garder seulement les groupes prouvés sur historique, F4 mesure les autres en direct.
+4. **Boucle Demo (lot 4)** : dès que BSM remonte des exécutions, rapport frais réels / glissement / entrées
+   manquées, sur au moins 4 semaines.
+5. **Branches BSM** : dossier de relecture prêt (`REVUE_BRANCHES_BSM.md`) ; **[propriétaire]** fusion après ta
+   relecture, dans l'ordre recommandé.
+6. **Recherche** : gelée, sauf source d'information nouvelle et gratuite, sur demande du propriétaire, déclarée et
+   comptée.
+7. **2026-12-25** : un test qui passe est confirmé sur données jamais vues puis en Demo ; si rien ne passe,
+   « aucun avantage directionnel » est acté, CSI reste filtre et gestionnaire de risque, rien ne passe en réel.
+
 ## 3. À faire après les verdicts
 
 - **Après F2** : échelles de TP dans les stratégies si une échelle gagne.
@@ -58,22 +85,17 @@ Aucun calcul de recherche en cours.
 
 ## 4. À faire — exécution et produit
 
-- **Boucle Demo** : BSM n'a encore remonté aucune exécution ; dès qu'il y en a, rapport d'exécution (frais réels
-  contre 7,5 pb, glissement, entrées manquées). Lot 4 : observation prolongée théorie / Demo.
 - **Signaux en image** : lecture des images depuis le tableau de bord (aujourd'hui : terminal seulement ; il
   faudrait envoyer le dossier de l'export entier). Le contrôle du prix est couvert par le rejeu commun ; le
   `tickSize` est écarté (il change au fil du temps), voir `OCR.md`.
 
 ## 5. Décisions qui attendent le propriétaire
 
-- **[propriétaire] Branches BSM** `feat/csi-v2-drop` et `feat/signal-routing` : à jour localement, ni fusionnées ni
-  poussées (point 6, en attente).
-- **[propriétaire] Branchements de volatilité** (moyenne à 3 j, HAR + profil à 24 h) : après F12 ou après la
-  période finale (point 7, en attente).
-- **[propriétaire] Période finale réservée** : la consulter un jour (une seule fois) ou la garder vierge (point 8,
-  en attente).
-- **[propriétaire] Deuxième jeton de bot Telegram** pour la source en direct de F4 (point 9, en attente).
-- **[propriétaire] VPS** : migration CSI + BSM (kit dans `VPS.md`), un seul bot à la fois (point 10, en attente).
+- **[propriétaire] Deuxième bot Telegram** : jeton dans `.env`, puis `docker compose --profile telegram up -d
+  telegram-relay` (`TELEGRAM_RELAY.md`).
+- **[propriétaire] Exports avec photos** de tes groupes (`TELEGRAM_RELAY.md` § 2).
+- **[propriétaire] Fusion des branches BSM** après relecture (`REVUE_BRANCHES_BSM.md`).
+- **[propriétaire] VPS** : refusé pour l'instant (2026-10-03) ; kit prêt dans `VPS.md`.
 - **[propriétaire] Ollama** (modèle local des news de risque) : installation par `sudo` dans ton terminal,
   `curl -fsSL https://ollama.com/install.sh | sh` puis `ollama pull qwen3:8b` (environ 5 Go, tient dans les 6 Go
   de la carte graphique). Facultatif : les mots-clés tournent sans lui.

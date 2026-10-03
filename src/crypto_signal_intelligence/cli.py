@@ -1414,9 +1414,11 @@ def audit_telegram(file: str = typer.Option(None, "--file", help="Export JSON de
                     console.print(f"[yellow]{export.parent.name} : ignoré, pas un export de Telegram Desktop ({exc})[/yellow]")
                     continue
                 chats = payload.get("chats", {}).get("list", []) if isinstance(payload.get("chats"), dict) else [payload]
-                photos = sum(1 for c in chats for m in (c.get("messages") or []) if isinstance(m, dict) and m.get("photo"))
-                console.print(f"{export.parent.name} : {len(found)} message(s) ; {photos} photo(s) dans l'export"
-                              + ("" if photos or not ocr else " — export SANS photos : refaire l'export en cochant « Photos »"))
+                named = [m["photo"] for c in chats for m in (c.get("messages") or [])
+                         if isinstance(m, dict) and isinstance(m.get("photo"), str)]
+                present = sum(1 for name in named if (export.parent / name).is_file())
+                console.print(f"{export.parent.name} : {len(found)} message(s) ; images : {present} présente(s) sur {len(named)}"
+                              + (" — export fait SANS les photos : le refaire en cochant « Photos »" if named and not present else ""))
                 items += found
             if ocr:
                 console.print(f"Images lues comme signaux : {sum(i.from_image for i in items)}")
