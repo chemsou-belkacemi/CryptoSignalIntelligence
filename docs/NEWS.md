@@ -65,6 +65,52 @@ UNVERIFIED ne signifie jamais « aucune mauvaise nouvelle ».**
 `run` collecte aussi toutes les 15 minutes, **après** l'analyse de chaque cycle : une source lente
 ou en panne ne retarde jamais les signaux.
 
+## Risques : classement en observation (point 11 du plan, déclaré le 2026-10-03)
+
+Code : `news/risk.py`. Tests : `tests/test_news_risk.py`. Commande : `csi news-risk [--days 7] [--llm <modèle>] [--study]`.
+
+Chaque article (chaque révision) reçoit des catégories de **risque** :
+
+| Catégorie | Exemples de règles (anglais et français, sans tenir compte de la casse) |
+|---|---|
+| PIRATAGE | hack, exploit, drained, stolen, breach, compromised, piratage |
+| RETRAIT | delist, removal of trading pairs, monitoring tag, cease trading |
+| REGLEMENTATION | SEC/CFTC/DOJ sues/charges, lawsuit, sanction, ban, subpoena, crackdown, Wells notice |
+| DEPEG | depeg, loses peg, off its peg |
+| PANNE | outage, halts/suspends deposits, withdrawals or trading, network halted |
+| INSOLVABILITE | bankrupt, insolvency, Chapter 11, wind down, shut down |
+
+- **Méthode par défaut, `MOTS_CLES`** : règles lexicales explicites, appliquées à la fin de chaque collecte. Les
+  actifs sont détectés sur la liste élargie des actifs suivis (paires du service, 40 paires de recherche, 24 de
+  F13), avec les règles prudentes de `news/assets.py`.
+- **Modèle local, facultatif** : `--llm qwen3:8b` (par exemple) interroge **Ollama sur la boucle locale
+  uniquement** (127.0.0.1) ; toute autre adresse est refusée. Le texte de l'article est encadré comme une donnée
+  non fiable ; la réponse doit être un JSON aux catégories connues et aux actifs de la liste, sinon l'article
+  reste sans étiquette (jamais de supposition). La commande affiche l'accord entre mots-clés et modèle.
+  **Ollama n'est pas installé** : son installation demande `sudo`, donc le terminal du propriétaire
+  (`curl -fsSL https://ollama.com/install.sh | sh`, puis `ollama pull qwen3:8b`, environ 5 Go). Sans lui, seule la
+  méthode par mots-clés tourne.
+- **Aucune influence sur les signaux** : le mode `gate` reste refusé par la configuration. Une news, de risque ou
+  non, ne crée jamais d'achat.
+
+Faux positifs connus : un article sans actif détecté (« California subpoenas OpenAI over models that hacked… »)
+n'est qu'un contexte ; « Blast to wind down Ethereum L2 » étiquette ETH alors que seul Blast ferme. La détection
+d'actif reste une étiquette de tri.
+
+### Étude d'événements déclarée (avant tout résultat)
+
+- **Population** : articles étiquetés à risque par `MOTS_CLES` qui nomment au moins un actif suivi autre que BTC,
+  **reçus à partir du 2026-10-04 00:00 UTC** (après cette déclaration) ; un seul événement par actif et par
+  regroupement d'articles (reprises).
+- **Mesure** : rendement de l'actif **moins celui de BTC**, de l'ouverture de la première bougie 1 h qui commence
+  après la réception à la clôture de la bougie qui finit 24 h (et 7 jours) plus tard ; bougies publiques Binance.
+- **Hypothèse** : l'excès moyen à 24 h est négatif (une news de risque précède une baisse relative).
+- **Évaluation** : le 2026-12-25 avec les autres tests si au moins 30 événements à 24 h ; sinon dès que 30 sont
+  atteints, au plus tard le 2027-03-31 (au-delà : « trop peu d'événements », sans conclusion).
+- **Décision** : veto **candidat** si la borne haute de l'IC à 95 % (blocs de 7 jours) de l'excès à 24 h est
+  sous 0. Deux essais comptés à l'évaluation (24 h, 7 jours). Activer un veto reste une décision du propriétaire,
+  après un nouveau protocole ; aucun résultat ne peut créer un achat.
+
 ## Limites
 
 - L'historique commence le 2026-09-30. Les éléments antérieurs, présents dans les flux au premier

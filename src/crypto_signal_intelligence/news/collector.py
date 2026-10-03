@@ -11,6 +11,7 @@ pas les autres. L'état d'une source :
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -22,6 +23,7 @@ from .assets import base_assets, detect
 from .parse import FeedError, RawItem, parse_binance_cms, parse_feed
 from .store import NewsStore
 
+log = logging.getLogger("csi.news")
 USER_AGENT = "crypto-signal-intelligence/0.1 (collecte RSS publique, lecture seule)"
 
 
@@ -103,6 +105,11 @@ def collect(settings: Settings, *, now: datetime, fetcher: Fetcher | None = None
             result.revised += stored.status == "REVISED"
         store.record_attempt(source.source_id, now, error=None, items=len(items))
         summary.sources.append(result)
+    try:                                   # étiquettes de risque par mots-clés, en observation (news/risk.py)
+        from .risk import label_pending
+        label_pending(settings, now=now)
+    except Exception as exc:  # noqa: BLE001 - un échec d'étiquetage n'arrête pas la collecte
+        log.warning("étiquetage des risques en échec : %s", exc)
     return summary
 
 

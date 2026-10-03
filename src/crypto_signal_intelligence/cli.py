@@ -1625,6 +1625,53 @@ def news(hours: int = typer.Option(24, help="Fenêtre en heures (première réce
     console.print(table)
 
 
+@app.command("news-risk")
+def news_risk(days: int = typer.Option(7, help="Fenêtre en jours (première réception)"),
+              llm: str = typer.Option(None, help="Modèle LOCAL Ollama (ex. qwen3:8b) : étiquette aussi par le modèle et compare"),
+              study: bool = typer.Option(False, "--study", help="Étude d'événements déclarée (docs/NEWS.md) sur les bougies publiques")):
+    """News de risque (piratage, retrait de la cote, réglementation, perte de parité, panne, faillite), en OBSERVATION :
+    aucune influence sur les signaux."""
+    from datetime import timedelta
+
+    from .news.risk import (
+        KEYWORDS,
+        LocalModel,
+        agreement,
+        event_study,
+        label_pending,
+        public_bars,
+        risk_items,
+    )
+    settings = _settings()
+    now = _now()
+    done = label_pending(settings, now=now)
+    console.print(f"Mots-clés : {done['labelled']} article(s) étiqueté(s), dont {done['risk']} à risque.")
+    if llm:
+        model = LocalModel(llm)
+        with console.status(f"classement par le modèle local {llm}…"):
+            done = label_pending(settings, now=now, model=model, limit=500)
+        console.print(f"Modèle local : {done['labelled']} étiqueté(s), {done['failed']} sans réponse valide "
+                      "(modèle absent ou réponse hors format : aucune étiquette, jamais de supposition).")
+        result = agreement(settings, model.method)
+        table = Table("catégorie", "mots-clés", "modèle", "les deux", title=f"Accord sur {result['articles']} article(s)")
+        for name, row in result["categories"].items():
+            table.add_row(name, str(row["mots_cles"]), str(row["modele"]), str(row["les_deux"]))
+        console.print(table)
+    items = risk_items(settings, since=now - timedelta(days=days), method=KEYWORDS)
+    table = Table("reçu", "source", "catégories", "actifs", "titre", title=f"News de risque des {days} derniers jours (mots-clés)")
+    for item in items[-60:]:
+        table.add_row(item["first_seen_at"][:16], item["source_id"], ",".join(item["categories"]),
+                      ",".join(item["assets"]) or "–", item["title"][:80])
+    console.print(table)
+    if study:
+        with console.status("étude d'événements…"):
+            result = event_study(settings, now=now, bars_for=public_bars(settings))
+        for horizon, block in result["summary"].items():
+            console.print(f"{horizon} : {block}")
+        console.print("Rendement de l'actif moins BTC, de l'ouverture de l'heure suivant la réception. Lecture : docs/NEWS.md.")
+    console.print("Observation seulement : le mode « gate » reste refusé, aucune news ne bloque ni ne crée de signal.")
+
+
 @app.command()
 def backup(dest: str = typer.Option("backups", help="Dossier des sauvegardes (relatif à la racine du projet)"),
            with_data: bool = typer.Option(False, "--with-data", help="Inclut les bougies (volumineux, re-téléchargeables)")):
