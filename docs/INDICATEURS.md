@@ -226,6 +226,76 @@ pré-enregistrement).
 - Frais du modèle commun (central et défavorable) : entrée limite (maker, sans glissement), sorties aux objectifs
   limites (maker), stop et sortie à l'échéance au marché (taker, avec glissement).
 
+## 10. Niveaux et indicateurs supplémentaires (ajout au plan du 2026-10-03, écrit avant le code)
+
+Bibliothèque seulement (`patterns/levels.py`, `patterns/indicators.py`) : **aucun test en cours ne les utilise** (F15
+ne les cite pas dans son pré-enregistrement) ; un test futur devra les déclarer avant de démarrer. Réglages standard
+de chaque indicateur, non optimisés. Sorties alignées sur les bougies : la valeur à l'indice `i` est connue à la
+clôture de `i` (sauf mention « connu à »). Les moyennes exponentielles (EMA de période `n`, `α = 2/(n+1)`) partent de
+la moyenne simple des `n` premières valeurs ; les lissages de Wilder (RSI, ATR) comme au § conventions.
+
+### 10.1 Niveaux de la période précédente
+
+À partir des bougies 1 h (journées UTC, semaines du lundi 00:00 UTC, mois civils UTC) : pour chaque période **complète**
+(toutes ses heures présentes), ouverture, plus haut, plus bas et clôture ; à l'instant `t`, les niveaux « précédents »
+sont ceux de la dernière période **terminée** avant `t` : `PDO/PDH/PDL/PDC` (jour), `PWO/PWH/PWL/PWC` (semaine),
+`PMO/PMH/PML/PMC` (mois). Une période incomplète n'a pas de niveaux (on ne remonte pas à la précédente).
+
+### 10.2 Sessions
+
+Horaires **UTC fixes** (sans heure d'été, déclaré) : Asie 00:00–08:00, Londres 07:00–16:00, New York 13:00–22:00 (début
+inclus, fin exclue). Plus haut et plus bas de chaque session de chaque jour, connus à la fin de la session (toutes
+ses heures présentes).
+
+### 10.3 Chiffres ronds
+
+Pour un prix `p > 0`, `k = ⌊log10 p⌋` : niveaux **majeurs** = multiples de `10^k`, niveaux **mineurs** = multiples de
+`5 × 10^(k−1)`. On donne le majeur et le mineur immédiatement au-dessus et en dessous de `p` (un niveau égal à `p`
+compte comme « au-dessus »). Exemple : `p = 67 300` → `k = 4`, majeurs 60 000 / 70 000, mineurs 65 000 / 70 000.
+
+### 10.4 Indicateurs classiques
+
+- **RSI** (14, Wilder) : gains et pertes moyens lissés à la Wilder, première valeur à `i = 14` ; `RSI = 100 − 100/(1 + G/P)`
+  (100 si `P = 0`).
+- **Divergences RSI** (régulières seulement) sur pivots fractals (§ 1, k = 2) : **haussière** si deux pivots bas
+  fractals consécutifs `j1 < j2` ont `L_j2 < L_j1` et `RSI_j2 > RSI_j1`, avec `j2 − j1` entre 5 et 60 bougies ; connue
+  à `j2 + 2`. **Baissière** : miroir sur deux pivots hauts (`H_j2 > H_j1`, `RSI_j2 < RSI_j1`).
+- **MACD** (12, 26, 9) : `EMA12 − EMA26`, signal = EMA9 du MACD, histogramme = différence.
+- **Stochastique** (14, 3, 3) : `%K brut = 100 (C − min L_14) / (max H_14 − min L_14)` (50 si l'écart est nul),
+  `%K` = moyenne simple 3 du brut, `%D` = moyenne simple 3 de `%K`.
+- **CCI** (20) : prix typique `TP = (H + L + C)/3`, `CCI = (TP − SMA20(TP)) / (0,015 × écart absolu moyen à la SMA)`.
+- **EMA** 20, 50 et 200 des clôtures.
+- **Bollinger** (20, 2) : SMA20 ± 2 écarts-types (population) des 20 dernières clôtures.
+- **Keltner** (20, 10, 2) : EMA20 des clôtures ± 2 × ATR de Wilder sur 10.
+- **Ichimoku** (9, 26, 52) : tenkan = (max H_9 + min L_9)/2 ; kijun = idem sur 26 ; à l'indice `i`, le nuage
+  **applicable** est celui calculé 26 bougies plus tôt : `senkou A_i = (tenkan + kijun)_{i−26} / 2`,
+  `senkou B_i = (max H_52 + min L_52)_{i−26} / 2` ; la ligne retardée (chikou) n'est donnée que sous la forme causale
+  `C_i − C_{i−26}`.
+- **Supertrend** (10, 3) : bandes `(H+L)/2 ± 3 × ATR10` (Wilder), bandes finales et sens selon la règle d'origine
+  (la bande inférieure ne descend pas tant que la clôture précédente reste au-dessus, et symétriquement ; le sens
+  bascule quand la clôture traverse la bande finale opposée).
+- **Points pivots** classiques (journaliers, à partir de `PDH`, `PDL`, `PDC`) : `P = (H + L + C)/3`, `R1 = 2P − L`,
+  `S1 = 2P − H`, `R2 = P + (H − L)`, `S2 = P − (H − L)`, `R3 = H + 2(P − L)`, `S3 = L − 2(H − P)`.
+
+### 10.5 Flux
+
+- **Ratio achat/vente des takers** par bougie : `TBQ / (QV − TBQ)` (volume en devise de cotation acheté par des
+  ordres au marché, sur le reste) ; non défini si le dénominateur est nul.
+- **Grosse activité** : une bougie dont le volume en devise de cotation dépasse **5 fois** la moyenne des **20
+  bougies précédentes** (hors bougie courante). Les bougies Binance ne donnent pas les transactions une à une : c'est
+  une détection sur le volume de la bougie, pas sur une transaction isolée (déclaré).
+
+### 10.6 ICT/SMC avancé
+
+- **Plus hauts (bas) égaux** : deux pivots hauts (bas) fractals consécutifs `j1 < j2` avec `|H_j2 − H_j1| ≤ 0,1 × ATR_j2`
+  et au moins 3 bougies d'écart ; niveau de liquidité = le plus haut (bas) des deux, connu à `j2 + 2` ; **pris** à la
+  première bougie ultérieure dont le plus haut dépasse (plus bas passe sous) ce niveau.
+- **Zone OTE** : retracement de 62 à 79 % du dernier swing (§ 6, déjà défini).
+- **Breaker block** : un order block (§ 3) **invalidé** : OB haussier dont une clôture ultérieure passe sous le bas de
+  sa zone → breaker baissier (même zone), connu à cette bougie ; miroir pour l'OB baissier.
+- **Mitigation** (définition simplifiée, déclarée) : première bougie ultérieure à `known_at` qui revient dans la zone
+  d'un OB non invalidé (plus bas ≤ haut de la zone pour un OB haussier, plus haut ≥ bas de la zone pour un baissier).
+
 ## Historique
 
 - 2026-10-03 : définitions écrites avant le code (mission, phase 1.4) ; § 9 (figures du détecteur, phase 11) écrit
