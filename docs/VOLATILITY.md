@@ -481,6 +481,30 @@ Lecture :
   eu lieu sur DEVELOPMENT (4 comparaisons de plus, 753 au programme) et doit être confirmée sur des données jamais
   consultées (période finale réservée, ou observation prospective) avant un branchement dans une étape séparée.
 
+## 17. Protocole v4 — réétalonnage et GARCH (déclaré le 2026-10-03, avant exécution)
+
+Point 5 du plan. Le rapport d'information (`INFORMATION_REPORT.md` § 4) montre des prévisions en service **bien
+classées mais mal étalonnées aux extrêmes** : à 1 et 3 jours, quand la prévision est la plus basse, la volatilité
+réalisée est 30 à 43 % plus forte ; à 7 jours, la prévision est trop haute d'environ 10 %. Code :
+`research/volatility_v4.py` ; commande `csi volatility-v4`.
+
+- **Référence** : `REF_SERVICE`, les prévisions hors échantillon déjà enregistrées par le protocole v2
+  (`VOL-20261002T170500Z-c3bda6`) ; mêmes lignes, mêmes variances réalisées.
+- **C1_REETALONNE** : log RV² = a + b · log F_service, a et b estimés le 1er de chaque mois sur les lignes dont la
+  cible est connue (origine + H jours ≤ date, au moins 500 lignes, toutes paires), retour à la variance par la
+  moyenne de exp(résidu).
+- **C2_GARCH** : GARCH(1,1) à moyenne nulle (bibliothèque `arch`) sur les rendements log **journaliers** de chaque
+  paire (clôtures de 00:00), réestimé le 1er de chaque mois sur les rendements connus avant cette date (au moins 365) ;
+  à chaque origine, filtre jusqu'à l'origine avec ces paramètres et prévoit la somme des variances des H jours ;
+  ramené à l'échelle de RV² par le rapport moyen RV² / prévision sur le passé purgé (500 lignes au moins). C'est la
+  référence classique de la littérature, jamais comparée chez nous.
+- **Règle** : celle du § 14 (référence = service, quatre critères, années couvertes − 1). **6 comparaisons**,
+  Bonferroni 1 − 0,05/6, comptées au programme.
+- **Lecture déclarée** : C1 corrige l'étalonnage sans toucher au classement ; un gain de QLIKE modeste est attendu
+  à 1 et 3 jours. Pour C2, l'attendu est un résultat **moins bon** que le service (le GARCH n'utilise que les
+  rendements journaliers de la paire, sans BTC ni variances intrajournalières) ; s'il fait mieux, c'est une
+  information importante sur nos modèles. Rien n'est branché.
+
 ## Historique
 
 - 2026-10-01, v1 : protocole déclaré avant toute exécution.

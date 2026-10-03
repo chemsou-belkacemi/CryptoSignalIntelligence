@@ -689,6 +689,29 @@ def fit_control_command(allow_dirty: bool = typer.Option(False, "--allow-dirty",
     console.print(f"Rapport : {settings.reports_dir / result.run_id / 'summary.json'}")
 
 
+@app.command("volatility-v4")
+def volatility_v4_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Essai local sur du code non commité (enregistré comme tel)"),
+                          verbose: bool = False):
+    """Prévision de volatilité, protocole v4 (docs/VOLATILITY.md § 17) : prévisions en service réétalonnées et GARCH(1,1)
+    contre le service, à 1, 3 et 7 jours ; 6 comparaisons, DEVELOPMENT seulement."""
+    from .research.volatility import DirtyCode
+    from .research.volatility_v4 import run
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    try:
+        with console.status("volatilité v4…") as status:
+            result = run(settings, now=_now(), progress=lambda text: status.update(f"volatilité v4 : {text}"), allow_dirty=allow_dirty)
+    except (DirtyCode, FileNotFoundError) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    table = Table("Candidat", "Horizon", "Jours", "Paires", "QLIKE", "Service", "Écart", "IC", "Années", "Paires mieux", "Utile")
+    for r in result.rows:
+        table.add_row(r.model, f"{r.horizon_days} j", str(r.days), str(r.pairs), str(r.qlike), str(r.qlike_baseline), str(r.qlike_diff),
+                      str(r.ci_qlike_diff), f"{r.years_better}/{getattr(r, 'years_needed', 0)}", str(r.pairs_better_share), "oui" if r.useful else "non")
+    console.print(table)
+    console.print(f"Verdict : {result.verdict} ; retenu : {result.selected} ; rapport : {settings.reports_dir / result.run_id / 'summary.json'}")
+
+
 @app.command("data-quality")
 def data_quality(symbol: str = typer.Option(..., help="Paire, ex. BTCUSDT"),
                  timeframe: str = typer.Option(None, help="Défaut : timeframe de setup")):
