@@ -745,6 +745,29 @@ def volatility_v4_command(allow_dirty: bool = typer.Option(False, "--allow-dirty
     console.print(f"Verdict : {result.verdict} ; retenu : {result.selected} ; rapport : {settings.reports_dir / result.run_id / 'summary.json'}")
 
 
+@app.command("volatility-v5")
+def volatility_v5_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Essai local sur du code non commité"),
+                          verbose: bool = False):
+    """Prévision de volatilité, protocole v5 (docs/VOLATILITY.md § 20) : HAR sur la volatilité réalisée des bougies de
+    1 minute (5 min et 1 min) contre le service ; 6 comparaisons, DEVELOPMENT seulement."""
+    from .research.volatility import DirtyCode
+    from .research.volatility_rv import run
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    try:
+        with console.status("volatilité v5…") as status:
+            result = run(settings, now=_now(), progress=lambda text: status.update(f"volatilité v5 : {text}"), allow_dirty=allow_dirty)
+    except (DirtyCode, FileNotFoundError) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    table = Table("Candidat", "Horizon", "Jours", "Paires", "QLIKE", "Service", "Écart", "IC", "Années", "Paires mieux", "Utile")
+    for r in result.rows:
+        table.add_row(r.model, f"{r.horizon_days} j", str(r.days), str(r.pairs), str(r.qlike), str(r.qlike_baseline),
+                      str(r.qlike_diff), str(r.ci_qlike_diff), str(r.years_better), str(r.pairs_better_share), "oui" if r.useful else "non")
+    console.print(table)
+    console.print(f"Verdict : {result.verdict} ; retenu : {result.selected} ; rapport : {settings.reports_dir / result.run_id / 'summary.json'}")
+
+
 @app.command("volatility-confirm")
 def volatility_confirm_command(
         rehearsal: bool = typer.Option(False, "--rehearsal", help="Répétition sur la fin de DEVELOPMENT (aucune donnée finale lue, rien compté)"),
