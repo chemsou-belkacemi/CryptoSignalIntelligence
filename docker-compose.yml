@@ -27,6 +27,8 @@ services:
   monitor:
     <<: *app
     command: ["python", "-m", "crypto_signal_intelligence", "run", "--mode", "shadow"]
+    # Lecture OCR des signaux Telegram en image (modèles chargés une fois) : quelques centaines de Mo de plus.
+    mem_limit: 2g
     volumes:
       - csi-state:/srv/csi
       # Boîte de réception de BinanceSpotManager (messages Telegram reçus en direct par son bot), LECTURE SEULE :

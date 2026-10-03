@@ -35,8 +35,11 @@ COPY docs/FORWARD_TESTS.md ./docs/FORWARD_TESTS.md
 ARG CSI_CODE_COMMIT=NO_GIT_COMMIT
 ENV CSI_CODE_COMMIT=${CSI_CODE_COMMIT}
 # libgomp1 : bibliothèque OpenMP dont LightGBM a besoin (volatilité prévue, docs/VOLATILITY.md §13).
-RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 && rm -rf /var/lib/apt/lists/*
-RUN pip install -c constraints.txt ".[forecast]" \
+# libgl1, libglib2.0-0 : OpenCV, tiré par RapidOCR (signaux Telegram en image, docs/OCR.md).
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+RUN pip install -c constraints.txt ".[forecast,ocr]" \
+    && python -c "from rapidocr import RapidOCR; RapidOCR()" \
     && mkdir -p /srv/csi \
     && chown -R csi:csi /srv/csi
 
