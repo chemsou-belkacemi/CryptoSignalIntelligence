@@ -60,8 +60,9 @@ par la volatilité. Relevés : F0_ECARTS (écarts entre bourses), news de risque
 
 - **Boucle Demo** : BSM n'a encore remonté aucune exécution ; dès qu'il y en a, rapport d'exécution (frais réels
   contre 7,5 pb, glissement, entrées manquées). Lot 4 : observation prolongée théorie / Demo.
-- **Signaux en image** : contrôle du prix de l'image contre le prix Binance à l'heure du message, et niveaux
-  multiples du `tickSize` ; lecture des images depuis le tableau de bord (aujourd'hui : terminal seulement).
+- **Signaux en image** : lecture des images depuis le tableau de bord (aujourd'hui : terminal seulement ; il
+  faudrait envoyer le dossier de l'export entier). Le contrôle du prix est couvert par le rejeu commun ; le
+  `tickSize` est écarté (il change au fil du temps), voir `OCR.md`.
 
 ## 5. Décisions qui attendent le propriétaire
 

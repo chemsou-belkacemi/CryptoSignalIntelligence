@@ -82,7 +82,11 @@ le bilan.
   pré-enregistrement. Un éventuel F4 bis « images comprises » serait un nouveau test, à déclarer.
 - **Tableau de bord** : l'envoi d'un `result.json` ne lit pas les images (l'export doit être fait **avec les
   photos**, et l'API ne reçoit que le JSON). Utiliser le terminal.
-- **Prix de l'image contre prix Binance** à l'heure du message, et niveaux multiples du `tickSize` : contrôles
-  envisagés, pas encore écrits. Les graphiques MEXC ou OKX peuvent différer légèrement de Binance.
+- **Prix de l'image contre prix Binance** : couvert par le rejeu commun. Un signal dont le prix Binance à la
+  publication est déjà au stop ou dessous (`INVALID`), déjà à TP1 (`PLAYED`), ou sous une entrée trop haute
+  (`STALE`) n'est pas mesuré ; une erreur d'ordre de grandeur casse l'ordre stop < entrées < objectifs et bloque
+  la lecture. Les graphiques MEXC ou OKX peuvent différer légèrement de Binance.
+- **Niveaux multiples du `tickSize`** : non retenu. Binance change le pas de prix des paires au fil du temps ; sur
+  un historique, le contrôle rejetterait à tort des signaux corrects.
 - Secours par un modèle de vision (API payante ou modèle local) : non retenu (point 5 du plan refusé ; Ollama
   absent).
