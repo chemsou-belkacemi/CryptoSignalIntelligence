@@ -27,6 +27,9 @@ FUTURES_REST_ALLOWED_PATHS = frozenset({
     "/fapi/v1/premiumIndex", "/fapi/v1/premiumIndexKlines", "/fapi/v1/fundingRate", "/fapi/v1/openInterest",
     "/futures/data/openInterestHist", "/futures/data/globalLongShortAccountRatio",
     "/futures/data/topLongShortPositionRatio", "/futures/data/takerlongshortRatio",
+    # Base futures trimestriels / spot (historique de 500 jours), données de contexte : ajout validé par le
+    # propriétaire le 2026-10-04 (phase 1.3, ajout au plan du 2026-10-03).
+    "/futures/data/basis",
 })
 FUTURES_ARCHIVE_ALLOWED_PREFIX = "/data/futures/um/"
 RETRYABLE_STATUS = {418, 429, 500, 502, 503, 504}

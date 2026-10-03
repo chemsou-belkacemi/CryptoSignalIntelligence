@@ -885,6 +885,40 @@ def cnn_charts_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", 
                   f"programme : {payload['program_trials']} essais")
 
 
+@app.command("context-backfill")
+def context_backfill_command(only: list[str] = typer.Option(None, "--only", help="Séries à télécharger (toutes par défaut)"),
+                             archives: bool = typer.Option(True, help="Archives journalières des ratios BTC et ETH depuis 2020-09"),
+                             verbose: bool = False):
+    """Télécharge une fois l'historique GRATUIT des données de contexte (docs/CONTEXTE.md) dans data/context/ :
+    information seulement, aucune influence sur un test en cours. Lignes HISTORIQUE (valeurs telles que publiées
+    aujourd'hui, révisions comprises)."""
+    from .context.collect import backfill
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    out = backfill(settings, now=_now(), only=only or None, archives=archives, progress=lambda text: console.print(text))
+    table = Table("Série", "Lignes", "Clés présentes", "Erreurs")
+    for name, r in out.items():
+        if isinstance(r, dict):
+            table.add_row(name, str(r.get("rows", "—")), str(r.get("present", "—")), str(r.get("error") or len(r.get("errors") or {})))
+    console.print(table)
+
+
+@app.command("context-status")
+def context_status_command(verbose: bool = False):
+    """État du magasin des données de contexte : séries, lignes, première et dernière date, relevés du jour."""
+    from .context.collect import load_state
+    from .context.store import summary
+    settings = _settings(verbose)
+    table = Table("Série", "Sorte", "Lignes", "Clés", "Première", "Dernière")
+    for r in summary(settings):
+        table.add_row(r["series"], r["kind"], str(r["rows"]), str(r["keys"]), r["first"], r["last"])
+    console.print(table)
+    days = load_state(settings).get("days", {})
+    if days:
+        last = sorted(days)[-1]
+        console.print(f"Dernier relevé : {last} ; séries réussies : {len(days[last]['done'])} ; erreurs : {days[last]['errors'] or 'aucune'}")
+
+
 @app.command("xsection")
 def xsection_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Essai local sur du code non commité (enregistré comme tel)"),
                      verbose: bool = False):

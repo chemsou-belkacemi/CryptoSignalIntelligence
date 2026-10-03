@@ -150,6 +150,16 @@ def daily(settings: Settings, *, now: datetime, force: bool = False) -> dict | N
                 except Exception as exc:  # noqa: BLE001 - jamais bloquant pour le rapport
                     log.exception("relevé des données de contexte")
                     out["context_data"] = {"error": f"{type(exc).__name__}: {exc}"[:300]}
+            try:                                   # données de contexte (docs/CONTEXTE.md), une fois par jour après 03:00 UTC
+                from ..context.collect import record_day as record_context
+                note = record_context(settings, now=now)
+                if note is not None:
+                    out["context_extra"] = note
+            except HalalNotValidated as exc:
+                out["context_extra"] = {"skipped": str(exc)}
+            except Exception as exc:  # noqa: BLE001 - jamais bloquant pour les tests en direct
+                log.exception("relevé des données de contexte supplémentaires")
+                out["context_extra"] = {"error": f"{type(exc).__name__}: {exc}"[:300]}
             try:                                   # conseil de risque à 24 h en shadow, une fois par prévision F12
                 from ..risk.advice import record_day as record_risk
                 out["risk_shadow"] = record_risk(settings, now=now)

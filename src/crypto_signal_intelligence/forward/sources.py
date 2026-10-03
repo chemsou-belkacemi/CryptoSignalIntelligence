@@ -19,14 +19,17 @@ import pandas as pd
 USER_AGENT = "crypto-signal-intelligence/0.1 (releve quotidien public, lecture seule)"
 MAX_BYTES = 2_000_000
 ALLOWED = {
-    "www.deribit.com": ("/api/v2/public/get_volatility_index_data",),
+    "www.deribit.com": ("/api/v2/public/get_volatility_index_data",
+                        # Options BTC et ETH (max pain, puts/calls) : relevé de contexte, validé le 2026-10-04.
+                        "/api/v2/public/get_book_summary_by_currency"),
     "api.alternative.me": ("/fng/",),
     "fred.stlouisfed.org": ("/graph/fredgraph.csv",),
     "data-api.ecb.europa.eu": ("/service/data/EXR/",),
     "api.kraken.com": ("/0/public/Ticker",),
     "www.bitstamp.net": ("/api/v2/ticker/",),
     "www.okx.com": ("/api/v5/public/liquidation-orders", "/api/v5/market/ticker"),
-    "api.nasdaq.com": ("/api/quote/NDX/historical",),
+    "api.nasdaq.com": ("/api/quote/NDX/historical",
+                       "/api/quote/GLD/historical"),        # or (approximation par l'ETF GLD), validé le 2026-10-04
     # Émissions de stablecoins (F3_STABLECOINS) : événements publics des contrats, sans clé.
     "api.trongrid.io": ("/v1/contracts/",),
     "ethereum-rpc.publicnode.com": ("/",),
@@ -38,7 +41,14 @@ ALLOWED = {
     # Valeur on-chain (criblage J) : API communautaire de CoinMetrics, sans clé, MVRV journalier.
     "community-api.coinmetrics.io": ("/v4/timeseries/asset-metrics",),
     # Relevé des écarts entre bourses (F0_ECARTS) : carnet public d'Upbit (prime coréenne).
-    "api.upbit.com": ("/v1/orderbook",),
+    "api.upbit.com": ("/v1/orderbook",
+                      "/v1/ticker", "/v1/candles/days"),   # prime coréenne par paire, validé le 2026-10-04
+    # Données de contexte de l'ajout au plan du 2026-10-03 (context/, docs/CONTEXTE.md), sources validées par le
+    # propriétaire le 2026-10-04 : indices de marché, revenus et TVL des protocoles, stablecoins, attention publique.
+    "api.coingecko.com": ("/api/v3/global", "/api/v3/coins/categories"),
+    "api.llama.fi": ("/tvl/", "/summary/fees/"),
+    "stablecoins.llama.fi": ("/stablecoincharts/all",),
+    "wikimedia.org": ("/api/rest_v1/metrics/pageviews/per-article/",),
 }
 TRON_API = "https://api.trongrid.io"
 ETH_RPC = "https://ethereum-rpc.publicnode.com"
@@ -61,16 +71,18 @@ class PublicSources:
     def close(self) -> None:
         self._client.close()
 
-    def get(self, url: str, params: dict | None = None, timeout: float | None = None) -> bytes:
+    def get(self, url: str, params: dict | None = None, timeout: float | None = None,
+            headers: dict | None = None) -> bytes:
         parsed = httpx.URL(url)
         prefixes = ALLOWED.get(parsed.host or "")
         if parsed.scheme != "https" or prefixes is None or not parsed.path.startswith(prefixes):
             raise PermissionError(f"adresse hors liste blanche : {url}")
         try:
             if timeout:
-                response = self._client.get(url, params=params, timeout=httpx.Timeout(timeout, connect=10.0))
+                response = self._client.get(url, params=params, headers=headers,
+                                            timeout=httpx.Timeout(timeout, connect=10.0))
             else:
-                response = self._client.get(url, params=params)
+                response = self._client.get(url, params=params, headers=headers)
         except httpx.HTTPError as exc:
             raise SourceError(f"réseau : {type(exc).__name__}") from None
         if response.status_code != 200:
@@ -79,9 +91,9 @@ class PublicSources:
             raise SourceError(f"réponse trop volumineuse ({len(response.content)} octets)")
         return response.content
 
-    def get_json(self, url: str, params: dict | None = None):
+    def get_json(self, url: str, params: dict | None = None, headers: dict | None = None):
         try:
-            return json.loads(self.get(url, params))
+            return json.loads(self.get(url, params, headers=headers))
         except ValueError:
             raise SourceError(f"JSON illisible : {url}") from None
 

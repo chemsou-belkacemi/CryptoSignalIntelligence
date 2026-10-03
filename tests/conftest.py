@@ -55,6 +55,10 @@ def no_spreads_network(monkeypatch):
     monkeypatch.setattr(runner, "_record_spreads", lambda settings, *, now: None)
     # Lecture OCR des signaux en image : modèles lourds, testée à part (tests/test_image_queue.py, test_chart_ocr.py).
     monkeypatch.setattr(runner, "_read_images", lambda settings, *, now: None)
+    # Données de contexte (docs/CONTEXTE.md) : sources publiques, testées à part avec des clients factices
+    # (tests/test_context.py).
+    from crypto_signal_intelligence.context import collect
+    monkeypatch.setattr(collect, "record_day", lambda settings, *, now, clients=None: None)
 
 
 @pytest.fixture
