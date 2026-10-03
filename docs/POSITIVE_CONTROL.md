@@ -165,7 +165,61 @@ notre entraînement glissant, retrouve-t-il une variable faiblement informative 
   faible ; s'il ne la retrouve qu'à ρ = 0,10, il faut le dire : nos modèles ML ne pouvaient voir qu'une information
   de cette taille, et le « non » des lots ML vaut seulement à ce niveau.
 
+## 8. Résultats du calibrage (§ 6) et du contrôle de l'ajustement (§ 7)
+
+### Calibrage des intervalles (`CAL-20261003T004717Z-24c3e7`, 0 essai)
+
+Taux de bornes basses > 0 sous la nulle (cible 2,5 %) / avec l'avantage planté (puissance), 200 et 100 répétitions,
+5 600 à 7 000 événements par répétition :
+
+| Horizon | Condition | Nulle : blocs de jours · calendaire · stationnaire | Planté : blocs de jours · calendaire · stationnaire |
+|---|---|---|---|
+| 1 j | J1 achats hauts | 0 % · 0 % · 0,5 % | 43 % · 41 % · 42 % |
+| 1 j | J2 achats bas | 2 % · 1 % · 1 % | 38 % · 32 % · 40 % |
+| 1 j | BTC chute > 3 % | 2 % · 3,5 % · 3,5 % | 25 % · 11 % · 15 % |
+| 7 j | J1 | 0 % · 0 % · 0 % | 28 % · 13 % · 27 % |
+| 7 j | J2 | 0 % · 0 % · 0 % | 30 % · 17 % · 28 % |
+| 7 j | BTC chute > 3 % | 2 % · 0,5 % · 1 % | 13 % · 8 % · 13 % |
+
+Décisions ML (score aléatoire puis ρ = 0,02) : calendaire 1,5 % et 2 % sous la nulle, 99 à 100 % de puissance ;
+stationnaire 2 % et 2,5 %, même puissance.
+
+- **Aucune méthode ne change** (règle déclarée) : les criblages gardent leurs blocs de jours (la meilleure puissance des
+  trois, 30 % en moyenne), le ML garde l'intervalle calendaire (calibré : 1,5-2 %). Le bootstrap stationnaire d'`arch`
+  ne fait pas mieux.
+- **Les criblages sont prudents, quelle que soit la méthode** : 0 à 2 % de fausses alarmes sur des conditions réelles
+  et groupées. Leur puissance est faible : un avantage de +0,25 % par trade à 1 jour n'est vu que 25 à 43 % du temps,
+  +1 % à 7 jours 13 à 30 % du temps. Un « rien ne passe » de criblage laisse donc passer des avantages de cette taille.
+- Les 8 % de fausses alarmes intraday du § 5 (50 répétitions) étaient du hasard : 2 % sur 200 répétitions.
+
+### Contrôle de l'ajustement (`CTRL-20261003T005721Z-8b4c3b`, 0 essai)
+
+Corrélation de rang quotidienne hors échantillon (prévision contre excès à 7 jours), 64 176 prévisions de 2020 à 2025 :
+
+| ρ planté | Variable plantée seule | LightGBM | Linéaire |
+|---|---|---|---|
+| 0 | 0,000 | 0,032 [0,005 ; 0,059] | **0,068 [0,032 ; 0,105]** |
+| 0,02 | 0,021 | 0,038 | 0,070 |
+| 0,05 | 0,039 | 0,046 | 0,068 |
+| 0,10 | 0,089 | 0,074 | 0,105 |
+
+- **Sans rien planter, les variables du lot 7 classent déjà les paires** (0,068). Diagnostic fait aussitôt (0 essai,
+  même chaîne) : la volatilité récente classe les rendements de la semaine suivante (moins de volatilité → meilleur
+  rang, corrélation 0,092 [0,058 ; 0,126], sans modèle). **Mais en moyenne arithmétique, c'est l'inverse** : le même
+  modèle linéaire entraîné sur le rendement arithmétique obtient −0,054 [−0,082 ; −0,025]. Les paires agitées sont
+  plus souvent en retard mais ont une moyenne plus haute (quelques très fortes hausses) : c'est l'asymétrie des
+  rendements et le frein de volatilité des rendements log, pas un avantage directement exploitable. Une hypothèse
+  propre (portefeuille hebdomadaire des paires les plus calmes, rendement arithmétique net, univers à date) est
+  ajoutée au plan ; elle n'est pas testée ici.
+- **L'apprentissage récupère mal une information faible.** La régression linéaire n'ajoute presque rien à
+  ρ = 0,02-0,05 et récupère environ 0,04 à ρ = 0,10 ; LightGBM, avec nos réglages (200 lignes par feuille, 300 arbres),
+  extrait moitié moins que la régression linéaire de la même information, et n'en tire une partie nette qu'à
+  ρ = 0,10. Conséquence pour les lots ML : leur « aucune information » vaut pour une information qu'un LightGBM peut
+  extraire, c'est-à-dire une corrélation de l'ordre de 0,05 à 0,1 au moins ; une information plus faible serait
+  passée inaperçue. Le modèle linéaire doit rester une référence obligatoire de tout futur protocole ML.
+
 ## Historique
 
 - 2026-10-03 : déclaré avant toute exécution.
 - 2026-10-02 23:27 UTC (heure du serveur) : exécuté, `CTRL-20261002T232741Z-7be6ff`, 0 essai ; § 5 ajouté.
+- 2026-10-03 : § 6 et § 7 exécutés (`CAL-20261003T004717Z-24c3e7`, `CTRL-20261003T005721Z-8b4c3b`) ; § 8 ajouté.

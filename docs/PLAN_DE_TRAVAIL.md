@@ -57,7 +57,7 @@ F10 cassure journalière d'un pivot (K2) · F11 veto pression vendeuse (J2) · F
    v4 pré-inscrit, avec les références GARCH/HAR d'`arch`.
 6. **Saisonnalité directionnelle** (heure, jour, fin de mois, heures de financement, expirations d'options) :
    criblage pré-inscrit.
-7. **Momentum transversal hebdomadaire** sur univers large et à date (DUAL_MOM28 avait raté de peu).
+7. **Momentum transversal hebdomadaire** sur univers large et à date (DUAL_MOM28 avait raté de peu), avec en même temps l'hypothèse **« paires calmes »** née du contrôle de l'ajustement (moins de volatilité → meilleur rang la semaine suivante, mais moyenne arithmétique inverse) : portefeuille hebdomadaire des paires les plus calmes, rendement arithmétique net.
 8. **Stratégies sans prédiction** (grid, DCA) par régime, coûts honnêtes : la catégorie des bots du marché.
 9. **Écarts entre bourses et primes** (Coinbase, coréenne) avec **`ccxt`** (MIT) **en lecture seule** : relevé à
    la minute, réponse à la question « arbitrage pour un particulier ».
