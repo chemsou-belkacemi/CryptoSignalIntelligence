@@ -56,6 +56,9 @@ STARTED = {
     "F14_PIVOT_BREAK_VOL_LEVELS": {"doc": "c62f16f1d21fbfe432e9a201411280f1",
                                    "params": "a18fdecd93b54a18645a21b4c3e69c65",
                                    "code": "aed755011889bbc043733c1030f921a3"},
+    "F16_TELEGRAM_IMAGES": {"doc": "3566bfdd683b831cb50ccc9536ac85a5",
+                            "params": "3970b69908b5c99257779251d67a9638",
+                            "code": "1c6e2e8fdc5b9fcf2ef3146739651437"},
 }
 
 

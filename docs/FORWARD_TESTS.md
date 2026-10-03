@@ -1242,7 +1242,7 @@ la prévision horaire à 24 h est confirmée hors échantillon (`VOLATILITY.md` 
 | Volatilité réalisée fine (HAR-RV 5 min et 1 min) | 10.1 | 6 comparaisons | à déclarer |
 | CNN sur images de graphiques | 10.2 | 1 | à déclarer |
 | F15 détecteur de figures | 11 | 1 | déclaré (section F15_FIGURES) |
-| F16 signaux Telegram en image | 3 | 1 | déclaré (section F16_TELEGRAM_IMAGES) |
+| F16 signaux Telegram en image | 3 | 1 | démarré le 2026-10-03 (FWD-20261003T154234Z-62639a) |
 
 ## Démarrages
 
@@ -1260,3 +1260,4 @@ Historique des démarrages et des arrêts. Cette section est hors empreinte : on
 - 2026-10-02 21:34 UTC : **F12_VOL_FORWARD démarré** dans le conteneur de surveillance (essai FWD-20261002T213424Z-f232c2, commit cedede2). 166 paires halal figées (16 paires de la configuration évaluées). Revue intermédiaire le 2026-11-13, fin du recueil le 2026-12-25.
 - 2026-10-03 : **frais centraux de la configuration passés de 10 à 7,5 pb par ordre** (remise BNB, `docs/PROTOCOL.md`). Aucune empreinte ne change (la configuration des coûts n'est gelée par aucun test). Effet daté sur les ENTRÉES de deux tests : F2 (signaux shadow : le veto sur le RR net central laisse passer un peu plus de signaux à partir de cette date) et F1 (plans indicatifs dont le choix s'appuie sur les coûts centraux). Leurs mesures utilisent leur propre modèle de frais gelé (`forward/costs.py`, 7,5 pb central) et restent comparables ; le rapport final distinguera les décisions d'avant et d'après.
 - 2026-10-03 00:51 UTC : **F13_PIVOT_BREAK_1D_24** (essai FWD-20261003T005136Z-f61d9f) et **F14_PIVOT_BREAK_VOL_LEVELS** (FWD-20261003T005139Z-0c39e0) **démarrés** dans le conteneur de surveillance, commit 6df28d6, 166 paires halal figées. Relus avant démarrage (F13 tel quel ; F14 après quatre corrections). Revue intermédiaire le 2026-11-14, fin du recueil le 2026-12-26. Le module `outlook.volatility` est désormais gelé par F5 et F14.
+- 2026-10-03 15:42 UTC : **F16_TELEGRAM_IMAGES démarré** dans le conteneur de surveillance (essai FWD-20261003T154234Z-62639a, commit de066be). 166 paires halal figées. File des images vide au démarrage : aucune image tant que le 2e bot n'existe pas. Relu deux fois avant démarrage (constats corrigés : image sûre jouable à sa lecture, validation sous 2 h, doublons, empreinte de lecture complète, jeton jamais journalisé). Revue intermédiaire le 2026-11-14, fin du recueil le 2026-12-26.
