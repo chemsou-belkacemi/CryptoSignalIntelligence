@@ -541,27 +541,51 @@ période finale déjà écoulée) : walk-forward strict.
 **Fenêtre** : origines du **2025-07-01** au **2026-09-30**, cibles entièrement connues à la bougie de 2026-09-30
 23:00 ; rien au-delà n'est lu (un test falsifie tout ce qui suit et exige les mêmes prévisions).
 
-**Cinq comparaisons** (Bonferroni sur 5, niveau 99 %) :
+**Cinq comparaisons** :
 
 | Clé | Modèle | Référence | Horizon | Origine |
 |---|---|---|---|---|
 | D1 | LightGBM groupé (M5) | variance des 7 derniers jours (M0) | 1 jour | en service (§ 12-13) |
 | D3 | LightGBM groupé (M5) | M0 | 3 jours | en service |
 | D7 | HAR + BTC (M4) | M0 | 7 jours | en service |
-| V3 | moyenne de M4 et M5 | M5 (le service) | 3 jours | protocole v2 (§ 15), candidat au branchement |
+| V3 | moyenne de M4 et M5 (en variance) | M5 (le service) | 3 jours | protocole v2 (§ 15), candidat au branchement |
 | H24 | HAR + profil heure × jour (H1) | « les 24 dernières heures » (R0) | 24 h | protocole v3 (§ 16), candidat au branchement |
 
-**Règle de confirmation** (toutes vraies) : borne haute de l'IC de la différence de QLIKE (moyenne par jour
-d'origine, blocs calendaires du protocole d'origine, au moins 20 blocs) sous 0 ; différence moyenne négative en
-2025 (juillet-décembre) **et** en 2026 ; au moins 70 % des paires mieux prévues ; erreur de log RV plus faible.
-Verdict par comparaison : `CONFIRME` ou `NON_CONFIRME`.
+Échantillon commun : les lignes où le modèle et sa référence ont une prévision (M0, M4, M5 pour le journalier ;
+R0, H1, H2 pour l'horaire). Sur DEVELOPMENT, il est identique à celui des protocoles d'origine (vérifié à la ligne
+près par la relecture du 2026-10-03, prévisions identiques au bit).
+
+**Issue propre de chaque comparaison** :
+- `CONFIRME` : borne haute de l'IC **à 95 %** de la différence de QLIKE (moyenne par jour d'origine, blocs
+  calendaires du protocole d'origine, au moins 20 blocs) sous 0, différence moyenne négative en 2025
+  (juillet-décembre) **et** en 2026, au moins 70 % des paires mieux prévues, erreur de log RV plus faible ;
+- `CONTREDIT` : borne basse de l'IC au-dessus de 0 (démontrablement pire que la référence) ;
+- `DONNEES_INSUFFISANTES` : pas d'IC (moins de 20 blocs) ;
+- `NON_CONCLUANT` : tout le reste.
+
+**Séquence fixe** (procédure hiérarchique, risque global de fausse confirmation ≤ 5 %) : **H24 → D7 → D3 → D1 →
+V3**. Une comparaison n'est testée que si toutes les précédentes sont `CONFIRME` ; après le premier échec, les
+suivantes sont `NON_TESTE` (leurs chiffres restent affichés, à titre descriptif seulement). L'ordre suit la puissance
+estimée sur DEVELOPMENT avant la lecture : part de fenêtres de 15 mois où l'IC à 95 % est sous 0 — H24 22/22, D7
+19/22, D3 16/22, D1 15/22, V3 8/22 (estimation optimiste : modèles choisis sur ces données). Cette règle remplace
+celle du premier jet (Bonferroni sur 5 à 99 %), corrigée **avant toute lecture** après relecture : avec elle, D3,
+D7 et V3 auraient presque sûrement échoué même avec un effet réel (5, 8 et 2 fenêtres sur 22), et la lecture unique
+aurait été dépensée pour rien.
+
+**Garde-fous de la lecture** : contrôle de couverture **avant** la consultation (heures d'ouverture seules, au moins
+99 % des heures de la fenêtre et la bougie de coupure pour chaque paire ; sinon rien n'est lu ni compté) ;
+consultation vérifiée et enregistrée dans une seule transaction, sous verrou d'instance ; code commité exigé.
 
 **Ce que le résultat décide** :
-- D1, D3, D7 confirmés : la prévision en service est confirmée hors échantillon ; elle peut servir au risque
-  (taille, stop, abstention) en **shadow** d'abord. Non confirmés : rien n'est branché, la prévision reste un
-  affichage.
-- V3 confirmé : la moyenne remplace le service à 3 jours (dans une étape séparée). H24 confirmé : la prévision
-  horaire à 24 h peut servir aux niveaux. Non confirmés : on garde le service.
+- D1, D3, D7 `CONFIRME` : la prévision en service est confirmée hors échantillon ; elle peut servir au risque
+  (taille, stop, abstention) en **shadow** d'abord. Sinon rien n'est branché : la prévision reste un affichage, et
+  F12 continue de la mesurer en direct.
+- V3 `CONFIRME` : la moyenne remplace le service à 3 jours (étape séparée). H24 `CONFIRME` : la prévision horaire
+  à 24 h peut servir aux niveaux. Sinon on garde le service.
+- `CONTREDIT` sur une comparaison en service : la prévision correspondante est retirée de l'affichage.
+- **Portée** : la confirmation porte sur la **spécification** des modèles (variables, ajustement, réajustement)
+  telle que la recherche l'a sélectionnée. Le service l'instancie autrement (magasin courant depuis 2021, univers
+  du service) : avant tout branchement sur la taille ou les stops, le service est aligné ou son écart mesuré.
 - Rien d'autre : aucun seuil n'est choisi sur ce résultat.
 
 **Ce que la lecture coûte** : la période finale cesse d'être vierge pour tout le programme (compteur global des

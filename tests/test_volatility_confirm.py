@@ -94,21 +94,101 @@ def wide(days: int, *, model_noise: float, reference_noise: float, seed: int = 0
     return pd.concat(rows, ignore_index=True)
 
 
-def test_rule_confirms_a_clearly_better_model_and_rejects_the_reverse():
+def test_rule_outcomes():
     d1 = vc.COMPARISONS[0]
     good = vc.judge(d1, wide(450, model_noise=0.2, reference_noise=0.8))
-    assert good.verdict == vc.CONFIRMED and all(good.criteria.values())
-    bad = vc.judge(d1, wide(450, model_noise=0.8, reference_noise=0.2))
-    assert bad.verdict == vc.NOT_CONFIRMED and not bad.criteria["ci_upper_below_zero"]
+    assert good.outcome == vc.CONFIRMED and all(good.criteria.values())
+    worse = vc.judge(d1, wide(450, model_noise=0.8, reference_noise=0.2))
+    assert worse.outcome == vc.CONTRADICTED and worse.ci[0] > 0
+    same = vc.judge(d1, wide(450, model_noise=0.5, reference_noise=0.5))
+    assert same.outcome == vc.INCONCLUSIVE
+    short = vc.judge(d1, wide(60, model_noise=0.2, reference_noise=0.8))          # moins de 20 blocs : pas d'IC
+    assert short.outcome == vc.NO_DATA
 
 
 def test_rule_needs_both_years():
     d1 = vc.COMPARISONS[0]
     only_2025 = wide(150, model_noise=0.2, reference_noise=0.8)          # juillet à novembre 2025 seulement
     verdict = vc.judge(d1, only_2025)
-    assert verdict.criteria["both_years"] is False and verdict.verdict == vc.NOT_CONFIRMED
+    assert verdict.criteria["both_years"] is False and verdict.outcome != vc.CONFIRMED
 
 
-def test_comparisons_are_the_five_declared():
+def test_sequence_stops_at_the_first_failure():
+    def v(key: str, outcome: str) -> vc.Verdict:
+        return vc.Verdict(key, "m", "r", "h", 0, 0, 0, None, None, None, None, {}, None, None, {}, outcome, outcome)
+
+    out = vc.apply_sequence([v("D1", vc.CONFIRMED), v("D3", vc.CONFIRMED), v("D7", vc.INCONCLUSIVE),
+                             v("V3", vc.CONFIRMED), v("H24", vc.CONFIRMED)])
+    assert [(x.key, x.verdict) for x in out] == [("H24", vc.CONFIRMED), ("D7", vc.INCONCLUSIVE), ("D3", vc.NOT_TESTED),
+                                                 ("D1", vc.NOT_TESTED), ("V3", vc.NOT_TESTED)]
+    assert [x.outcome for x in out][2:] == [vc.CONFIRMED, vc.CONFIRMED, vc.CONFIRMED]      # chiffres gardés, descriptifs
+
+
+def test_comparisons_and_sequence_are_the_declared_ones():
     assert [c.key for c in vc.COMPARISONS] == ["D1", "D3", "D7", "V3", "H24"]
-    assert vc.N_TRIALS == 5 and pytest.approx(0.99) == vc.LEVEL
+    assert vc.SEQUENCE == ("H24", "D7", "D3", "D1", "V3") and vc.LEVEL == 0.95
+
+
+# --- Chemin complet sur données synthétiques (lecture « finale » simulée) -------------------------------------------
+
+@pytest.fixture
+def synthetic_final(settings, monkeypatch):
+    fast_trees(monkeypatch)
+    data = {s: series(s, i, days=560) for i, s in enumerate(("BTCUSDT", "ETHUSDT", "SOLUSDT"), start=1)}
+    monkeypatch.setattr(vc, "load_long", lambda settings_, symbol: data[symbol].copy())
+    monkeypatch.setattr(vc, "START", START)
+    monkeypatch.setattr(vc, "CUTOFF", CUTOFF)
+    monkeypatch.setattr(vc, "YEARS", (2025,))
+    monkeypatch.setattr(vc, "REHEARSAL_START", pd.Timestamp("2025-02-01", tz="UTC"))
+    monkeypatch.setattr(vc, "REHEARSAL_CUTOFF", pd.Timestamp("2025-03-31 23:00", tz="UTC"))
+    monkeypatch.setattr(vc, "code_state", lambda: "abc123")
+    for module in (v1, vh):
+        monkeypatch.setattr(module, "leak_audit", lambda *a, **k: {"passed": True})
+    return data
+
+
+def consultations(settings) -> int:
+    return ExperimentRegistry(settings.experiments_db).final_test_consultations_total()
+
+
+def test_full_read_is_recorded_and_cannot_be_repeated(settings, synthetic_final):
+    result = vc.run(settings, now=NOW, allow_final_test=True, symbols=["ETHUSDT", "SOLUSDT"])
+    assert result.consultations_total == 1 and len(result.verdicts) == 5
+    registry = ExperimentRegistry(settings.experiments_db)
+    run = registry.get(result.run_id)
+    assert run["period_label"] == "FINAL_TEST" and run["metrics"]["n_trials"] == 5
+    with pytest.raises(FinalTestLocked, match="une seule lecture"):
+        vc.run(settings, now=NOW, allow_final_test=True, symbols=["ETHUSDT", "SOLUSDT"])
+
+
+def test_a_crash_after_consultation_still_counts(settings, synthetic_final, monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("plantage pendant la lecture")
+
+    monkeypatch.setattr(vc, "load_until", boom)
+    with pytest.raises(RuntimeError, match="plantage"):
+        vc.run(settings, now=NOW, allow_final_test=True, symbols=["ETHUSDT", "SOLUSDT"])
+    assert consultations(settings) == 1
+    with pytest.raises(FinalTestLocked):
+        vc.run(settings, now=NOW, allow_final_test=True, symbols=["ETHUSDT", "SOLUSDT"])
+
+
+def test_rehearsal_counts_nothing(settings, synthetic_final):
+    result = vc.run(settings, now=NOW, rehearsal=True, symbols=["ETHUSDT", "SOLUSDT"])
+    assert result.rehearsal and len(result.verdicts) == 5
+    assert consultations(settings) == 0
+    assert ExperimentRegistry(settings.experiments_db).count_runs() == 0
+
+
+def test_incomplete_store_does_not_consume_the_read(settings, synthetic_final, monkeypatch):
+    short = {s: f[pd.to_datetime(f["open_time"], utc=True) <= CUTOFF - pd.Timedelta(days=5)] for s, f in synthetic_final.items()}
+    monkeypatch.setattr(vc, "load_long", lambda settings_, symbol: short[symbol].copy())
+    with pytest.raises(v1.IncompleteData, match="rien n'est lu"):
+        vc.run(settings, now=NOW, allow_final_test=True, symbols=["ETHUSDT", "SOLUSDT"])
+    assert consultations(settings) == 0
+
+
+def test_final_read_refuses_uncommitted_code(settings, synthetic_final):
+    with pytest.raises(v1.DirtyCode):
+        vc.run(settings, now=NOW, allow_final_test=True, allow_dirty=True)
+    assert consultations(settings) == 0

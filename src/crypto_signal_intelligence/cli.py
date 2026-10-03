@@ -722,7 +722,7 @@ def volatility_confirm_command(
     """Confirmation des prévisions de volatilité sur la période finale réservée (docs/VOLATILITY.md § 18) : 5
     comparaisons déjà choisies sur DEVELOPMENT, une seule lecture, enregistrée avant de lire."""
     from .research.protocol import FinalTestLocked
-    from .research.volatility import DirtyCode, LeakAuditFailed
+    from .research.volatility import DirtyCode, IncompleteData, LeakAuditFailed
     from .research.volatility_confirm import run
     settings = _settings(verbose)
     if allow_dirty and not rehearsal:
@@ -733,15 +733,15 @@ def volatility_confirm_command(
         with console.status("confirmation de la volatilité…") as status:
             result = run(settings, now=_now(), allow_final_test=i_understand_final_test, rehearsal=rehearsal,
                          progress=lambda text: status.update(f"confirmation : {text}"), allow_dirty=allow_dirty)
-    except (FinalTestLocked, DirtyCode, LeakAuditFailed) as exc:
+    except (FinalTestLocked, DirtyCode, LeakAuditFailed, IncompleteData) as exc:
         console.print(f"[red]Aucun résultat :[/red] {exc}")
         raise typer.Exit(3) from None
     title = "RÉPÉTITION sur DEVELOPMENT (rien compté)" if result.rehearsal else "Période finale (lecture unique)"
-    table = Table("Comparaison", "Modèle", "Référence", "Horizon", "Jours", "Paires", "Écart QLIKE", "IC", "Par année",
-                  "Paires mieux", "Verdict", title=title)
+    table = Table("Ordre", "Modèle", "Référence", "Horizon", "Jours", "Paires", "Écart QLIKE", "IC 95 %", "Par année",
+                  "Paires mieux", "Issue propre", "Verdict (séquence)", title=title)
     for v in result.verdicts:
         table.add_row(v.key, v.model, v.reference, v.horizon, str(v.days), str(v.pairs), str(v.qlike_diff), str(v.ci),
-                      str(v.by_year), str(v.pairs_better_share), v.verdict)
+                      str(v.by_year), str(v.pairs_better_share), v.outcome, v.verdict)
     console.print(table)
     console.print(f"Rapport : {settings.reports_dir / result.run_id / 'summary.json'}"
                   + ("" if result.rehearsal else f" ; consultations de la période finale (tout le programme) : {result.consultations_total}"))
@@ -1366,6 +1366,8 @@ def resolve_signals(refresh: bool = typer.Option(True, help="Met à jour les don
 
 @app.command("audit-telegram")
 def audit_telegram(file: str = typer.Option(None, "--file", help="Export JSON de Telegram Desktop (result.json)"),
+                   folder: str = typer.Option(None, "--dir", help="Dossier d'exports : chaque result.json trouvé dessous (un export par "
+                                              "groupe, photos comprises), audités ensemble"),
                    bsm_inbox: str = typer.Option(None, "--bsm-inbox", help="Boîte signals.sqlite3 de BinanceSpotManager (messages reçus en direct)"),
                    source: str = typer.Option("", help="Nom du groupe si l'export ou le texte ne le donne pas"),
                    weights: str = typer.Option("early", help="Parts vendues à chaque objectif : early | equal"),
@@ -1387,19 +1389,35 @@ def audit_telegram(file: str = typer.Option(None, "--file", help="Export JSON de
         write_report,
     )
     settings = _settings(verbose)
-    if bool(file) == bool(bsm_inbox):
-        console.print("[red]Donner --file (export Telegram) OU --bsm-inbox (boîte de BinanceSpotManager).[/red]")
+    if sum(bool(x) for x in (file, folder, bsm_inbox)) != 1:
+        console.print("[red]Donner --file (un export), --dir (un dossier d'exports) OU --bsm-inbox (boîte de BinanceSpotManager).[/red]")
         raise typer.Exit(2)
     try:
-        if file:
+        if file or folder:
+            exports = [Path(file)] if file else sorted(Path(folder).rglob("result.json"))
+            if not exports:
+                raise ValueError(f"aucun result.json sous {folder}")
             reader = None
             if ocr:
                 with console.status("chargement du lecteur d'images…"):
                     reader = chart_reader()
-            with open(file, encoding="utf-8") as handle:
-                payload = json.load(handle)
-            with console.status("lecture de l'historique (images comprises)…" if ocr else "lecture de l'historique…"):
-                items = read_telegram_export(payload, images_dir=Path(file).parent, image_reader=reader)
+            items = []
+            for export in exports:
+                with open(export, encoding="utf-8") as handle:
+                    payload = json.load(handle)
+                try:
+                    with console.status(f"lecture de {export.parent.name}" + (" (images comprises)…" if ocr else "…")):
+                        found = read_telegram_export(payload, images_dir=export.parent, image_reader=reader)
+                except ValueError as exc:
+                    if file:
+                        raise
+                    console.print(f"[yellow]{export.parent.name} : ignoré, pas un export de Telegram Desktop ({exc})[/yellow]")
+                    continue
+                chats = payload.get("chats", {}).get("list", []) if isinstance(payload.get("chats"), dict) else [payload]
+                photos = sum(1 for c in chats for m in (c.get("messages") or []) if isinstance(m, dict) and m.get("photo"))
+                console.print(f"{export.parent.name} : {len(found)} message(s) ; {photos} photo(s) dans l'export"
+                              + ("" if photos or not ocr else " — export SANS photos : refaire l'export en cochant « Photos »"))
+                items += found
             if ocr:
                 console.print(f"Images lues comme signaux : {sum(i.from_image for i in items)}")
         else:

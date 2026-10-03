@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 
 import numpy as np
 import pandas as pd
@@ -66,12 +66,18 @@ COMPARISONS = (
     Comparison("H24", "hourly", 24, "H1_HAR_PROFILE", vh.BASELINE, "v3 § 16 (candidat au branchement)"),
 )
 N_TRIALS = len(COMPARISONS)
-LEVEL = 1 - 0.05 / N_TRIALS                                 # Bonferroni, bilatéral
+#: Séquence fixe déclarée AVANT la lecture (procédure hiérarchique : chaque test à 95 %, arrêt au premier test non
+#: confirmé ; risque global de fausse confirmation ≤ 5 %). Ordre : puissance estimée sur DEVELOPMENT (part de
+#: fenêtres de 15 mois où l'IC à 95 % est sous 0 : H24 22/22, D7 19/22, D3 16/22, D1 15/22, V3 8/22).
+SEQUENCE = ("H24", "D7", "D3", "D1", "V3")
+LEVEL = 0.95
 MIN_BLOCKS = v1.MIN_BLOCKS
 MIN_PAIRS_SHARE = v1.MIN_PAIRS_SHARE
 YEARS = (2025, 2026)
 REHEARSAL_YEARS = (2024, 2025)
-CONFIRMED, NOT_CONFIRMED = "CONFIRME", "NON_CONFIRME"
+CONFIRMED, INCONCLUSIVE, CONTRADICTED = "CONFIRME", "NON_CONCLUANT", "CONTREDIT"
+NO_DATA, NOT_TESTED = "DONNEES_INSUFFISANTES", "NON_TESTE"
+MIN_COVERAGE = 0.99                                         # heures présentes dans la fenêtre, par paire
 
 
 @dataclass
@@ -92,6 +98,7 @@ class Verdict:
     log_diff: float | None
     criteria: dict[str, bool]
     verdict: str
+    outcome: str = ""            # issue propre, avant la séquence (descriptif pour un test non atteint)
 
 
 @dataclass
@@ -169,15 +176,16 @@ def hourly_forecasts(frames: dict[str, pd.DataFrame], *, seed: int, horizon: int
 # --- Règle ---------------------------------------------------------------------------------------------------------
 
 def judge(comparison: Comparison, wide: pd.DataFrame, *, years: tuple[int, ...] = YEARS) -> Verdict:
-    """Confirmé si TOUT est vrai : borne haute de l'IC (Bonferroni sur 5, blocs calendaires du protocole d'origine)
-    de la différence de QLIKE sous 0 ; différence moyenne négative en 2025 (juillet-décembre) ET en 2026 ; au moins
-    70 % des paires mieux prévues ; perte secondaire (erreur de log RV) plus faible."""
+    """Issue propre d'une comparaison. CONFIRME si TOUT est vrai : borne haute de l'IC à 95 % (blocs calendaires du
+    protocole d'origine, au moins 20 blocs) de la différence de QLIKE sous 0 ; différence moyenne négative en 2025 (juillet-décembre) ET en 2026 ; au moins
+    70 % des paires mieux prévues ; perte secondaire (erreur de log RV) plus faible. CONTREDIT : borne basse > 0
+    (pire que la référence). DONNEES_INSUFFISANTES : pas d'IC. Sinon NON_CONCLUANT."""
     criteria = dict.fromkeys(("ci_upper_below_zero", "both_years", "pairs", "secondary_loss"), False)
     unit = "j" if comparison.family == "daily" else "h"
     label = f"{comparison.horizon} {unit}"
     if wide.empty:
         return Verdict(comparison.key, comparison.model, comparison.reference, label, 0, 0, 0, None, None, None, None,
-                       {}, None, None, criteria, NOT_CONFIRMED)
+                       {}, None, None, criteria, NO_DATA, NO_DATA)
     realized = wide["realized"].to_numpy(float)
     losses = pd.DataFrame({"symbol": wide["symbol"].to_numpy(), "day": pd.DatetimeIndex(wide["origin"]).floor("D"),
                            "qlike": v1.qlike(realized, wide[comparison.model]),
@@ -194,11 +202,62 @@ def judge(comparison: Comparison, wide: pd.DataFrame, *, years: tuple[int, ...] 
                 "both_years": all(year in by_year.index and by_year[year] < 0 for year in years),
                 "pairs": float((by_pair < 0).mean()) >= MIN_PAIRS_SHARE,
                 "secondary_loss": bool(mean["log_diff"] < 0)}
+    if ci is None:
+        outcome = NO_DATA
+    elif all(criteria.values()):
+        outcome = CONFIRMED
+    elif ci[0] > 0:
+        outcome = CONTRADICTED            # démontrablement PIRE que la référence
+    else:
+        outcome = INCONCLUSIVE
     return Verdict(comparison.key, comparison.model, comparison.reference, label, int(len(losses)), int(len(daily)),
                    int(len(by_pair)), round(float(mean["qlike"]), 6), round(float(mean["qlike_base"]), 6),
                    round(float(mean["diff"]), 6), [round(float(c), 6) for c in ci] if ci else None,
                    {str(y): round(float(v), 6) for y, v in by_year.items()}, round(float((by_pair < 0).mean()), 4),
-                   round(float(mean["log_diff"]), 6), criteria, CONFIRMED if all(criteria.values()) else NOT_CONFIRMED)
+                   round(float(mean["log_diff"]), 6), criteria, outcome, outcome)
+
+
+def apply_sequence(verdicts: list[Verdict]) -> list[Verdict]:
+    """Procédure hiérarchique : dans l'ordre SEQUENCE, chaque comparaison n'est testée que si toutes les précédentes
+    sont confirmées ; après le premier échec, les suivantes sont NON_TESTE (leurs chiffres restent descriptifs)."""
+    by_key = {v.key: v for v in verdicts}
+    open_ = True
+    for key in SEQUENCE:
+        verdict = by_key[key]
+        verdict.verdict = verdict.outcome if open_ else NOT_TESTED
+        open_ = open_ and verdict.outcome == CONFIRMED
+    return [by_key[key] for key in SEQUENCE]
+
+
+def coverage_problems(settings: Settings, symbols: list[str], start: pd.Timestamp, cutoff: pd.Timestamp) -> list[str]:
+    """Contrôle AVANT la consultation, sur les seules heures d'ouverture des bougies : au moins 99 % des heures de la
+    fenêtre présentes et une bougie à `cutoff`, pour chaque paire. Aucun prix n'est lu."""
+    expected = int((cutoff - start) / v1.STEP) + 1
+    problems = []
+    for symbol in dict.fromkeys([*symbols, MARKET]):
+        try:
+            times = pd.to_datetime(load_long(settings, symbol)["open_time"], utc=True)
+        except v1.MissingData:
+            problems.append(f"{symbol} : absente du magasin long")
+            continue
+        inside = times[(times >= start) & (times <= cutoff)]
+        share = inside.nunique() / expected
+        if share < MIN_COVERAGE or cutoff not in set(inside):
+            problems.append(f"{symbol} : {share:.1%} des heures, dernière {inside.max() if len(inside) else 'aucune'}")
+    return problems
+
+
+def consult_once(settings: Settings, run_id: str) -> int:
+    """Vérifie et enregistre la consultation dans UNE transaction (BEGIN IMMEDIATE) : deux lancements simultanés ne
+    peuvent pas lire tous les deux. Renvoie le total des consultations de tout le programme."""
+    registry = ExperimentRegistry(settings.experiments_db)
+    with registry.connect() as db:
+        db.execute("BEGIN IMMEDIATE")
+        if db.execute("SELECT COUNT(*) FROM final_test_consultations WHERE strategy=?", (STRATEGY,)).fetchone()[0]:
+            db.execute("ROLLBACK")
+            raise FinalTestLocked("la confirmation de la volatilité a déjà lu la période finale : une seule lecture est permise")
+        db.execute("INSERT INTO final_test_consultations VALUES (?, ?, ?)", (datetime.now(UTC).isoformat(), run_id, STRATEGY))
+        return int(db.execute("SELECT COUNT(*) FROM final_test_consultations").fetchone()[0])
 
 
 # --- Exécution --------------------------------------------------------------------------------------------------------
@@ -215,6 +274,8 @@ def run(settings: Settings, *, now: datetime, allow_final_test: bool = False, re
             raise FinalTestLocked("la répétition doit rester dans DEVELOPMENT")
     else:
         start, cutoff, years = START, CUTOFF, YEARS
+        if allow_dirty:
+            raise v1.DirtyCode("la lecture unique exige un code commité (--allow-dirty : répétition seulement)")
         if not allow_final_test:
             raise FinalTestLocked("période finale réservée : ajouter --i-understand-final-test (une seule consultation, "
                                   "enregistrée ; docs/VOLATILITY.md § 18)")
@@ -230,9 +291,34 @@ def run(settings: Settings, *, now: datetime, allow_final_test: bool = False, re
         report = audit(settings, dev_end, settings.protocol.seed)
         if not report["passed"]:
             raise v1.LeakAuditFailed(f"audit des fuites {name} en échec : {report}")
+    problems = coverage_problems(settings, symbols, start, cutoff)
+    if problems:                          # avant la consultation : un magasin incomplet ne consomme pas la lecture
+        raise v1.IncompleteData("données incomplètes, rien n'est lu : " + " ; ".join(problems))
     result = Result(new_run_id("VOLR" if rehearsal else "VOLC"), round(LEVEL, 6), rehearsal=rehearsal)
-    if not rehearsal:                     # enregistrée AVANT toute lecture : un plantage ne permet pas un second regard
-        result.consultations_total = registry.consult_final_test(result.run_id, STRATEGY)
+    if rehearsal:
+        return _compute(settings, result, symbols=symbols, start=start, cutoff=cutoff, years=years, say=say)
+    from ..live.lock import InstanceLock
+    with InstanceLock(settings.root / "state" / "volatility_confirm.lock"):
+        # Enregistrée AVANT toute lecture : un plantage ne donne pas droit à un second regard.
+        result.consultations_total = consult_once(settings, result.run_id)
+        _compute(settings, result, symbols=symbols, start=start, cutoff=cutoff, years=years, say=say)
+    registry.record(run_id=result.run_id, created_at=now.isoformat(), kind=v1.KIND,
+                    hypothesis="les prévisions de volatilité retenues sur DEVELOPMENT restent meilleures sur la période finale",
+                    strategy=STRATEGY, strategy_version=1, variant=f"5 comparaisons en séquence figée ({DOC})",
+                    params={"comparisons": [asdict(c) for c in COMPARISONS], "sequence": list(SEQUENCE), "level": result.level,
+                            "start": str(start), "cutoff": str(cutoff), "min_pairs_share": MIN_PAIRS_SHARE, "years": list(years)},
+                    period_label="FINAL_TEST", period_start=str(start), period_end=str(cutoff), universe=symbols,
+                    data_hashes=result.data_hashes, git_commit=state, dependencies=dependency_versions(),
+                    seed=settings.protocol.seed, cost_scenario="aucun (erreur de prévision)",
+                    simulation_rules={"refit": "mensuel (journalier), trimestriel (horaire), passé purgé"},
+                    metrics={"n_trials": N_TRIALS, "verdicts": {v.key: v.verdict for v in result.verdicts},
+                             "rows": [asdict(v) for v in result.verdicts]},
+                    status="COMPLETED", report_dir=str(settings.reports_dir / result.run_id))
+    return result
+
+
+def _compute(settings: Settings, result: Result, *, symbols: list[str], start: pd.Timestamp, cutoff: pd.Timestamp,
+             years: tuple[int, ...], say: Callable[[str], None]) -> Result:
     market = load_until(settings, MARKET, cutoff)
     daily_frames, hourly_frames = {}, {}
     for symbol in symbols:
@@ -243,29 +329,15 @@ def run(settings: Settings, *, now: datetime, allow_final_test: bool = False, re
         hourly_frames[symbol] = vh.hourly_frame(series, market)
     daily = daily_forecasts(daily_frames, seed=settings.protocol.seed, start=start, cutoff=cutoff, progress=say)
     hourly = hourly_forecasts(hourly_frames, seed=settings.protocol.seed, start=start, cutoff=cutoff, progress=say)
-    for comparison in COMPARISONS:
-        wide = daily[comparison.horizon] if comparison.family == "daily" else hourly
-        result.verdicts.append(judge(comparison, wide, years=years))
+    result.verdicts = apply_sequence([judge(c, daily[c.horizon] if c.family == "daily" else hourly, years=years)
+                                      for c in COMPARISONS])
     result.coverage = {"origins": {f"{h} j": int(len(t)) for h, t in daily.items()} | {"24 h": int(len(hourly))},
                        "pairs": len(symbols), "start": str(start), "cutoff": str(cutoff)}
     report_dir = settings.reports_dir / result.run_id
     report_dir.mkdir(parents=True, exist_ok=True)
     pd.concat([t.assign(horizon=f"{h} j") for h, t in daily.items()] + [hourly.assign(horizon="24 h")],
               ignore_index=True).to_parquet(report_dir / "forecasts.parquet", index=False)
-    payload = asdict(result) | {"doc": DOC, "comparisons": [asdict(c) for c in COMPARISONS], "n_trials": N_TRIALS}
+    payload = asdict(result) | {"doc": DOC, "comparisons": [asdict(c) for c in COMPARISONS], "sequence": list(SEQUENCE),
+                                "n_trials": N_TRIALS}
     (report_dir / "summary.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
-    if rehearsal:
-        return result                     # répétition : rien au registre (aucun nouveau regard, aucun essai)
-    registry.record(run_id=result.run_id, created_at=now.isoformat(), kind=v1.KIND,
-                    hypothesis="les prévisions de volatilité retenues sur DEVELOPMENT restent meilleures sur la période finale",
-                    strategy=STRATEGY, strategy_version=1, variant=f"5 comparaisons figées ({DOC})",
-                    params={"comparisons": [asdict(c) for c in COMPARISONS], "level": result.level, "start": str(start),
-                            "cutoff": str(cutoff), "min_pairs_share": MIN_PAIRS_SHARE, "years": list(years)},
-                    period_label="FINAL_TEST", period_start=str(start), period_end=str(cutoff), universe=symbols,
-                    data_hashes=result.data_hashes, git_commit=state, dependencies=dependency_versions(),
-                    seed=settings.protocol.seed, cost_scenario="aucun (erreur de prévision)",
-                    simulation_rules={"refit": "mensuel (journalier), trimestriel (horaire), passé purgé"},
-                    metrics={"n_trials": N_TRIALS, "verdicts": {v.key: v.verdict for v in result.verdicts},
-                             "rows": [asdict(v) for v in result.verdicts]},
-                    status="COMPLETED", report_dir=str(report_dir))
     return result
