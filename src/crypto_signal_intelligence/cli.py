@@ -769,6 +769,30 @@ def grid_dca_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", he
     console.print(f"Rapport : {settings.reports_dir / payload['run_id'] / 'summary.json'} ; programme : {payload['program_trials']} essais")
 
 
+@app.command("xsection")
+def xsection_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Essai local sur du code non commité (enregistré comme tel)"),
+                     verbose: bool = False):
+    """Portefeuilles hebdomadaires à date (docs/XSECTION.md) : momentum, double momentum, paires calmes contre la moyenne
+    de l'univers, sur l'univers à date et sur les survivantes ; 6 essais, DEVELOPMENT seulement."""
+    from .research.factors import DirtyCode
+    from .research.xsection import run
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    try:
+        with console.status("portefeuilles hebdomadaires…") as status:
+            payload = run(settings, now=_now(), progress=lambda text: status.update(f"portefeuilles : {text}"), allow_dirty=allow_dirty)
+    except (DirtyCode, FileNotFoundError) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    table = Table("Univers", "Portefeuille", "Semaines", "Moyenne/sem. %", "Sharpe", "Perte max %", "Excès/sem. %", "IC excès", "Années > 0")
+    for universe, rows in payload["rows"].items():
+        for name, r in rows.items():
+            table.add_row(universe, name, str(r["weeks"]), str(r["weekly_mean_pct"]), str(r["sharpe"]), str(r["max_drawdown_pct"]),
+                          str(r["excess_weekly_pct"]), str(r["excess_ci_pct"]), r["years_positive"])
+    console.print(table)
+    console.print(f"Rapport : {settings.reports_dir / payload['run_id'] / 'summary.json'} ; programme : {payload['program_trials']} essais")
+
+
 @app.command("data-quality")
 def data_quality(symbol: str = typer.Option(..., help="Paire, ex. BTCUSDT"),
                  timeframe: str = typer.Option(None, help="Défaut : timeframe de setup")):
