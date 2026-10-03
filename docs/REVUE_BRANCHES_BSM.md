@@ -1,5 +1,11 @@
 # Relecture des branches de BinanceSpotManager (préparée le 2026-10-03)
 
+> **Fusionné et poussé le 2026-10-03 à la demande du propriétaire** (`main` de BSM : `e725308`) : dans l'ordre
+> `fix/parser-stop-tp`, `feat/csi-v2-drop`, `feat/signal-routing`, `fix/reprise-audit`, `feat/location`. Conflits
+> résolus en gardant les garde-fous des deux côtés ; 1 031 tests BSM réussis, 0 échec ; test de contrat CSI : 44
+> réussis contre le `main` fusionné ; verrou Demo inchangé. Le bot en service n'est **pas** redémarré : à faire
+> par le propriétaire (`make backup` puis `make up`, et les vérifications de la liste ci-dessous).
+
 Dossier préparé pour le propriétaire, **sans rien modifier, fusionner ni pousser** dans BSM. Il décide seul de la
 fusion. `main` de BSM : `c5a8d5c`, propre, identique à `origin/main`.
 
