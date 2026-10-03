@@ -1388,6 +1388,15 @@ def audit_telegram(file: str = typer.Option(None, "--file", help="Export JSON de
                 detail += f" ; avec les positions ouvertes au dernier prix : R moyen {c['r_moyen_avec_ouvertes']:+.2f} (provisoire)"
             console.print(f"  [bold]{CONVENTION_LABELS[convention]}[/bold] : {c['resolus']} résolus, {c['en_cours']} en "
                           f"cours, {c['non_remplis']} non remplis | {detail}\n    → {c['conclusion']}")
+        images = block.get("images")
+        if images:
+            console.print(f"  [bold]Signaux lus sur image[/bold] (à part : ni dans le bilan ci-dessus, ni dans la preuve) : "
+                          f"{images['lues']} lus, {images['ignorees']} ignorés (lecture douteuse), {images['mesurees']} mesurés")
+            for convention in CONVENTIONS:
+                c = images["conventions"][convention]
+                if c["resolus"]:
+                    console.print(f"    {CONVENTION_LABELS[convention]} : {c['resolus']} résolus, {c['part_gagnants']:.0%} "
+                                  f"gagnants, R moyen {c['r_moyen']:+.2f}, IC95 {c['ic95'] or 'indisponible'}")
         study = block.get("gestions")
         if study:
             console.print(f"  [bold]Gestions comparées[/bold] ({study['variants']} variantes, {study['signals']} signaux) : "

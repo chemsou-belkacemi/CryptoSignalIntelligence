@@ -124,7 +124,10 @@ def daily(settings: Settings, *, now: datetime, force: bool = False) -> dict | N
             _LAST["poll"] = moment
             spreads_note = _record_spreads(settings, now=now)
             if not hourly:
-                return {"poll": poll_tests(settings, now=now), "spreads": spreads_note}
+                polled: dict = {"poll": poll_tests(settings, now=now)}
+                if spreads_note is not None:                     # None : pas de relevé dû (moins de 10 minutes)
+                    polled["spreads"] = spreads_note
+                return polled
             _LAST["run"] = moment
             out: dict = {"tests": run_tests(settings, now=now)}
             if moment - moment.floor("D") >= derivlog.RECORD_AFTER:

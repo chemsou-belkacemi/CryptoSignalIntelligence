@@ -141,7 +141,7 @@ Attendre 20 signaux résolus prend des semaines. Un groupe a déjà un passé : 
   <signals.sqlite3 de BinanceSpotManager>` pour les messages que le bot a reçus en direct.
 - **Signaux en image** : exporter **avec les photos**, puis `csi audit-telegram --file result.json --ocr`
   (extra « ocr »). Les captures TradingView sans texte lisible sont lues localement ; au moindre doute,
-  l'image est ignorée. Détails et limites : [OCR.md](OCR.md).
+  l'image est ignorée ; ces signaux ont un bilan à part, hors preuve. Détails et limites : [OCR.md](OCR.md).
 
 Chaque signal est rejoué sur les bougies 15 min **clôturées après sa publication** (heure exacte
 `date_unixtime` de l'export), avec les coûts du scénario central, de trois façons affichées côte à

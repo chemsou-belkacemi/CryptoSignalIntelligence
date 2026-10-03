@@ -71,6 +71,7 @@ class HistoryItem:
     group: str = ""
     missing_share: float | None = None     # part de numéros absents dans le chat exporté ; None : reçu en direct
     from_image: bool = False               # niveaux lus sur l'image du message (external/chart_ocr.py)
+    image_rejected: bool = False           # image lue mais ignorée (lecture douteuse) : comptée comme illisible
 
 
 @dataclass
@@ -91,6 +92,7 @@ class AuditRow:
     missing_share: float | None = None
     outcomes: dict[str, dict] = field(default_factory=dict)       # convention → {issue, r}
     from_image: bool = False
+    image_rejected: bool = False
 
 
 @dataclass
@@ -130,7 +132,10 @@ def chart_reader() -> ImageReader:
     reader = chart_ocr.Lecteur()
 
     def read(path: Path, caption: str) -> str | None:
-        return chart_ocr.signal_text(reader.analyse(path), symbol_hint=chart_ocr.caption_symbol(caption))
+        try:
+            return chart_ocr.signal_text(reader.analyse(path), caption=caption)
+        except Exception:  # noqa: BLE001 - une image qui fait échouer la lecture est ignorée, l'audit continue
+            return None
 
     return read
 
@@ -141,7 +146,9 @@ def read_telegram_export(payload, *, images_dir: Path | None = None, image_reade
 
     Avec `images_dir` (dossier de l'export) et `image_reader`, un message à IMAGE dont le texte n'est pas un signal
     lisible est lu sur son image ; le texte reconstruit remplace la légende et l'élément porte `from_image`. Une image
-    illisible ou douteuse laisse le message tel quel (illisible au rejeu) : jamais de niveau deviné."""
+    douteuse est gardée comme message ILLISIBLE (`image_rejected`), pour que le taux de rejet se voie : jamais de
+    niveau deviné. Une RÉPONSE à un message (« TP1 ✅ » avec la capture mise à jour) n'est jamais lue comme un
+    nouveau signal ; une image hors du dossier de l'export (chemin absolu ou « .. ») est ignorée."""
     if not isinstance(payload, dict):
         raise ValueError("export Telegram attendu : un objet JSON avec « messages » ou « chats »")
     chats = payload.get("chats", {}).get("list") if isinstance(payload.get("chats"), dict) else [payload]
@@ -161,13 +168,17 @@ def read_telegram_export(payload, *, images_dir: Path | None = None, image_reade
             if not isinstance(message, dict) or message.get("type") != "message":
                 continue
             text = caption = _flatten(message.get("text"))
-            from_image = False
+            from_image = rejected = False
             photo = message.get("photo")
-            if image_reader is not None and images_dir is not None and isinstance(photo, str) and parse(text).errors:
-                path = Path(images_dir) / photo
-                rebuilt = image_reader(path, text) if path.is_file() else None
-                if rebuilt:
-                    text, from_image = rebuilt, True
+            if image_reader is not None and images_dir is not None and isinstance(photo, str) and parse(text).errors \
+                    and "reply_to_message_id" not in message:
+                path = _inside(Path(images_dir), photo)
+                if path is not None:
+                    rebuilt = image_reader(path, text)
+                    if rebuilt:
+                        text, from_image = rebuilt, True
+                    else:
+                        text, rejected = text if text.strip() else "[image non lue]", True
             if not text.strip():
                 continue
             try:
@@ -179,8 +190,15 @@ def read_telegram_export(payload, *, images_dir: Path | None = None, image_reade
             items.append(HistoryItem(text=text, received_at=received, message_id=str(message.get("id", "")),
                                      edited="edited_unixtime" in message or "edited" in message,
                                      group=group_of(caption) or group_of(text) or (str(origin).strip() if origin else name),
-                                     missing_share=round(missing, 4), from_image=from_image))
+                                     missing_share=round(missing, 4), from_image=from_image, image_rejected=rejected))
     return items
+
+
+def _inside(root: Path, relative: str) -> Path | None:
+    """Fichier image de l'export, seulement s'il est DANS le dossier de l'export."""
+    base = root.resolve()
+    path = (base / relative).resolve()
+    return path if path.is_relative_to(base) and path.is_file() else None
 
 
 def read_bsm_inbox(path: Path) -> list[HistoryItem]:
@@ -354,6 +372,13 @@ def summarize(rows: list[AuditRow], *, samples: int, seed: int) -> dict[str, dic
         entry: dict = {"messages": len(mine), "statuts": dict(Counter(r.status for r in mine)),
                        "modifies_apres_coup": sum(r.edited for r in measured),
                        "messages_supprimes_part": max(shares) if shares else None, "conventions": {}}
+        # Les signaux lus sur IMAGE (taux d'erreur hors échantillon inconnu) ne comptent ni dans les conventions ni
+        # dans la preuve : ils ont leur propre bilan, à comparer à celui des signaux texte.
+        images = [r for r in measured if r.from_image]
+        measured = [r for r in measured if not r.from_image]
+        if any(r.from_image or r.image_rejected for r in mine):
+            entry["images"] = {"lues": sum(r.from_image for r in mine), "ignorees": sum(r.image_rejected for r in mine),
+                               "mesurees": len(images), "conventions": _conventions(images, samples=samples, seed=seed)}
         if measured:
             ratios = [(r.targets[0] - r.entry) / (r.entry - r.stop) for r in measured
                       if r.entry is not None and r.stop is not None]
@@ -361,30 +386,37 @@ def summarize(rows: list[AuditRow], *, samples: int, seed: int) -> dict[str, dic
             entry["stop_pct_moyen"] = round(float(np.mean([r.stop_pct for r in measured])), 2)
             # Part de TP1 qu'il faut atteindre pour être à zéro, AVANT frais : 1 / (1 + gain/risque).
             entry["part_tp1_pour_etre_a_zero"] = round(float(np.mean([1 / (1 + x) for x in ratios])), 4)
-        for convention in CONVENTIONS:
-            valued = [r.outcomes[convention] for r in measured if r.outcomes[convention]["r"] is not None]
-            done = [(r, r.outcomes[convention]) for r in measured
-                    if r.outcomes[convention]["r"] is not None and not r.outcomes[convention]["provisoire"]]
-            values = np.array([o["r"] for _, o in done], dtype=float)
-            times = np.array([r.received_at for r, _ in done])
-            issues = Counter(r.outcomes[convention]["issue"] for r in measured)
-            ci, days = day_block_ci95(values, times, block_days=1, samples=samples, seed=seed, min_blocks=MIN_DAYS) \
-                if len(values) >= MIN_RESOLVED else (None, len({t[:10] for t in times}))
-            block: dict = {"resolus": len(values), "issues": dict(issues),
-                           "en_cours": issues.get("PENDING", 0) + len(valued) - len(values),
-                           "non_remplis": issues.get("UNFILLED", 0)}
-            if len(valued) > len(values):
-                # Les perdants se ferment vite, les gagnants restent ouverts : la moyenne des seuls trades clos
-                # est biaisée contre le groupe tant que des positions sont ouvertes. On donne donc aussi la
-                # moyenne avec les positions ouvertes valorisées au dernier prix (provisoire).
-                block["r_moyen_avec_ouvertes"] = round(float(np.mean([o["r"] for o in valued])), 4)
-            if len(values):
-                block |= {"part_gagnants": round(float((values > 0).mean()), 4), "r_moyen": round(float(values.mean()), 4),
-                          "r_total": round(float(values.sum()), 2), "ic95": ci, "jours": days}
-            block["conclusion"] = _conclusion(len(values), ci, days)
-            entry["conventions"][convention] = block
-        entry["preuve"] = history_proof(entry)
+        entry["conventions"] = _conventions(measured, samples=samples, seed=seed)
+        entry["preuve"] = history_proof(entry) | {"ocr": "images" in entry,
+                                                  "signaux_image_exclus": len(images)}
         out[name] = entry
+    return out
+
+
+def _conventions(measured: list[AuditRow], *, samples: int, seed: int) -> dict[str, dict]:
+    out: dict[str, dict] = {}
+    for convention in CONVENTIONS:
+        valued = [r.outcomes[convention] for r in measured if r.outcomes[convention]["r"] is not None]
+        done = [(r, r.outcomes[convention]) for r in measured
+                if r.outcomes[convention]["r"] is not None and not r.outcomes[convention]["provisoire"]]
+        values = np.array([o["r"] for _, o in done], dtype=float)
+        times = np.array([r.received_at for r, _ in done])
+        issues = Counter(r.outcomes[convention]["issue"] for r in measured)
+        ci, days = day_block_ci95(values, times, block_days=1, samples=samples, seed=seed, min_blocks=MIN_DAYS) \
+            if len(values) >= MIN_RESOLVED else (None, len({t[:10] for t in times}))
+        block: dict = {"resolus": len(values), "issues": dict(issues),
+                       "en_cours": issues.get("PENDING", 0) + len(valued) - len(values),
+                       "non_remplis": issues.get("UNFILLED", 0)}
+        if len(valued) > len(values):
+            # Les perdants se ferment vite, les gagnants restent ouverts : la moyenne des seuls trades clos
+            # est biaisée contre le groupe tant que des positions sont ouvertes. On donne donc aussi la
+            # moyenne avec les positions ouvertes valorisées au dernier prix (provisoire).
+            block["r_moyen_avec_ouvertes"] = round(float(np.mean([o["r"] for o in valued])), 4)
+        if len(values):
+            block |= {"part_gagnants": round(float((values > 0).mean()), 4), "r_moyen": round(float(values.mean()), 4),
+                      "r_total": round(float(values.sum()), 2), "ic95": ci, "jours": days}
+        block["conclusion"] = _conclusion(len(values), ci, days)
+        out[convention] = block
     return out
 
 
@@ -477,8 +509,11 @@ def audit(settings: Settings, items: Iterable[HistoryItem], *, now: datetime, so
         signal = parse(item.text)
         row = AuditRow(received_at=received.isoformat(), group=item.group or group_of(item.text) or source or "inconnu",
                        status=OK, edited=item.edited, message_id=item.message_id, missing_share=item.missing_share,
-                       from_image=item.from_image)
+                       from_image=item.from_image, image_rejected=item.image_rejected)
         rows.append(row)
+        if item.image_rejected:
+            row.status, row.reason = UNREADABLE, "image ignorée : lecture douteuse (external/chart_ocr.py)"
+            continue
         if signal.errors:
             row.status, row.reason = UNREADABLE, " ; ".join(signal.errors)[:300]
             continue
@@ -491,7 +526,16 @@ def audit(settings: Settings, items: Iterable[HistoryItem], *, now: datetime, so
         if key in seen and received - seen[key] <= pd.Timedelta(days=DUPLICATE_DAYS):
             row.status, row.reason = DUPLICATE, f"même signal déjà publié le {seen[key]:%Y-%m-%d %H:%M}"
             continue
+        # Une capture mise à jour (objectifs atteints effacés, stop déplacé) donne une autre clé exacte : pour un
+        # signal lu sur IMAGE, même paire et même stop, ou même paire et même entrée 1, sous 7 jours = doublon.
+        loose = ((signal.symbol, "stop", row.stop), (signal.symbol, "entree", row.entry))
+        earlier = [seen[k] for k in loose if k in seen and received - seen[k] <= pd.Timedelta(days=DUPLICATE_DAYS)]
+        if item.from_image and earlier:
+            row.status, row.reason = DUPLICATE, f"même paire et même stop ou entrée qu'un signal du {max(earlier):%Y-%m-%d %H:%M}"
+            continue
         seen[key] = received
+        for k in loose:
+            seen[k] = received
         parsed.append((row, signal, received))
     spans: dict[str, tuple[pd.Timestamp, pd.Timestamp]] = {}
     for _, signal, received in parsed:

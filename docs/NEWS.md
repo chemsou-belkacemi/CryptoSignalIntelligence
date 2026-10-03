@@ -65,7 +65,7 @@ UNVERIFIED ne signifie jamais « aucune mauvaise nouvelle ».**
 `run` collecte aussi toutes les 15 minutes, **après** l'analyse de chaque cycle : une source lente
 ou en panne ne retarde jamais les signaux.
 
-## Risques : classement en observation (point 11 du plan, déclaré le 2026-10-03)
+## Risques : classement en observation (point 11 du plan, déclaré le 2026-10-03, corrigé avant le début de la population)
 
 Code : `news/risk.py`. Tests : `tests/test_news_risk.py`. Commande : `csi news-risk [--days 7] [--llm <modèle>] [--study]`.
 
@@ -80,11 +80,13 @@ Chaque article (chaque révision) reçoit des catégories de **risque** :
 | PANNE | outage, halts/suspends deposits, withdrawals or trading, network halted |
 | INSOLVABILITE | bankrupt, insolvency, Chapter 11, wind down, shut down |
 
-- **Méthode par défaut, `MOTS_CLES`** : règles lexicales explicites, appliquées à la fin de chaque collecte. Les
-  actifs sont détectés sur la liste élargie des actifs suivis (paires du service, 40 paires de recherche, 24 de
-  F13), avec les règles prudentes de `news/assets.py`.
+- **Méthode par défaut, `MOTS_CLES:ff61d1b7`** : règles lexicales explicites, appliquées à la fin de chaque collecte.
+  Le suffixe est l'empreinte des règles : retoucher une règle crée une autre méthode, et la population de l'étude
+  reste celle des règles d'origine. Les actifs sont détectés sur la liste élargie des actifs suivis (paires du
+  service, 40 paires de recherche, 24 de F13), avec les règles prudentes de `news/assets.py`.
 - **Modèle local, facultatif** : `--llm qwen3:8b` (par exemple) interroge **Ollama sur la boucle locale
-  uniquement** (127.0.0.1) ; toute autre adresse est refusée. Le texte de l'article est encadré comme une donnée
+  uniquement** (127.0.0.1, sans passer par un proxy) ; toute autre adresse est refusée. Les appels au modèle se
+  font hors de toute transaction : un modèle lent ne bloque jamais la collecte. Le texte de l'article est encadré comme une donnée
   non fiable ; la réponse doit être un JSON aux catégories connues et aux actifs de la liste, sinon l'article
   reste sans étiquette (jamais de supposition). La commande affiche l'accord entre mots-clés et modèle.
   **Ollama n'est pas installé** : son installation demande `sudo`, donc le terminal du propriétaire
@@ -99,16 +101,23 @@ d'actif reste une étiquette de tri.
 
 ### Étude d'événements déclarée (avant tout résultat)
 
-- **Population** : articles étiquetés à risque par `MOTS_CLES` qui nomment au moins un actif suivi autre que BTC,
-  **reçus à partir du 2026-10-04 00:00 UTC** (après cette déclaration) ; un seul événement par actif et par
-  regroupement d'articles (reprises).
+- **Population** : articles étiquetés à risque par `MOTS_CLES:ff61d1b7` qui nomment au moins un actif suivi autre que
+  BTC, dont le risque est devenu visible **à partir du 2026-10-04 00:00 UTC** (après cette déclaration), dans un
+  regroupement d'articles né lui aussi après cette date ; un seul événement par actif et par regroupement
+  (le premier article à risque). Hors population : un article publié plus de 24 h avant sa réception (flux
+  rattrapé).
+- **Départ** : l'heure de la **première révision étiquetée à risque** (un titre corrigé en « exploited » trois
+  heures après sa première version n'est visible comme risque qu'à la correction).
 - **Mesure** : rendement de l'actif **moins celui de BTC**, de l'ouverture de la première bougie 1 h qui commence
-  après la réception à la clôture de la bougie qui finit 24 h (et 7 jours) plus tard ; bougies publiques Binance.
+  après le départ à la clôture de la bougie qui finit 24 h (et 7 jours) plus tard, les deux sur la même bougie de
+  départ ; bougies publiques Binance. Un événement sans prix (paire retirée de la cote) est compté à part, jamais
+  oublié.
 - **Hypothèse** : l'excès moyen à 24 h est négatif (une news de risque précède une baisse relative).
 - **Évaluation** : le 2026-12-25 avec les autres tests si au moins 30 événements à 24 h ; sinon dès que 30 sont
   atteints, au plus tard le 2027-03-31 (au-delà : « trop peu d'événements », sans conclusion).
 - **Décision** : veto **candidat** si la borne haute de l'IC à 95 % (blocs de 7 jours) de l'excès à 24 h est
-  sous 0. Deux essais comptés à l'évaluation (24 h, 7 jours). Activer un veto reste une décision du propriétaire,
+  sous 0. Si l'intervalle est indisponible (moins de 10 semaines d'événements), pas de conclusion : nouvelle
+  lecture au 2027-03-31. Deux essais comptés à l'évaluation (24 h, 7 jours). Activer un veto reste une décision du propriétaire,
   après un nouveau protocole ; aucun résultat ne peut créer un achat.
 
 ## Limites

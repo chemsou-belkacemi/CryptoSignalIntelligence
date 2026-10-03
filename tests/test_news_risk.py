@@ -146,3 +146,65 @@ def test_event_study_is_causal_and_market_adjusted(settings):
     assert row["returns"]["168h"] is None                      # fenêtre de 7 jours pas encore écoulée
     assert result["summary"]["24h"]["evenements"] == 1
     assert "rien à lire" in result["summary"]["24h"]["conclusion"]
+
+
+def test_rules_are_signed_by_their_fingerprint():
+    assert risk.KEYWORDS.startswith("MOTS_CLES:") and len(risk.KEYWORDS) == len("MOTS_CLES:") + 8
+
+
+def test_risk_starts_when_the_corrected_title_shows_it(settings):
+    """Révision 0 sans mot-clé, révision 1 « exploited » 3 h plus tard : le risque n'est visible qu'à 3 h."""
+    store = store_with(settings, RawItem("a", "https://a.test/1", "Solana DeFi protocol investigates unusual activity", "", NOW))
+    risk.label_pending(settings, now=NOW)
+    later = NOW + timedelta(hours=3)
+    store.upsert(source_id="src", category="CRYPTO_MEDIA", item=RawItem("a", "https://a.test/1", "Solana DeFi protocol exploited for $20M", "", NOW),
+                 assets=[], now=later, window=timedelta(hours=48), similarity=0.5)
+    risk.label_pending(settings, now=later)
+    [item] = risk.risk_items(settings)
+    assert item["first_seen_at"] == NOW.isoformat() and item["risk_seen_at"] == later.isoformat()
+
+
+def test_a_slow_local_model_never_blocks_the_collection(settings):
+    """Pendant un appel au modèle, la collecte doit pouvoir écrire (aucune transaction ouverte)."""
+    store = store_with(settings, RawItem("a", "https://a.test/1", "Solana DeFi protocol drained in exploit", "", NOW),
+                       RawItem("b", "https://a.test/2", "Exchange quietly shuts down", "", NOW))
+    risk.label_pending(settings, now=NOW, model=risk.LocalModel("m", post=lambda *a: {"response": "{}"}))  # échec : rien d'écrit
+    written = []
+
+    def post(url, payload, timeout):
+        guid = f"c{len(written)}"
+        store.upsert(source_id="autre", category="CRYPTO_MEDIA", item=RawItem(guid, f"https://c.test/{guid}", f"Nouvelle {guid}", "", NOW),
+                     assets=[], now=NOW, window=timedelta(hours=48), similarity=0.5)     # échouerait si la base était verrouillée
+        written.append(guid)
+        return {"response": json.dumps({"categories": [], "actifs_vises": []})}
+
+    model = risk.LocalModel("m", post=post)
+    assert risk.label_pending(settings, now=NOW, model=model, limit=2)["labelled"] == 2
+    assert len(written) == 2
+
+
+def event(item_id: str, seen: pd.Timestamp, **extra) -> dict:
+    return {"item_id": item_id, "event_id": f"E-{item_id}", "first_seen_at": seen.isoformat(), "risk_seen_at": seen.isoformat(),
+            "categories": ["PIRATAGE"], "assets": ["SOL"]} | extra
+
+
+def test_population_excludes_old_events_and_backfilled_articles(settings):
+    bars = {"SOLUSDT": hourly(np.full(24 * 12, 50.0)), "BTCUSDT": hourly(np.full(24 * 12, 100.0))}
+    seen = T0 + pd.Timedelta(hours=10)
+    items = [event("ok", seen),
+             event("vieil_evenement", seen, event_first_seen_at=(seen - pd.Timedelta(days=60)).isoformat()),
+             event("rattrape", seen, published_at=(seen - pd.Timedelta(days=3)).isoformat())]
+    study = risk.event_study(settings, now=(T0 + pd.Timedelta(days=3)).to_pydatetime(), bars_for=lambda s, a, b: bars[s],
+                             items=items)
+    assert [r["item_id"] for r in study["rows"]] == ["ok"]
+    assert study["summary"]["exclus"] == {"evenement_anterieur": 1, "article_ancien": 1}
+
+
+def test_events_without_prices_are_counted_not_dropped(settings):
+    """Une paire retirée de la cote n'a plus de bougies : l'événement reste compté, « sans prix »."""
+    btc = hourly(np.full(24 * 12, 100.0))
+    study = risk.event_study(settings, now=(T0 + pd.Timedelta(days=3)).to_pydatetime(),
+                             bars_for=lambda s, a, b: btc if s == "BTCUSDT" else None,
+                             items=[event("retire", T0 + pd.Timedelta(hours=10))])
+    assert study["summary"]["24h"]["evenements"] == 0 and study["summary"]["24h"]["sans_prix"] == 1
+    assert study["summary"]["168h"]["sans_prix"] == 0                 # fenêtre de 7 jours pas encore due

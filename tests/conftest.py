@@ -47,6 +47,14 @@ def fixed_halal_screening(monkeypatch):
     monkeypatch.setattr(admission, "screening_path", lambda settings: PROJECT / "tests" / "data" / "halal_screening.toml")
 
 
+@pytest.fixture(autouse=True)
+def no_spreads_network(monkeypatch):
+    """Le relevé F0_ECARTS (forward/spreads.py) interroge des bourses à chaque passage des tests en direct : coupé
+    ici pour qu'aucun test ne touche au réseau. `tests/test_spreads.py` le teste avec des sources factices."""
+    from crypto_signal_intelligence.forward import runner
+    monkeypatch.setattr(runner, "_record_spreads", lambda settings, *, now: None)
+
+
 @pytest.fixture
 def settings(monkeypatch, tmp_path):
     monkeypatch.setenv("CSI_ROOT", str(tmp_path))

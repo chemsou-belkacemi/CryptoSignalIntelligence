@@ -1,7 +1,8 @@
 """Lecture des signaux publiés en IMAGE (captures de graphiques TradingView) : niveaux d'entrée, stop et objectifs.
 
-Porté de l'essai du 2026-10-02 (docs/OCR.md : 62 niveaux exacts sur 62, 7 images, 3 analystes), sans modèle de
-langage, entièrement local (OpenCV, RapidOCR ; Tesseract facultatif) :
+Porté de l'essai du 2026-10-02 (docs/OCR.md : 62 niveaux exacts sur 62, 7 images, 3 analystes, mesuré DANS
+l'échantillon qui a servi à régler la méthode : ce n'est pas un taux d'erreur), sans modèle de langage, entièrement
+local (OpenCV, RapidOCR ; Tesseract facultatif) :
  1. segmentation par couleur des étiquettes pleines de l'axe des prix (vert = objectif, bleu = entrée, rouge = stop) ;
  2. lectures OCR de chaque étiquette (RapidOCR sur l'image entière, RapidOCR sur la découpe, Tesseract si présent) ;
  3. lignes horizontales de même couleur dans le graphique ;
@@ -38,6 +39,7 @@ def available() -> bool:
     """Vrai si OpenCV et RapidOCR sont installés (Tesseract reste facultatif)."""
     return cv2 is not None and _optional("rapidocr") is not None
 
+HARMONIC_MIN_SCORE = 0.8
 RE_NOMBRE = re.compile(r"^\d+\.\d+$|^\d+$")
 RE_MILLIERS = re.compile(r"^\d{1,3}(,\d{3})+\.\d+$")
 
@@ -361,12 +363,14 @@ class Lecteur:
                 rep["alertes"].append(f"DESACCORD_OCR {val} {lectures}")
             niveaux.append(n)
         lignes_axe = [ln for ln in lignes if ln["x1"] >= x_axe - 0.04 * W]
+        orphelines: list[tuple[str, float]] = []
         if axe is not None:
             for ln in lignes_axe:
                 cands = [n for n in niveaux if n["couleur"] == ln["couleur"] and "y_predit" in n and abs(ln["y"] - n["y_predit"]) <= tol]
                 if not cands:
                     if ln["longueur"] < 0.15 * W:
                         continue
+                    orphelines.append((ln["couleur"], prix_de(axe, ln["y"])))
                     rep["alertes"].append(f"LIGNE_SANS_ETIQUETTE {ln['couleur']} y={ln['y']:.0f} prix~{prix_de(axe, ln['y']):.6g}")
                     continue
                 n = min(cands, key=lambda n: abs(ln["y"] - n["y_predit"]))
@@ -403,13 +407,17 @@ class Lecteur:
             # objectif = petit trait des DEUX côtés du texte ; borne de zone = trait d'un seul côté (bord de la boîte)
             trait_droite = bool(bd.size and bd.any(axis=0).mean() >= 0.5) and bool(bg.size and bg.any(axis=0).mean() >= 0.5)
             val = f"{m.group(1)}.{m.group(3)}"
+            relu, _sc = self.rapid_decoupe(img[max(y0 - 2, 0):y1 + 2, max(x0 - 2, 0):x1 + 2])
+            m2 = RE_PAREN.match(relu.replace(" ", ""))
+            if m2 is None or f"{m2.group(1)}.{m2.group(3)}" != val or b["score"] < HARMONIC_MIN_SCORE:
+                rep["alertes"].append(f"DESACCORD_OCR harmonique {b['txt']} / {relu} (score {b['score']:.2f})")
             h = {"valeur": val, "couleur": coul, "trait_a_droite": trait_droite, "y": round(b["yc"], 1), "score": round(b["score"], 3)}
             if m.group(2) != ".":
                 rep["alertes"].append(f"SEPARATEUR_DOUTEUX {b['txt']} lu comme {val}")
             if axe is not None:
                 h["y_predit"] = round(y_de(axe, float(val)), 1)
                 h["ecart_px"] = round(b["yc"] - h["y_predit"], 1)
-                if abs(h["ecart_px"]) > 2.5 * tol:
+                if abs(h["ecart_px"]) > tol:
                     rep["alertes"].append(f"POSITION_INCOHERENTE {val} (écart {h['ecart_px']} px)")
             h["role"] = "STOP" if coul == "rouge" else ("TP" if trait_droite else "ZONE_ENTREE")
             harmo.append(h)
@@ -439,6 +447,12 @@ class Lecteur:
             rep["alertes"].append("ORDRE_ENTREE_OBJECTIF")
         if prix_courant and en and st and tp and not (min(st) < prix_courant < max(tp)):
             rep["alertes"].append("PRIX_COURANT_HORS_PLAGE")
+        # Une ligne de niveau sans étiquette DANS la plage du signal veut dire qu'une étiquette a pu être mal lue
+        # (deux lectures d'accord sur une valeur fausse la font disparaître) : bloquant.
+        if st and tp:
+            for couleur, prix in orphelines:
+                if min(st) <= prix <= max(tp):
+                    rep["alertes"].append(f"LIGNE_ORPHELINE_DANS_LE_SIGNAL {couleur} prix~{prix:.6g}")
         # symbole
         ms = re.search(r"([A-Za-z0-9]{2,12})\s*/\s*(TetherUS|USDT)", textes)
         mb = re.search(r"\b([A-Z0-9]{2,10}USDT?)\b", textes)
@@ -454,7 +468,7 @@ class Lecteur:
 #: Alertes qui interdisent d'utiliser une lecture (l'image est alors ignorée, jamais devinée).
 BLOCKING = ("AXE_NON_CALIBRE", "DESACCORD_OCR", "ETIQUETTE_ILLISIBLE", "STOP_NON_UNIQUE", "AUCUNE_ENTREE", "AUCUN_OBJECTIF",
             "ORDRE_STOP_ENTREE", "ORDRE_ENTREE_OBJECTIF", "PRIX_COURANT_HORS_PLAGE", "DEUX_ETIQUETTES_POUR_UNE_LIGNE",
-            "SEPARATEUR_DOUTEUX", "POSITION_INCOHERENTE", "IMAGE_ILLISIBLE")
+            "SEPARATEUR_DOUTEUX", "POSITION_INCOHERENTE", "IMAGE_ILLISIBLE", "LIGNE_ORPHELINE_DANS_LE_SIGNAL")
 
 
 #: Noms complets affichés par TradingView à la place du ticker (essai : « ChainLink », « Stellar », « Bitcoin »).
@@ -484,32 +498,44 @@ def ticker(raw: str | None) -> str | None:
     return NAME_TO_TICKER.get(base, base) + "USDT"
 
 
-def caption_symbol(text: str) -> str | None:
-    """Paire écrite dans la légende du message (« LINK/USDT », « #LINK ») ; None si absente ou ambiguë."""
+def caption_pairs(text: str | None) -> tuple[set[str], set[str]]:
+    """Paires EXPLICITES de la légende (« LINK/USDT », « LINKUSDT ») et tickers en « #TAG » (cotation USDT seulement)."""
     from .parser import _label_text, _pairs
     label = _label_text(text or "")
-    pairs = {p for p in _pairs(label) if p.endswith("USDT")}
-    if len(pairs) == 1:
-        return pairs.pop()
-    if pairs:
-        return None
-    tags = {t for t in CAPTION_TAG.findall(label) if not t.isdigit()}
-    return ticker(tags.pop()) if len(tags) == 1 else None
+    explicit = {p for p in _pairs(label) if p.endswith("USDT")}
+    tags = {t for t in (ticker(tag) for tag in CAPTION_TAG.findall(label) if not tag.isdigit()) if t}
+    return explicit, tags - explicit
 
 
-def signal_text(rep: dict, *, symbol_hint: str | None = None) -> str | None:
-    """Texte de signal standard (lu par le même parseur que les messages texte) si la lecture est sûre, sinon None :
-    publication de résultat, alerte bloquante, paire inconnue ou contradictoire, niveaux incomplets. La paire de la
-    légende du message passe avant celle lue dans l'image ; si les deux existent, elles doivent concorder."""
+def signal_text(rep: dict, *, caption: str | None = None) -> str | None:
+    """Texte de signal standard (lu par le même parseur que les messages texte) si la lecture est sûre, sinon None.
+
+    Refus : publication de résultat, alerte bloquante, niveaux incomplets, ou paire douteuse. Paire : une paire
+    explicite de la légende passe avant l'image (et doit concorder avec elle si l'image en montre une) ; plusieurs
+    paires ou plusieurs « #TAG » : ambigu, refus ; un « #TAG » seul ne suffit pas, il doit concorder avec la paire
+    lue dans l'image (« #AI », « #TP1 » ne deviennent jamais une paire à eux seuls)."""
     if rep.get("resultat_mesure") or any(a.startswith(BLOCKING) for a in rep.get("alertes", [])):
         return None
     signal = rep.get("signal") or {}
     entries, stops, targets = signal.get("entrees") or [], signal.get("stop") or [], signal.get("objectifs") or []
-    from_image, from_caption = ticker(rep.get("symbole")), ticker(symbol_hint)
-    if from_image and from_caption and from_image != from_caption:
+    if len(stops) != 1 or not entries or not targets:
         return None
-    pair = from_caption or from_image
-    if not pair or len(stops) != 1 or not entries or not targets:
+    image = ticker(rep.get("symbole"))
+    explicit, tags = caption_pairs(caption)
+    pair: str | None
+    if len(explicit) > 1 or (not explicit and len(tags) > 1):
+        return None
+    if explicit:
+        pair = next(iter(explicit))
+        if image and image != pair:
+            return None
+    elif tags:
+        if image is None or image not in tags:
+            return None
+        pair = image
+    else:
+        pair = image
+    if not pair:
         return None
     lines = [f"#{pair[:-4]}/USDT"]
     lines += [f"Entry{i}: {v:.12g}" for i, v in enumerate(sorted(entries, reverse=True), start=1)]

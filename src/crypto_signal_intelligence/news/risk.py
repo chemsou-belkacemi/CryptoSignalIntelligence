@@ -14,6 +14,7 @@ local ne reçoit qu'une tâche de classement et sa réponse hors du format atten
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sqlite3
@@ -29,7 +30,6 @@ from ..config import Settings
 from .assets import base_assets, detect
 from .store import NewsStore
 
-KEYWORDS = "MOTS_CLES"
 CATEGORIES: dict[str, tuple[str, ...]] = {
     "PIRATAGE": (r"\bhack(?:ed|er|ers|s)?\b", r"\bexploit(?:ed|s)?\b", r"\bdrain(?:ed|s)?\b", r"\bstolen\b",
                  r"\bbreach(?:ed)?\b", r"\bcompromised\b", r"\bpiratage\b", r"\bpiraté"),
@@ -45,11 +45,16 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
                       r"\bshut(?:s|ting)? down\b"),
 }
 _COMPILED = {name: tuple(re.compile(p, re.IGNORECASE) for p in patterns) for name, patterns in CATEGORIES.items()}
+#: Méthode signée par l'empreinte des règles : retoucher une règle crée une AUTRE méthode, la population déclarée
+#: de l'étude (docs/NEWS.md) reste celle des règles d'origine.
+KEYWORDS = "MOTS_CLES:" + hashlib.sha256(json.dumps(CATEGORIES, sort_keys=True).encode()).hexdigest()[:8]
 HORIZONS_H = (24, 168)
 MIN_EVENTS = 30
 #: Début de la population de l'étude d'événements : après sa déclaration (docs/NEWS.md, 2026-10-03), pour qu'aucun
 #: article dont l'issue aurait pu être vue n'y entre.
 OBSERVATION_START = datetime(2026, 10, 4, tzinfo=UTC)
+#: Article publié plus de 24 h avant sa réception (source ajoutée, flux rattrapé) : hors étude.
+STALE_HOURS = 24
 
 
 def keyword_categories(title: str, summary: str = "") -> list[str]:
@@ -121,7 +126,8 @@ def validate(data: object, assets: list[str]) -> dict | None:
 def _post_json(url: str, payload: dict, timeout: float) -> dict:
     import urllib.request
     request = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - boucle locale vérifiée
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))   # jamais de proxy : la boucle locale seule
+    with opener.open(request, timeout=timeout) as response:
         return json.loads(response.read().decode())
 
 
@@ -135,42 +141,65 @@ def _table(db: sqlite3.Connection) -> None:
 
 def label_pending(settings: Settings, *, now: datetime, model: LocalModel | None = None, limit: int = 2000) -> dict:
     """Étiquette chaque révision d'article encore sans étiquette pour la méthode (mots-clés, et modèle local si
-    donné). Les actifs sont détectés sur la liste élargie des actifs suivis (`tracked_assets`)."""
+    donné). Les actifs sont détectés sur la liste élargie des actifs suivis (`tracked_assets`). Lecture puis une
+    écriture courte par article : un modèle lent ne bloque jamais la collecte (ni le test F8, qui lit le magasin)."""
     universe = tracked_assets(settings)
     method = model.method if model else KEYWORDS
     counts = {"labelled": 0, "risk": 0, "failed": 0}
-    with NewsStore(settings.news_db).connect() as db:
+    store = NewsStore(settings.news_db)
+    with store.connect() as db:
         _table(db)
-        rows = db.execute("""SELECT i.item_id, i.revision, i.title, i.summary FROM news_items i
-                             LEFT JOIN news_risk r ON r.item_id = i.item_id AND r.revision = i.revision AND r.method = ?
-                             WHERE r.item_id IS NULL ORDER BY i.first_seen_at LIMIT ?""", (method, limit)).fetchall()
-        for row in rows:
-            assets = detect(f"{row['title']} {row['summary']}", universe)
-            if model is None:
-                categories, targets = keyword_categories(row["title"], row["summary"]), assets
-            else:
-                answer = model.classify(row["title"], row["summary"], assets)
-                if answer is None:
-                    counts["failed"] += 1
-                    continue
-                categories, targets = answer["categories"], answer["actifs_vises"]
-            db.execute("INSERT INTO news_risk VALUES (?,?,?,?,?,?)", (row["item_id"], row["revision"], method,
-                                                                     json.dumps(categories), json.dumps(targets), now.isoformat()))
-            counts["labelled"] += 1
-            counts["risk"] += bool(categories)
+        rows = [dict(r) for r in db.execute(
+            """SELECT i.item_id, i.revision, i.title, i.summary FROM news_items i
+               LEFT JOIN news_risk r ON r.item_id = i.item_id AND r.revision = i.revision AND r.method = ?
+               WHERE r.item_id IS NULL ORDER BY i.first_seen_at LIMIT ?""", (method, limit))]
+    labels = []
+    for row in rows:
+        assets = detect(f"{row['title']} {row['summary']}", universe)
+        if model is None:
+            labels.append((row, keyword_categories(row["title"], row["summary"]), assets))
+            continue
+        answer = model.classify(row["title"], row["summary"], assets)        # hors de toute transaction
+        if answer is None:
+            counts["failed"] += 1
+            continue
+        with store.connect() as db:
+            _write(db, row, method, answer["categories"], answer["actifs_vises"], now)
+        counts["labelled"] += 1
+        counts["risk"] += bool(answer["categories"])
+    if labels:
+        with store.connect() as db:
+            for row, categories, assets in labels:
+                _write(db, row, method, categories, assets, now)
+                counts["labelled"] += 1
+                counts["risk"] += bool(categories)
     return counts
 
 
+def _write(db: sqlite3.Connection, row: dict, method: str, categories: list[str], assets: list[str], now: datetime) -> None:
+    db.execute("INSERT OR IGNORE INTO news_risk VALUES (?,?,?,?,?,?)",
+               (row["item_id"], row["revision"], method, json.dumps(categories), json.dumps(assets), now.isoformat()))
+
+
 def risk_items(settings: Settings, *, since: datetime | None = None, method: str = KEYWORDS) -> list[dict]:
-    """Articles étiquetés à risque (au moins une catégorie), révision courante, du plus ancien au plus récent."""
+    """Articles étiquetés à risque (au moins une catégorie) dans leur révision courante, triés par `risk_seen_at` :
+    heure de la PREMIÈRE révision étiquetée à risque (un titre corrigé en « piratage » 3 h après sa première version
+    n'est visible comme risque qu'à la correction). `event_first_seen_at` : première réception de l'événement."""
     with NewsStore(settings.news_db).connect() as db:
         _table(db)
         rows = db.execute("""SELECT i.item_id, i.source_id, i.title, i.first_seen_at, i.published_at, i.event_id,
-                                    r.categories, r.assets
-                             FROM news_items i JOIN news_risk r ON r.item_id = i.item_id AND r.revision = i.revision
-                             WHERE r.method = ? AND r.categories != '[]' AND i.first_seen_at >= ?
-                             ORDER BY i.first_seen_at""", (method, (since or datetime(2000, 1, 1)).isoformat())).fetchall()
-    return [dict(r) | {"categories": json.loads(r["categories"]), "assets": json.loads(r["assets"])} for r in rows]
+                                    r.categories, r.assets, e.first_seen_at AS event_first_seen_at,
+                                    (SELECT MIN(v.seen_at) FROM news_revisions v JOIN news_risk q
+                                       ON q.item_id = v.item_id AND q.revision = v.revision
+                                     WHERE v.item_id = i.item_id AND q.method = r.method AND q.categories != '[]') AS risk_seen_at
+                             FROM news_items i
+                             JOIN news_risk r ON r.item_id = i.item_id AND r.revision = i.revision
+                             JOIN news_events e ON e.event_id = i.event_id
+                             WHERE r.method = ? AND r.categories != '[]'""", (method,)).fetchall()
+    items = [dict(r) | {"categories": json.loads(r["categories"]), "assets": json.loads(r["assets"])} for r in rows]
+    floor = (since or datetime(2000, 1, 1, tzinfo=UTC)).isoformat()
+    return sorted((i for i in items if (i["risk_seen_at"] or i["first_seen_at"]) >= floor),
+                  key=lambda i: i["risk_seen_at"] or i["first_seen_at"])
 
 
 def agreement(settings: Settings, model_method: str) -> dict:
@@ -202,7 +231,7 @@ class EventRow:
     returns: dict[str, float | None]      # « 24h » → rendement de l'actif moins celui de BTC, même fenêtre
 
 
-def _window_return(bars: pd.DataFrame | None, start: pd.Timestamp, hours: int) -> float | None:
+def _window_return(bars: pd.DataFrame | None, start: pd.Timestamp, hours: int) -> tuple[pd.Timestamp, float] | None:
     """Achat à l'OUVERTURE de la première bougie 1 h qui commence après la réception, vente à la clôture de la
     bougie qui finit `hours` heures plus tard ; None si la fenêtre n'est pas encore entièrement connue."""
     if bars is None or bars.empty:
@@ -215,24 +244,33 @@ def _window_return(bars: pd.DataFrame | None, start: pd.Timestamp, hours: int) -
     last = frame[frame["open_time"] == t0 + pd.Timedelta(hours=hours - 1)]
     if last.empty or t0 - start > pd.Timedelta(hours=2):
         return None
-    return float(last["close"].iloc[0]) / float(first["open"].iloc[0]) - 1
+    return t0, float(last["close"].iloc[0]) / float(first["open"].iloc[0]) - 1
 
 
 def event_study(settings: Settings, *, now: datetime, bars_for: Bars, items: Iterable[dict] | None = None) -> dict:
-    """Pour chaque article à risque qui nomme un actif suivi (un événement par actif et par regroupement d'articles),
-    rendement de l'actif moins celui de BTC sur 24 h et 7 jours. Lecture déclarée : docs/NEWS.md."""
+    """Pour chaque article à risque qui nomme un actif suivi (un événement par actif et par regroupement d'articles,
+    le premier article à risque de l'événement), rendement de l'actif moins celui de BTC sur 24 h et 7 jours, à
+    partir de l'heure où le risque est devenu visible. Population et lecture déclarées : docs/NEWS.md."""
     seen: set[tuple[str, str]] = set()
     rows: list[EventRow] = []
+    excluded = {"evenement_anterieur": 0, "article_ancien": 0}
     candles: dict[str, pd.DataFrame | None] = {}
     moment = pd.Timestamp(now)
-    for item in items if items is not None else risk_items(settings, since=OBSERVATION_START):
+    if items is None:
+        items = risk_items(settings, since=OBSERVATION_START)
+    for item in items:
+        start = _utc(item.get("risk_seen_at") or item["first_seen_at"])
+        if item.get("event_first_seen_at") and _utc(item["event_first_seen_at"]) < pd.Timestamp(OBSERVATION_START):
+            excluded["evenement_anterieur"] += 1       # événement né avant la déclaration : hors population
+            continue
+        if item.get("published_at") and _utc(item["published_at"]) < _utc(item["first_seen_at"]) - pd.Timedelta(hours=STALE_HOURS):
+            excluded["article_ancien"] += 1            # flux rattrapé : l'information était publique bien avant
+            continue
         for asset in item["assets"]:
             key = (item["event_id"], asset)
             if asset == "BTC" or key in seen:
                 continue
             seen.add(key)
-            start = pd.Timestamp(item["first_seen_at"])
-            start = start.tz_localize("UTC") if start.tzinfo is None else start.tz_convert("UTC")
             returns: dict[str, float | None] = {}
             for hours in HORIZONS_H:
                 if start + pd.Timedelta(hours=hours + 2) > moment:
@@ -242,13 +280,18 @@ def event_study(settings: Settings, *, now: datetime, bars_for: Bars, items: Ite
                     if symbol not in candles:
                         candles[symbol] = bars_for(symbol, start - pd.Timedelta(hours=2), moment)
                 mine, market = (_window_return(candles[s], start, hours) for s in (f"{asset}USDT", "BTCUSDT"))
-                returns[f"{hours}h"] = None if mine is None or market is None else round(mine - market, 6)
+                same_start = mine is not None and market is not None and mine[0] == market[0]
+                returns[f"{hours}h"] = round(mine[1] - market[1], 6) if same_start and mine and market else None
             rows.append(EventRow(item["item_id"], asset, item["categories"], start.isoformat(), returns))
-    summary: dict = {}
+    summary: dict = {"exclus": excluded}
     for hours in HORIZONS_H:
-        values = np.array([r.returns[f"{hours}h"] for r in rows if r.returns.get(f"{hours}h") is not None], dtype=float)
-        times = np.array([r.seen_at for r in rows if r.returns.get(f"{hours}h") is not None])
-        block: dict = {"evenements": int(len(values))}
+        label = f"{hours}h"
+        due = [r for r in rows if pd.Timestamp(r.seen_at) + pd.Timedelta(hours=hours + 2) <= moment]
+        valued = [r for r in due if r.returns.get(label) is not None]
+        values = np.array([r.returns[label] for r in valued], dtype=float)
+        times = np.array([r.seen_at for r in valued])
+        # Une paire retirée de la cote n'a plus de bougies : l'événement est COMPTÉ (sans prix), jamais oublié.
+        block: dict = {"evenements": int(len(values)), "sans_prix": len(due) - len(valued)}
         if len(values):
             block |= {"moyenne_pct": round(float(values.mean()) * 100, 3), "mediane_pct": round(float(np.median(values)) * 100, 3),
                       "part_negative": round(float((values < 0).mean()), 3)}
@@ -257,10 +300,17 @@ def event_study(settings: Settings, *, now: datetime, bars_for: Bars, items: Ite
             ci, _ = day_block_ci95(values, times, block_days=7, samples=settings.protocol.bootstrap_samples,
                                    seed=settings.protocol.seed, min_blocks=10)
             block["ic95_pct"] = [round(c * 100, 3) for c in ci] if ci else None
+            if not ci:
+                block["conclusion"] = "moins de 10 semaines d'événements : intervalle indisponible, rien à lire"
         else:
             block["conclusion"] = f"moins de {MIN_EVENTS} événements : rien à lire"
-        summary[f"{hours}h"] = block
+        summary[label] = block
     return {"rows": [r.__dict__ for r in rows], "summary": summary}
+
+
+def _utc(value: str) -> pd.Timestamp:
+    stamp = pd.Timestamp(value)
+    return stamp.tz_localize("UTC") if stamp.tzinfo is None else stamp.tz_convert("UTC")
 
 
 def public_bars(settings: Settings) -> Bars:
