@@ -2,7 +2,7 @@
 
 Document vivant : ce qui est fait, ce qui tourne, ce qui reste. Chaque ligne « à faire » se fait comme d'habitude :
 déclarée avant, mesurée avec intervalle (et placebos en direct), comptée au programme. Les décisions du
-propriétaire sont marquées **[propriétaire]**. Programme au 2026-10-03 : **783 essais** sur DEVELOPMENT ; période
+propriétaire sont marquées **[propriétaire]**. Programme au 2026-10-03 : **791 essais** sur DEVELOPMENT ; période
 finale réservée **jamais consultée**.
 
 Décision du propriétaire du 2026-10-03 : points 1 à 4 validés (24 paires / F13 / variante K2, ordre de la liste
@@ -23,6 +23,8 @@ refusé (aucune donnée payante) ; points 6 à 10 en attente (voir § 5).
 | Registre unifié + rapport d'information | ML : aucune information directionnelle ; walk-forwards : avantage brut nul ; volatilité un peu mal étalonnée aux extrêmes | `INFORMATION_REPORT.md` |
 | **A** — 24 paires : F13 (K2 sur 24 paires) et F14 (K2, niveaux par la volatilité prévue) | démarrés le 2026-10-03 ; A, B, C restent sur les 16 paires (banc d'essai et contrôle négatif) | `FORWARD_TESTS.md` |
 | **B1** — intervalles sous contrôle positif (`arch`) | aucune méthode ne change le verdict ; criblages prudents (0 à 2 % de fausses alarmes) et peu puissants | `POSITIVE_CONTROL.md` § 6-8 |
+| **B2** — univers à date (paires retirées comprises) | criblage K à date : **K2 ne tient pas hors survivance** (+0,01 % à 7 j, contre +2,04 % sur les survivantes) ; F10, F13, F14 lus avec cette réserve ; K1 nettement négatif | `UNIVERSE_PIT.md` |
+| **B8 bis** — grille et DCA à date | même conclusion qu'aux survivantes ; « garder » gonflé de 3 points/mois par la survivance | `GRID_DCA.md` |
 | **B3** — ticks et carnet (aggTrades) | coûts prudents (petit achat au marché ≈ 0 à 1 pb contre 3 pb supposés) ; règle des bougies optimiste de 2 à 7 % seulement | `TICKS.md` |
 | **B4** — contrôle de l'ajustement | LightGBM extrait environ moitié moins qu'une régression linéaire ; une information faible n'est pas récupérée | `POSITIVE_CONTROL.md` |
 | **B5** — volatilité v4 (réétalonnage, GARCH) | AUCUNE_AMELIORATION (GARCH pire de 15 à 20 %) | `VOLATILITY.md` § 17 |
@@ -42,16 +44,14 @@ F7 listings Upbit/Coinbase · F8 filtre de news · F9 purge de l'intérêt ouver
 (K2) · F11 veto pression vendeuse (J2) · F12 prévisions de volatilité · F13 K2 sur 24 paires · F14 K2 à niveaux
 par la volatilité. Relevés : F0_ECARTS (écarts entre bourses), news de risque (étude évaluée si 30 événements).
 
-**Calcul en cours** : **B2, univers à date**. Téléchargement de l'historique 1 h des 223 paires hors univers
-(dont 71 retirées de la cote), environ une paire par minute. Ensuite, dans l'ordre :
-1. reconstruire l'appartenance mensuelle avec les exclusions historiques (stablecoins, tokens à levier) ;
-2. criblage K à date (4 essais, déclaré dans `UNIVERSE_PIT.md`) : K2 tient-il hors biais de survivance ?
-3. grille et DCA à date (`csi grid-dca --point-in-time`, même déclaration que sur les survivantes).
+Aucun calcul de recherche en cours.
 
 ## 3. À faire après les verdicts
 
 - **Après F2** : échelles de TP dans les stratégies si une échelle gagne.
-- **Après F10 et F13** : variantes de K2 (retest, pivot hebdomadaire), seulement si K2 est confirmé en direct.
+- **Après F10 et F13** : variantes de K2 (retest, pivot hebdomadaire), seulement si K2 est confirmé en direct ;
+  peu probable depuis le criblage à date (K2 ne tient pas hors survivance).
+- **Veto K1** (rebond sur support, nettement négatif à date) : à déclarer avant tout usage, s'il sert un jour.
 - **Après F11** : veto J2 pré-inscrit si l'excès négatif se confirme.
 - **VOTE_V1** : activation seulement avec les composants qui auront passé leur seuil le 2026-12-25.
 - **News de risque** : veto candidat seulement si l'étude d'événements le montre, puis nouveau protocole.

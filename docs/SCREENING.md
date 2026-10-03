@@ -222,6 +222,10 @@ Tableau complet : `reports/SCREEN-20261002T170108Z-e89978/summary.json`.
 
 Les conditions K1 et K2, mêmes règles, sur le **top 40 à date** (paires retirées de la cote comprises) : déclaration complète, lecture et limites dans [UNIVERSE_PIT.md](UNIVERSE_PIT.md) § 2. 4 essais. Question unique : K2 à 1 jour tient-il hors biais de survivance ?
 
+**Résultat** (`SCREEN-20261003T040325Z-7c5fd1`, programme 787) : **non**. K2 à 1 jour tombe à +0,01 % d'excès à
+7 jours (IC [−2,14 ; +2,55], 39 % des paires positives contre 78 % sur les survivantes) ; K1 est nettement
+négatif. Détail dans [UNIVERSE_PIT.md](UNIVERSE_PIT.md) § 2.
+
 ## Criblage S : saisonnalité du sens (déclaré le 2026-10-03, avant exécution)
 
 Point 6 du plan de travail. La saisonnalité de la **volatilité** est démontrée chez nous (volatilité v3) ; celle du

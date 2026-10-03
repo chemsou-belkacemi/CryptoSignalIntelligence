@@ -69,7 +69,36 @@ Lecture (règles déclarées) :
   période globalement haussière (2019-2025), c'est perdant. Ce n'est pas un avantage, c'est un choix de régime, et nos
   prévisions ne savent pas prévoir le régime.
 
+## Résultats sur l'univers à date (`GRID-20261003T040356Z-55c612`, programme 791)
+
+3 015 paire-mois, 255 paires passées par le top 40 du mois (paires retirées comprises ; 8 sans historique 1 h, voir
+`UNIVERSE_PIT.md`). « Garder » : **+3,71 %** par mois (écart-type 45,7 %, pire mois −92 %), contre +6,78 % sur les
+survivantes : la survivance gonflait la référence de 3 points par mois.
+
+| Variante | Rendement mensuel (central) [IC] | Écart à « garder » [IC] | Écart-type | Pire mois | Rendement / écart-type | Ordres par mois |
+|---|---|---|---|---|---|---|
+| Garder | +3,71 % | — | 45,7 % | −92,2 % | 0,081 | 2 |
+| G1 grille ±10 % | +0,10 % [−2,90 ; +3,10] | −3,61 % [−9,42 ; +2,20] | 16,4 % | −87,3 % | 0,006 | 53 |
+| G2 grille ±20 % | +0,53 % [−1,75 ; +2,81] | −3,18 % [−9,51 ; +3,15] | 13,4 % | −88,8 % | 0,040 | 22 |
+| D1 DCA par paliers | +1,29 % [−3,77 ; +6,35] | −2,42 % [−6,03 ; +1,19] | 30,4 % | −91,6 % | 0,042 | 3 |
+| D2 DCA + prise de gain | −0,11 % [−5,08 ; +4,87] | **−3,82 % [−7,26 ; −0,38]** | 22,9 % | −87,1 % | −0,005 | 37 |
+
+Les lectures en coûts défavorables sont à quelques centièmes près (D2 reste démontrablement sous « garder » :
+[−7,51 ; −0,56]).
+
+Lecture (règles déclarées), **identique à celle des survivantes** :
+- **Aucune variante ne fait mieux que garder, ni que les liquidités.** Le DCA avec prise de gain fait encore
+  démontrablement moins bien que garder.
+- **Moins bien qu'une position réduite** : rendement par unité d'écart-type de −0,005 à 0,042 contre 0,081 pour
+  « garder ». Les pires mois restent à −87 à −92 % : sur une paire qui meurt, la grille et le DCA achètent jusqu'au
+  bout.
+- Par régime (descriptif) : en baisse (933 paire-mois) +4 à +15 % contre « garder », en hausse (1 446) −9 à −19 %,
+  plat (636) +0,3 à +6 % ; le même pari sur le régime.
+- Comptage : le document prévoyait 4 essais pour les deux univers ; le code en a compté 4 de plus à cette lecture.
+  Le programme garde ce compte (plus prudent).
+
 ## Historique
 
 - 2026-10-03 : déclaré avant toute exécution.
-- 2026-10-03 : exécuté sur les survivantes (`GRID-20261003T010525Z-cb125c`) ; lecture à date à venir.
+- 2026-10-03 : exécuté sur les survivantes (`GRID-20261003T010525Z-cb125c`), puis à date
+  (`GRID-20261003T040356Z-55c612`, même jour).
