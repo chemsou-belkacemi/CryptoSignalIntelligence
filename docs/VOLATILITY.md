@@ -595,6 +595,32 @@ consultations). Une future stratégie directionnelle ne pourra plus s'y confirme
 en direct. La consultation est enregistrée **avant** la lecture des données : un plantage ne donne pas droit à un
 second regard ; d'où la répétition préalable, même code, sur avril 2024 → juin 2025 (DEVELOPMENT, rien compté).
 
+## 19. Résultat de la confirmation (`VOLC-20261003T101841Z-4d3ffb`, lecture unique du 2026-10-03)
+
+Période finale lue **une fois** (consultation n° 1 du programme, enregistrée avant la lecture), 40 paires, origines
+du 2025-07-01 au 2026-09-30. Répétition préalable `VOLR-20261003T101508Z-580c91` : prévisions identiques au bit à
+celles des protocoles d'origine sur toutes les lignes communes. 5 essais comptés sur FINAL_TEST.
+
+| Ordre | Comparaison | Horizon | Écart de QLIKE | IC à 95 % | 2025 / 2026 | Paires mieux | Erreur de log | Issue propre | Verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | H24 : HAR + profil contre « 24 dernières heures » | 24 h | −0,200 | [−0,259 ; −0,142] | −0,198 / −0,202 | 100 % | mieux | CONFIRME | **CONFIRME** |
+| 2 | D7 : HAR + BTC contre M0 | 7 j | −0,119 | [−0,245 ; +0,007] | −0,115 / −0,122 | 98 % | un peu pire | NON_CONCLUANT | **NON_CONCLUANT** |
+| 3 | D3 : LightGBM contre M0 | 3 j | −0,078 | [−0,158 ; +0,001] | −0,101 / −0,063 | 100 % | mieux | NON_CONCLUANT | NON_TESTE |
+| 4 | D1 : LightGBM contre M0 | 1 j | −0,081 | [−0,168 ; +0,006] | −0,134 / −0,045 | 100 % | mieux | NON_CONCLUANT | NON_TESTE |
+| 5 | V3 : moyenne contre le service | 3 j | −0,009 | [−0,018 ; −0,0003] | −0,000 / −0,016 | 95 % | un peu pire | NON_CONCLUANT | NON_TESTE |
+
+**Lecture déclarée** :
+- **H24 confirmée** hors échantillon : la prévision horaire à 24 h (HAR + profil heure × jour) fait 37 % de perte
+  QLIKE de moins que la règle « 24 dernières heures », chaque année, sur toutes les paires. Elle peut servir aux
+  **niveaux** (stop, abstention), en shadow d'abord (§ 18).
+- **D7 non conclusive**, la séquence s'arrête : les prévisions journalières en service **ne sont pas confirmées**
+  au niveau déclaré. Rien n'est branché à 1, 3 ou 7 jours ; elles restent un affichage et F12 continue de les
+  mesurer en direct.
+- **Descriptif seulement** (non testé, ne décide rien) : D3, D1 et V3 vont dans le même sens (écart négatif les deux
+  années, 95 à 100 % des paires), avec des intervalles qui touchent 0. Rien n'est contredit : aucune prévision
+  n'est retirée.
+- La période finale n'est plus vierge pour le programme : une stratégie future devra se confirmer en direct.
+
 ## Historique
 
 - 2026-10-01, v1 : protocole déclaré avant toute exécution.

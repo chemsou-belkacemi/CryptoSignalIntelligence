@@ -39,6 +39,12 @@ refusé au lieu de lire en silence le test final ; plus tôt reste permis.
 Les trades ouverts près de la fin d'une période ne voient pas les prix suivants :
 ils sont marqués CENSORED.
 
+
+**Consultations enregistrées** :
+- **n° 1, 2026-10-03** (`VOLC-20261003T101841Z-4d3ffb`, stratégie `VOLATILITY_CONFIRMATION`) : décision du
+  propriétaire, une seule lecture pour confirmer les prévisions de volatilité (`VOLATILITY.md` § 18-19), protocole
+  déclaré, relu et répété sur DEVELOPMENT avant la lecture. Depuis, la période finale est une période de
+  validation pour tout le programme ; aucune stratégie directionnelle ne peut plus s'y confirmer « à l'aveugle ».
 ## Walk-forward (lot 2)
 
 Précisé le 2026-09-30, avant le premier walk-forward (`config/default.toml`, `[walk_forward]`) :
