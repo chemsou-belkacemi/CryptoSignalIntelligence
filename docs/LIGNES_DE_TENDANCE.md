@@ -188,7 +188,34 @@ paire est dans le top 40 ; paires retirées ; par trimestre ; paire et trimestre
 - `PISTE_CONFIRMEE` + `GAIN_DEMONTRE` : deuxième confirmation, dans le temps cette fois ; la méthode devient candidate
   à des signaux shadow puis à BSM sur **Binance Demo**, sur décision du propriétaire, avec le suivi en direct (F17).
 - `PISTE_CONFIRMEE` seule : l'information tient dans le temps, le gain après frais reste à montrer.
-- `NON_CONFIRMEE` ou `INVERSE` : l'avantage mesuré sur 2019-2025 ne tient pas sur 2025-2026 ; aucun usage.
+- `NON_CONFIRMEE` : non démontré sur 15 mois, pas une réfutation (voir la puissance plus bas) ; `INVERSE` : l'avantage mesuré sur 2019-2025 ne tient pas sur 2025-2026 ; aucun usage dans les deux cas.
+
+### Avant la lecture : répétition, relecture et puissance (2026-10-05, rien de la période réservée n'a été lu)
+
+- **Répétition** (`TRNR-20261004T225859Z-d6a45a`, 2024-04-01 → 2025-06-30, DEVELOPMENT, rien compté) : le code tourne de
+  bout en bout ; 2 017 transactions sur 228 paires ; excès +0,171 [−0,002 ; +0,343], R +0,077 [−0,095 ; +0,250] : avec
+  la règle déclarée, ce serait `NON_CONFIRMEE` et `GAIN_NON_DEMONTRE` malgré un excès plus grand que sur tout DEVELOPMENT.
+- **Puissance** : sur 15 mois, la demi-largeur des intervalles est d'environ 0,15 à 0,17 R (blocs de 7, 14 ou 28 jours :
+  pas de différence, la dépendance entre transactions est réelle). Si l'excès réel vaut +0,12 R (estimation de
+  DEVELOPMENT), la chance d'obtenir `PISTE_CONFIRMEE` est d'environ **25 à 35 %**, celle de `GAIN_DEMONTRE` d'environ
+  **10 %**. Découpage descriptif du rapport de DEVELOPMENT en fenêtres de 15 mois (relecture) : 2021-10 → 2022-12
+  +0,03 (non confirmé), 2023-01 → 2024-03 +0,15 (confirmé), 2024-04 → 2025-06 +0,14 (non confirmé).
+- **Lecture corrigée de `NON_CONFIRMEE`** : « non démontré sur 15 mois (puissance ≈ 30 %), **pas une réfutation** ;
+  aucun usage ». Seul `INVERSE` réfuterait. La phrase « l'avantage ne tient pas » ci-dessus est remplacée par celle-ci.
+- **Choix de la règle de décision laissé au propriétaire** avant toute lecture (garder la règle déclarée, passer à une
+  seule comparaison unilatérale plus puissante, ou attendre que la période réservée s'allonge) : inscrit ci-dessous
+  dès sa réponse, avant la lecture.
+- **Procédure** : lecture seulement après la fin du téléchargement des minutes **sans échec** et une répétition sur le
+  code final ; pas en même temps qu'une autre tâche lourde ; 4 processus au plus.
+- **Panne après la consultation** (relecture) : toute erreur après l'inscription de la consultation est inscrite au
+  registre (`FAILED`, 2 essais comptés par prudence). Règle fixée maintenant : si **aucun chiffre** n'a été produit,
+  **une seule reprise** est permise, du même calcul, défaut technique seul corrigé et relu, enregistrée comme nouvelle
+  consultation ; sinon, la période est perdue pour cette stratégie.
+- Corrections de code de la relecture : rapport écrit avant l'inscription au registre ; univers limité aux mois
+  d'appartenance antérieurs au 2025-07-01 ; test des bornes des placebos sur les bornes réellement utilisées ; cumul
+  des essais de la période finale dans le rapport (5 pour la volatilité + 2).
+- **Retiré du descriptif** : « mois où la paire est dans le top 40 » (l'appartenance s'arrête au 2025-06-01 : non
+  calculable sur la période).
 
 ## Historique
 
@@ -196,3 +223,4 @@ paire est dans le top 40 ; paires retirées ; par trimestre ; paire et trimestre
 - 2026-10-04 : relecture indépendante avant l'exécution ; ajouts ci-dessus (garde de couverture des minutes, déclarations).
 - 2026-10-04 : téléchargement terminé (214 paires, 0 échec) ; exécution unique `TRND-20261004T142935Z-6702de` (essais 852 et 853, programme 853).
 - 2026-10-05 : confirmation sur la période réservée déclarée avant code, téléchargement et lecture (décision du propriétaire).
+- 2026-10-05 : répétition, relecture indépendante et calcul de puissance avant la lecture ; corrections inscrites ; choix de la règle laissé au propriétaire.

@@ -59,13 +59,21 @@ def test_nothing_after_the_cutoff_is_read():
     assert cut.any() and true and pd.DataFrame(true).equals(pd.DataFrame(fake))
 
 
-def test_placebos_stay_inside_the_window():
+def test_placebos_stay_inside_the_window(monkeypatch):
+    """Bornes réellement passées par `pair_rows` (capturées), pas recalculées par le test."""
     h1, m = hours_of("AUSDT"), fh.Minutes.from_frame(minutes_of("AUSDT"))
+    seen = []
+    original = tf.tc.with_uniform_placebos
+
+    def spy(row, minutes, *, lo_ns, hi_ns):
+        seen.append((lo_ns, hi_ns))
+        return original(row, minutes, lo_ns=lo_ns, hi_ns=hi_ns)
+
+    monkeypatch.setattr(tf.tc, "with_uniform_placebos", spy)
     out = tf.pair_rows(h1, m, "AUSDT", start=START, cutoff=CUTOFF, latency=LATENCY)
+    assert out and len(seen) == len(out)
     lo, hi = START.as_unit("ns").value, CUTOFF.as_unit("ns").value - tf.HOLD.value
-    for row in out:
-        whens = tf.tc.placebo_minutes(row["key"], max(lo, (FIRST + fh.WARMUP).as_unit("ns").value), hi)
-        assert len(whens) == 20 and whens.min() >= lo and whens.max() <= hi
+    assert all(a == lo and b <= hi for a, b in seen)
 
 
 def test_presence_uses_dates_only_and_flags_holes_and_early_ends():
@@ -137,3 +145,25 @@ def test_rehearsal_reads_development_only_and_records_nothing(settings, fake_dat
     assert payload["rehearsal"] and payload["n_trials"] == 0 and payload["consultations_total"] is None
     assert registry.final_test_consultations_total() == 0 and registry.get(payload["run_id"]) is None
     assert seen["window"][1] <= pd.Timestamp("2025-06-30 23:59:59", tz="UTC")
+
+
+def test_a_failure_after_the_consultation_is_recorded_as_failed(settings, fake_data, monkeypatch):
+    def broken(args):
+        raise RuntimeError("panne simulée")
+
+    monkeypatch.setattr(tf, "_one", broken)
+    with pytest.raises(RuntimeError):
+        tf.run(settings, now=datetime(2026, 10, 5, tzinfo=UTC), allow_final_test=True, workers=1)
+    registry = ExperimentRegistry(settings.experiments_db)
+    assert registry.final_test_consulted(tf.STRATEGY) == 1
+    with registry.connect() as db:
+        rows = db.execute("SELECT status, metrics FROM runs WHERE strategy=?", (tf.STRATEGY,)).fetchall()
+    assert len(rows) == 1 and rows[0][0] == "FAILED" and "panne simulée" in rows[0][1]
+
+
+def test_universe_ignores_membership_from_the_period_itself(settings, monkeypatch):
+    from crypto_signal_intelligence.research import pit_universe
+    members = pd.DataFrame({"month": pd.to_datetime(["2025-06-01", "2025-07-01"], utc=True), "symbol": ["AUSDT", "NEWUSDT"],
+                            "rank": [1, 1], "median_quote_volume": [1.0, 1.0]})
+    monkeypatch.setattr(pit_universe, "load_membership", lambda s: members)
+    assert tf.universe(settings) == ["AUSDT"]

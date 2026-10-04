@@ -40,9 +40,12 @@ class AlreadyConsulted(PermissionError):
 
 
 def universe(settings: Settings) -> list[str]:
-    """Toutes les paires passées par le top 40 à date avant le début de la période (recensement de UNIVERSE_PIT.md)."""
+    """Toutes les paires passées par le top 40 à date avant le début de la période (recensement de UNIVERSE_PIT.md) :
+    les mois à partir du début de la période sont ignorés (une appartenance recalculée plus tard ne sélectionne pas
+    sur l'avenir)."""
     from .pit_universe import load_membership
     members = load_membership(settings)
+    members = members[pd.to_datetime(members["month"], utc=True) < START]
     return sorted(set(members["symbol"]))
 
 
@@ -189,6 +192,32 @@ def run(settings: Settings, *, now: datetime, allow_final_test: bool = False, re
         raise tc.IncompleteMinutes(f"bougies 1 minute incomplètes pour {len(bad)} paires : {bad[:10]} ; rien n'est lu")
     run_id = new_run_id("TRNR" if rehearsal else "TRNF")
     consultations = None if rehearsal else registry.consult_final_test(run_id, STRATEGY)
+    base = {"run_id": run_id, "created_at": now.isoformat(), "kind": KIND,
+            "hypothesis": "les cassures de ligne de tendance en 1 h confirmées sur DEVELOPMENT battent-elles le hasard et "
+                          "gagnent-elles, frais compris, sur la période réservée ?",
+            "strategy": STRATEGY, "strategy_version": 1, "variant": "définitions figées (docs/LIGNES_DE_TENDANCE.md)",
+            "params": {"start": str(start), "cutoff": str(cutoff), "placebos": tc.PLACEBOS, "block_days": fh.BLOCK_DAYS,
+                       "samples": fh.SAMPLES, "seed": fh.SEED},
+            "period_label": "FINAL_TEST", "period_start": str(start), "period_end": str(cutoff), "git_commit": state,
+            "dependencies": dependency_versions(), "seed": fh.SEED,
+            "cost_scenario": "central et défavorable (forward/costs.py)",
+            "simulation_rules": {"execution": "figures_history.play",
+                                 "placebos": "20 minutes uniformes sur la période utilisable de la paire"}}
+    try:
+        return _compute(settings, registry, base, pairs=pairs, start=start, cutoff=cutoff, rehearsal=rehearsal,
+                        consultations=consultations, checks=checks, workers=workers, say=say)
+    except BaseException as exc:                            # consultation consommée sans résultat : trace au registre
+        if not rehearsal:
+            registry.record(**base, universe=[], data_hashes={}, status="FAILED",
+                            metrics={"n_trials": N_TRIALS, "consultations_total": consultations,
+                                     "error": f"{type(exc).__name__}: {exc}"})
+        raise
+
+
+def _compute(settings: Settings, registry: ExperimentRegistry, base: dict, *, pairs: list[str], start: pd.Timestamp,
+             cutoff: pd.Timestamp, rehearsal: bool, consultations: int | None, checks: dict, workers: int,
+             say: Callable[[str], None]) -> dict:
+    run_id = base["run_id"]
     rows: list[dict] = []
     hashes: dict[str, str] = {}
     jobs = [(settings, symbol, start, cutoff) for symbol in pairs]
@@ -211,22 +240,14 @@ def run(settings: Settings, *, now: datetime, allow_final_test: bool = False, re
     report_dir = settings.reports_dir / run_id
     report_dir.mkdir(parents=True, exist_ok=True)
     payload = {"run_id": run_id, "rehearsal": rehearsal, "window": [str(start), str(cutoff)], "n_trials": 0 if rehearsal else N_TRIALS,
+               "final_test_trials": None if rehearsal else registry.program_trials("FINAL_TEST") + N_TRIALS,
                "consultations_total": consultations, "level": round(tc.LEVEL, 6), "result": result, "pairs": len(pairs),
                "coverage": checks, "doc": "docs/LIGNES_DE_TENDANCE.md"}
-    if not rehearsal:
-        registry.record(run_id=run_id, created_at=now.isoformat(), kind=KIND,
-                        hypothesis="les cassures de ligne de tendance en 1 h confirmées sur DEVELOPMENT battent-elles le "
-                                   "hasard et gagnent-elles, frais compris, sur la période réservée ?",
-                        strategy=STRATEGY, strategy_version=1, variant="définitions figées (docs/LIGNES_DE_TENDANCE.md)",
-                        params={"start": str(start), "cutoff": str(cutoff), "placebos": tc.PLACEBOS,
-                                "block_days": fh.BLOCK_DAYS, "samples": fh.SAMPLES, "seed": fh.SEED},
-                        period_label="FINAL_TEST", period_start=str(start), period_end=str(cutoff),
-                        universe=sorted(set(trades["symbol"])), data_hashes=hashes, git_commit=state,
-                        dependencies=dependency_versions(), seed=fh.SEED, cost_scenario="central et défavorable (forward/costs.py)",
-                        simulation_rules={"execution": "figures_history.play",
-                                          "placebos": "20 minutes uniformes sur la période utilisable de la paire"},
-                        metrics={"n_trials": N_TRIALS, "consultations_total": consultations, "decision": result["decision"]},
-                        status="COMPLETED", report_dir=str(report_dir))
+    # Rapport écrit AVANT l'inscription au registre : une erreur du registre ne perd pas un résultat déjà calculé.
     (report_dir / "summary.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
     trades.to_parquet(report_dir / "trades.parquet", index=False)
+    if not rehearsal:
+        registry.record(**base, universe=sorted(set(trades["symbol"])), data_hashes=hashes, status="COMPLETED",
+                        metrics={"n_trials": N_TRIALS, "consultations_total": consultations, "decision": result["decision"]},
+                        report_dir=str(report_dir))
     return payload
