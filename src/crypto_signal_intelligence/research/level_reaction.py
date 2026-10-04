@@ -45,6 +45,7 @@ class Level:
     placebo: bool
     start: int                  # première bougie où il est actif
     end: int                    # première bougie où il ne l'est plus
+    side: int = 0               # placebo : +1 au-dessus du niveau réel, −1 en dessous ; réel : 0
 
 
 def aggregate(h1: pd.DataFrame, hours: int) -> pd.DataFrame:
@@ -109,21 +110,24 @@ def levels_over_time(high, low, atr_values, m: float, *, symbol: str, timeframe:
             real = clusters([(p.price, p.index) for p in window], MERGE_ATR * a)
             real_prices = [price for _, price in real]
             for key, price in real:
-                current[key] = active.get(key) or {"price": price, "placebo": False, "start": t}
+                if key in active:                       # niveau qui continue : ses placebos aussi (ou aucun)
+                    current[key] = active[key]
+                    for sign in (1, -1):
+                        if (key, sign) in active:
+                            current[(key, sign)] = active[(key, sign)]
+                    continue
+                # Niveau qui naît : ses placebos naissent avec lui ou jamais (écartés une fois pour toutes).
+                current[key] = {"price": price, "placebo": False, "start": t, "side": 0}
                 for sign, shift in zip((1, -1), _shifts(symbol, timeframe, key), strict=True):
-                    pkey = (key, sign)
-                    if pkey in active:
-                        current[pkey] = active[pkey]
-                        continue
                     pprice = price + sign * shift * a
                     if pprice > 0 and all(abs(pprice - r) >= MERGE_ATR * a for r in real_prices):
-                        current[pkey] = {"price": pprice, "placebo": True, "start": t}
+                        current[(key, sign)] = {"price": pprice, "placebo": True, "start": t, "side": sign}
         for key, info in active.items():
             if key not in current:
-                out.append(Level(key, info["price"], info["placebo"], info["start"], t))
+                out.append(Level(key, info["price"], info["placebo"], info["start"], t, info["side"]))
         active = current
     for key, info in active.items():
-        out.append(Level(key, info["price"], info["placebo"], info["start"], n))
+        out.append(Level(key, info["price"], info["placebo"], info["start"], n, info["side"]))
     return out
 
 
@@ -165,7 +169,12 @@ def events(level: Level, high, low, close, atr_values) -> list[tuple[str, int]]:
 SUCCESS = {"rejet_resistance": DOWN, "cassure_resistance": UP, "rebond_support": UP, "cassure_support": DOWN}
 
 
+EVENT_COLUMNS = ["symbol", "timeframe", "event", "placebo", "side", "time", "outcome", "success", "age", "atr_pct", "in_range"]
+
+
 def pair_events(bars: pd.DataFrame, timeframe: str, symbol: str, *, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
+    """Événements d'une paire, avec les variables des contrôles descriptifs : âge du niveau au contact (bougies),
+    ATR / clôture au contact, niveau dans la plage [plus bas ; plus haut] des 300 bougies précédentes ou hors plage."""
     o, h, lo, c = (bars[k].to_numpy(float) for k in ("open", "high", "low", "close"))
     a = atr(h, lo, c)
     rows = []
@@ -176,13 +185,19 @@ def pair_events(bars: pd.DataFrame, timeframe: str, symbol: str, *, start: pd.Ti
             if not start <= when <= end:
                 continue
             result = outcome(h, lo, c, a, t)
-            rows.append({"symbol": symbol, "timeframe": timeframe, "event": name, "placebo": level.placebo,
-                         "time": when, "outcome": result, "success": None if result == NULL else result == SUCCESS[name]})
-    return pd.DataFrame(rows, columns=["symbol", "timeframe", "event", "placebo", "time", "outcome", "success"])
+            first = max(0, t - WINDOW)
+            in_range = bool(lo[first:t].min() <= level.price <= h[first:t].max()) if t > first else False
+            rows.append({"symbol": symbol, "timeframe": timeframe, "event": name, "placebo": bool(level.placebo),
+                         "side": int(level.side), "time": when, "outcome": int(result),
+                         "success": None if result == NULL else bool(result == SUCCESS[name]),
+                         "age": int(t - level.start), "atr_pct": float(a[t] / c[t]), "in_range": in_range})
+    frame = pd.DataFrame(rows, columns=EVENT_COLUMNS)
+    return frame.astype({"placebo": bool, "side": int, "outcome": int, "age": int, "atr_pct": float, "in_range": bool})
 
 
 def compare(frame: pd.DataFrame, *, level: float = LEVEL, samples: int = SAMPLES, seed: int = SEED) -> dict:
     """Écart de taux de réussite réel − placebo et IC par blocs de 7 jours (issues nulles exclues, comptées)."""
+    frame = frame.astype({"placebo": bool})
     used = frame[frame["success"].notna()].copy()
     out = {"real_events": int((~frame["placebo"]).sum()), "placebo_events": int(frame["placebo"].sum()),
            "null_real": int(((~frame["placebo"]) & frame["success"].isna()).sum()),
@@ -203,12 +218,46 @@ def compare(frame: pd.DataFrame, *, level: float = LEVEL, samples: int = SAMPLES
     alpha = 1 - level
     ci = [float(np.quantile(diffs, alpha / 2)), float(np.quantile(diffs, 1 - alpha / 2))] if len(table) >= 20 else None
     years = used.assign(year=pd.to_datetime(used["time"], utc=True).dt.year).groupby(["year", "placebo"])["success"].mean().unstack()
-    pairs = used.groupby(["symbol", "placebo"])["success"].mean().unstack()
+    pairs = used.groupby(["symbol", "placebo"])["success"].mean().unstack().dropna()
     return out | {"real_rate": round(float(real_rate), 4), "placebo_rate": round(float(pl_rate), 4),
                   "diff": round(float(real_rate - pl_rate), 4), "ci": [round(x, 4) for x in ci] if ci else None,
                   "blocks": int(len(table)),
                   "years_positive": f"{int((years[False] > years[True]).sum())}/{int(years.notna().all(axis=1).sum())}",
                   "pairs_positive_share": round(float((pairs[False] > pairs[True]).mean()), 3)}
+
+
+def _rate(part: pd.DataFrame) -> float | None:
+    used = part["success"].dropna()
+    return round(float(used.astype(float).mean()), 4) if len(used) else None
+
+
+def controls(frame: pd.DataFrame) -> dict:
+    """Contrôles DESCRIPTIFS d'équité réel / placebo (relecture du 2026-10-04) : aucun n'entre dans le verdict."""
+    frame = frame.astype({"placebo": bool})
+    real, placebo = frame[~frame["placebo"]], frame[frame["placebo"]]
+    out: dict = {"rate_placebo_above": _rate(placebo[placebo["side"] > 0]),
+                 "rate_placebo_below": _rate(placebo[placebo["side"] < 0])}
+    for flag, name in ((True, "in_range"), (False, "out_of_range")):
+        out[f"rate_real_{name}"] = _rate(real[real["in_range"] == flag])
+        out[f"rate_placebo_{name}"] = _rate(placebo[placebo["in_range"] == flag])
+    for column in ("age", "atr_pct"):
+        out[f"median_{column}_real"] = float(real[column].median()) if len(real) else None
+        out[f"median_{column}_placebo"] = float(placebo[column].median()) if len(placebo) else None
+    used = frame[frame["success"].notna()].copy()
+    if len(used) and used["placebo"].any() and (~used["placebo"]).any():
+        used["success"] = used["success"].astype(float)
+        used["cell"] = (pd.qcut(used["age"].rank(method="first"), 10, labels=False).astype(str) + ":"
+                        + pd.qcut(used["atr_pct"].rank(method="first"), 10, labels=False).astype(str))
+        cells = used.groupby(["cell", "placebo"])["success"].agg(["mean", "count"]).unstack("placebo")
+        cells = cells.dropna()
+        weights = cells[("count", False)] / cells[("count", False)].sum()
+        out["diff_reweighted_age_atr"] = round(float((weights * (cells[("mean", False)] - cells[("mean", True)])).sum()), 4)
+        dedup = used.drop_duplicates(["symbol", "time", "placebo"])
+        out["diff_dedup_bar"] = round(float(dedup[~dedup["placebo"]]["success"].mean() - dedup[dedup["placebo"]]["success"].mean()), 4)
+    nulls_fail = frame.assign(s=frame["success"].map(lambda x: 0.0 if x is None or (isinstance(x, float) and np.isnan(x)) else float(x)))
+    out["diff_nulls_as_failures"] = round(float(nulls_fail[~nulls_fail["placebo"]]["s"].mean()
+                                                - nulls_fail[nulls_fail["placebo"]]["s"].mean()), 4) if len(real) and len(placebo) else None
+    return out
 
 
 def verdict(row: dict) -> str:
@@ -226,8 +275,10 @@ def run(settings: Settings, *, now: datetime, progress: Callable[[str], None] | 
     if (state.endswith("+DIRTY") or state == "NO_GIT_COMMIT") and not allow_dirty:
         raise DirtyCode(f"code non commité ({state}) : exécution refusée (versions reproductibles)")
     end = pd.Timestamp(development_end(settings)).tz_convert("UTC")
+    from .derivatives_screen import fingerprint
     frames = []
     missing = []
+    hashes: dict[str, str] = {}
     for symbol in symbols or list(RESEARCH_UNIVERSE):
         try:
             h1 = load_long(settings, symbol)
@@ -235,6 +286,7 @@ def run(settings: Settings, *, now: datetime, progress: Callable[[str], None] | 
             missing.append(symbol)
             continue
         h1 = h1[pd.to_datetime(h1["open_time"], utc=True) <= end]
+        hashes[symbol] = fingerprint(h1[["open_time", "open", "high", "low", "close"]].reset_index(drop=True))
         for timeframe, hours in TIMEFRAMES.items():
             say(f"{symbol} {timeframe}")
             frames.append(pair_events(aggregate(h1, hours), timeframe, symbol, start=FIRST_DAY, end=end))
@@ -243,7 +295,7 @@ def run(settings: Settings, *, now: datetime, progress: Callable[[str], None] | 
     for timeframe in TIMEFRAMES:
         for name in (*DECISIVE, *DESCRIPTIVE):
             part = events_all[(events_all["timeframe"] == timeframe) & (events_all["event"] == name)]
-            result = compare(part)
+            result = compare(part) | {"controles": controls(part)}
             if name in DECISIVE:
                 result["verdict"] = verdict(result)
             rows[f"{timeframe}/{name}"] = result
@@ -262,7 +314,7 @@ def run(settings: Settings, *, now: datetime, progress: Callable[[str], None] | 
                             "horizon": HORIZON, "placebo_shift": PLACEBO_SHIFT, "zigzag_m": ZIGZAG_M,
                             "block_days": BLOCK_DAYS, "samples": SAMPLES, "seed": SEED},
                     period_label="DEVELOPMENT", period_start=str(FIRST_DAY.date()), period_end=end.isoformat(),
-                    universe=sorted(set(events_all["symbol"])), data_hashes={}, git_commit=state,
+                    universe=sorted(set(events_all["symbol"])), data_hashes=hashes, git_commit=state,
                     dependencies=dependency_versions(), seed=SEED, cost_scenario="aucun (probabilités)",
                     simulation_rules={"outcome": "barrières ±1 ATR, 24 bougies, nulle exclue"},
                     metrics={"n_trials": N_TRIALS, "program_trials": program, "rows": rows}, status="COMPLETED",

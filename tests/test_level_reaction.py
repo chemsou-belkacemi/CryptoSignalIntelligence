@@ -46,26 +46,42 @@ def walk(n: int, seed: int):
 
 
 def test_levels_and_events_never_read_the_future():
-    h, lo, c = walk(3000, 7)
-    cut = 2000
-    fh, flo, fc = h.copy(), lo.copy(), c.copy()
-    scale = np.random.default_rng(2).uniform(0.6, 1.4, len(c) - cut)
-    fh[cut:] *= scale
-    flo[cut:] *= scale
-    fc[cut:] *= scale
-    a, fa = lr.atr(h, lo, c), lr.atr(fh, flo, fc)
+    """Coupures juste à la confirmation d'un pivot et une bougie après (erreurs d'une bougie comprises)."""
+    h, lo, c = walk(1500, 7)
+    a = lr.atr(h, lo, c)
+    pivots = lr.zigzag(h, lo, a, 3.0)
+    cuts = sorted({p.known_at + d for p in pivots[5:13] for d in (0, 1)})
 
-    def known(hh, ll, cc, aa):
+    def known(hh, ll, cc, cut):
+        aa = lr.atr(hh, ll, cc)
         out = set()
         for level in lr.levels_over_time(hh, ll, aa, 3.0, symbol="T", timeframe="1h"):
-            if level.start < cut:
+            if level.start <= cut:
                 out.add((level.key, round(level.price, 9), level.placebo, level.start))
                 for name, t in lr.events(level, hh, ll, cc, aa):
                     if t < cut:
                         out.add((level.key, name, t))
         return out
 
-    assert known(h, lo, c, a) == known(fh, flo, fc, fa)
+    for cut in cuts:
+        fh, flo, fc = h.copy(), lo.copy(), c.copy()
+        scale = np.random.default_rng(cut).uniform(0.6, 1.4, len(c) - cut)
+        fh[cut:] *= scale
+        flo[cut:] *= scale
+        fc[cut:] *= scale
+        assert known(h, lo, c, cut) == known(fh, flo, fc, cut), cut
+
+
+def test_placebos_are_born_and_die_with_their_real_level():
+    h, lo, c = walk(3000, 13)
+    a = lr.atr(h, lo, c)
+    levels = lr.levels_over_time(h, lo, a, 3.0, symbol="T", timeframe="1h")
+    real = {(lv.key, lv.start): lv for lv in levels if not lv.placebo}     # une identité peut renaître plus tard
+    placebos = [lv for lv in levels if lv.placebo]
+    assert placebos
+    for p in placebos:
+        base = real[(p.key[0], p.start)]                                    # même niveau réel, même naissance
+        assert (p.end, p.side) == (base.end, p.key[1])
 
 
 def test_placebos_are_shifted_one_to_three_atr_and_away_from_real_levels():
@@ -99,6 +115,8 @@ def test_compare_finds_a_real_effect_and_none_when_equal():
     assert lr.verdict(none) == lr.NOTHING
     inverse = lr.compare(synthetic_events(0.40, 0.50, seed=4), samples=2000)
     assert lr.verdict(inverse) == lr.INVERSE
+    mixed = pd.concat([synthetic_events(0.5, 0.5).iloc[:0].astype(object), synthetic_events(0.6, 0.5, seed=8)])
+    assert lr.compare(mixed, samples=500)["diff"] is not None                    # colonne « placebo » de type object
     frame = synthetic_events(0.5, 0.5)
     frame.loc[frame.index[:10], "success"] = None
     assert lr.compare(frame, samples=200)["null_real"] + lr.compare(frame, samples=200)["null_placebo"] == 10
@@ -122,8 +140,10 @@ def test_run_end_to_end(settings, monkeypatch):
     payload = lr.run(settings, now=datetime(2026, 10, 4, tzinfo=UTC), symbols=["AUSDT", "BUSDT"])
     assert set(payload["rows"]) == {f"{tf}/{e}" for tf in lr.TIMEFRAMES for e in (*lr.DECISIVE, *lr.DESCRIPTIVE)}
     assert all("verdict" in payload["rows"][f"{tf}/{e}"] for tf in lr.TIMEFRAMES for e in lr.DECISIVE)
+    assert "diff_reweighted_age_atr" in payload["rows"]["1h/rejet_resistance"]["controles"]
     entry = ExperimentRegistry(settings.experiments_db).get(payload["run_id"])
     assert entry is not None and entry["metrics"]["n_trials"] == 4 and entry["period_end"].startswith("2025-06-30")
+    assert set(entry["data_hashes"]) == {"AUSDT", "BUSDT"}
     monkeypatch.setattr(lr, "code_state", lambda: "abc123+DIRTY")
     with pytest.raises(lr.DirtyCode):
         lr.run(settings, now=datetime(2026, 10, 4, tzinfo=UTC), symbols=["AUSDT"])

@@ -29,7 +29,7 @@ clôture de `t − 1` joue le rôle de **résistance** à `t` ; en dessous, de *
 ## Niveaux placebo
 
 Pour chaque niveau réel, au moment où il apparaît, deux niveaux placebo : le niveau réel décalé de `+u` et de `−u` ATR,
-`u` tiré uniformément dans [1 ; 3] (graine fixe dérivée de la paire et de l'heure), écartés s'ils tombent à moins de
+`u` tiré uniformément dans [1 ; 3] (graine fixe dérivée de la paire, de l'unité de temps et de l'identité du niveau), écartés s'ils tombent à moins de
 0,5 ATR d'un niveau réel du moment. Ils vivent aussi longtemps que le niveau réel et sont traités exactement comme lui.
 
 ## Événements et issues (barrières symétriques de 1 ATR, 24 bougies)
@@ -54,7 +54,7 @@ Un même niveau (réel ou placebo) ne produit qu'un événement de chaque type (
 
 Pour chaque unité de temps et chaque événement décisionnel : taux de réussite aux niveaux réels et aux niveaux
 placebo ; **écart = réel − placebo** ; IC par tirage de blocs de 7 jours (10 000 tirages, graine 20261004), niveau
-1 − 0,05/4 (**4 comparaisons** : 2 événements × 2 unités de temps). Lecture :
+1 − 0,05/4 (**4 comparaisons** : 2 événements × 2 unités de temps), au moins 20 blocs. Lecture :
 
 - `EFFET` si l'IC de l'écart est entièrement au-dessus de 0 ;
 - `EFFET_INVERSE` s'il est entièrement en dessous ;
@@ -74,3 +74,18 @@ direct (la période finale a déjà été lue une fois).
 - 2026-10-04 : déclaré avant tout code et toute exécution.
 - 2026-10-04, avant tout code : précisions (identité d'un niveau, recalcul aux changements de pivots, événements sur
   tous les niveaux actifs au lieu du seul plus proche, pour traiter réels et placebos à l'identique).
+- 2026-10-04, relecture avant l'exécution (aucun taux réel ou placebo calculé sur les données réelles) :
+  - un placebo naît **avec** son niveau réel ou jamais (le code le retestait à chaque recalcul : environ 20 % des
+    placebos naissaient plus tard, souvent là où un niveau réel venait de disparaître) ; il meurt avec lui ;
+  - test de causalité renforcé (coupures à la confirmation d'un pivot et une bougie après : deux erreurs d'une bougie,
+    passées inaperçues avant, sont maintenant détectées) ; types explicites (verdict « RIEN » silencieux évité) ;
+    empreintes des données inscrites ;
+  - **contrôles descriptifs** ajoutés, hors verdict : taux des placebos au-dessus et en dessous de leur niveau ; taux
+    selon que le niveau est dans ou hors de la plage des 300 bougies au contact ; âge du niveau et ATR / clôture au
+    contact (médianes) ; écart repondéré sur les déciles d'âge et d'ATR / clôture ; écart dédoublonné à la bougie ;
+    écart en comptant les issues nulles comme échecs. Raison : les placebos (1 à 3 ATR à côté, souvent hors de la
+    plage récente) sont plutôt touchés en tendance, les niveaux réels plutôt en range ; un « EFFET » de rejet serait
+    ambigu entre « niveau » et « retour vers la moyenne en range » si ces contrôles le contredisent ;
+  - à lire avec le programme : environ 802 essais sur les mêmes données, hypothèses proches de K1 et K2 ; un « EFFET »
+    isolé resterait un indice, à confirmer en direct.
+
