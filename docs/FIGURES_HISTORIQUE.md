@@ -232,6 +232,42 @@ est de l'ordre du biais : −0,03 / +0,13 / +0,42). Conséquences :
   **après** l'exécution : c'est une piste à déclarer et à tester sur d'autres données, pas un résultat.
   Script : `figh_null.py` (bloc-notes de la session) ; non commité.
 
+## Gestion du propriétaire sur le double creux (déclaré le 2026-10-04, après la première exécution : piste contaminée)
+
+Demande du propriétaire du 2026-10-04 après lecture du tableau ci-dessus : « le double creux est intéressant avec
+plusieurs TP et le stop qui bascule ». Choisi **après** avoir vu les résultats sur ces mêmes données : tout résultat
+est une piste, à confirmer sur des données non vues. Code : `research/double_management.py` ; tests :
+`tests/test_double_management.py` ; commande : `csi double-management`. **2 essais.**
+
+**Données.** Les mêmes transactions : les 2 455 doubles creux exécutés de `FIGH-20261004T102820Z-479ac6` (fichier
+`trades.parquet`, méthode `DOUBLE`), même exécution de l'ordre (mêmes minute et prix d'exécution, vérifiés), mêmes
+placebos (mêmes tirages), mêmes frais, même échéance (60 bougies depuis l'exécution). Rien n'est redétecté.
+
+**Gestion testée (règles du propriétaire, fixées ici).** Hauteur `P` du double creux (= 3 × (TP1 − entrée) de la
+première exécution) ; **5 objectifs** `TPk = entrée + k × P/3` (TP3 = hauteur, TP5 = 1,67 × hauteur) ; parts vendues :
+- `A_60_10_10_10_10` : 60 % au TP1, puis 10 % à chacun des TP2 à TP5 ;
+- `B_60_15_10_10_5` : 60 % au TP1, 15 % au TP2, 10 % aux TP3 et TP4, 5 % au TP5 ;
+
+stop initial inchangé (sous les creux, moins 0,25 ATR) ; **après TP1, stop remonté au prix d'entrée prévu ; après
+TPk (k ≥ 2), stop remonté à TP(k−1)** ; nouveau stop appliqué **dès la minute suivante** (dans la minute du TP, le
+stop en vigueur est celui du début de la minute) ; stop touché : vente du reste au marché à `min(stop, ouverture)`,
+taker ; minute où stop et objectif sont touchés : stop d'abord (prudence, comme partout) ; échéance : reste vendu à la
+clôture, taker. R = résultat net / (entrée prévue − stop initial). Les placebos suivent exactement la même gestion
+avec leurs niveaux mis à l'échelle.
+
+**Mesure.** Pour chaque répartition et chaque scénario de frais : R moyen et son intervalle ; excès à frais d'entrée
+égaux et son intervalle ; **écart apparié** avec la règle des tiers de la première exécution (même transaction, R de
+la gestion − R des tiers) et son intervalle ; blocs de 28 jours présents, 10 000 tirages, niveau **1 − 0,05/2**.
+Verdict comme ci-dessus (`SUPERIEUR_AU_HASARD` exige R moyen ET excès à frais égaux au-dessus de 0 dans les deux
+scénarios). Descriptif : part gagnante, parts des TP1 à TP5 atteints, issues, R par unité de temps et par année,
+gain moyen en % de la position par transaction (R × risque relatif) et nombre de transactions par jour calendaire sur
+les 40 paires, pour répondre à la question du « 1 à 2 % par jour ».
+
+**Attendu, déclaré.** Le stop à l'entrée supprime les pertes « stop après TP » (14 % des issues) mais coupe les
+transactions qui repassent par l'entrée avant de monter ; TP4 et TP5 ne sont atteints qu'une minorité de fois en
+60 bougies. Les placebos tirés avant l'exécution sont biaisés en 4 h et 1 jour (voir le contrôle ci-dessus) :
+l'excès est lu avec cette réserve, le R moyen et l'écart apparié ne le sont pas.
+
 ## Historique
 
 - 2026-10-04 : déclaré avant tout code et toute exécution.
