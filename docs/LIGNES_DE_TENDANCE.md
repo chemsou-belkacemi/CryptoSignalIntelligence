@@ -50,6 +50,12 @@ mémoire), leur excès moyen est nul.
 marches aléatoires sans mémoire doit donner un excès moyen compatible avec 0 (moins de 2 erreurs types) ; sinon,
 l'exécution n'a pas lieu tant que l'instrument n'est pas corrigé. Résultat inscrit ci-dessous avant l'exécution.
 
+**Résultat du contrôle (2026-10-04, avant l'exécution, 40 marches aléatoires de 3 ans, même code
+`trendline_confirmation.pair_rows`)** : 997 transactions `TRENDLINE` 1 h ; excès à frais égaux sur les placebos tirés
+sur tout l'historique **−0,034 R (erreur type 0,028, z = −1,2)** : compatible avec 0, **l'exécution peut avoir lieu**.
+Pour mémoire, sur les mêmes marches : excès avec les placebos de F15 +0,007 (z = 0,3) ; R moyen −0,062 (les frais).
+Script : `trend_null.py` (bloc-notes de la session).
+
 ## Décision (2 comparaisons, niveau 1 − 0,05/2)
 
 Intervalles : tirage par blocs de 28 jours présents (`metrics.day_block_ci`, 10 000 tirages, graine 20261004, au
