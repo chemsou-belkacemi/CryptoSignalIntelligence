@@ -32,6 +32,11 @@ BLOCK_DAYS, MIN_BLOCKS, MIN_DAYS = 56, 20, 100
 SAMPLES, SEED = 10_000, 20261004
 DAY = pd.Timedelta(days=1)
 UP, DOWN, NOTHING = "HAUSSE_SI_HAUT", "BAISSE_SI_HAUT", "RIEN"
+#: Couverture de DefiLlama incomplète avant mi-2020 (USDT d'origine absent : « croissances » de ×273, +100 %) :
+#: données de stablecoins lues à partir du 2020-07-01, décisions à partir du 2021-07-01 (relecture du 2026-10-04).
+DATA_START = {"STABLE_GROWTH": pd.Timestamp("2020-07-01", tz="UTC")}
+DECISION_START = {"STABLE_GROWTH": pd.Timestamp("2021-07-01", tz="UTC")}
+SINCE = pd.Timestamp("2020-01-01", tz="UTC")             # lecture séparée depuis 2020 (primes : écart USDT/USD avant)
 SERIES = ("flows", "coinbase", "upbit", "ecb", "binance_daily", "stablecoins", "ratios_archive", "wikipedia")
 
 
@@ -81,7 +86,7 @@ def build_features(raw: dict[str, pd.DataFrame], end: pd.Timestamp) -> dict[str,
     flows_in, flows_out, supply = (cut(raw[f"flows:{f}"]) for f in ("FlowInExNtv", "FlowOutExNtv", "SplyExNtv"))
     out: dict[str, pd.Series] = {}
     for code, asset in (("BTC_NETFLOW", "btc"), ("ETH_NETFLOW", "eth")):
-        net = _daily(flows_in[asset] - flows_out[asset]).rolling(WINDOW, min_periods=MIN_PRESENT).sum()
+        net = _daily(flows_in[asset] - flows_out[asset]).rolling(WINDOW, min_periods=WINDOW).sum()   # somme : 7 jours
         out[code] = at_decision(net / _daily(supply[asset]).reindex(net.index), 2)
     binance = cut(raw["binance_daily:close"])
     btc = _daily(binance["BTCUSDT"])
@@ -92,7 +97,8 @@ def build_features(raw: dict[str, pd.DataFrame], end: pd.Timestamp) -> dict[str,
     upbit = _daily(cut(raw["upbit:close_krw"])["BTC"])
     korea = upbit / krw_per_usd.reindex(upbit.index) / btc.reindex(upbit.index) - 1
     out["KR_PREMIUM"] = at_decision(rolling_mean(korea), 1)
-    stable = _daily(cut(raw["stablecoins:circulating_usd"])["all"])
+    stable_raw = cut(raw["stablecoins:circulating_usd"])["all"]
+    stable = _daily(stable_raw[stable_raw.index >= DATA_START["STABLE_GROWTH"]])
     out["STABLE_GROWTH"] = at_decision(stable / stable.shift(7) - 1, 2)
     top = cut(raw["ratios_archive:sum_toptrader_long_short_ratio"])["BTCUSDT"]
     out["TOP_TRADERS"] = at_decision(rolling_mean(top), 2)
@@ -149,7 +155,10 @@ def compare(rank: pd.Series, returns: pd.Series, *, level: float = LEVEL, sample
     for part in (frame[frame.index <= middle], frame[frame.index > middle]):
         t, b = part[part["p"] >= TOP]["r"], part[part["p"] <= BOTTOM]["r"]
         halves.append(round(float(t.mean() - b.mean()) * 100, 3) if len(t) and len(b) else None)
-    return out | {"diff_pct": round(float(diff) * 100, 4), "ci_pct": ci, "blocks": int(len(blocks)),
+    recent = frame[frame.index >= SINCE]
+    rt, rb = recent[recent["p"] >= TOP]["r"], recent[recent["p"] <= BOTTOM]["r"]
+    since = round(float(rt.mean() - rb.mean()) * 100, 4) if len(rt) >= 20 and len(rb) >= 20 else None
+    return out | {"diff_pct": round(float(diff) * 100, 4), "ci_pct": ci, "blocks": int(len(blocks)), "diff_since_2020_pct": since,
                   "rank_corr": round(float(frame["p"].corr(frame["r"], method="spearman")), 4),
                   "diff_by_year_pct": years, "diff_halves_pct": halves,
                   "first": str(frame.index.min().date()), "last": str(frame.index.max().date())}
@@ -190,8 +199,15 @@ def run(settings: Settings, *, now: datetime, progress: Callable[[str], None] | 
     closes = raw["binance_daily:close"]
     closes = closes[closes.index <= end]
     rows: dict = {}
+    import hashlib
+
+    from ..context.store import path_for as context_path
+    files = {name: hashlib.sha256(context_path(settings, name).read_bytes()).hexdigest()
+             for name in SERIES if context_path(settings, name).exists()}
     for code in FEATURES:
         rank = rank_vs_past(features[code])
+        if code in DECISION_START:
+            rank = rank[rank.index >= DECISION_START[code]]
         for horizon in HORIZONS:
             say(f"{code} {horizon} j")
             returns = forward_returns(closes[TARGET[code]], horizon)
@@ -209,7 +225,7 @@ def run(settings: Settings, *, now: datetime, progress: Callable[[str], None] | 
     report_dir = settings.reports_dir / run_id
     report_dir.mkdir(parents=True, exist_ok=True)
     payload = {"run_id": run_id, "n_trials": N_TRIALS, "program_trials": program, "level": round(LEVEL, 6), "rows": rows,
-               "data_hashes": hashes, "doc": "docs/CONTEXTE_PREDICTION.md"}
+               "data_hashes": hashes, "store_files_sha256": files, "doc": "docs/CONTEXTE_PREDICTION.md"}
     registry.record(run_id=run_id, created_at=now.isoformat(), kind=KIND,
                     hypothesis="les données de contexte (flux, primes, stablecoins, top traders, attention) annoncent-elles la "
                                "direction de BTC et ETH à 1, 3 et 7 jours ?",

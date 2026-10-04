@@ -64,3 +64,24 @@ relecture indépendante avant l'exécution unique.
 ## Historique
 
 - 2026-10-04 : déclaré avant tout code et toute exécution.
+- 2026-10-04, relecture avant l'exécution (aucun écart de rendement calculé sur les données réelles ; seules les séries
+  de contexte et les prix ont été regardés) :
+  - **`STABLE_GROWTH`** : la série de DefiLlama est incomplète avant mi-2020 (0,06 Md$ au 2018-07-01, 4,2 Md$ au
+    2020-01-01 alors que l'USDT seul dépassait 2 Md$ dès 2018 ; « croissances » hebdomadaires de ×273, −75 %, +100 %
+    dues aux ajouts de couverture et aux migrations de chaîne). Données lues à partir du 2020-07-01, décisions à partir
+    du 2021-07-01 (toutes les fenêtres de rang dans la période couverte) ; niveau de test inchangé (0,05/21) ;
+  - **`CB_PREMIUM` et `KR_PREMIUM`** : avant 2020, elles contiennent l'écart USDT/USD (prime Coinbase de −5,4 à +6,2 %
+    en 2018, −4,6 % lors de la décote de l'USDT en octobre 2018) et mesurent alors surtout le stress sur Tether ; un
+    verdict non nul ne vaut piste que si l'écart depuis 2020 (`diff_since_2020_pct`, ajouté pour toutes les variables)
+    a le même signe ; lire aussi l'entrée retardée d'un jour ;
+  - **`BTC_NETFLOW` et `ETH_NETFLOW`** : CoinMetrics reconstruit l'historique avec les adresses de plateformes connues
+    aujourd'hui (le stock est exactement la somme des flux) ; le retard couvre la publication, pas cet étiquetage après
+    coup ; un résultat sur ces variables devra être confirmé sur les lignes RELEVE (relevé du jour, depuis le
+    2026-10-04) avant toute suite ;
+  - somme des flux sur 7 jours complets (pas de somme sur 5 jours ; aucun jour manquant dans la période) ;
+  - tests renforcés (pic au jour d → première variation exactement au jour de décision attendu pour chaque variable,
+    prix irréguliers, BCE sans week-end, sorties dans DEVELOPMENT par horizon, clôtures après le 2025-06-30 sans
+    effet) ; empreintes sha256 des fichiers du magasin inscrites au rapport ;
+  - à lire avec le programme : 823 essais après cette étude ; 6 variables sur 7 visent BTC et plusieurs mesurent
+    l'engouement des particuliers (corrélées) : plusieurs succès simultanés comptent comme une seule piste ;
+    `TOP_TRADERS` a un trou de données du 2021-12-30 au 2022-12-13 (champ vide dans les archives Binance).
