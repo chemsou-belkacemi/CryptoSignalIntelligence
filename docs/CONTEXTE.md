@@ -51,7 +51,7 @@ Primes calculées (`context/views.py`) :
 
 - Flux ETF Bitcoin et Ether (Farside : droits réservés, refusé par le propriétaire le 2026-10-04 ; SoSoValue : clé).
 - Réserves de stablecoins sur les plateformes (CoinMetrics refuse sans abonnement ; DefiLlama : 28 à 43 Mo par
-  plateforme et seulement les portefeuilles déclarés) : reporté, à confirmer par le propriétaire.
+  plateforme et seulement les portefeuilles déclarés) : **reporté, décision du propriétaire du 2026-10-04**.
 - Google Trends (pas d'API, cookie exigé, robots refusés) : remplacé par les vues Wikipédia.
 - Gap CME (site CME interdit la lecture automatique, Yahoo non officiel ; le contrat se négocie désormais aussi le
   week-end : la notion de gap n'a plus de sens net).

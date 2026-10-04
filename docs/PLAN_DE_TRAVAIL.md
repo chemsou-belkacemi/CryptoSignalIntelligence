@@ -103,9 +103,8 @@ Aucun calcul de recherche en cours.
 
 - **[propriétaire] Deuxième bot Telegram** : jeton dans `.env`, puis `docker compose --profile telegram up -d
   telegram-relay` (`TELEGRAM_RELAY.md`).
-- **[propriétaire] Exports avec photos** de tes groupes (`TELEGRAM_RELAY.md` § 2).
-- **[propriétaire] Réserves de stablecoins sur les plateformes** : reporter (recommandé) ou DefiLlama malgré des
-  réponses de 28 à 43 Mo et des portefeuilles déclarés seulement (`CONTEXTE.md`).
+- **[propriétaire] Exports avec photos** : IN CRYPTO et LEGEND TRADING reçus le 2026-10-04 (audit avec lecture des
+  images en cours) ; **AL-MAHWASHI CRYPTO à refaire au format JSON** (l'export du 2026-10-04 est en HTML).
 - **[propriétaire] VPS** : refusé pour l'instant (2026-10-03) ; kit prêt dans `VPS.md`.
 - **[propriétaire] Ollama** (modèle local des news de risque) : installation par `sudo` dans ton terminal,
   `curl -fsSL https://ollama.com/install.sh | sh` puis `ollama pull qwen3:8b` (environ 5 Go, tient dans les 6 Go
