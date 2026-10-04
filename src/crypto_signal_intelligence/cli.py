@@ -1023,6 +1023,32 @@ def double_management_command(allow_dirty: bool = typer.Option(False, "--allow-d
                   f"{settings.reports_dir / payload['run_id'] / 'summary.json'} ; programme : {payload['program_trials']} essais")
 
 
+@app.command("double-stops")
+def double_stops_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Code non commité : enregistré et COMPTÉ"),
+                         verbose: bool = False):
+    """Stop resserré sur le double creux (moitié au toucher, clôture à 0,4, −3 % fixe ; docs/FIGURES_HISTORIQUE.md) :
+    3 essais."""
+    from .research.double_stops import run
+    from .research.factors import DirtyCode
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    try:
+        with console.status("stops…") as status:
+            payload = run(settings, now=_now(), progress=lambda text: status.update(f"stops : {text}"), allow_dirty=allow_dirty)
+    except (DirtyCode, FileNotFoundError, ValueError) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    table = Table("Variante", "Risque méd. %", "R / risque", "IC", "Écart vs réf. IC", "Excès IC", "Stop avant TP1",
+                  "Perte moy. %", "% position", "Verdict")
+    for name, row in payload["rows"].items():
+        c = row["scenarios"]["central"]
+        table.add_row(name, str(c["risk_pct_median"]), str(c["r_mean"]), str(c["r_ci"]), str(c["vs_reference_ci"]),
+                      str(c["excess_adj_ci"]), f"{c['stopped_before_tp1']:.0%}", str(c["stopped_loss_pct_mean"]),
+                      str(c["pct_position_mean"]), row["verdict"])
+    console.print(table)
+    console.print(f"Rapport : {settings.reports_dir / payload['run_id'] / 'summary.json'} ; programme : {payload['program_trials']} essais")
+
+
 @app.command("xsection-premium")
 def xsection_premium_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Code non commité : enregistré et COMPTÉ"),
                              verbose: bool = False):
