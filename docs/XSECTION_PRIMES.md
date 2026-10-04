@@ -54,3 +54,7 @@ variation au lundi suivant) ; relecture indépendante avant l'exécution unique.
 ## Historique
 
 - 2026-10-04 : déclaré avant tout code et toute exécution.
+- 2026-10-04, avant toute exécution, sur les seules primes (aucun rendement regardé) : une prime journalière hors de
+  [−50 % ; +100 %] est une erreur de données (deux jetons sous le même symbole ou changement d'unité) et est ignorée ;
+  seul STRAX est touché en pratique (Upbit à −90 % de Binance sur 73 % des jours) ; les pics coréens réalistes
+  (suspensions de dépôts, jusqu'à +26 % au 95e centile pour quelques paires) restent.

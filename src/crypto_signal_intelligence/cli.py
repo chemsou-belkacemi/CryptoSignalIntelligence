@@ -968,6 +968,31 @@ def context_screen_command(allow_dirty: bool = typer.Option(False, "--allow-dirt
     console.print(f"Rapport : {settings.reports_dir / payload['run_id'] / 'summary.json'} ; programme : {payload['program_trials']} essais")
 
 
+@app.command("xsection-premium")
+def xsection_premium_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Code non commité : enregistré et COMPTÉ"),
+                             verbose: bool = False):
+    """Primes coréenne et Coinbase des altcoins en coupe hebdomadaire (docs/XSECTION_PRIMES.md) : 4 essais,
+    DEVELOPMENT seulement."""
+    from .research.factors import DirtyCode
+    from .research.xsection_premium import run
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    try:
+        with console.status("primes…") as status:
+            payload = run(settings, now=_now(), progress=lambda text: status.update(f"primes : {text}"), allow_dirty=allow_dirty)
+    except (DirtyCode, FileNotFoundError) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    table = Table("Variable", "Semaines", "Paires (méd.)", "Écart haut − bas %", "IC", "Haut − moy. %", "Bas − moy. %",
+                  "Corr. rang", "Moitiés", "Verdict")
+    for name, r in payload["rows"].items():
+        table.add_row(name, str(r.get("weeks")), str(r.get("pairs_median")), str(r.get("mean_spread_pct")), str(r.get("ci_pct")),
+                      str(r.get("top_minus_all_pct")), str(r.get("bottom_minus_all_pct")), str(r.get("rank_corr_mean")),
+                      str(r.get("spread_halves_pct")), r["verdict"])
+    console.print(table)
+    console.print(f"Rapport : {settings.reports_dir / payload['run_id'] / 'summary.json'} ; programme : {payload['program_trials']} essais")
+
+
 @app.command("xsection")
 def xsection_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Essai local sur du code non commité (enregistré comme tel)"),
                      verbose: bool = False):
