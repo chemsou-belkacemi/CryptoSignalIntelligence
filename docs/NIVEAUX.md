@@ -19,10 +19,12 @@ transaction n'est testée.
 
 ## Niveaux réels (définitions de la carte d'analyse, sans aucun réglage nouveau)
 
-À chaque bougie `t`, avec les seuls pivots ZigZag CONNUS à `t` (seuil m × ATR, m = 3,0 en 1 h et 2,5 en 4 h,
-`INDICATEURS.md` § 1) parmi les 300 dernières bougies, regroupés quand ils sont à moins de 0,5 ATR_t (niveau = moyenne) :
-la **résistance** est le niveau le plus proche au-dessus de la clôture de `t − 1`, le **support** le plus proche en
-dessous.
+Pivots ZigZag (seuil m × ATR, m = 3,0 en 1 h et 2,5 en 4 h, `INDICATEURS.md` § 1) CONNUS à la clôture de `t − 1`,
+parmi les 300 dernières bougies, regroupés quand ils sont à moins de 0,5 ATR (ATR de `t − 1`) ; niveau = moyenne des
+pivots du groupe ; **identité** d'un niveau = l'ensemble de ses pivots (un pivot qui le rejoint en fait un nouveau
+niveau). Les niveaux sont recalculés à chaque changement de l'ensemble des pivots connus (nouveau pivot, ou pivot sorti
+de la fenêtre) ; un niveau est **actif** de sa création à sa disparition. Tout niveau actif situé au-dessus de la
+clôture de `t − 1` joue le rôle de **résistance** à `t` ; en dessous, de **support**.
 
 ## Niveaux placebo
 
@@ -38,8 +40,11 @@ suivantes : « haut d'abord » si un plus haut atteint clôture + 1 ATR avant qu
 comptée à part et exclue des taux (le nombre est donné).
 
 - **Rejet (résistance)** : première bougie dont le plus haut arrive à moins de 0,1 ATR sous la résistance (ou la
-  dépasse) **sans** clôturer au-dessus ; réussite = « bas d'abord ».
-- **Cassure (résistance)** : première clôture au-dessus de la résistance + 0,1 ATR ; réussite = « haut d'abord ».
+  dépasse) **sans** clôturer au-dessus du niveau ; réussite = « bas d'abord ».
+- **Cassure (résistance)** : première bougie qui clôture au-dessus du niveau + 0,1 ATR alors que la clôture précédente
+  était sous le niveau ; réussite = « haut d'abord ».
+- Ces règles s'appliquent à **tous** les niveaux actifs, réels comme placebo (pas seulement au plus proche), pour que
+  les deux familles soient traitées à l'identique.
 - Miroirs pour les supports (rebond = « haut d'abord », cassure vers le bas = « bas d'abord »), descriptifs seulement
   (CSI est long seulement : seuls les deux événements de résistance décident).
 
@@ -67,3 +72,5 @@ direct (la période finale a déjà été lue une fois).
 ## Historique
 
 - 2026-10-04 : déclaré avant tout code et toute exécution.
+- 2026-10-04, avant tout code : précisions (identité d'un niveau, recalcul aux changements de pivots, événements sur
+  tous les niveaux actifs au lieu du seul plus proche, pour traiter réels et placebos à l'identique).
