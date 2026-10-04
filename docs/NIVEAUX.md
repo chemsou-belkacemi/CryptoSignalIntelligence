@@ -69,6 +69,28 @@ direct (la période finale a déjà été lue une fois).
 **4 essais** au registre. Causalité testée (falsifier les bougies après `t` ne change ni les niveaux ni les
 événements connus à `t`) ; relecture indépendante avant l'exécution unique.
 
+## Résultat (exécution unique, `LEVELS-20261004T012546Z-a3b017`, 2026-10-04, essais 799 à 802) : **RIEN**
+
+| Unité · événement | Réels | Placebos | Réussite réels | Réussite placebos | Écart | IC (98,75 %) | Verdict |
+|---|---|---|---|---|---|---|---|
+| 1 h · rejet sous résistance | 52 084 | 67 860 | 50,2 % | 50,4 % | −0,2 pt | [−0,9 ; +0,6] | RIEN |
+| 1 h · cassure de résistance | 49 711 | 67 864 | 48,6 % | 48,4 % | +0,2 pt | [−0,6 ; +1,1] | RIEN |
+| 4 h · rejet sous résistance | 19 347 | 20 939 | 50,1 % | 50,2 % | −0,1 pt | [−1,4 ; +1,2] | RIEN |
+| 4 h · cassure de résistance | 17 998 | 20 400 | 49,7 % | 49,9 % | −0,1 pt | [−1,5 ; +1,2] | RIEN |
+
+Descriptif (supports) : rebond 49,0 % contre 49,1 % (1 h), 48,5 % contre 48,9 % (4 h) ; cassure vers le bas 49,9 %
+contre 49,2 % (1 h), 51,4 % contre 50,4 % (4 h), intervalles contenant 0. Contrôles d'équité : tous proches de 0
+(placebos au-dessus et en dessous, placebos dans la plage récente comme les niveaux réels : 50,3 % contre 50,2 % au
+rejet 1 h ; écart repondéré sur l'âge et la volatilité −0,2 pt ; dédoublonné −0,2 pt ; issues nulles comptées en
+échec −0,2 pt).
+
+**Lecture.** Sur 40 paires et six ans et demi, un contact ou une clôture au-delà d'un support ou d'une résistance
+mécanique est suivi d'un mouvement de ±1 ATR dans un sens ou dans l'autre **à pile ou face**, exactement comme au même
+contact sur un niveau pris au hasard 1 à 3 ATR plus loin. La précision est bonne (intervalles d'environ ±1 point) :
+s'il existe un effet, il est inférieur à environ 1 point de pourcentage, bien en dessous de ce qui paierait les frais.
+Conséquences : placer un objectif « juste sous une résistance » n'est pas plus sûr qu'ailleurs ; une clôture au-dessus
+d'une résistance n'annonce pas la suite. La carte d'analyse technique reste une lecture, pas une prédiction.
+
 ## Historique
 
 - 2026-10-04 : déclaré avant tout code et toute exécution.
