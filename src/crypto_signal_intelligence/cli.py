@@ -1077,6 +1077,45 @@ def trendline_confirmation_command(allow_dirty: bool = typer.Option(False, "--al
     console.print(f"Rapport : {settings.reports_dir / payload['run_id'] / 'summary.json'} ; programme : {payload['program_trials']} essais")
 
 
+@app.command("trendline-final")
+def trendline_final_command(
+        rehearsal: bool = typer.Option(False, "--rehearsal", help="Répétition sur la fin de DEVELOPMENT (aucune donnée réservée lue, rien compté)"),
+        i_understand_final_test: bool = typer.Option(False, "--i-understand-final-test",
+                                                     help="Lecture UNIQUE de la période réservée (enregistrée, jamais refaite)"),
+        allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Répétition locale sur du code non commité"),
+        workers: int = typer.Option(4, "--workers", help="Paires traitées en parallèle (sans effet sur le résultat)"),
+        verbose: bool = False):
+    """Cassures de ligne de tendance en 1 h confirmées sur la période réservée (docs/LIGNES_DE_TENDANCE.md) : décision
+    du propriétaire du 2026-10-05, une seule lecture enregistrée avant le calcul."""
+    from .research.factors import DirtyCode
+    from .research.protocol import FinalTestLocked
+    from .research.trendline_confirmation import IncompleteMinutes
+    from .research.trendline_final import AlreadyConsulted, run
+    settings = _settings(verbose)
+    if allow_dirty and not rehearsal:
+        console.print("[red]--allow-dirty n'est permis que pour la répétition.[/red]")
+        raise typer.Exit(2)
+    _heavy_job(settings)
+    try:
+        with console.status("lignes de tendance, période réservée…") as status:
+            payload = run(settings, now=_now(), allow_final_test=i_understand_final_test, rehearsal=rehearsal,
+                          progress=lambda text: status.update(f"période réservée : {text}"), allow_dirty=allow_dirty,
+                          workers=workers)
+    except (DirtyCode, FinalTestLocked, AlreadyConsulted, IncompleteMinutes, FileNotFoundError) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    result = payload["result"]
+    title = "RÉPÉTITION sur DEVELOPMENT (rien compté)" if payload["rehearsal"] else "Période réservée (lecture unique)"
+    table = Table("Scénario", "Transactions", "Paires", "R moyen", "IC", "Excès (frais égaux)", "IC", title=title)
+    for name, c in result["scenarios"].items():
+        table.add_row(name, str(c.get("n")), str(c.get("pairs")), str(c.get("r_mean")), str(c.get("r_ci")),
+                      str(c.get("uexcess_adj_mean")), str(c.get("uexcess_adj_ci")))
+    console.print(table)
+    console.print(f"Décision : piste {result['decision']['piste']} ; gain {result['decision']['gain']} ; "
+                  f"consultations du programme : {payload['consultations_total']}")
+    console.print(f"Rapport : {settings.reports_dir / payload['run_id'] / 'summary.json'}")
+
+
 @app.command("xsection-premium")
 def xsection_premium_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Code non commité : enregistré et COMPTÉ"),
                              verbose: bool = False):
