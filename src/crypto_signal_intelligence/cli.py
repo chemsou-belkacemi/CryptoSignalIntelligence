@@ -968,6 +968,34 @@ def context_screen_command(allow_dirty: bool = typer.Option(False, "--allow-dirt
     console.print(f"Rapport : {settings.reports_dir / payload['run_id'] / 'summary.json'} ; programme : {payload['program_trials']} essais")
 
 
+@app.command("figures-history")
+def figures_history_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Code non commité : enregistré et COMPTÉ"),
+                            workers: int = typer.Option(4, "--workers", help="Paires traitées en parallèle (sans effet sur le résultat)"),
+                            verbose: bool = False):
+    """Figures du détecteur de F15, éléments ICT/SMC pris seuls et divergences RSI rejoués sur DEVELOPMENT, contre
+    placebos (docs/FIGURES_HISTORIQUE.md) : 19 essais."""
+    from .research.factors import DirtyCode
+    from .research.figures_history import run
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    try:
+        with console.status("figures…") as status:
+            payload = run(settings, now=_now(), progress=lambda text: status.update(f"figures : {text}"),
+                          allow_dirty=allow_dirty, workers=workers)
+    except (DirtyCode, FileNotFoundError) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    table = Table("Méthode", "Exécutées", "R moyen", "IC", "Excès", "IC", "R défav.", "Excès défav. IC", "TP1 / placebos",
+                  "Verdict")
+    for name, row in payload["rows"].items():
+        c, a = row["scenarios"]["central"], row["scenarios"]["defavorable"]
+        tp1 = f"{c.get('tp_reached', {}).get('TP1')} / {c.get('placebo_tp1')}" if c.get("n") else "-"
+        table.add_row(name, str(c.get("n")), str(c.get("r_mean")), str(c.get("r_ci")), str(c.get("excess_mean")),
+                      str(c.get("excess_ci")), str(a.get("r_mean")), str(a.get("excess_ci")), tp1, row["verdict"])
+    console.print(table)
+    console.print(f"Rapport : {settings.reports_dir / payload['run_id'] / 'summary.json'} ; programme : {payload['program_trials']} essais")
+
+
 @app.command("xsection-premium")
 def xsection_premium_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Code non commité : enregistré et COMPTÉ"),
                              verbose: bool = False):
