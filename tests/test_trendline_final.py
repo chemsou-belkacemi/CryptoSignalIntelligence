@@ -115,9 +115,10 @@ def test_final_read_needs_the_flag_records_the_consultation_first_and_only_once(
 
     monkeypatch.setattr(tf, "_one", watched)
     payload = tf.run(settings, now=datetime(2026, 10, 5, tzinfo=UTC), allow_final_test=True, workers=1)
-    assert payload["consultations_total"] == 1 and payload["n_trials"] == 2
+    assert payload["consultations_total"] == 1 and payload["n_trials"] == 1 and payload["level"] == 0.90
     entry = registry.get(payload["run_id"])
-    assert entry is not None and entry["period_label"] == "FINAL_TEST" and entry["metrics"]["n_trials"] == 2
+    assert entry is not None and entry["period_label"] == "FINAL_TEST" and entry["metrics"]["n_trials"] == 1
+    assert payload["result"]["decision"]["gain"] == "DESCRIPTIF" and "intervals_97_5" in payload["result"]["descriptif"]
     assert set(payload["result"]["decision"]) >= {"piste", "gain"}
     with pytest.raises(tf.AlreadyConsulted):
         tf.run(settings, now=datetime(2026, 10, 5, tzinfo=UTC), allow_final_test=True, workers=1)
@@ -167,3 +168,12 @@ def test_universe_ignores_membership_from_the_period_itself(settings, monkeypatc
                             "rank": [1, 1], "median_quote_volume": [1.0, 1.0]})
     monkeypatch.setattr(pit_universe, "load_membership", lambda s: members)
     assert tf.universe(settings) == ["AUSDT"]
+
+
+def test_decision_is_one_sided_on_the_excess_only():
+    good = {"n": 100, "uexcess_adj_ci": (0.01, 0.3), "r_ci": (-0.2, 0.3)}
+    assert tf.decide(good, good) == {"piste": tf.tc.CONFIRMED, "gain": "DESCRIPTIF", "level": 0.90}
+    assert tf.decide(good, good | {"uexcess_adj_ci": (-0.01, 0.3)})["piste"] == tf.tc.NOT_CONFIRMED
+    bad = good | {"uexcess_adj_ci": (-0.3, -0.01)}
+    assert tf.decide(bad, bad)["piste"] == tf.tc.INVERSE
+    assert tf.decide(good | {"n": 20}, good)["piste"] == tf.tc.INSUFFICIENT

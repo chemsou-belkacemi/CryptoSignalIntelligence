@@ -1111,7 +1111,7 @@ def trendline_final_command(
         table.add_row(name, str(c.get("n")), str(c.get("pairs")), str(c.get("r_mean")), str(c.get("r_ci")),
                       str(c.get("uexcess_adj_mean")), str(c.get("uexcess_adj_ci")))
     console.print(table)
-    console.print(f"Décision : piste {result['decision']['piste']} ; gain {result['decision']['gain']} ; "
+    console.print(f"Décision : piste {result['decision']['piste']} (unilatéral 5 %) ; gain {result['decision']['gain']} ; "
                   f"consultations du programme : {payload['consultations_total']}")
     console.print(f"Rapport : {settings.reports_dir / payload['run_id'] / 'summary.json'}")
 

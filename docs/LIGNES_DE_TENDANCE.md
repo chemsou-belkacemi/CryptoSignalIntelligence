@@ -217,6 +217,20 @@ paire est dans le top 40 ; paires retirées ; par trimestre ; paire et trimestre
 - **Retiré du descriptif** : « mois où la paire est dans le top 40 » (l'appartenance s'arrête au 2025-06-01 : non
   calculable sur la période).
 
+### Règle de décision choisie par le propriétaire (2026-10-05, réponse « 1 », avant toute lecture)
+
+Remplace la décision à deux comparaisons de cette section (DEVELOPMENT inchangé) :
+- **Une seule comparaison** : l'excès à frais d'entrée égaux sur les placebos tirés sur toute la période, **unilatéral
+  à 5 %** (le sens est établi sur DEVELOPMENT) : `PISTE_CONFIRMEE` si la borne basse de l'intervalle bilatéral à
+  **90 %** est au-dessus de 0 en central ET en défavorable ; `INVERSE` si la borne haute à 90 % est sous 0 dans les
+  deux ; sinon `NON_CONFIRMEE` (non démontré, pas une réfutation). `INSUFFISANT` sous 30 transactions ou 10 blocs.
+- **Le gain (R moyen) est descriptif**, sans verdict : affiché avec ses intervalles à 90 % et 97,5 %, jamais présenté
+  comme démontré par ce test.
+- Risque déclaré : si la méthode ne vaut rien, 1 chance sur 20 de `PISTE_CONFIRMEE` par hasard (au lieu de 1 sur 40).
+  Chance de confirmer si l'excès réel vaut +0,12 R : environ 1 sur 2.
+- **1 essai** compté sur la période finale (au lieu de 2). Tout le reste inchangé (déclencheur, transactions,
+  placebos, blocs de 28 jours, 10 000 tirages, graine, univers, fenêtre, coupure, complétude, ordre, répétition).
+
 ## Historique
 
 - 2026-10-04 : déclaré avant tout code et toute exécution ; téléchargement des minutes lancé le même jour.
@@ -224,3 +238,4 @@ paire est dans le top 40 ; paires retirées ; par trimestre ; paire et trimestre
 - 2026-10-04 : téléchargement terminé (214 paires, 0 échec) ; exécution unique `TRND-20261004T142935Z-6702de` (essais 852 et 853, programme 853).
 - 2026-10-05 : confirmation sur la période réservée déclarée avant code, téléchargement et lecture (décision du propriétaire).
 - 2026-10-05 : répétition, relecture indépendante et calcul de puissance avant la lecture ; corrections inscrites ; choix de la règle laissé au propriétaire.
+- 2026-10-05 : règle de décision choisie par le propriétaire (une comparaison unilatérale à 5 %, gain descriptif, 1 essai), inscrite avant toute lecture.

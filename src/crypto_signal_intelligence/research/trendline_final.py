@@ -26,7 +26,8 @@ from .universe import RESEARCH_UNIVERSE
 
 KIND = "TRENDLINE_FINAL"
 STRATEGY = "TRENDLINE_1H"
-N_TRIALS = 2
+N_TRIALS = 1                                           # règle choisie par le propriétaire le 2026-10-05 : une comparaison
+DECISION_LEVEL = 0.90                                  # bilatéral à 90 % = unilatéral à 5 %
 START = pd.Timestamp(FROZEN_FINAL_TEST_START)
 CUTOFF = pd.Timestamp("2026-09-30 23:59:59", tz="UTC")
 REHEARSAL_START = pd.Timestamp("2024-04-01", tz="UTC")
@@ -143,8 +144,21 @@ def _one(args: tuple) -> tuple[str, list[dict], dict]:
                           f"1m/{symbol}": fh.minutes_hash(m)}
 
 
+def decide(central: dict, adverse: dict) -> dict:
+    """Une seule comparaison (choix du propriétaire) : excès à frais égaux, unilatéral à 5 % (borne basse à 90 % > 0)
+    en central ET en défavorable ; le gain n'a pas de verdict."""
+    rows = (central, adverse)
+    if central.get("n", 0) < fh.MIN_TRADES or any(r.get("uexcess_adj_ci") is None for r in rows):
+        return {"piste": tc.INSUFFICIENT, "gain": "DESCRIPTIF"}
+    piste = (tc.CONFIRMED if all(r["uexcess_adj_ci"][0] > 0 for r in rows)
+             else tc.INVERSE if all(r["uexcess_adj_ci"][1] < 0 for r in rows) else tc.NOT_CONFIRMED)
+    return {"piste": piste, "gain": "DESCRIPTIF", "level": DECISION_LEVEL}
+
+
 def evaluate(trades: pd.DataFrame, *, samples: int = fh.SAMPLES) -> dict:
-    scenarios = {s: tc.measure(trades, s, samples=samples) for s in SCENARIOS}
+    scenarios = {s: tc.measure(trades, s, level=DECISION_LEVEL, samples=samples) for s in SCENARIOS}
+    strict = {s: {k: v for k, v in tc.measure(trades, s, level=tc.LEVEL, samples=samples).items()
+                  if k in ("r_mean", "r_ci", "uexcess_adj_mean", "uexcess_adj_ci")} for s in SCENARIOS}
     descr: dict = {"triggers": int(len(trades)), "status": trades["status"].value_counts().to_dict(),
                    "research40": tc.measure(trades[trades["research40"]], CENTRAL, level=0.95, samples=2000),
                    "others": tc.measure(trades[~trades["research40"]], CENTRAL, level=0.95, samples=2000),
@@ -163,7 +177,8 @@ def evaluate(trades: pd.DataFrame, *, samples: int = fh.SAMPLES) -> dict:
                 top = str(sums.idxmax())
                 descr[f"top_{name}_{column}"] = {name: top, "share": round(float(sums.max()) / total, 4) if total > 0 else None,
                                                  "mean_without": round(float(values[groups != top].mean()), 4)}
-    return {"scenarios": scenarios, "decision": tc.decide(scenarios[CENTRAL], scenarios[ADVERSE]), "descriptif": descr}
+    descr["intervals_97_5"] = strict
+    return {"scenarios": scenarios, "decision": decide(scenarios[CENTRAL], scenarios[ADVERSE]), "descriptif": descr}
 
 
 def run(settings: Settings, *, now: datetime, allow_final_test: bool = False, rehearsal: bool = False,
@@ -194,7 +209,7 @@ def run(settings: Settings, *, now: datetime, allow_final_test: bool = False, re
     consultations = None if rehearsal else registry.consult_final_test(run_id, STRATEGY)
     base = {"run_id": run_id, "created_at": now.isoformat(), "kind": KIND,
             "hypothesis": "les cassures de ligne de tendance en 1 h confirmées sur DEVELOPMENT battent-elles le hasard et "
-                          "gagnent-elles, frais compris, sur la période réservée ?",
+                          "gagnent-elles, frais compris, sur la période réservée ? (une comparaison : excès, unilatéral 5 %)",
             "strategy": STRATEGY, "strategy_version": 1, "variant": "définitions figées (docs/LIGNES_DE_TENDANCE.md)",
             "params": {"start": str(start), "cutoff": str(cutoff), "placebos": tc.PLACEBOS, "block_days": fh.BLOCK_DAYS,
                        "samples": fh.SAMPLES, "seed": fh.SEED},
@@ -241,7 +256,7 @@ def _compute(settings: Settings, registry: ExperimentRegistry, base: dict, *, pa
     report_dir.mkdir(parents=True, exist_ok=True)
     payload = {"run_id": run_id, "rehearsal": rehearsal, "window": [str(start), str(cutoff)], "n_trials": 0 if rehearsal else N_TRIALS,
                "final_test_trials": None if rehearsal else registry.program_trials("FINAL_TEST") + N_TRIALS,
-               "consultations_total": consultations, "level": round(tc.LEVEL, 6), "result": result, "pairs": len(pairs),
+               "consultations_total": consultations, "level": DECISION_LEVEL, "result": result, "pairs": len(pairs),
                "coverage": checks, "doc": "docs/LIGNES_DE_TENDANCE.md"}
     # Rapport écrit AVANT l'inscription au registre : une erreur du registre ne perd pas un résultat déjà calculé.
     (report_dir / "summary.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
