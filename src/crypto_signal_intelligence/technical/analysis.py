@@ -162,10 +162,10 @@ def analyze(h1: pd.DataFrame, timeframe: str, *, now: pd.Timestamp, symbol: str,
     plan = buy_plan(close, supports, resistances, atr_last, bearish=bearish, tick=tick)
 
     summary = []
-    if structure:
+    if structure and last_break is not None:
         trend = "haussière" if structure["side"] == "bull" else "baissière"
         summary.append(f"Tendance de structure : {trend} (dernière cassure {structure['kind']} du niveau "
-                       f"{round_tick(structure['level'], tick, 'ROUND_HALF_EVEN'):.8g}, il y a {structure['bars_ago']} bougie(s)).")
+                       f"{round_tick(float(last_break.level), tick, 'ROUND_HALF_EVEN'):.8g}, il y a {structure['bars_ago']} bougie(s)).")
         if structure["recent"]:
             summary.append("Cassure EN COURS : " + ("résistance cassée à la hausse." if structure["side"] == "bull"
                                                     else "support cassé à la baisse."))
