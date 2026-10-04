@@ -41,6 +41,7 @@ stratégies actuelles sont **REJECTED** hors échantillon (README). Vérificatio
 | Détecteur de figures en direct (F15, figures classiques comprises) | EN SERVICE | démarré le 2026-10-03, relu trois fois ; verdict vers mi-mars 2027 |
 | Données de contexte gratuites (CONTEXTE.md) : historique et relevé quotidien | EN SERVICE | `test_context` (clients factices) ; sources validées par le propriétaire le 2026-10-04 ; réserves de stablecoins, flux ETF, Google Trends, gap CME : reportés |
 | CNN sur images (phase 10.2) et volatilité sur minutes (phase 10.1) | TESTÉ, EXÉCUTÉ | `NE_PASSE_PAS` et `AUCUNE_AMELIORATION` (CNN.md, VOLATILITY.md § 20) |
+| Figures et méthodes des analystes sur l'historique (19 essais) | TESTÉ, EXÉCUTÉ | aucune `SUPERIEUR_AU_HASARD` ; `OB`, `SWEEP`, `RSI_DIV` `INFERIEUR_AU_HASARD` ; biais des placebos en 4 h / 1 jour documenté (FIGURES_HISTORIQUE.md) |
 
 ## Intégration avec BinanceSpotManager (Binance Demo uniquement)
 

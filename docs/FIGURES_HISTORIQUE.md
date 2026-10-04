@@ -174,6 +174,64 @@ Minutes : couverture de 99,8 à 100 % des minutes attendues selon la paire (main
 et NEO ont des bougies 1 h dès 2017 mais des minutes seulement depuis 2018-01 : la borne du 2019-01-01 leur laisse
 un an de minutes avant le premier déclencheur.
 
+## Résultat (exécution unique, `FIGH-20261004T102820Z-479ac6`, 2026-10-04, essais 828 à 846) : **aucune méthode supérieure au hasard** ; `OB`, `SWEEP` et `RSI_DIV` perdent
+
+Scénario central ; R par transaction (1 R = la perte au stop) ; intervalles au niveau 1 − 0,05/19 ; « TP1 » = part
+des transactions qui touchent le premier objectif, pour la méthode / ses placebos / le seuil simplifié.
+
+| Méthode | Exécutées | R moyen | IC du R | Excès (frais égaux) | IC de l'excès | TP1 méthode / placebos / seuil | Verdict |
+|---|---|---|---|---|---|---|---|
+| `TRENDLINE` | 2 175 | +0,077 | [−0,069 ; +0,223] | +0,152 | [+0,047 ; +0,259] | 60 % / 54 % / 59 % | `NON_DEMONTRE` |
+| `HEAD_SHOULDERS` | 1 570 | +0,076 | [−0,068 ; +0,214] | +0,068 | [−0,034 ; +0,183] | 59 % / 56 % / 58 % | `NON_DEMONTRE` |
+| `DOUBLE` | 2 455 | +0,021 | [−0,069 ; +0,107] | −0,013 | [−0,086 ; +0,058] | 75 % / 74 % / 76 % | `NON_DEMONTRE` |
+| `TRIANGLE` | 16 853 | +0,000 | [−0,107 ; +0,117] | +0,049 | [−0,031 ; +0,130] | 48 % / 46 % / 51 % | `NON_DEMONTRE` |
+| `ICT` | 1 266 | −0,034 | [−0,202 ; +0,149] | +0,074 | [−0,082 ; +0,240] | 46 % / 44 % / 50 % | `NON_DEMONTRE` |
+| `GARTLEY` | 363 | −0,130 | [−0,322 ; +0,102] | −0,065 | [−0,232 ; +0,100] | 43 % / 47 % / 50 % | `NON_DEMONTRE` |
+| `ABCD` | 4 007 | −0,203 | [−0,385 ; +0,007] | +0,062 | [−0,097 ; +0,233] | 20 % / 20 % / 21 % | `NON_DEMONTRE` |
+| `BAT`, `BUTTERFLY`, `CRAB` | 168, 239, 87 | −0,118, +0,006, −0,384 | — | — | — | — | `INSUFFISANT` |
+| `FLAG`, `CUP_HANDLE` | 158, 238 | +0,236, +0,091 | — | — | — | — | `INSUFFISANT` (annoncé) |
+| **Ensemble F15** | 29 579 | −0,019 | [−0,134 ; +0,103] | +0,053 | [−0,031 ; +0,137] | 47 % / 46 % / 50 % | `NON_DEMONTRE` |
+| `FVG` | 41 744 | −0,065 | [−0,142 ; +0,016] | +0,027 | [−0,030 ; +0,087] | 52 % / 49 % / 50 % | `NON_DEMONTRE` |
+| `CHOCH` | 40 041 | −0,061 | [−0,148 ; +0,036] | +0,013 | [−0,061 ; +0,090] | 46 % / 46 % / 50 % | `NON_DEMONTRE` |
+| `BOS` | 41 608 | −0,049 | [−0,148 ; +0,048] | −0,078 | [−0,165 ; +0,006] | 45 % / 47 % / 50 % | `NON_DEMONTRE` |
+| `OB` | 20 749 | −0,101 | [−0,181 ; −0,019] | −0,035 | [−0,103 ; +0,035] | 50 % / 50 % / 50 % | `INFERIEUR_AU_HASARD` |
+| `RSI_DIV` | 17 843 | −0,106 | [−0,180 ; −0,025] | +0,070 | [+0,012 ; +0,133] | 48 % / 46 % / 50 % | `INFERIEUR_AU_HASARD` |
+| `SWEEP` | 97 588 | −0,208 | [−0,266 ; −0,147] | +0,022 | [−0,028 ; +0,074] | 49 % / 48 % / 50 % | `INFERIEUR_AU_HASARD` |
+
+Défavorable : mêmes conclusions (R plus bas de 0,02 à 0,11 ; `ABCD` et `FVG` y ont un IC du R entièrement négatif).
+
+**Lecture.**
+- Aucune méthode, jouée mécaniquement avec ses règles, n'a un gain démontré après frais sur 6 ans et 40 paires (et le
+  biais de survivance joue en leur faveur). `OB`, `SWEEP` et `RSI_DIV` perdent de façon démontrée (−0,10 à −0,21 R par
+  transaction).
+- **Taux de réussite** : le double creux touche son premier objectif 75 % du temps… et ne gagne rien, parce que sa
+  géométrie (premier objectif proche, stop loin) demande 76 % ; un achat au hasard de même géométrie le touche 74 % du
+  temps. Même chose pour la ligne de tendance (60 % contre 59 % nécessaires) et la tête-épaules (59 % contre 58 %).
+  Un pourcentage de réussite seul ne dit rien.
+- Les harmoniques (`BAT`, `BUTTERFLY`, `CRAB`) sont `INSUFFISANT` faute de jours d'exécution : leur ordre limite au haut
+  de la PRZ est rarement atteint (5 à 21 % des ordres). Ce n'était pas annoncé dans la déclaration (seuls `FLAG` et
+  `CUP_HANDLE` l'étaient) : erreur de prévision, sans effet sur les autres verdicts.
+
+**Contrôle de l'instrument après l'exécution (marches aléatoires sans mémoire, aucune donnée réelle).** Le même code,
+lancé sur 12 marches aléatoires synthétiques de 3 ans (rendements minute indépendants : rien n'y est prévisible),
+donne des « excès » qui ne sont pas nuls pour les unités longues. Exemples : `SWEEP` 1 jour +0,39 R, `RSI_DIV` 4 h +0,13
+et 1 jour +0,42, `ABCD` 1 jour +1,5, `BOS` 1 jour −0,70, `OB` 1 jour −0,55. Les placebos sont tirés dans les 30 jours
+**avant** l'exécution, c'est-à-dire pendant le mouvement qui a formé le déclencheur (la baisse avant une divergence ou
+un sweep) ; leurs résultats sont donc conditionnés par ce chemin, même sans aucune mémoire des prix. Sur les vraies
+données, la plupart des cases suivent ce biais (l'excès de `RSI_DIV`, +0,04 / +0,17 / +0,29 en 1 h / 4 h / 1 jour,
+est de l'ordre du biais : −0,03 / +0,13 / +0,42). Conséquences :
+- les **verdicts restent valables** : `SUPERIEUR_AU_HASARD` exige aussi un R moyen positif, et `INFERIEUR_AU_HASARD`
+  ne regarde que le R, que ce biais ne touche pas ;
+- l'**excès sur les placebos ne doit pas être lu seul**, surtout en 4 h et en 1 jour ; l'excès de `RSI_DIV` ne montre
+  pas d'information propre ;
+- la même construction des placebos est celle de **F15** (et de F4, F16) en direct : leur excès porte le même biais
+  (code et section gelés, non modifiés) ; leurs verdicts exigent aussi un R moyen positif ;
+- excès réel moins excès sous l'hypothèse nulle, par méthode et unité (36 cases, erreur type par paire-mois) : une
+  seule case ressort nettement, **`TRENDLINE` en 1 h : +0,21 R (z = 3,7)** ; les autres sont entre −2,1 et +2,5, ce que
+  le hasard donne sur 36 cases. Son R moyen en 1 h est de +0,08 [−0,01 ; +0,16] (95 %), non démontré. Remarquée
+  **après** l'exécution : c'est une piste à déclarer et à tester sur d'autres données, pas un résultat.
+  Script : `figh_null.py` (bloc-notes de la session) ; non commité.
+
 ## Historique
 
 - 2026-10-04 : déclaré avant tout code et toute exécution.
@@ -189,3 +247,5 @@ un an de minutes avant le premier déclencheur.
     paire la plus influente, part des exécutions en maker, seuil simplifié défini ;
   - placebos calculés dans le même ordre d'opérations que F15 (`q0 · stop / entrée`) ; tests élargis (troncature en
     1 h / 4 h / 1 jour, comparaison avec `f15.resolve_one` en 4 h et avec un grand trou de données).
+- 2026-10-04 : exécution unique `FIGH-20261004T102820Z-479ac6` (essais 828 à 846, programme 846) ; contrôle de
+  l'instrument sur marches aléatoires ensuite (biais des placebos tirés avant l'exécution en 4 h et 1 jour).
