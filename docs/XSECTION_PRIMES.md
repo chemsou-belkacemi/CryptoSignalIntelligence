@@ -9,14 +9,15 @@ tests : `tests/test_xsection_premium.py` ; commande : `csi xsection-premium`. DE
 ## Données et univers
 
 Magasin de contexte (`CONTEXTE.md`, lignes HISTORIQUE) : clôtures journalières Binance (paires USDT), Upbit (KRW) et
-Coinbase (USD), taux BCE. Univers d'une semaine : les paires de la liste halal **actuelle** (hors BTC et ETH) cotées à
+Coinbase (USD), taux BCE. Univers d'une semaine : les paires de la liste halal **actuelle** (hors BTC, ETH et PAXG) cotées à
 la fois sur Binance et sur Upbit (prime coréenne) ou sur Coinbase (prime Coinbase), avec les données requises ; au
 moins **10 paires** dans la semaine, sinon la semaine est écartée.
 
-**Biais de survivance déclaré** : seules les paires cotées aujourd'hui sont présentes (les API d'Upbit et de Coinbase ne
-donnent plus les marchés fermés). Une paire qui a eu une forte prime puis s'est effondrée et a été retirée manque : ce
-biais pousse plutôt vers « prime haute → meilleure semaine » ; un résultat dans ce sens doit être lu avec cette réserve,
-un résultat dans l'autre sens est prudent.
+**Biais de survivance déclaré** : l'univers est la liste halal Binance d'aujourd'hui (de 14 paires en 2019 à 64 en 2025 :
+les premières années ne contiennent que des paires qui ont longtemps survécu) ; Upbit ne donne plus les marchés fermés
+(Coinbase, si). Son **sens n'est pas établi** : une paire retirée après un avertissement d'Upbit (prime sous la moyenne)
+manque, ce qui pousse vers `HAUT_MOINS` ; une paire effondrée après une suspension de dépôts (prime haute) manque, ce
+qui pousse vers `HAUT_MIEUX`. Tout résultat est lu avec cette réserve.
 
 ## Variables (4, fixées ici)
 
@@ -54,7 +55,18 @@ variation au lundi suivant) ; relecture indépendante avant l'exécution unique.
 ## Historique
 
 - 2026-10-04 : déclaré avant tout code et toute exécution.
-- 2026-10-04, avant toute exécution, sur les seules primes (aucun rendement regardé) : une prime journalière hors de
-  [−50 % ; +100 %] est une erreur de données (deux jetons sous le même symbole ou changement d'unité) et est ignorée ;
-  seul STRAX est touché en pratique (Upbit à −90 % de Binance sur 73 % des jours) ; les pics coréens réalistes
-  (suspensions de dépôts, jusqu'à +26 % au 95e centile pour quelques paires) restent.
+- 2026-10-04, relecture avant l'exécution (primes, prix et comptages seulement, aucun rendement) : la borne
+  [−50 % ; +100 %] envisagée d'abord est **abandonnée** (elle retirait de vraies primes : HBAR à +100 à +343 % sur
+  28 jours début 2020, LSK, IOST, IOTX côté Coinbase, et laissait passer une collision) ; remplacée par une liste
+  nommée de séries non comparables : **STRAX exclue** (Upbit à −90 % de Binance jusqu'au 2024-03-27 : ancien jeton sous
+  le même symbole ; changement d'unité ÷10 sur Binance en mars 2024) et **IOTX exclue du côté Coinbase** (prime
+  structurelle d'environ +22 % au-dessus des autres paires sur 2021-11 à 2025-06, jeton non interchangeable). Aucune
+  autre collision durable n'est visible (médiane glissante de la prime de chaque paire moins celle des autres) ;
+  - descriptif ajouté : contribution de chaque paire à l'écart moyen (5 premières) et écart sans la paire qui contribue
+    le plus ;
+  - **faible dispersion** déclarée : l'écart interquartile des primes entre paires est d'environ 5 points de base
+    (Coinbase) et 14 (Corée) en médiane ; les semaines calmes sont classées en partie par du bruit de cotation (paires
+    peu échangées sur Coinbase : 38 à 80 k$ par jour pour MTL, POWR, CELR) ; un `RIEN` traduira surtout un manque de
+    puissance, pas l'absence d'effet ; aucun filtre de volume n'est appliqué ;
+  - tests ajoutés (rendement du lundi au lundi vérifié dans l'exécution, taux BCE du vendredi le dimanche, prime
+    Coinbase à la main et au jour près, niveau de l'IC).

@@ -29,9 +29,12 @@ EXCLUDED = ("BTC", "ETH", "PAXG")
 SHORT, SHORT_MIN = 7, 5
 LONG, LONG_MIN = 28, 20
 MIN_PAIRS, MIN_PER_TIER = 10, 3
-#: Prime hors de [−50 % ; +100 %] : erreur de données (deux jetons sous le même symbole, changement d'unité ; STRAX
-#: à −90 % sur 73 % des jours), ignorée. Règle fixée le 2026-10-04 sur les seules primes, avant tout rendement.
-PREMIUM_BOUNDS = (-0.5, 1.0)
+#: Séries non comparables (relecture du 2026-10-04, sur les seules primes et prix) : STRAX (Upbit à −90 % de Binance
+#: jusqu'au 2024-03-27 : jeton ancien sous le même symbole ; changement d'unité ÷10 sur Binance en mars 2024) exclue de
+#: l'étude ; IOTX exclue du côté Coinbase (prime structurelle d'environ +22 % sur toute la période : jeton non
+#: interchangeable). Aucune autre borne : les vrais pics (HBAR à +343 % début 2020) restent, les rangs les absorbent.
+EXCLUDED_PAIRS = ("STRAX",)
+EXCLUDED_BY_SIDE = {"CB": ("IOTX",)}
 BLOCK_DAYS, MIN_BLOCKS = 56, 10
 DAY = pd.Timedelta(days=1)
 UP, DOWN, NOTHING = "HAUT_MIEUX", "HAUT_MOINS", "RIEN"
@@ -49,7 +52,7 @@ def daily_premiums(raw: dict[str, pd.DataFrame], end: pd.Timestamp) -> tuple[dic
 
     binance = cut(raw["binance_daily:close"])
     binance = binance[[c for c in binance.columns if c.endswith("USDT")]].rename(columns=lambda c: c[:-4])
-    binance = binance[[c for c in binance.columns if c not in EXCLUDED]]
+    binance = binance[[c for c in binance.columns if c not in EXCLUDED and c not in EXCLUDED_PAIRS]]
     index = pd.date_range(binance.index.min(), end.floor("D"), freq="D", tz="UTC")
     binance = _days(binance, index)
     rates = cut(raw["ecb:per_eur"])
@@ -60,8 +63,8 @@ def daily_premiums(raw: dict[str, pd.DataFrame], end: pd.Timestamp) -> tuple[dic
     cb_cols = [c for c in coinbase.columns if c in binance.columns]
     korea = upbit[kr_cols].div(krw_per_usd, axis=0) / binance[kr_cols] - 1
     usa = coinbase[cb_cols] / binance[cb_cols] - 1
-    low, high = PREMIUM_BOUNDS
-    clean = {name: frame.where((frame > low) & (frame < high)) for name, frame in (("KR", korea), ("CB", usa))}
+    clean = {name: frame.drop(columns=[c for c in EXCLUDED_BY_SIDE.get(name, ()) if c in frame.columns])
+             for name, frame in (("KR", korea), ("CB", usa))}
     return clean, binance
 
 
@@ -103,6 +106,29 @@ def weekly_spreads(variable: pd.DataFrame, returns: pd.DataFrame) -> pd.DataFram
                      "top_minus_all": float(top.mean() - mean), "bottom_minus_all": float(bottom.mean() - mean),
                      "rank_corr": float(x[ok].rank().corr(r[ok].rank()))})
     return pd.DataFrame(rows, columns=["monday", "pairs", "spread", "top_minus_all", "bottom_minus_all", "rank_corr"])
+
+
+def pair_contributions(variable: pd.DataFrame, returns: pd.DataFrame) -> pd.Series:
+    """Contribution de chaque paire à l'écart moyen (somme des contributions = écart moyen) : dans une semaine, une paire
+    du tiers haut apporte r / k, du tiers bas −r / k ; moyenne sur les semaines retenues."""
+    total: dict[str, float] = {}
+    weeks = 0
+    for monday in variable.index:
+        if monday not in returns.index:
+            continue
+        x, r = variable.loc[monday], returns.loc[monday]
+        ok = x.notna() & r.notna() & np.isfinite(x) & np.isfinite(r)
+        n = int(ok.sum())
+        k = n // 3
+        if n < MIN_PAIRS or k < MIN_PER_TIER:
+            continue
+        order = x[ok].sort_values(kind="mergesort").index
+        weeks += 1
+        for pair in order[-k:]:
+            total[pair] = total.get(pair, 0.0) + float(r[pair]) / k
+        for pair in order[:k]:
+            total[pair] = total.get(pair, 0.0) - float(r[pair]) / k
+    return pd.Series(total, dtype=float) / max(weeks, 1)
 
 
 def summarize(weeks: pd.DataFrame, *, level: float = LEVEL) -> dict:
@@ -166,6 +192,14 @@ def run(settings: Settings, *, now: datetime, progress: Callable[[str], None] | 
         weeks = weekly_spreads(variables[name], returns)
         row = summarize(weeks)
         row["verdict"] = verdict(row)
+        contrib = pair_contributions(variables[name], returns)
+        if len(contrib):
+            leader = contrib.abs().idxmax()
+            without = weekly_spreads(variables[name].drop(columns=[leader]), returns.drop(columns=[leader], errors="ignore"))
+            row["contributions_top5_pct"] = {k: round(float(v) * 100, 4) for k, v in
+                                             contrib.reindex(contrib.abs().sort_values(ascending=False).index).head(5).items()}
+            row["without_leader"] = {"pair": str(leader),
+                                     "mean_spread_pct": round(float(without["spread"].mean()) * 100, 4) if len(without) else None}
         rows[name] = row
     registry = ExperimentRegistry(settings.experiments_db)
     program = registry.program_trials() + N_TRIALS
