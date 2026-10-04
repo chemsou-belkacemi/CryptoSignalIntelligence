@@ -302,7 +302,11 @@ def nasdaq_etf(client: PublicSources, symbol: str, *, start: str, end: str) -> l
     """Clôtures d'un ETF (GLD : or ; SPY : S&P 500) sur l'API publique de Nasdaq (10 ans au plus)."""
     payload = client.get_json(f"https://api.nasdaq.com/api/quote/{symbol}/historical",
                               {"assetclass": "etf", "fromdate": start, "todate": end, "limit": "9999"})
-    rows = (((payload or {}).get("data") or {}).get("tradesTable") or {}).get("rows") or []
+    if not isinstance(payload, dict) or payload.get("data") is None:
+        # Nasdaq répond « Something went wrong » (sans données) par exemple quand la fin est le jour même.
+        message = ((payload or {}).get("status") or {}).get("bCodeMessage") if isinstance(payload, dict) else None
+        raise SourceError(f"Nasdaq {symbol} : réponse sans données ({message})")
+    rows = ((payload["data"] or {}).get("tradesTable") or {}).get("rows") or []
     return [{"key": symbol, "date": pd.Timestamp(r["date"]), "field": "close",
              "value": _number(str(r["close"]).replace("$", "").replace(",", ""))} for r in rows]
 

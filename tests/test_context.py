@@ -230,3 +230,13 @@ def test_protocol_without_tvl_is_absent_not_an_error():
         def get_json(self, url, params=None, headers=None):
             raise SourceError("JSON illisible : https://api.llama.fi/tvl/x")
     assert fetch.defillama_tvl(NoTvl(), "FIL", "filecoin", day=pd.Timestamp("2026-10-04", tz="UTC")) == []
+
+
+def test_nasdaq_error_without_data_is_an_error_not_an_empty_series():
+    """Défaut du 2026-10-04 : « Something went wrong » (fin = jour même) donnait une série vide sans erreur."""
+    class Broken:
+        def get_json(self, url, params=None, headers=None):
+            return {"data": None, "status": {"bCodeMessage": [{"code": 1000, "errorMessage": "Something went wrong."}]}}
+    with pytest.raises(SourceError, match="sans données"):
+        fetch.nasdaq_etf(Broken(), "SPY", start="2026-01-01", end="2026-10-03")
+

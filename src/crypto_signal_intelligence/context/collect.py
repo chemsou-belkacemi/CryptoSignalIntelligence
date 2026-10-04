@@ -138,9 +138,9 @@ def _jobs(settings: Settings, clients: Clients, *, now: datetime, history: bool,
                                       for r in fetch.treasury_10y(clients.web, y)]
                           + fetch.fed_m2(clients.web, last=None if history else 12)
                           + fetch.nasdaq_etf(clients.web, "SPY", start=str((day - pd.Timedelta(days=3650 if history else 10)).date()),
-                                             end=str(day.date()))},
+                                             end=str((day - pd.Timedelta(days=1)).date()))},
         "gold_gld": lambda: {"records": fetch.nasdaq_gld(clients.web, start=str((HISTORY_START if history else recent).date()),
-                                                         end=str(day.date()))},
+                                                         end=str((day - pd.Timedelta(days=1)).date()))},   # Nasdaq : fin = veille
         "wikipedia": lambda: {"records": [r for a in fetch.WIKI_ARTICLES
                                           for r in fetch.wikipedia_views(clients.web, a, start="20150701" if history else recent.strftime("%Y%m%d"),
                                                                          end=day.strftime("%Y%m%d"))]},
