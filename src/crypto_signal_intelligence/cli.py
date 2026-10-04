@@ -943,6 +943,31 @@ def level_reaction_command(allow_dirty: bool = typer.Option(False, "--allow-dirt
     console.print(f"Rapport : {settings.reports_dir / payload['run_id'] / 'summary.json'} ; programme : {payload['program_trials']} essais")
 
 
+@app.command("context-screen")
+def context_screen_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Code non commité : enregistré et COMPTÉ"),
+                           verbose: bool = False):
+    """Données de contexte contre direction de BTC et ETH (docs/CONTEXTE_PREDICTION.md) : 7 variables, 1, 3 et
+    7 jours ; 21 essais, DEVELOPMENT seulement."""
+    from .research.context_screen import run
+    from .research.factors import DirtyCode
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    try:
+        with console.status("contexte…") as status:
+            payload = run(settings, now=_now(), progress=lambda text: status.update(f"contexte : {text}"), allow_dirty=allow_dirty)
+    except (DirtyCode, FileNotFoundError) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    table = Table("Variable · horizon", "Jours", "Tiers haut %", "Tiers bas %", "Tous %", "Écart %", "IC", "Corr. rang",
+                  "Moitiés", "Entrée retardée", "Verdict")
+    for name, r in payload["rows"].items():
+        table.add_row(name, str(r.get("days")), str(r.get("mean_top_pct")), str(r.get("mean_bottom_pct")), str(r.get("mean_all_pct")),
+                      str(r.get("diff_pct")), str(r.get("ci_pct")), str(r.get("rank_corr")), str(r.get("diff_halves_pct")),
+                      str(r.get("diff_delayed_entry_pct")), r["verdict"])
+    console.print(table)
+    console.print(f"Rapport : {settings.reports_dir / payload['run_id'] / 'summary.json'} ; programme : {payload['program_trials']} essais")
+
+
 @app.command("xsection")
 def xsection_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Essai local sur du code non commité (enregistré comme tel)"),
                      verbose: bool = False):
