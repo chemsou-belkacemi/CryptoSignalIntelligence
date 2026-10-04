@@ -231,6 +231,31 @@ Remplace la décision à deux comparaisons de cette section (DEVELOPMENT inchang
 - **1 essai** compté sur la période finale (au lieu de 2). Tout le reste inchangé (déclencheur, transactions,
   placebos, blocs de 28 jours, 10 000 tirages, graine, univers, fenêtre, coupure, complétude, ordre, répétition).
 
+### Résultat (lecture unique, `TRNF-20261004T234307Z-c15d40`, 2026-10-05, consultation n° 2 du programme, 1 essai ; période finale : 6 essais) : **`NON_CONFIRMEE`**
+
+263 paires, 207 avec des transactions, minutes couvertes à 100 % (aucun refus) ; 2 652 déclencheurs : 2 302 exécutés,
+322 annulés, 28 géométries invalides ; 398 jours.
+
+| Scénario | Excès à frais égaux | IC 90 % (décision) | IC 97,5 % | R moyen (descriptif) | IC 90 % | Placebos (R) | Gagnantes |
+|---|---|---|---|---|---|---|---|
+| central | +0,040 | [−0,057 ; +0,146] | [−0,090 ; +0,185] | **−0,029** | [−0,124 ; +0,074] | −0,084 | 47 % |
+| défavorable | +0,040 | [−0,057 ; +0,146] | [−0,091 ; +0,186] | **−0,056** | [−0,150 ; +0,046] | −0,125 | 46 % |
+
+**Lecture déclarée : non démontré sur 15 mois, pas une réfutation ; aucun usage.** Ce que disent les chiffres :
+- l'excès sur le hasard est **trois fois plus petit** que sur DEVELOPMENT (+0,04 contre +0,12) et son intervalle
+  contient 0 ; après frais, le R moyen est **négatif** (−0,03 en central, −0,06 en défavorable) ;
+- très inégal d'un trimestre à l'autre : excès +0,32 au 3e trimestre 2025, −0,18 au 4e (krach d'octobre 2025),
+  −0,04 au 1er trimestre 2026, +0,10 aux 2e et 3e ; **sans le 3e trimestre 2025, l'excès tombe à −0,015** ; ORDI
+  apporte à elle seule 36 % du total de l'excès ;
+- 40 paires de recherche (436 transactions) : R −0,05, excès +0,03 ; autres paires (1 866) : R −0,03, excès +0,04 ;
+  paires retirées pendant la période (141) : R +0,08, excès +0,21 (peu nombreuses) ;
+- TP1 atteint 56 % (placebos 54 %), stop 36 %.
+
+**Conclusion.** L'avantage des cassures de ligne de tendance en 1 h mesuré sur 2019-2025 (+0,12 R sur le hasard,
+confirmé sur 214 paires) **ne se retrouve pas nettement** sur juillet 2025 → septembre 2026, et la méthode y perd
+légèrement après frais. Rien n'est branché ; la famille reste suivie en direct par F15 (verdict vers mi-mars 2027).
+Ces 15 mois ne servent plus de juge neutre pour cette stratégie ni pour une variante.
+
 ## Historique
 
 - 2026-10-04 : déclaré avant tout code et toute exécution ; téléchargement des minutes lancé le même jour.
@@ -239,3 +264,4 @@ Remplace la décision à deux comparaisons de cette section (DEVELOPMENT inchang
 - 2026-10-05 : confirmation sur la période réservée déclarée avant code, téléchargement et lecture (décision du propriétaire).
 - 2026-10-05 : répétition, relecture indépendante et calcul de puissance avant la lecture ; corrections inscrites ; choix de la règle laissé au propriétaire.
 - 2026-10-05 : règle de décision choisie par le propriétaire (une comparaison unilatérale à 5 %, gain descriptif, 1 essai), inscrite avant toute lecture.
+- 2026-10-05 : téléchargement de la période réservée terminé (169 paires, 0 échec) ; répétition sur le code final ; lecture unique `TRNF-20261004T234307Z-c15d40` : NON_CONFIRMEE.
