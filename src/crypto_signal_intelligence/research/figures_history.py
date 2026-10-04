@@ -226,18 +226,22 @@ def _simulate(o, h, lo, c, ns, entry, stop, targets, order_from, order_until, ho
 
 
 @njit(cache=True)
-def _placebos(o, h, lo, c, ns, fill_ns, offsets, stop_ratio, target_ratios, hold_ns, cost_market, fee, weights, late):
-    """R et objectifs atteints des placebos (NaN et −1 : inutilisable), comme `f15.resolve_one`."""
+def _placebos(o, h, lo, c, ns, fill_ns, offsets, entry, stop, targets, hold_ns, cost_market, fee, weights, late):
+    """R et objectifs atteints des placebos (NaN et −1 : inutilisable), comme `f15.resolve_one` (mêmes opérations :
+    `q0 · stop / entrée`, `q0 · objectif / entrée`)."""
     m = len(offsets)
     r = np.full(m, np.nan)
     hits = np.full(m, -1)
+    scaled = np.empty(len(targets))
     for k in range(m):
         when = fill_ns - offsets[k] * MINUTE_NS
         start = np.searchsorted(ns, when)
         if start >= len(ns):
             continue
         q0 = o[start]
-        status, _, _, got, value, _, _ = _simulate(o, h, lo, c, ns, q0, q0 * stop_ratio, q0 * target_ratios, when, -1,
+        for j in range(len(targets)):
+            scaled[j] = q0 * targets[j] / entry
+        status, _, _, got, value, _, _ = _simulate(o, h, lo, c, ns, q0, q0 * stop / entry, scaled, when, -1,
                                                    hold_ns, True, cost_market, fee, weights, late)
         if status == ST_EXECUTED:
             r[k] = value
@@ -336,12 +340,17 @@ def play(setup: Setup, m: Minutes, symbol: str, latency: pd.Timedelta) -> dict:
     row["status"] = EXECUTED
     fill_at = pd.Timestamp(results[CENTRAL]["fill_at"])
     row["fill_at"] = fill_at
+    row["fill_price"] = results[CENTRAL]["fill_price"]
+    # Exécution « maker » : ordre limite traversé (ni achat au marché, ni première minute ouverte sous la limite).
+    first = int(np.searchsorted(m.ns, start.as_unit("ns").value))
+    fill_i = int(np.searchsorted(m.ns, fill_at.as_unit("ns").value))
+    maker = not setup.market and not (fill_i == first and m.o[first] < entry)
+    row["maker"] = maker
     offsets = np.asarray(f15.placebo_offsets(setup.key), np.int64)
-    ratios = np.asarray(targets, float) / entry
     for s in SCENARIOS:
         costs = costs_for(symbol, s)
-        raw, hits = _placebos(m.o, m.h, m.lo, m.c, m.ns, fill_at.as_unit("ns").value, offsets, stop / entry, ratios,
-                              hold * MINUTE_NS, costs.market, costs.fee, WEIGHTS, True)
+        raw, hits = _placebos(m.o, m.h, m.lo, m.c, m.ns, fill_at.as_unit("ns").value, offsets, float(entry), float(stop),
+                              np.asarray(targets, float), hold * MINUTE_NS, costs.market, costs.fee, WEIGHTS, True)
         r = np.array([round(float(x), 6) if np.isfinite(x) else np.nan for x in raw])     # arrondi de f15.simulate
         usable = np.isfinite(r)
         own = results[s]
@@ -352,6 +361,11 @@ def play(setup: Setup, m: Minutes, symbol: str, latency: pd.Timedelta) -> dict:
         row[f"placebo_mean_{s}"] = round(float(r[usable].mean()), 6) if usable.any() else None
         row[f"placebo_tp1_{s}"] = float((hits[usable] >= 1).mean()) if usable.any() else None
         row[f"excess_{s}"] = round(own["r"] - float(r[usable].mean()), 6) if usable.any() else None
+        # Excès à frais d'entrée égaux (relecture avant exécution) : un placebo paie à l'entrée l'écart et le glissement
+        # d'un achat au marché, soit exactement market × (1 + frais) / risque relatif en R de plus qu'une entrée maker
+        # au même prix (les sorties ne dépendent pas du prix d'exécution) ; retiré quand le déclencheur entre en maker.
+        handicap = costs.market * (1 + costs.fee) / row["risk_pct"] if maker else 0.0
+        row[f"excess_adj_{s}"] = round(row[f"excess_{s}"] - handicap, 6) if usable.any() else None
     return row
 
 
@@ -418,6 +432,7 @@ def measure(part: pd.DataFrame, scenario: str, *, level: float = LEVEL, samples:
     times = pd.to_datetime(done["fill_at"], utc=True).to_numpy()
     excess = done[f"excess_{scenario}"].to_numpy(float)
     ok = np.isfinite(excess)
+    adjusted = done[f"excess_adj_{scenario}"].to_numpy(float)
     hits = done[f"hits_{scenario}"].to_numpy(int)
     gain = done["tp1"].to_numpy(float) - done["entry"].to_numpy(float)
     risk = done["entry"].to_numpy(float) - done["stop"].to_numpy(float)
@@ -425,19 +440,26 @@ def measure(part: pd.DataFrame, scenario: str, *, level: float = LEVEL, samples:
             "r_mean": round(float(r.mean()), 4), "r_ci": _ci(r, times, level, samples, seed),
             "excess_mean": round(float(excess[ok].mean()), 4) if ok.any() else None,
             "excess_ci": _ci(excess[ok], times[ok], level, samples, seed) if ok.any() else None,
+            "excess_adj_mean": round(float(adjusted[ok].mean()), 4) if ok.any() else None,
+            "excess_adj_ci": _ci(adjusted[ok], times[ok], level, samples, seed) if ok.any() else None,
+            "maker_share": round(float(done["maker"].astype(bool).mean()), 4),
             "placebo_mean": round(float(done[f"placebo_mean_{scenario}"].astype(float).mean()), 4),
             "win_share": round(float((r > 0).mean()), 4),
             "tp_reached": {f"TP{k}": round(float((hits >= k).mean()), 4) for k in (1, 2, 3)},
             "placebo_tp1": round(float(done[f"placebo_tp1_{scenario}"].astype(float).mean()), 4),
-            "tp1_break_even": round(float(np.mean(risk / (risk + gain))), 4)}
+            # Seuil simplifié, défini : part de TP1 qui équilibrerait une sortie UNIQUE au premier objectif ou au stop,
+            # sans frais (risque / (risque + gain au TP1)) ; la vraie sortie se fait par tiers, avec frais.
+            "tp1_break_even_simple": round(float(np.mean(risk / (risk + gain))), 4)}
 
 
 def verdict(central: dict, adverse: dict) -> str:
-    """Seuil de F15 (`f4.verdict`), au niveau de Bonferroni de l'étude, sans condition de durée."""
+    """Seuil de F15 (`f4.verdict`), au niveau de Bonferroni de l'étude, sans condition de durée, sur l'excès à frais
+    d'entrée égaux."""
     if central.get("n", 0) < MIN_TRADES or central.get("r_ci") is None or adverse.get("r_ci") is None \
-            or central.get("excess_ci") is None or adverse.get("excess_ci") is None:
+            or central.get("excess_adj_ci") is None or adverse.get("excess_adj_ci") is None:
         return INSUFFICIENT
-    if central["r_ci"][0] > 0 and adverse["r_ci"][0] > 0 and central["excess_ci"][0] > 0 and adverse["excess_ci"][0] > 0:
+    if central["r_ci"][0] > 0 and adverse["r_ci"][0] > 0 and central["excess_adj_ci"][0] > 0 \
+            and adverse["excess_adj_ci"][0] > 0:
         return ABOVE
     if central["r_ci"][1] < 0 and adverse["r_ci"][1] < 0:
         return BELOW
@@ -457,16 +479,26 @@ def describe(part: pd.DataFrame) -> dict:
     if not done.empty:
         years = pd.to_datetime(done["fill_at"], utc=True).dt.year
         out["years"] = {int(y): {"n": int(len(g)), "r_mean": round(float(g[f"r_{CENTRAL}"].mean()), 4),
-                                 "excess_mean": round(float(g[f"excess_{CENTRAL}"].astype(float).mean()), 4)}
+                                 "excess_adj_mean": round(float(g[f"excess_adj_{CENTRAL}"].astype(float).mean()), 4)}
                         for y, g in done.groupby(years)}
-        excess = done[f"excess_{CENTRAL}"].astype(float)
-        by_pair = excess.groupby(done["symbol"]).sum() / excess.notna().sum()
-        top = str(by_pair.idxmax())
-        rest = done[done["symbol"] != top]
-        out["excess_without_top_pair"] = {"pair": top,
-                                          "excess_mean": round(float(rest[f"excess_{CENTRAL}"].astype(float).mean()), 4)
-                                          if not rest.empty else None}
+        for column in (f"r_{CENTRAL}", f"excess_adj_{CENTRAL}"):
+            values = done[column].astype(float)
+            out[f"concentration_{column}"] = {"pair": _largest_share(values, done["symbol"]),
+                                              "year": _largest_share(values, years)}
+            by_pair = values.groupby(done["symbol"]).sum()
+            top = str(by_pair.idxmax())
+            rest = values[done["symbol"] != top]
+            out[f"without_top_pair_{column}"] = {"pair": top, "mean": round(float(rest.mean()), 4) if rest.notna().any() else None}
     return out
+
+
+def _largest_share(values: pd.Series, groups: pd.Series) -> dict | None:
+    """Part du total apportée par le groupe (paire ou année) qui apporte le plus ; None si le total n'est pas positif."""
+    sums = values.groupby(groups).sum()
+    total = float(sums.sum())
+    if total <= 0:
+        return None
+    return {"group": str(sums.idxmax()), "share": round(float(sums.max()) / total, 4)}
 
 
 def evaluate(trades: pd.DataFrame, *, level: float = LEVEL, samples: int = SAMPLES) -> dict:

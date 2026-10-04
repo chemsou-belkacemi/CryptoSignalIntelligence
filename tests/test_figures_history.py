@@ -94,17 +94,21 @@ def test_play_matches_f15_resolve_one_with_its_placebos(settings, monkeypatch):
     règle de prudence « stop d'abord », comme déclaré)."""
     monkeypatch.setattr(f15, "_second_order", lambda *a, **k: "stop")
     bars = minute_walk(60 * 24 * 40, 7, drop=0.01)
+    hole = (bars["open_time"] >= T0 + pd.Timedelta(days=12)) & (bars["open_time"] < T0 + pd.Timedelta(days=12, hours=9))
+    bars = bars[~hole].reset_index(drop=True)                # grand trou : placebos sans données
     m = fh.Minutes.from_frame(bars)
     checked = 0
-    for k, day in enumerate((31, 33, 35)):
+    cases = [("1h", 31, 0.998, 0.985), ("1h", 33, 0.998, 0.985), ("1h", 35, 0.999, 0.99), ("4h", 25, 0.999, 0.98),
+             ("4h", 26, 0.997, 0.97), ("1h", 36, 1.004, 0.99)]
+    for k, (tf, day, below, stop_at) in enumerate(cases):
         at = T0 + pd.Timedelta(days=day, hours=k)
         price = float(bars.loc[bars["open_time"] <= at, "close"].iloc[-1])
-        entry, stop = price * 0.998, price * 0.985
-        setup = fh.Setup(f"XUSDT:1h:TRIANGLE:bull:{k}", "TRIANGLE", "1h", at, stop, entry,
+        entry, stop = price * below, price * stop_at
+        setup = fh.Setup(f"XUSDT:{tf}:TRIANGLE:bull:{k}", "TRIANGLE", tf, at, stop, entry,
                          (entry * 1.004, entry * 1.008, entry * 1.012))
         row = fh.play(setup, m, "XUSDT", LATENCY)
         start, until, hold = fh.order_window(setup, LATENCY)
-        d = {"figure_id": setup.key, "symbol": "XUSDT", "timeframe": "1h", "family": "TRIANGLE", "entry": entry,
+        d = {"figure_id": setup.key, "symbol": "XUSDT", "timeframe": tf, "family": "TRIANGLE", "entry": entry,
              "stop": stop, "targets": list(setup.targets), "order_from": start.isoformat(), "order_until": until.isoformat(),
              "hold_minutes": hold, "placebo_minutes": f15.placebo_offsets(setup.key)}
         frozen = f15.resolve_one(settings, d, bars, late=True)
@@ -117,7 +121,58 @@ def test_play_matches_f15_resolve_one_with_its_placebos(settings, monkeypatch):
             assert row[f"placebo_mean_{s}"] == frozen["results"][s]["placebo_mean"]
             assert row[f"excess_{s}"] == frozen["results"][s]["excess"]
             assert row[f"placebo_n_{s}"] == sum(x is not None for x in frozen["results"][s]["placebos"])
-    assert checked >= 1
+    assert checked >= 3
+
+
+def test_equal_entry_costs_remove_exactly_the_market_cost_of_the_placebos():
+    """Excès à frais égaux = excès − market × (1 + frais) / risque relatif pour une entrée maker ; inchangé pour un
+    achat au marché ou un ordre exécuté à l'ouverture de la première minute (taker)."""
+    from crypto_signal_intelligence.forward.costs import costs_for
+    bars = minute_walk(60 * 24 * 40, 21)
+    m = fh.Minutes.from_frame(bars)
+    kinds = set()
+    for k in range(40):
+        at = T0 + pd.Timedelta(days=31, hours=3 * k)
+        price = float(bars.loc[bars["open_time"] <= at, "close"].iloc[-1])
+        if k % 3 == 2:
+            setup = fh.Setup(f"X:1h:SWEEP:bull:{k}", "SWEEP", "1h", at, price * 0.99)
+        else:
+            entry = price * (0.997 if k % 3 == 0 else 1.01)                 # 1,01 : exécutable dès la pose
+            setup = fh.Setup(f"X:1h:FVG:bull:{k}", "FVG", "1h", at, entry * 0.99, entry,
+                             tuple(entry * (1 + 0.01 * j) for j in (1, 2, 3)))
+        row = fh.play(setup, m, "XUSDT", LATENCY)
+        if row["status"] != fh.EXECUTED:
+            continue
+        kinds.add((setup.method, row["maker"]))
+        for s in SCENARIOS:
+            c = costs_for("XUSDT", s)
+            gap = row[f"excess_{s}"] - row[f"excess_adj_{s}"]
+            assert gap == pytest.approx(c.market * (1 + c.fee) / row["risk_pct"] if row["maker"] else 0.0, abs=2e-6)
+    assert kinds == {("FVG", True), ("FVG", False), ("SWEEP", False)}
+
+
+def test_equal_entry_cost_excess_is_near_zero_on_a_driftless_walk():
+    """Marche sans dérive, ordres limites seulement : l'excès corrigé est nul à l'erreur près ; l'excès brut porte le
+    biais prévu (relecture avant exécution)."""
+    raw, adj, rng = [], [], np.random.default_rng(99)
+    for case in range(16):
+        bars = minute_walk(60 * 24 * 40, 1000 + case, vol=0.0008)
+        m = fh.Minutes.from_frame(bars)
+        for k in range(40):
+            at = T0 + pd.Timedelta(days=31, hours=int(rng.integers(0, 24 * 8)))
+            price = float(bars.loc[bars["open_time"] <= at, "close"].iloc[-1])
+            entry = price * (1 - rng.uniform(0.001, 0.004))
+            stop = entry * (1 - 0.003)
+            setup = fh.Setup(f"X:1h:FVG:bull:{case}-{k}", "FVG", "1h", at, stop, entry,
+                             tuple(entry + j * (entry - stop) for j in (1, 2, 3)))
+            row = fh.play(setup, m, "SOLUSDT", LATENCY)
+            if row["status"] == fh.EXECUTED and row["maker"]:
+                raw.append(row[f"excess_{CENTRAL}"])
+                adj.append(row[f"excess_adj_{CENTRAL}"])
+    raw_a, adj_a = np.array(raw), np.array(adj)
+    se = adj_a.std(ddof=1) / np.sqrt(len(adj_a))
+    assert len(adj_a) > 300 and abs(adj_a.mean()) < 3 * se
+    assert raw_a.mean() - adj_a.mean() > 3 * se                  # sans correction, le hasard paraîtrait battu
 
 
 def test_order_window_is_the_one_of_f15():
@@ -218,6 +273,29 @@ def test_structure_break_stop_is_the_last_fractal_low_known_before_the_break():
         assert s.entry == brk.level and s.stop == pytest.approx(known.price - 0.25 * a[i])
 
 
+@pytest.mark.parametrize("cut", [24 * 230 + 5, 24 * 330 + 17])
+def test_setups_on_the_full_history_equal_setups_on_the_known_prefix(cut):
+    """Détection une fois sur toute l'histoire = détection en direct sur les seules bougies connues (troncature),
+    pour toutes les méthodes et les trois unités de temps."""
+    h1 = hour_walk(24 * 400, 12)
+    prefix = h1.iloc[:cut]
+    seen = set()
+    for tf, step in f15.TIMEFRAMES.items():
+        part = f15.aggregate(prefix, tf)
+        limit = part["open_time"].iloc[-1] + step
+
+        def setups(frame, tf=tf):
+            return fh.figure_setups(frame, tf, "X") + fh.smc_setups(frame, tf, "X")
+
+        def norm(items):                                    # NaN (géométries invalides sans ATR) comparés comme égaux
+            return sorted((repr(s), s.key) for s in items)
+
+        full = [s for s in setups(f15.aggregate(h1, tf)) if s.at <= limit]
+        assert norm(full) == norm(setups(part)), tf
+        seen |= {s.method for s in full}
+    assert len(seen) >= 14
+
+
 @pytest.mark.parametrize("cut", [1500, 2200])
 def test_setups_already_detected_never_change_when_the_future_is_falsified(cut):
     frame = hour_walk(3000, 9)
@@ -253,9 +331,9 @@ def test_period_needs_warmup_and_the_whole_horizon_in_development():
 # --- Mesure, verdict, exécution ----------------------------------------------------------------------------------
 
 def test_verdict_needs_both_intervals_above_zero_in_both_scenarios():
-    good = {"n": 100, "r_ci": (0.01, 0.2), "excess_ci": (0.02, 0.3)}
+    good = {"n": 100, "r_ci": (0.01, 0.2), "excess_adj_ci": (0.02, 0.3), "excess_ci": (0.05, 0.4)}
     assert fh.verdict(good, good) == fh.ABOVE
-    assert fh.verdict(good, good | {"excess_ci": (-0.01, 0.3)}) == fh.NOT_SHOWN
+    assert fh.verdict(good, good | {"excess_adj_ci": (-0.01, 0.3)}) == fh.NOT_SHOWN       # l'excès brut ne compte pas
     assert fh.verdict(good | {"r_ci": (-0.3, -0.01)}, good | {"r_ci": (-0.4, -0.02)}) == fh.BELOW
     assert fh.verdict(good | {"n": 29}, good) == fh.INSUFFICIENT
     assert fh.verdict(good, good | {"r_ci": None}) == fh.INSUFFICIENT
@@ -271,14 +349,19 @@ def test_evaluate_pools_only_the_f15_families_in_the_ensemble():
                      "reason": None, "order_from": T0 + pd.Timedelta(days=k), "fill_at": T0 + pd.Timedelta(days=k),
                      "entry": 100.0, "stop": 98.0, "tp1": 102.0}
                     | {f"r_{s}": r for s in SCENARIOS} | {f"hits_{s}": 1 for s in SCENARIOS}
-                    | {f"excess_{s}": r - 0.1 for s in SCENARIOS} | {f"placebo_mean_{s}": 0.1 for s in SCENARIOS}
+                    | {f"excess_{s}": r - 0.1 for s in SCENARIOS} | {f"excess_adj_{s}": r - 0.2 for s in SCENARIOS}
+                    | {f"placebo_mean_{s}": 0.1 for s in SCENARIOS} | {"maker": k % 2 == 0}
                     | {f"placebo_tp1_{s}": 0.4 for s in SCENARIOS})
     trades = pd.DataFrame(rows)
     out = fh.evaluate(trades, samples=200)
     assert set(out) == {*fh.METHODS, fh.ENSEMBLE} and len(out) == fh.N_TRIALS == 19
     ensemble = out[fh.ENSEMBLE]["scenarios"][CENTRAL]["n"]
     assert ensemble == int(trades["method"].isin(f15.fg.FAMILIES).sum())
-    assert out["FVG"]["scenarios"][ADVERSE]["tp1_break_even"] == 0.5
+    assert out["FVG"]["scenarios"][ADVERSE]["tp1_break_even_simple"] == 0.5
+    fvg = out["FVG"]["scenarios"][CENTRAL]
+    assert fvg["excess_adj_mean"] == pytest.approx(fvg["excess_mean"] - 0.1, abs=1e-3)
+    concentration = out[fh.ENSEMBLE]["descriptif"][f"concentration_r_{CENTRAL}"]
+    assert concentration["pair"] is None or concentration["pair"]["share"] == 1.0          # une seule paire
 
 
 def test_run_end_to_end(settings, monkeypatch):

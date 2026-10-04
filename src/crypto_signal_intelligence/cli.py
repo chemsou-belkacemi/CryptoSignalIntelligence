@@ -985,13 +985,13 @@ def figures_history_command(allow_dirty: bool = typer.Option(False, "--allow-dir
     except (DirtyCode, FileNotFoundError) as exc:
         console.print(f"[red]Aucun résultat :[/red] {exc}")
         raise typer.Exit(3) from None
-    table = Table("Méthode", "Exécutées", "R moyen", "IC", "Excès", "IC", "R défav.", "Excès défav. IC", "TP1 / placebos",
-                  "Verdict")
+    table = Table("Méthode", "Exécutées", "R moyen", "IC", "Excès (frais égaux)", "IC", "R défav.", "Excès défav. IC",
+                  "TP1 / placebos", "Verdict")
     for name, row in payload["rows"].items():
         c, a = row["scenarios"]["central"], row["scenarios"]["defavorable"]
         tp1 = f"{c.get('tp_reached', {}).get('TP1')} / {c.get('placebo_tp1')}" if c.get("n") else "-"
-        table.add_row(name, str(c.get("n")), str(c.get("r_mean")), str(c.get("r_ci")), str(c.get("excess_mean")),
-                      str(c.get("excess_ci")), str(a.get("r_mean")), str(a.get("excess_ci")), tp1, row["verdict"])
+        table.add_row(name, str(c.get("n")), str(c.get("r_mean")), str(c.get("r_ci")), str(c.get("excess_adj_mean")),
+                      str(c.get("excess_adj_ci")), str(a.get("r_mean")), str(a.get("excess_adj_ci")), tp1, row["verdict"])
     console.print(table)
     console.print(f"Rapport : {settings.reports_dir / payload['run_id'] / 'summary.json'} ; programme : {payload['program_trials']} essais")
 
