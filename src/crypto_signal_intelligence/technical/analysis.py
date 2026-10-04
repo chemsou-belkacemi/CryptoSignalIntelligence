@@ -121,6 +121,7 @@ def analyze(h1: pd.DataFrame, timeframe: str, *, now: pd.Timestamp, symbol: str,
     levels = cluster_levels([(p.price, p.index) for p in recent], MERGE_ATR * atr_last)
     for level in levels:
         level["last_touch"] = str(times.iloc[level["last_index"]])
+        level["price"] = round_tick(level["price"], tick, "ROUND_HALF_EVEN")      # affiché au pas de cotation
     resistances = sorted([lv_ for lv_ in levels if lv_["price"] > close], key=lambda x: x["price"])
     supports = sorted([lv_ for lv_ in levels if lv_["price"] < close], key=lambda x: -x["price"])
 
@@ -164,7 +165,7 @@ def analyze(h1: pd.DataFrame, timeframe: str, *, now: pd.Timestamp, symbol: str,
     if structure:
         trend = "haussière" if structure["side"] == "bull" else "baissière"
         summary.append(f"Tendance de structure : {trend} (dernière cassure {structure['kind']} du niveau "
-                       f"{structure['level']:.8g}, il y a {structure['bars_ago']} bougie(s)).")
+                       f"{round_tick(structure['level'], tick, 'ROUND_HALF_EVEN'):.8g}, il y a {structure['bars_ago']} bougie(s)).")
         if structure["recent"]:
             summary.append("Cassure EN COURS : " + ("résistance cassée à la hausse." if structure["side"] == "bull"
                                                     else "support cassé à la baisse."))
