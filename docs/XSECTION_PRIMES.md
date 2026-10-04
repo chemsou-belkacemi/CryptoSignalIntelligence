@@ -52,6 +52,20 @@ tester en direct, coûts et rotation compris.
 Causalité testée (falsifier les données postérieures au dimanche ne change aucune variable ; pic au jour `d` → première
 variation au lundi suivant) ; relecture indépendante avant l'exécution unique.
 
+## Résultat (exécution unique, `XPREM-20261004T092024Z-dff748`, 2026-10-04, essais 824 à 827) : **RIEN** sur les 4
+
+| Variable | Semaines | Paires (méd.) | Écart haut − bas / semaine | IC (98,75 %) | Corr. de rang | Années positives | Sans la paire la plus influente |
+|---|---|---|---|---|---|---|---|
+| KR_LEVEL | 329 | 38 | −0,29 % | [−1,48 ; +0,91] | −0,000 | 2 sur 7 | +0,13 % (sans TFUEL) |
+| KR_JUMP | 326 | 38 | −0,09 % | [−1,08 ; +0,91] | +0,008 | 3 sur 7 | −0,32 % (sans DOGE) |
+| CB_LEVEL | 284 | 53 | +0,03 % | [−0,86 ; +0,92] | +0,008 | 4 sur 6 | +0,18 % (sans BAND) |
+| CB_JUMP | 281 | 53 | +0,18 % | [−0,63 ; +0,99] | +0,016 | 4 sur 6 | +0,46 % (sans ATOM) |
+
+**Lecture.** La prime coréenne ou Coinbase d'un altcoin, ni son niveau ni son saut, ne dit rien de sa semaine suivante
+par rapport aux autres : corrélations de rang nulles, signes qui changent d'une année à l'autre et selon qu'on retire
+une seule paire. Faible dispersion des primes (déclarée) : un effet plus petit qu'environ ±1 % par semaine n'est pas
+exclu, mais rien ne le montre. Rien n'est branché.
+
 ## Historique
 
 - 2026-10-04 : déclaré avant tout code et toute exécution.

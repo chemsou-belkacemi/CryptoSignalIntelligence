@@ -2,7 +2,7 @@
 
 Document vivant : ce qui est fait, ce qui tourne, ce qui reste. Chaque ligne « à faire » se fait comme d'habitude :
 déclarée avant, mesurée avec intervalle (et placebos en direct), comptée au programme. Les décisions du
-propriétaire sont marquées **[propriétaire]**. Programme au 2026-10-04 : **798 essais** sur DEVELOPMENT ; période
+propriétaire sont marquées **[propriétaire]**. Programme au 2026-10-04 : **827 essais** sur DEVELOPMENT ; période
 finale réservée consultée **une fois**, le 2026-10-03, pour la volatilité seulement (décision du
 propriétaire).
 
@@ -43,6 +43,10 @@ refusé (aucune donnée payante) ; points 6 à 10 en attente (voir § 5).
 | Phases 1.4 et 11 — bibliothèque d'indicateurs et détecteur de figures | F15 démarré le 2026-10-03 (figures classiques comprises) ; bibliothèque § 10 (niveaux, sessions, indicateurs classiques, flux, ICT avancé), utilisée par aucun test | `INDICATEURS.md`, `FORWARD_TESTS.md` |
 | Phase 1.3, ajout du 2026-10-03 — données de contexte gratuites | sources validées le 2026-10-04 ; historique téléchargé, relevé quotidien en service | `CONTEXTE.md` |
 | Tableau de bord — signaux des stratégies de CSI | tous consultables (pages de 20, filtre par stratégie) | — |
+| Carte d'analyse technique (onglet Marché) | supports, résistances, structure, figures, zones, plan indicatif ; information seulement | `ANALYSE_TECHNIQUE.md` |
+| **Prédiction, 2026-10-04** — supports et résistances contre niveaux placebo (4 essais) | RIEN : pile ou face comme un niveau au hasard (±1 pt) | `NIVEAUX.md` |
+| Données de contexte contre direction de BTC et ETH (21 essais) | RIEN ; flux nets de BTC vers les plateformes : signe régulier (8 années sur 9) non démontré | `CONTEXTE_PREDICTION.md` |
+| Primes coréenne et Coinbase des altcoins en coupe (4 essais) | RIEN : aucune information sur la semaine suivante | `XSECTION_PRIMES.md` |
 
 ## 2. En cours
 
