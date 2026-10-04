@@ -9,6 +9,8 @@ demande de clé Binance. Pages : `/` (application : analyser une paire, évaluer
     GET  /sources              bilan de chaque groupe Telegram contre le taux de base
     GET  /signals/recent?limit=N   dernières évaluations de signaux externes
     GET  /execution-report     signaux publiés : backtest, prospectif et Demo séparés
+    GET  /analysis?symbol=SOLUSDT&timeframe=4h  analyse technique mécanique d'une paire (graphique, niveaux, plan indicatif)
+    GET  /analysis/pairs        paires disponibles pour l'analyse technique
     GET  /signals/generated?limit=N&offset=K&strategy=S  signaux trouvés par les stratégies de CSI (shadow), du plus
                                      récent au plus ancien, par pages ; total et stratégies présentes
     GET  /universe             paires configurées et paires ajoutées par le propriétaire (état)
@@ -198,6 +200,8 @@ class CsiApi:
         self.now = now or (lambda: datetime.now(UTC))
         # Une analyse de paire à la fois (mémoire du conteneur) ; résultats gardés jusqu'à la bougie suivante.
         self._outlook_lock = threading.Lock()
+        self._technical_cache: dict = {}
+        self._ticks: dict = {}
         self._outlook_cache: OrderedDict[tuple, dict] = OrderedDict()
         self._refresh_lock = threading.Lock()
         self.downloader: Callable[..., object] | None = None     # remplaçable dans les tests (aucun réseau)
@@ -436,6 +440,72 @@ class CsiApi:
                 "rule": "un signal soumis à la main par le propriétaire vaut validation de sa paire : ajoutée "
                         "définitivement (READY une fois l'historique téléchargé) ; un signal reçu automatiquement "
                         "n'ajoute jamais rien"}
+
+    def technical_pairs(self) -> dict:
+        """Paires analysables : bougies 1 h du magasin de F15 (paires halal, depuis 2025-08) et de l'univers."""
+        from ..data.store import CandleStore
+        from ..external.universe import universe_symbols
+        from ..forward.f15 import figure_store
+        found = set()
+        for store in (figure_store(self.settings), CandleStore(self.settings.data_dir)):
+            folder = store.data_dir / "candles" / "binance" / "spot"
+            if folder.exists():
+                found |= {p.name for p in folder.iterdir() if p.is_dir() and (p / "1h.parquet").exists()}
+        found |= set(universe_symbols(self.settings))
+        return {"pairs": sorted(found), "timeframes": ["1h", "4h", "1d"]}
+
+    def technical(self, symbol: str, timeframe: str) -> dict:
+        """Analyse technique mécanique (technical/analysis.py) sur les bougies 1 h clôturées : la série la plus
+        récente des deux magasins (F15, univers) ; une analyse par bougie gardée en cache."""
+        import pandas as pd
+
+        from ..data.store import CandleStore
+        from ..forward.f15 import figure_store
+        from ..technical.analysis import TIMEFRAMES, analyze
+        symbol = (symbol or "").strip().upper()
+        if not symbol.isalnum() or len(symbol) > 20:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "paramètre « symbol » (ex. SOLUSDT) requis")
+        if timeframe not in TIMEFRAMES:
+            raise ApiError(HTTPStatus.BAD_REQUEST, f"unité de temps : {', '.join(TIMEFRAMES)}")
+        best = None
+        for store in (figure_store(self.settings), CandleStore(self.settings.data_dir)):
+            try:
+                frame = store.load(symbol, "1h")
+            except Exception:  # noqa: BLE001 - paire absente de ce magasin
+                continue
+            if frame.empty:
+                continue
+            if best is None or frame["open_time"].max() > best["open_time"].max():
+                best = frame
+        if best is None:
+            raise ApiError(HTTPStatus.NOT_FOUND, f"aucune bougie 1 h pour {symbol}")
+        key = (symbol, timeframe, str(best["open_time"].max()))
+        cached = self._technical_cache.get(key)
+        if cached is not None:
+            return cached
+        try:
+            result = analyze(best, timeframe, now=pd.Timestamp(self.now()), symbol=symbol, tick=self._tick(symbol))
+        except ValueError as exc:
+            raise ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, str(exc)) from None
+        self._technical_cache = {k: v for k, v in self._technical_cache.items() if k[:2] != key[:2]} | {key: result}
+        return result
+
+    def _tick(self, symbol: str):
+        """Pas de cotation : configuration ou paire ajoutée, sinon lu une fois sur Binance (données publiques)."""
+        from ..external.universe import tick_size_for
+        if symbol in self._ticks:
+            return self._ticks[symbol]
+        try:
+            tick = tick_size_for(self.settings, symbol)
+        except ValueError:
+            try:
+                from ..data.http import PublicHttpClient
+                from ..data.rest import fetch_tick_size
+                tick = fetch_tick_size(PublicHttpClient.rest(self.settings.data.rest_base_url), symbol)
+            except Exception:  # noqa: BLE001 - réseau : prix montrés sans arrondi (signalé dans la réponse)
+                return None
+        self._ticks[symbol] = tick
+        return tick
 
     def pairs(self) -> dict:
         """Paires analysables (configuration + ajouts prêts) et âge de leur dernière bougie."""
@@ -773,6 +843,8 @@ class CsiApi:
                 "/health": self.health, "/strategies": self.strategies, "/sources": self.sources,
                 "/execution-report": self.execution_report, "/universe": self.universe,
                 "/signals/recent": lambda: self.recent(_int(query.get("limit", ["20"])[0])),
+                "/analysis": lambda: self.technical(query.get("symbol", [""])[0], query.get("timeframe", ["4h"])[0]),
+                "/analysis/pairs": self.technical_pairs,
                 "/signals/generated": lambda: self.generated(_int(query.get("limit", ["20"])[0]),
                                                              _int(query.get("offset", ["0"])[0]),
                                                              query.get("strategy", [""])[0]),

@@ -116,6 +116,27 @@ def test_generated_signals_can_be_browsed_by_page_and_strategy(api, settings):
     assert only["total"] == 2 and {x["strategy"] for x in only["signals"]} == {"RANGE_REENTRY"}
 
 
+def test_technical_analysis_routes(api, settings):
+    """Analyse technique : paires du magasin de F15, analyse d'une paire configurée (pas de cotation de la
+    configuration, aucun réseau), cache, erreurs claires."""
+    import pandas as pd
+
+    from crypto_signal_intelligence.forward.f15 import figure_store
+    from tests.conftest import canonical
+    start = (pd.Timestamp(NOW) - pd.Timedelta(days=60)).strftime("%Y-%m-%d")
+    figure_store(settings).save(canonical(24 * 60, "1h", symbol="ETHUSDT", start=start, seed=5), "ETHUSDT", "1h")
+    assert "ETHUSDT" in api.dispatch("GET", "/analysis/pairs", {}, None)["pairs"]
+    out = api.dispatch("GET", "/analysis", {"symbol": ["ethusdt"], "timeframe": ["4h"]}, None)
+    assert out["symbol"] == "ETHUSDT" and out["timeframe"] == "4h" and out["tick"] is not None and out["bars"]
+    assert out["plan"]["state"] in ("PLAN", "NO_TRADE") and "aucun signal" in out["warning"]
+    assert api.dispatch("GET", "/analysis", {"symbol": ["ETHUSDT"], "timeframe": ["4h"]}, None) is out   # cache
+    for query, status in (({"symbol": ["NOPEUSDT"]}, 404), ({"symbol": ["ETHUSDT"], "timeframe": ["5m"]}, 400),
+                          ({"symbol": ["../x"]}, 400)):
+        with pytest.raises(ApiError) as caught:
+            api.dispatch("GET", "/analysis", query, None)
+        assert caught.value.status == status
+
+
 def test_explanation_defines_every_number():
     text = explain({"verdict": "INDETERMINE", "checks": [], "source": "g",
                     "base_rate": {"samples": 412, "tp_first": 0.37, "expectancy_r": -0.08,

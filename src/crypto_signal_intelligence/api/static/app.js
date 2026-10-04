@@ -268,6 +268,134 @@ async function loadVolatility() {
 }
 
 // Risque à 24 h (shadow) : seule prévision de volatilité confirmée hors échantillon (VOLATILITY.md § 19).
+// --- analyse technique d'une paire (technical/analysis.py) : lecture mécanique du graphique ----------------------
+const TECH_TF = [["1h", "1 h"], ["4h", "4 h"], ["1d", "1 jour"]];
+const FIGURE_NAMES = { HEAD_SHOULDERS: "tête-épaules", DOUBLE: "double creux/sommet", FLAG: "drapeau", CUP_HANDLE: "coupe avec anse",
+  TRIANGLE: "triangle / biseau", TRENDLINE: "ligne de tendance", ABCD: "ABCD", ICT: "ICT/SMC", GARTLEY: "Gartley", BAT: "Bat",
+  BUTTERFLY: "Butterfly", CRAB: "Crab" };
+
+function svgEl(tag, attrs, text) {
+  const node = document.createElementNS(SVG, tag);
+  for (const [k, v] of Object.entries(attrs || {})) node.setAttribute(k, String(v));
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function technicalChart(d) {
+  const W = 960, H = 380, L = 8, R = 92, T = 10, B = 22;
+  const bars = d.bars || [];
+  if (!bars.length) return null;
+  const close = d.close;
+  const near = (p) => isNum(p) && Math.abs(p / close - 1) < 0.25;
+  const plan = d.plan || {};
+  const extra = [...(d.resistances || []).slice(0, 3), ...(d.supports || []).slice(0, 3)].map((x) => x.price)
+    .concat(plan.state === "PLAN" ? [plan.stop, ...(plan.targets || []).map((t) => t.price)] : []).filter(near);
+  let lo = Math.min(...bars.map((b) => b[3]), ...extra), hi = Math.max(...bars.map((b) => b[2]), ...extra);
+  const pad = (hi - lo) * 0.04 || hi * 0.01; lo -= pad; hi += pad;
+  const y = (p) => T + ((hi - p) / (hi - lo)) * (H - T - B);
+  const step = (W - L - R) / bars.length;
+  const x = (i) => L + (i + 0.5) * step;
+  const index = new Map(bars.map((b, i) => [b[0], i]));
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, class: "ta-chart", role: "img",
+    "aria-label": `Graphique ${d.symbol} ${d.timeframe}` });
+  const hline = (p, cls, label) => {
+    if (!(p > lo && p < hi)) return;
+    svg.append(svgEl("line", { x1: L, x2: W - R, y1: y(p), y2: y(p), class: cls }));
+    svg.append(svgEl("text", { x: W - R + 4, y: y(p) + 4, class: `ta-label ${cls}` }, label));
+  };
+  for (const z of d.zones || []) {
+    const i = index.has(z.from) ? index.get(z.from) : 0;
+    const top = Math.min(hi, z.top), bottom = Math.max(lo, z.bottom);
+    if (top <= bottom) continue;
+    svg.append(svgEl("rect", { x: x(i) - step / 2, y: y(top), width: W - R - (x(i) - step / 2), height: y(bottom) - y(top),
+      class: `ta-zone ${z.side === "bull" ? "bull" : "bear"}` }));
+  }
+  bars.forEach((b, i) => {
+    const up = b[4] >= b[1];
+    svg.append(svgEl("line", { x1: x(i), x2: x(i), y1: y(b[2]), y2: y(b[3]), class: `ta-wick ${up ? "up" : "down"}` }));
+    const top = y(Math.max(b[1], b[4])), h = Math.max(1, Math.abs(y(b[1]) - y(b[4])));
+    svg.append(svgEl("rect", { x: x(i) - step * 0.35, y: top, width: step * 0.7, height: h, class: `ta-body ${up ? "up" : "down"}` }));
+  });
+  (d.resistances || []).slice(0, 3).forEach((r, k) => hline(r.price, "ta-res", `R${k + 1} ${price(r.price)}`));
+  (d.supports || []).slice(0, 3).forEach((s, k) => hline(s.price, "ta-sup", `S${k + 1} ${price(s.price)}`));
+  const prev = d.previous || {};
+  for (const [key, label] of [["PDH", "veille haut"], ["PDL", "veille bas"], ["PWH", "sem. haut"], ["PWL", "sem. bas"]]) {
+    if (isNum(prev[key])) hline(prev[key], "ta-prev", label);
+  }
+  for (const f of d.figures || []) {
+    const pts = (f.points || []).filter((p) => index.has(p.time) && p.price > lo && p.price < hi);
+    if (pts.length < 2) continue;
+    svg.append(svgEl("polyline", { points: pts.map((p) => `${x(index.get(p.time))},${y(p.price)}`).join(" "),
+      class: `ta-fig ${f.side === "bull" ? "bull" : "bear"}` }));
+  }
+  if (plan.state === "PLAN") {
+    hline(plan.stop, "ta-stop", `stop ${price(plan.stop)}`);
+    (plan.targets || []).forEach((t, k) => hline(t.price, "ta-tp", `TP${k + 1} ${price(t.price)}`));
+  }
+  hline(close, "ta-last", `${price(close)}`);
+  svg.append(svgEl("text", { x: L, y: H - 6, class: "ta-axis" }, (bars[0][0] || "").slice(0, 16).replace("T", " ")));
+  svg.append(svgEl("text", { x: W - R, y: H - 6, class: "ta-axis", "text-anchor": "end" }, (bars[bars.length - 1][0] || "").slice(0, 16).replace("T", " ")));
+  return svg;
+}
+
+function technicalBody(d) {
+  const plan = d.plan || {};
+  const dist = (p) => `${fmt((p / d.close - 1) * 100, 2, true)} %`;
+  const levelRows = (rows) => rows.map((r) => [price(r.price), dist(r.price), r.touches, when(r.last_touch)]);
+  const planNode = plan.state === "PLAN"
+    ? el("div", {}, kv([["Entrée (dernière clôture)", price(plan.entry)], ["Stop (sous le support)", `${price(plan.stop)} (−${fmt(plan.stop_pct, 2)} %)`],
+        ...(plan.targets || []).map((t, k) => [`TP${k + 1} (résistance)`, `${price(t.price)} (+${fmt(t.pct, 2)} % · ${fmt(t.r, 2)} R)`])]),
+      plan.note ? el("p", { class: "warn small", text: plan.note }) : null)
+    : el("p", { class: "muted", text: `Pas de plan d'achat : ${plan.reason}` });
+  return el("div", {},
+    el("ul", { class: "ta-summary" }, (d.summary || []).map((line) => el("li", { text: line }))),
+    el("h3", { text: "Plan indicatif (long seulement)" }), planNode,
+    el("div", { class: "grid" },
+      el("div", {}, el("h3", { text: "Résistances" }), table(["Prix", "Distance", { label: "Touches", num: true }, "Dernière"], levelRows(d.resistances || []), "aucune au-dessus")),
+      el("div", {}, el("h3", { text: "Supports" }), table(["Prix", "Distance", { label: "Touches", num: true }, "Dernière"], levelRows(d.supports || []), "aucun en dessous"))),
+    el("h3", { text: "Figures récentes (20 dernières bougies)" }),
+    table(["Figure", "Sens", "Détectée", "Entrée · stop · objectifs"], (d.figures || []).map((f) => [FIGURE_NAMES[f.family] || f.family,
+      f.side === "bull" ? "haussière" : "baissière", when(f.detected_at),
+      f.side === "bull" && isNum(f.entry) ? `${price(f.entry)} · ${price(f.stop)} · ${(f.targets || []).map(price).join(" / ")}` : "—"]), "aucune"),
+    el("p", { class: "muted small", text: `${d.warning} Prix arrondis au pas de cotation ${d.tick || "(inconnu : non arrondis)"}. ` +
+      "Légende : rouge = résistance, vert = support, pointillés gris = plus haut et plus bas de la veille et de la semaine, " +
+      "zones = FVG et order blocks encore actifs, traits orange = figures, bleu = plan." }));
+}
+
+async function loadTechnical(force = false) {
+  const target = document.getElementById("technical-result");
+  if (!target || (state.technicalLoaded && !force)) return;
+  state.technicalLoaded = true;
+  state.technical = state.technical || { symbol: "BTCUSDT", timeframe: "4h" };
+  let pairs = [];
+  try { pairs = (await api("/analysis/pairs")).pairs || []; } catch (error) { showError(target, error); return; }
+  if (!pairs.includes(state.technical.symbol) && pairs.length) state.technical.symbol = pairs[0];
+  const select = el("select", { "aria-label": "Paire" }, pairs.map((p) => el("option", { value: p, text: pair(p) })));
+  select.value = state.technical.symbol;
+  const tfs = el("div", { class: "segmented" });
+  const out = el("div", {});
+  const run = async () => {
+    state.technical.symbol = select.value;
+    for (const b of tfs.children) b.classList.toggle("on", b.dataset.key === state.technical.timeframe);
+    busy(out, "Analyse…");
+    try {
+      const d = await api(`/analysis?symbol=${encodeURIComponent(state.technical.symbol)}&timeframe=${state.technical.timeframe}`);
+      out.replaceChildren(el("div", { class: "ta-wrap" }, technicalChart(d)), technicalBody(d));
+    } catch (error) {
+      showError(out, error);
+    }
+  };
+  for (const [key, label] of TECH_TF) {
+    tfs.append(el("button", { type: "button", "data-key": key, text: label,
+      onclick: () => { state.technical.timeframe = key; run(); } }));
+  }
+  select.addEventListener("change", run);
+  target.replaceChildren(card("Analyse technique d'une paire (lecture mécanique du graphique)",
+    el("div", { class: "row wrap" }, el("div", { class: "field" }, "Paire", select), el("div", { class: "field" }, "Unité de temps", tfs)),
+    out));
+  run();
+}
+
 async function loadRisk() {
   const target = document.getElementById("risk-result");
   if (!target || state.riskLoaded) return;
@@ -1099,7 +1227,7 @@ function openTab(name) {
   for (const pane of document.querySelectorAll(".tabpane")) pane.classList.toggle("hidden", pane.id !== `tab-${name}`);
   if (name === "follow") loadFollow();
   if (name === "signal") loadImages();
-  if (name === "market") { loadVolatility(); loadRisk(); }
+  if (name === "market") { loadTechnical(); loadVolatility(); loadRisk(); }
 }
 
 function start() {

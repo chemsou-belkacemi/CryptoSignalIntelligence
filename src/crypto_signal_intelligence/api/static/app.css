@@ -84,3 +84,25 @@ tr.selected td { background: var(--soft-neutral); }
 /* Navigation dans les signaux des stratégies de CSI (pages de 20). */
 .pager { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0 8px; }
 .pager button:disabled { opacity: 0.45; cursor: default; }
+/* Analyse technique : graphique en bougies et niveaux (SVG ; couleurs du thème, aucun style en ligne). */
+.ta-wrap { width: 100%; overflow-x: auto; }
+.ta-chart { width: 100%; min-width: 640px; height: auto; display: block; margin: 8px 0; }
+.ta-chart line, .ta-chart polyline { vector-effect: non-scaling-stroke; }
+.ta-wick { stroke-width: 1; }
+.ta-wick.up, .ta-body.up { stroke: var(--ok); fill: var(--ok); }
+.ta-wick.down, .ta-body.down { stroke: var(--bad); fill: var(--bad); }
+.ta-res { stroke: var(--bad); stroke-width: 1.2; fill: var(--bad); }
+.ta-sup { stroke: var(--ok); stroke-width: 1.2; fill: var(--ok); }
+.ta-prev { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 2 3; fill: var(--muted); }
+.ta-stop { stroke: var(--bad); stroke-width: 1.5; stroke-dasharray: 6 4; fill: var(--bad); }
+.ta-tp { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 6 4; fill: var(--accent); }
+.ta-last { stroke: var(--ink); stroke-width: 1; stroke-dasharray: 1 3; fill: var(--ink); }
+.ta-fig { fill: none; stroke: var(--warn); stroke-width: 2; }
+.ta-fig.bear { stroke-dasharray: 4 3; }
+.ta-zone { stroke: none; }
+.ta-zone.bull { fill: var(--ok); fill-opacity: .12; }
+.ta-zone.bear { fill: var(--bad); fill-opacity: .12; }
+.ta-label { font-size: 11px; stroke: none; }
+.ta-axis { font-size: 11px; fill: var(--muted); }
+.ta-summary { margin: 8px 0; padding-left: 18px; }
+
