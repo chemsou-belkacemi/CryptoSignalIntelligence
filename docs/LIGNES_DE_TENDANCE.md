@@ -14,7 +14,7 @@ DEVELOPMENT seulement. **2 essais.**
 
 ## Données
 
-- **Paires** : les 214 paires du recensement de l'univers à date (`UNIVERSE_PIT.md` : paires USDT cotées et retirées,
+- **Paires** : les paires du recensement de l'univers à date (`UNIVERSE_PIT.md` : paires USDT cotées et retirées,
   moins stablecoins, tokens adossés ou à levier, cryptos jugées haram, exclusions historiques) passées au moins une fois
   par le top 40 mensuel, **hors des 40 paires de recherche**. Elles n'ont servi à **aucune** étude de figures ; elles ont
   servi à d'autres criblages (K à date, portefeuilles hebdomadaires, grille / DCA). Environ 50 sont retirées de la cote
@@ -82,6 +82,49 @@ année ; part des transactions qui touchent TP1, TP2, TP3, contre les placebos ;
   objectifs et ce stop.
 - `NON_CONFIRMEE` : la case des 40 paires était du hasard (une sur 36).
 
+## Ajouts de la relecture, avant l'exécution (2026-10-04, `leak-auditor` ; mesure et décision inchangées)
+
+- **Minutes complètes exigées** (point bloquant de la relecture) : pour chaque paire qui a au moins un déclencheur, les
+  bougies 1 minute doivent couvrir au moins **99 %** des heures 1 h de la période utile (30 jours avant le premier
+  déclencheur possible jusqu'à la dernière heure) et ne pas s'arrêter plus d'un jour avant la dernière heure ; sinon
+  l'exécution est **refusée et rien n'est compté** (paire absente ou tronquée = biais possible). Couverture par paire
+  gardée dans le rapport. L'exécution attend aussi la fin du téléchargement sans échec.
+- **Paires** : 223 paires du top 40 à date hors des 40 ; 8 n'ont pas d'historique 1 h (AION, ANT, GAL, JST, LEVER, SC,
+  SKL, SUN : aucun déclencheur possible), 215 en ont, 214 ont des heures dans la période, 211 au moins un déclencheur ;
+  6 540 déclencheurs valides sur 6 628.
+- **Placebos, référence rétrospective** : tirés sur toute la période de la paire, ils lisent des données postérieures à
+  la décision (jusqu'à 6 ans). Le déclencheur et ses niveaux restent causaux ; l'excès n'est pas un gain réalisable,
+  seule la décision « gain » en parle. Contrôle sur les vraies heures (sans aucun résultat) : les déclencheurs ne se
+  regroupent pas dans le temps (position moyenne dans la fenêtre des placebos 0,49 ; part par année proche de la part
+  du temps couvert par les placebos, à moins d'un point près chaque année).
+- **Contrôle sous l'hypothèse nulle étendu** (120 marches de 3 ans par cas, même `pair_rows`) :
+
+  | Cas synthétique | Excès, placebos sur tout l'historique | Excès, placebos de F15 | TP1 transactions / placebos |
+  |---|---|---|---|
+  | volatilité constante (contrôle déclaré, 40 marches) | −0,034 (z −1,2) | +0,007 (z 0,3) | — |
+  | régimes de volatilité ×0,5 / 1 / 2 sur 20 jours | +0,014 (z 0,7) | +0,050 (z 2,6) | 61 % / 54 % |
+  | tendances ±0,4 %/jour par régimes de 30 jours | −0,003 (z −0,2) | +0,037 (z 2,2) | 62 % / 63 % |
+  | hausse puis chute, avec régimes de volatilité | +0,014 (z 0,8) | +0,058 (z 3,1) | 60 % / 54 % |
+
+  L'instrument de décision tient (biais de +0,014 R au plus : un intervalle dont la borne basse tombe entre 0 et 0,02
+  sera signalé). En revanche, **la comparaison des taux d'objectifs (TP1, TP2, TP3) contre les placebos est biaisée**
+  d'environ +6 points dès que la volatilité change de régime (non interprétable comme information), et **l'excès
+  contre les placebos de F15 est biaisé de +0,04 à +0,06 R** : la piste des 40 paires (+0,21 R, mesurée contre ces
+  placebos puis corrigée du biais de volatilité constante) est probablement surestimée d'environ 0,05 R, en plus de
+  l'effet du gagnant (1 case sur 36).
+- **Sélection sur la popularité future** : l'univers est « passé au moins une fois par le top 40 » jusqu'en 2025-06 ;
+  14 % des déclencheurs précèdent la première entrée de leur paire dans ce top. Ce n'est pas le biais de survivance
+  des retraits (absent ici), mais une sélection sur l'avenir qui touche surtout la décision « gain » ; descriptif
+  ajouté : avant / après la première entrée dans le top 40.
+- **Drapeaux** : `top40` est causal (appartenance au 1er du mois, calculée sur les jours d'avant) ; « paire retirée »
+  est rétrospectif (45 paires), descriptif seulement.
+- Concentration par **année** ajoutée au descriptif (part du total) ; 4 déclencheurs seulement ont un horizon qui
+  dépasse la dernière bougie d'une paire retirée ; ordre non exécuté avant la fin des données : `TROU` (exclu) ;
+  symboles réutilisés et longs trous (LUNA, STRAX, CVC) : aucune transaction ni placebo ne traverse un trou, le
+  détecteur si (4 déclencheurs), négligeable ; intervalles par blocs un peu étroits (les placebos d'une paire partagent
+  son historique), effet faible.
+
 ## Historique
 
 - 2026-10-04 : déclaré avant tout code et toute exécution ; téléchargement des minutes lancé le même jour.
+- 2026-10-04 : relecture indépendante avant l'exécution ; ajouts ci-dessus (garde de couverture des minutes, déclarations).

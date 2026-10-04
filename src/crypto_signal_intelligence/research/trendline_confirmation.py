@@ -29,10 +29,15 @@ METHOD, TIMEFRAME = "TRENDLINE", "1h"
 N_TRIALS = 2
 LEVEL = 1 - 0.05 / N_TRIALS
 PLACEBOS = 20
-GAP_MINUTES = 10
+MIN_COVERAGE = 0.99                  # part des heures 1 h couvertes par au moins une minute
+END_TOLERANCE = pd.Timedelta(days=1)
 CONFIRMED, INVERSE, NOT_CONFIRMED = "PISTE_CONFIRMEE", "INVERSE", "NON_CONFIRMEE"
 GAIN, LOSS, NO_GAIN = "GAIN_DEMONTRE", "PERTE_DEMONTREE", "GAIN_NON_DEMONTRE"
 INSUFFICIENT = "INSUFFISANT"
+
+
+class IncompleteMinutes(RuntimeError):
+    """Bougies 1 minute absentes ou incomplètes pour une paire qui a des déclencheurs : exécution refusée."""
 
 
 def universe(settings: Settings) -> list[str]:
@@ -79,16 +84,37 @@ def with_uniform_placebos(row: dict, m: fh.Minutes, *, lo_ns: int, hi_ns: int) -
     return row
 
 
+def trend_setups(h1: pd.DataFrame, symbol: str, end: pd.Timestamp) -> tuple[list[fh.Setup], pd.Timestamp]:
+    """Déclencheurs `TRENDLINE` 1 h de la période (détecteur de F15) et première bougie 1 h de la paire."""
+    first = pd.Timestamp(pd.to_datetime(h1["open_time"], utc=True).min())
+    frame = f15.aggregate(h1, TIMEFRAME)
+    return [s for s in fh.figure_setups(frame, TIMEFRAME, symbol) if s.method == METHOD
+            and fh.in_period(s, first_bar=first, end=end)], first
+
+
+def coverage(h1: pd.DataFrame, m: fh.Minutes, *, first: pd.Timestamp) -> dict:
+    """Couverture des minutes sur les heures 1 h utiles (30 jours avant le premier déclencheur possible, pour les placebos
+    de F15, jusqu'à la dernière heure) ; fin des minutes contre fin des heures."""
+    hours = pd.to_datetime(h1["open_time"], utc=True)
+    start = max(fh.FIRST_DAY, first + fh.WARMUP) - pd.Timedelta(days=30)
+    hours = hours[hours >= start]
+    minute_hours = set(pd.to_datetime(m.ns, utc=True).floor("h").asi8.tolist()) if len(m.ns) else set()
+    covered = float(np.mean([h in minute_hours for h in hours.dt.as_unit("ns").astype("int64")])) if len(hours) else 1.0
+    last_hour = pd.Timestamp(hours.max()) if len(hours) else None
+    last_minute = pd.Timestamp(int(m.ns[-1]), tz="UTC") if len(m.ns) else None
+    late_end = last_hour is not None and (last_minute is None or last_minute < last_hour + pd.Timedelta(minutes=59) - END_TOLERANCE)
+    return {"hours": int(len(hours)), "covered": round(covered, 5), "last_hour": str(last_hour), "last_minute": str(last_minute),
+            "ok": bool(covered >= MIN_COVERAGE and not late_end)}
+
+
 def pair_rows(h1: pd.DataFrame, m: fh.Minutes, symbol: str, *, end: pd.Timestamp, latency: pd.Timedelta,
               top_months: set[str]) -> list[dict]:
     """Déclencheurs `TRENDLINE` 1 h d'une paire, joués, avec les deux jeux de placebos."""
     h1 = h1[pd.to_datetime(h1["open_time"], utc=True) <= end].reset_index(drop=True)
     if h1.empty or len(m.ns) == 0:
         return []
-    first = pd.Timestamp(pd.to_datetime(h1["open_time"], utc=True).min())
-    frame = f15.aggregate(h1, TIMEFRAME)
-    setups = [s for s in fh.figure_setups(frame, TIMEFRAME, symbol) if s.method == METHOD
-              and fh.in_period(s, first_bar=first, end=end)]
+    setups, first = trend_setups(h1, symbol, end)
+    first_top = min(top_months) if top_months else None
     lo_ns = max(fh.FIRST_DAY, first + fh.WARMUP).as_unit("ns").value
     hold_ns = f15.HOLD_BARS * f15.TIMEFRAMES[TIMEFRAME].value
     hi_ns = min(end.as_unit("ns").value, int(m.ns[-1])) - hold_ns
@@ -98,6 +124,7 @@ def pair_rows(h1: pd.DataFrame, m: fh.Minutes, symbol: str, *, end: pd.Timestamp
     for setup in setups:
         row = with_uniform_placebos(fh.play(setup, m, symbol, latency), m, lo_ns=lo_ns, hi_ns=hi_ns)
         row["top40"] = setup.at.strftime("%Y-%m") in top_months
+        row["after_first_top40"] = first_top is not None and setup.at.strftime("%Y-%m") >= first_top
         row["delisted_pair"] = delisted
         rows.append(row)
     return rows
@@ -110,17 +137,28 @@ def _one(args: tuple) -> tuple[str, list[dict] | None, dict]:
     settings, symbol, end, top_months = args
     try:
         h1 = load_long(settings, symbol)
+    except MissingData:
+        return symbol, None, {}                             # pas d'historique 1 h : aucun déclencheur possible
+    h1 = h1[pd.to_datetime(h1["open_time"], utc=True) <= end].reset_index(drop=True)
+    if h1.empty:
+        return symbol, None, {}
+    hashes: dict = {f"1h/{symbol}": fingerprint(h1[["open_time", "open", "high", "low", "close"]])}
+    setups, first = trend_setups(h1, symbol, end)
+    if not setups:
+        return symbol, [], hashes
+    try:
         bars = load_minutes(settings, symbol)
     except MissingData:
-        return symbol, None, {}
-    h1 = h1[pd.to_datetime(h1["open_time"], utc=True) <= end].reset_index(drop=True)
+        return symbol, [], hashes | {"coverage": {"ok": False, "reason": "aucune bougie 1 minute"}}
     bars = bars.loc[pd.to_datetime(bars["open_time"], utc=True) <= end, ["open_time", "open", "high", "low", "close"]]
     m = fh.Minutes.from_frame(bars.reset_index(drop=True))
     del bars
+    check = coverage(h1, m, first=first)
+    hashes |= {f"1m/{symbol}": fh.minutes_hash(m), "coverage": check}
+    if not check["ok"]:
+        return symbol, [], hashes
     latency = pd.Timedelta(seconds=settings.data.assumed_availability_latency_seconds)
-    rows = pair_rows(h1, m, symbol, end=end, latency=latency, top_months=top_months)
-    hashes = {f"1h/{symbol}": fingerprint(h1[["open_time", "open", "high", "low", "close"]]), f"1m/{symbol}": fh.minutes_hash(m)}
-    return symbol, rows, hashes
+    return symbol, pair_rows(h1, m, symbol, end=end, latency=latency, top_months=top_months), hashes
 
 
 # --- Mesure ---------------------------------------------------------------------------------------------------------
@@ -171,7 +209,9 @@ def describe(trades: pd.DataFrame) -> dict:
     out: dict = {"triggers": int(len(trades)), "status": trades["status"].value_counts().to_dict(),
                  "top40": measure(trades[trades["top40"]], CENTRAL, level=0.95, samples=2000),
                  "listed_pairs": measure(trades[~trades["delisted_pair"]], CENTRAL, level=0.95, samples=2000),
-                 "delisted_pairs": measure(trades[trades["delisted_pair"]], CENTRAL, level=0.95, samples=2000)}
+                 "delisted_pairs": measure(trades[trades["delisted_pair"]], CENTRAL, level=0.95, samples=2000),
+                 "before_first_top40": measure(trades[~trades["after_first_top40"]], CENTRAL, level=0.95, samples=2000),
+                 "after_first_top40": measure(trades[trades["after_first_top40"]], CENTRAL, level=0.95, samples=2000)}
     if not done.empty:
         years = pd.to_datetime(done["fill_at"], utc=True).dt.year
         out["years"] = {int(y): {"n": int(len(g)), "r_mean": round(float(g[f"r_{CENTRAL}"].mean()), 4),
@@ -184,6 +224,9 @@ def describe(trades: pd.DataFrame) -> dict:
             total = float(sums.sum())
             out[f"top_pair_{column}"] = {"pair": top, "share": round(float(sums.max()) / total, 4) if total > 0 else None,
                                          "mean_without": round(float(values[done["symbol"] != top].mean()), 4)}
+            by_year = values.groupby(years.to_numpy()).sum()
+            out[f"top_year_{column}"] = {"year": int(by_year.idxmax()),
+                                         "share": round(float(by_year.max()) / float(by_year.sum()), 4) if by_year.sum() > 0 else None}
     return out
 
 
@@ -210,6 +253,7 @@ def run(settings: Settings, *, now: datetime, progress: Callable[[str], None] | 
     rows: list[dict] = []
     hashes: dict[str, str] = {}
     missing: list[str] = []
+    coverages: dict[str, dict] = {}
 
     def collect(results) -> None:
         for symbol, found, h in results:
@@ -217,6 +261,8 @@ def run(settings: Settings, *, now: datetime, progress: Callable[[str], None] | 
             if found is None:
                 missing.append(symbol)
                 continue
+            if "coverage" in h:
+                coverages[symbol] = h.pop("coverage")
             rows.extend(found)
             hashes.update(h)
 
@@ -225,6 +271,11 @@ def run(settings: Settings, *, now: datetime, progress: Callable[[str], None] | 
     else:
         with ProcessPoolExecutor(workers) as pool:
             collect(pool.map(_one, jobs))
+    bad = {k: v for k, v in coverages.items() if not v.get("ok")}
+    if bad:                                                 # exécution unique : rien n'est compté sur des minutes incomplètes
+        raise IncompleteMinutes(f"bougies 1 minute incomplètes pour {len(bad)} paires : {sorted(bad)[:10]} ; rien n'est compté")
+    if not rows:
+        raise IncompleteMinutes("aucune transaction : rien n'est compté")
     trades = pd.DataFrame(rows).sort_values(["at", "key"]).reset_index(drop=True)
     result = evaluate(trades)
     registry = ExperimentRegistry(settings.experiments_db)
@@ -233,10 +284,11 @@ def run(settings: Settings, *, now: datetime, progress: Callable[[str], None] | 
     report_dir = settings.reports_dir / run_id
     report_dir.mkdir(parents=True, exist_ok=True)
     payload = {"run_id": run_id, "n_trials": N_TRIALS, "program_trials": program, "level": round(LEVEL, 6),
-               "result": result, "missing": missing, "pairs": len(pairs), "doc": "docs/LIGNES_DE_TENDANCE.md"}
+               "result": result, "missing": missing, "pairs": len(pairs), "coverage": coverages,
+               "doc": "docs/LIGNES_DE_TENDANCE.md"}
     registry.record(run_id=run_id, created_at=now.isoformat(), kind=KIND,
                     hypothesis="les cassures de ligne de tendance en 1 h battent-elles le hasard et gagnent-elles, frais "
-                               "compris, sur 214 paires jamais utilisées ?",
+                               "compris, sur les paires du top 40 à date jamais utilisées pour une figure ?",
                     strategy="TRENDLINE_CONFIRMATION", strategy_version=1, variant="définitions figées (docs/LIGNES_DE_TENDANCE.md)",
                     params={"method": METHOD, "timeframe": TIMEFRAME, "placebos": PLACEBOS, "first_day": str(fh.FIRST_DAY.date()),
                             "warmup_days": fh.WARMUP.days, "block_days": fh.BLOCK_DAYS, "samples": fh.SAMPLES, "seed": fh.SEED},

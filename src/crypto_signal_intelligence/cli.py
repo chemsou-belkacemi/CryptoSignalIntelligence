@@ -1056,14 +1056,14 @@ def trendline_confirmation_command(allow_dirty: bool = typer.Option(False, "--al
     """Cassures de ligne de tendance en 1 h sur 214 paires jamais utilisées, placebos tirés sur tout l'historique
     (docs/LIGNES_DE_TENDANCE.md) : 2 essais, DEVELOPMENT seulement."""
     from .research.factors import DirtyCode
-    from .research.trendline_confirmation import run
+    from .research.trendline_confirmation import IncompleteMinutes, run
     settings = _settings(verbose)
     _heavy_job(settings)
     try:
         with console.status("lignes de tendance…") as status:
             payload = run(settings, now=_now(), progress=lambda text: status.update(f"lignes de tendance : {text}"),
                           allow_dirty=allow_dirty, workers=workers)
-    except (DirtyCode, FileNotFoundError) as exc:
+    except (DirtyCode, FileNotFoundError, IncompleteMinutes) as exc:
         console.print(f"[red]Aucun résultat :[/red] {exc}")
         raise typer.Exit(3) from None
     result = payload["result"]

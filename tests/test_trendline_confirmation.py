@@ -93,6 +93,7 @@ def test_pair_rows_keeps_trendlines_in_1h_only_with_flags():
     assert all(r["at"] >= pd.Timestamp("2019-04-01", tz="UTC") for r in out)      # 90 jours d'échauffement
     assert all(r["top40"] == (r["at"].strftime("%Y-%m") == "2019-06") for r in out)
     assert all(r["delisted_pair"] for r in out)                                     # données arrêtées en 2019
+    assert all(r["after_first_top40"] == (r["at"].strftime("%Y-%m") >= "2019-06") for r in out)
     assert any(r["status"] == fh.EXECUTED and r["uplacebo_n_central"] > 0 for r in out)
 
 
@@ -137,6 +138,28 @@ def test_run_end_to_end(settings, monkeypatch):
     assert entry is not None and entry["metrics"]["n_trials"] == 2 and set(entry["data_hashes"]) == {"1h/AUSDT", "1m/AUSDT"}
     trades = pd.read_parquet(settings.reports_dir / payload["run_id"] / "trades.parquet")
     assert set(trades["method"]) == {"TRENDLINE"} and trades["top40"].any()
+    assert payload["coverage"]["AUSDT"]["ok"] and payload["coverage"]["AUSDT"]["covered"] == 1.0
     monkeypatch.setattr(tc, "code_state", lambda: "abc123+DIRTY")
     with pytest.raises(tc.DirtyCode):
+        tc.run(settings, now=datetime(2026, 10, 4, tzinfo=UTC), workers=1)
+    monkeypatch.setattr(tc, "code_state", lambda: "abc123")
+    trials = ExperimentRegistry(settings.experiments_db).program_trials()
+
+    def truncated(settings, symbol):                    # téléchargement inachevé : minutes coupées à mi-période
+        frame = fake_minutes(settings, symbol)
+        return frame.iloc[: len(frame) // 2]
+
+    monkeypatch.setattr(minute_history, "load_minutes", truncated)
+    with pytest.raises(tc.IncompleteMinutes):
+        tc.run(settings, now=datetime(2026, 10, 4, tzinfo=UTC), workers=1)
+    assert ExperimentRegistry(settings.experiments_db).program_trials() == trials == 2      # rien n'est compté
+
+    def holed(settings, symbol):                        # 3 % des heures sans minute
+        frame = fake_minutes(settings, symbol)
+        hour = pd.to_datetime(frame["open_time"], utc=True).dt.floor("h")
+        drop = hour.isin(hour.drop_duplicates().iloc[3000:3250])   # dans la période contrôlée
+        return frame[~drop]
+
+    monkeypatch.setattr(minute_history, "load_minutes", holed)
+    with pytest.raises(tc.IncompleteMinutes):
         tc.run(settings, now=datetime(2026, 10, 4, tzinfo=UTC), workers=1)
