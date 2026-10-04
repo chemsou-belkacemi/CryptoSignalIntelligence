@@ -240,7 +240,8 @@ est une piste, à confirmer sur des données non vues. Code : `research/double_m
 `tests/test_double_management.py` ; commande : `csi double-management`. **2 essais.**
 
 **Données.** Les mêmes transactions : les 2 455 doubles creux exécutés de `FIGH-20261004T102820Z-479ac6` (fichier
-`trades.parquet`, méthode `DOUBLE`), même exécution de l'ordre (mêmes minute et prix d'exécution, vérifiés), mêmes
+`trades.parquet`, méthode `DOUBLE`), même exécution de l'ordre (même minute d'exécution vérifiée ; le prix l'est pour
+la variante « stop resserré » ; relecture : les bougies 1 minute n'ont pas changé depuis), mêmes
 placebos (mêmes tirages), mêmes frais, même échéance (60 bougies depuis l'exécution). Rien n'est redétecté.
 
 **Gestion testée (règles du propriétaire, fixées ici).** Hauteur `P` du double creux (= 3 × (TP1 − entrée) de la
@@ -282,9 +283,11 @@ stop initial 17 %, TP5 complet 5 %, échéance 8 %. Par année : 2020 et 2021 po
 règle des tiers : le stop remonté à l'entrée supprime bien les pertes après TP1, mais il coupe 36 % des transactions
 à zéro, là où la règle des tiers en laissait une partie monter jusqu'au TP2 ou TP3 ; les deux effets se compensent
 exactement. 76 % de transactions gagnantes pour **+0,39 % de la position par transaction** en moyenne (non démontré :
-l'intervalle contient 0). Avec un stop à 7,9 % sous l'entrée, risquer 1 % du capital par transaction revient à engager
-13 % du capital : soit environ **+0,05 % du capital par transaction**, à raison d'une transaction par jour sur les 40
-paires. L'objectif « 1 à 2 % par jour » demanderait 20 à 40 fois cela. TP4 et TP5 ne sont atteints que 10 % et 5 % du
+l'intervalle contient 0). En risquant 1 % du capital par transaction (taille = 1 % ÷ distance du stop), le gain moyen
+vaut R moyen × 1 % : **+0,019 % du capital par transaction** (+0,008 % en défavorable), à raison d'une transaction par
+jour sur les 40 paires. L'objectif « 1 à 2 % par jour » demanderait 50 à 100 fois cela. *(Corrigé à la relecture :
+le texte disait d'abord +0,05 %, en multipliant le % moyen de la position, tiré par les stops larges, par une taille
+calculée sur le stop médian ; surestimé d'environ 2,6 fois.)* TP4 et TP5 ne sont atteints que 10 % et 5 % du
 temps en 60 bougies : des objectifs plus lointains n'ajoutent presque rien.
 
 ## Stop resserré sur le double creux (déclaré le 2026-10-04, après les deux exécutions précédentes : piste contaminée)
@@ -318,6 +321,18 @@ des objectifs ; par unité de temps et par année.
 **Attendu, déclaré.** Un stop plus serré est touché plus souvent par le bruit ; les frais pèsent deux fois plus par
 unité de risque. Le stop à la clôture peut perdre plus que son niveau (trou après la clôture), jusqu'au stop de
 sécurité.
+
+**Ajouts de la relecture, avant l'exécution** (`leak-auditor`, aucun défaut bloquant) :
+- `0,4 D` traduit le « −2,5 % à la clôture » du propriétaire proportionnellement à la distance du stop d'origine (−6,6 %
+  en 1 h, d'où environ −2,6 %), pour rester comparable en 4 h et 1 jour ; médiane 3,2 %, de 0,3 à 21 % ;
+- écart avec la référence donné aussi **en % de la position** (à position égale) ; l'écart en R compare à risque prévu
+  égal (position plus grosse quand le stop est plus serré) ;
+- queue des pertes : part des R < −1, 1er centile et minimum (`CLOTURE_0_4` peut perdre jusqu'à 2,5 fois son risque
+  prévu, au stop de sécurité, et plus en cas de trou) ; à 1 % de risque, la position dépasse le capital quand le
+  risque prévu est sous 1 % de l'entrée (2,6 % des transactions en `CLOTURE_0_4`) : infaisable en Spot, déclaré ;
+- paire qui apporte le plus et R moyen sans elle ;
+- refus si l'exécution rejouée diffère en minute ou en prix, si les bougies 1 minute diffèrent de la première
+  exécution (empreinte du registre), ou si le prix d'exécution est sous le stop resserré (gain fictif ; 0 cas attendu).
 
 ## Historique
 

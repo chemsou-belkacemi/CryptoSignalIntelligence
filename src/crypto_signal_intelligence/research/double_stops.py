@@ -121,10 +121,14 @@ def replay(row, m: fh.Minutes, latency: pd.Timedelta) -> dict:
             until.as_unit("ns").value if until is not None else -1, hold_ns, False, costs.market, costs.fee, fh.WEIGHTS, True)
         if status != fh.ST_EXECUTED or pd.Timestamp(int(m.ns[fill_i]), tz="UTC") != pd.Timestamp(row.fill_at):
             raise ValueError(f"{row.key} : exécution différente de la première exécution ({status})")
+        if scenario == CENTRAL and abs(float(fill_price) - float(row.fill_price)) > 1e-9 * float(row.fill_price):
+            raise ValueError(f"{row.key} : prix d'exécution différent de la première exécution")
         fill_ns = int(m.ns[fill_i])
         for variant in (REFERENCE, *VARIANTS):
             touch, close_level, risk = levels(variant, entry, stop0)
             risk_pct = risk / entry
+            if fill_price <= touch:                         # sortie « au stop » au-dessus du prix d'achat : gain fictif
+                raise ValueError(f"{row.key} : exécution sous le stop resserré ({variant})")
             hits, net, exit_i, outcome = _managed(m.o, m.h, m.lo, m.c, m.ns, fill_i, fill_price, entry, touch, close_level,
                                                   step_ns, targets, WEIGHTS, hold_ns, costs.market, costs.fee)
             placebo = []
@@ -156,12 +160,15 @@ def replay(row, m: fh.Minutes, latency: pd.Timedelta) -> dict:
     return out
 
 
-def pair_rows(settings: Settings, symbol: str, part: pd.DataFrame, end: pd.Timestamp) -> list[dict]:
+def pair_rows(settings: Settings, symbol: str, part: pd.DataFrame, end: pd.Timestamp,
+              expected_hash: str | None = None) -> list[dict]:
     from .minute_history import load_minutes
     bars = load_minutes(settings, symbol)
     bars = bars.loc[pd.to_datetime(bars["open_time"], utc=True) <= end, ["open_time", "open", "high", "low", "close"]]
     m = fh.Minutes.from_frame(bars.reset_index(drop=True))
     del bars
+    if expected_hash is not None and fh.minutes_hash(m) != expected_hash:
+        raise ValueError(f"{symbol} : bougies 1 minute différentes de celles de la première exécution")
     latency = pd.Timedelta(seconds=settings.data.assumed_availability_latency_seconds)
     return [replay(row, m, latency) for row in part.itertuples(index=False)]
 
@@ -175,6 +182,7 @@ def measure(done: pd.DataFrame, variant: str, scenario: str, *, level: float = L
     ok = np.isfinite(excess)
     diff = r - done[f"r_{REFERENCE}_{scenario}"].to_numpy(float)
     pct = done[f"pct_{prefix}"].to_numpy(float)
+    diff_pct = pct - done[f"pct_{REFERENCE}_{scenario}"].to_numpy(float)
     outcome = done[f"outcome_{prefix}"]
     stopped = outcome.isin(["STOP", "STOP_CLOTURE"]).to_numpy()
     hits = done[f"hits_{prefix}"].to_numpy(int)
@@ -185,7 +193,11 @@ def measure(done: pd.DataFrame, variant: str, scenario: str, *, level: float = L
     return {"n": int(len(r)), "r_mean": round(float(r.mean()), 4), "r_ci": ci(r, times),
             "excess_adj_mean": round(float(excess[ok].mean()), 4) if ok.any() else None,
             "excess_adj_ci": ci(excess[ok], times[ok]) if ok.any() else None,
+            # Écart en R : à risque PRÉVU égal (taille de position différente) ; écart en % : à position égale.
             "vs_reference_mean": round(float(diff.mean()), 4), "vs_reference_ci": ci(diff, times),
+            "vs_reference_pct_mean": round(float(diff_pct.mean()), 4), "vs_reference_pct_ci": ci(diff_pct, times),
+            "share_r_below_minus_1": round(float((r < -1).mean()), 4), "r_p01": round(float(np.percentile(r, 1)), 4),
+            "r_min": round(float(r.min()), 4), "concentration": _top_pair(done, f"r_{prefix}"),
             "pct_position_mean": round(float(pct.mean()), 4), "pct_capital_at_1pct_risk": round(float(r.mean()), 4),
             "risk_pct_median": round(float(done[f"risk_pct_{variant}"].median()) * 100, 3),
             "stopped_before_tp1": round(float(stopped.mean()), 4),
@@ -199,6 +211,16 @@ def measure(done: pd.DataFrame, variant: str, scenario: str, *, level: float = L
                              for tf, g in done.groupby("timeframe")},
             "by_year": {int(y): round(float(g[f"r_{prefix}"].mean()), 4)
                         for y, g in done.groupby(pd.to_datetime(done["fill_at"], utc=True).dt.year)}}
+
+
+def _top_pair(done: pd.DataFrame, column: str) -> dict:
+    """Paire qui apporte le plus au total des R (part du total s'il est positif) et R moyen sans elle."""
+    sums = done.groupby("symbol")[column].sum()
+    top = str(sums.idxmax())
+    total = float(sums.sum())
+    rest = done.loc[done["symbol"] != top, column]
+    return {"pair": top, "share": round(float(sums.max()) / total, 4) if total > 0 else None,
+            "r_mean_without": round(float(rest.mean()), 4) if len(rest) else None}
 
 
 def evaluate(trades: pd.DataFrame, *, level: float = LEVEL, samples: int = fh.SAMPLES) -> dict:
@@ -219,10 +241,12 @@ def run(settings: Settings, *, now: datetime, progress: Callable[[str], None] | 
     end = pd.Timestamp(development_end(settings)).tz_convert("UTC")
     first = pd.read_parquet(settings.reports_dir / source_run / "trades.parquet")
     first = first[(first["method"] == dm.METHOD) & (first["status"] == fh.EXECUTED)]
+    source = ExperimentRegistry(settings.experiments_db).get(source_run)
+    hashes = (source or {}).get("data_hashes") or {}
     rows: list[dict] = []
     for symbol, part in first.groupby("symbol"):
         say(str(symbol))
-        rows.extend(pair_rows(settings, str(symbol), part, end))
+        rows.extend(pair_rows(settings, str(symbol), part, end, hashes.get(f"1m/{symbol}")))
     trades = pd.DataFrame(rows).sort_values(["at", "key"]).reset_index(drop=True)
     result = evaluate(trades)
     registry = ExperimentRegistry(settings.experiments_db)

@@ -104,6 +104,36 @@ def test_r_is_per_unit_of_planned_risk_and_placebos_use_the_same_levels():
     assert out["excess_adj_MOITIE_TOUCHE_central"] == pytest.approx(net / 1.5 - placebo - handicap, abs=1e-5)
 
 
+@pytest.mark.parametrize("hours", [4, 24])
+def test_close_stop_uses_utc_aligned_4h_and_daily_candles(hours):
+    """Bougies 4 h et 1 jour alignées sur 00:00 UTC ; la dernière minute de la bougie manque : la clôture est celle de
+    la dernière minute présente, vente à la première minute de la bougie suivante."""
+    step = pd.Timedelta(hours=hours)
+    start = pd.Timestamp("2024-03-01 00:00", tz="UTC") + step - pd.Timedelta(minutes=30)     # 30 min avant la borne
+    times = [start + pd.Timedelta(minutes=k) for k in range(29)] + [start + pd.Timedelta(minutes=30 + k) for k in range(20)]
+    rows = [(100, 100.5, 99.5, 100)] * 20 + [(99, 99.2, 96, 96.5)] * 9 + [(96.3, 97, 96, 96.6)] * 20
+    frame = pd.DataFrame([(t, *r) for t, r in zip(times, rows, strict=True)], columns=["open_time", "open", "high", "low", "close"])
+    m = fh.Minutes.from_frame(frame)
+    hits, net, exit_i, outcome = ds._managed(m.o, m.h, m.lo, m.c, m.ns, 0, 100.0, 100.0, 90.0, 97.0, step.value,
+                                             np.asarray((102.0, 104.0, 106.0, 108.0, 110.0)), ds.WEIGHTS,
+                                             500 * fh.MINUTE_NS, MARKET, FEE)
+    assert outcome == ds.OUT_CLOSE and exit_i == 29                  # minute 28 (dernière présente) clôture à 96,5
+    assert pd.Timestamp(int(m.ns[exit_i]), tz="UTC") == start + pd.Timedelta(minutes=30)
+
+
+def test_fill_below_the_tightened_stop_is_refused():
+    n = 60 * 24 * 34
+    frame = pd.DataFrame({"open_time": T0 + pd.to_timedelta(np.arange(n), unit="min"), "open": 100.0, "high": 100.2,
+                          "low": 99.0, "close": 100.0})
+    m = fh.Minutes.from_frame(frame)
+    setup = fh.Setup("XUSDT:1h:DOUBLE:bull:low", "DOUBLE", "1h", T0 + pd.Timedelta(days=31), 98.0, 100.0, (101.0, 102.0, 103.0))
+    row = fh.play(setup, m, "XUSDT", LATENCY)
+    row["entry"] = 104.0                                # limite à 104 : exécutée au marché à 100,05, sous le stop à mi-distance (101)
+    row["fill_price"] = 100.0 * (1 + costs_for("XUSDT", CENTRAL).market)
+    with pytest.raises(ValueError, match="sous le stop resserré"):
+        ds.replay(pd.DataFrame([row]).itertuples(index=False).__next__(), m, LATENCY)
+
+
 def test_evaluate_reports_every_variant(settings):
     rng = np.random.default_rng(1)
     rows = []
@@ -120,3 +150,5 @@ def test_evaluate_reports_every_variant(settings):
     assert set(out) == {ds.REFERENCE, *ds.VARIANTS} and out[ds.REFERENCE]["verdict"] == "REFERENCE"
     c = out["MOITIE_TOUCHE"]["scenarios"][CENTRAL]
     assert c["stopped_before_tp1"] > 0 and c["stopped_loss_pct_mean"] < 0 and c["risk_pct_median"] == 3.0
+    assert c["concentration"]["pair"] == "XUSDT" and 0 < c["share_r_below_minus_1"] < 1 and c["r_min"] <= c["r_p01"]
+    assert "vs_reference_pct_ci" in c

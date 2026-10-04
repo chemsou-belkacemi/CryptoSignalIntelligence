@@ -1038,11 +1038,11 @@ def double_stops_command(allow_dirty: bool = typer.Option(False, "--allow-dirty"
     except (DirtyCode, FileNotFoundError, ValueError) as exc:
         console.print(f"[red]Aucun résultat :[/red] {exc}")
         raise typer.Exit(3) from None
-    table = Table("Variante", "Risque méd. %", "R / risque", "IC", "Écart vs réf. IC", "Excès IC", "Stop avant TP1",
+    table = Table("Variante", "Risque méd. %", "R / risque", "IC", "Écart vs réf. % pos. IC", "Excès IC", "Stop avant TP1",
                   "Perte moy. %", "% position", "Verdict")
     for name, row in payload["rows"].items():
         c = row["scenarios"]["central"]
-        table.add_row(name, str(c["risk_pct_median"]), str(c["r_mean"]), str(c["r_ci"]), str(c["vs_reference_ci"]),
+        table.add_row(name, str(c["risk_pct_median"]), str(c["r_mean"]), str(c["r_ci"]), str(c["vs_reference_pct_ci"]),
                       str(c["excess_adj_ci"]), f"{c['stopped_before_tp1']:.0%}", str(c["stopped_loss_pct_mean"]),
                       str(c["pct_position_mean"]), row["verdict"])
     console.print(table)
