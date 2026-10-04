@@ -334,6 +334,28 @@ sécurité.
 - refus si l'exécution rejouée diffère en minute ou en prix, si les bougies 1 minute diffèrent de la première
   exécution (empreinte du registre), ou si le prix d'exécution est sous le stop resserré (gain fictif ; 0 cas attendu).
 
+### Résultat (exécution unique, `DBLS-20261004T125331Z-7338fa`, 2026-10-04, essais 849 à 851) : **NON_DEMONTRE** pour les trois
+
+Scénario central ; R par unité de risque prévu (= % du capital par transaction à 1 % de risque, × 100) ; intervalles
+à 1 − 0,05/3.
+
+| Variante | Risque prévu (méd.) | R moyen | IC | Écart vs référence (% de la position) | Stop avant TP1 | Perte moy. de ces stops | Gagnantes | Gain moyen (% position) | R en 1 h |
+|---|---|---|---|---|---|---|---|---|---|
+| Référence (stop d'origine) | 7,9 % | +0,019 | [−0,034 ; +0,067] | — | 17 % | −8,8 % | 76 % | +0,39 % | +0,008 |
+| Moitié au toucher | 3,9 % | +0,023 | [−0,045 ; +0,089] | −0,07 [−0,32 ; +0,20] | 33 % | −4,8 % | 65 % | +0,33 % | −0,012 |
+| Clôture à 0,4 | 3,2 % | +0,042 | [−0,053 ; +0,130] | −0,00 [−0,23 ; +0,23] | 30 % (clôture) | −4,9 % | 67 % | +0,39 % | −0,004 |
+| −3 % fixe | 3,0 % | +0,018 | [−0,054 ; +0,089] | −0,34 [−0,75 ; +0,08] | 43 % | −3,2 % | 57 % | +0,06 % | +0,000 |
+
+Défavorable : +0,008, −0,000, +0,013, −0,009. Pertes extrêmes : `CLOTURE_0_4` jusqu'à −2,8 R (1er centile −2,6 R) ;
+les autres vers −1,1 à −1,3 R. Concentration : `FIXE_3_PCT` dépend de XLM pour 57 % de son total (sans XLM :
++0,008) ; `MOITIE_TOUCHE` de FET pour 38 %.
+
+**Lecture.** Resserrer le stop divise la perte par deux mais double le nombre de stops (17 % → 30 à 43 %) : par unité
+de risque, le résultat ne bouge pas (écarts avec la référence nuls à l'erreur près), et en % de la position il est
+égal ou moins bon (−3 % fixe : −0,34 point par transaction). En 1 h, l'unité visée par le propriétaire, les trois
+variantes sont à zéro. Les meilleurs chiffres viennent des figures 1 jour (152 transactions, R +0,18 à +0,25),
+trop peu nombreuses et concentrées en 2020-2021. Aucun réglage du stop ne crée un gain démontré.
+
 ## Historique
 
 - 2026-10-04 : déclaré avant tout code et toute exécution.
@@ -353,3 +375,6 @@ sécurité.
   l'instrument sur marches aléatoires ensuite (biais des placebos tirés avant l'exécution en 4 h et 1 jour).
 - 2026-10-04 : exécution unique `DBLM-20261004T122738Z-576a37` de la gestion du propriétaire sur le double creux
   (essais 847 et 848, programme 848).
+- 2026-10-04 : relecture indépendante des deux études de sortie (aucun défaut bloquant ; chiffre du capital par
+  transaction de la gestion des TP corrigé ; ajouts listés dans la section « Stop resserré ») ; exécution unique
+  `DBLS-20261004T125331Z-7338fa` (essais 849 à 851, programme 851).

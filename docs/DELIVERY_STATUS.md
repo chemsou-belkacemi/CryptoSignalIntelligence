@@ -43,6 +43,7 @@ stratégies actuelles sont **REJECTED** hors échantillon (README). Vérificatio
 | CNN sur images (phase 10.2) et volatilité sur minutes (phase 10.1) | TESTÉ, EXÉCUTÉ | `NE_PASSE_PAS` et `AUCUNE_AMELIORATION` (CNN.md, VOLATILITY.md § 20) |
 | Figures et méthodes des analystes sur l'historique (19 essais) | TESTÉ, EXÉCUTÉ | aucune `SUPERIEUR_AU_HASARD` ; `OB`, `SWEEP`, `RSI_DIV` `INFERIEUR_AU_HASARD` ; biais des placebos en 4 h / 1 jour documenté (FIGURES_HISTORIQUE.md) |
 | Gestion du propriétaire sur le double creux (2 essais) | TESTÉ, EXÉCUTÉ | `NON_DEMONTRE`, identique à la règle des tiers (FIGURES_HISTORIQUE.md) |
+| Stop resserré sur le double creux (3 essais) | TESTÉ, EXÉCUTÉ | `NON_DEMONTRE` pour les trois (FIGURES_HISTORIQUE.md) |
 
 ## Intégration avec BinanceSpotManager (Binance Demo uniquement)
 
