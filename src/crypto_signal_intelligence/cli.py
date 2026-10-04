@@ -919,6 +919,30 @@ def context_status_command(verbose: bool = False):
         console.print(f"Dernier relevé : {last} ; séries réussies : {len(days[last]['done'])} ; erreurs : {days[last]['errors'] or 'aucune'}")
 
 
+@app.command("level-reaction")
+def level_reaction_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Code non commité : enregistré et COMPTÉ"),
+                           verbose: bool = False):
+    """Supports et résistances mécaniques contre niveaux placebo (docs/NIVEAUX.md) : rejet et cassure, 1 h et 4 h,
+    40 paires de recherche ; 4 essais, DEVELOPMENT seulement."""
+    from .research.factors import DirtyCode
+    from .research.level_reaction import run
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    try:
+        with console.status("niveaux…") as status:
+            payload = run(settings, now=_now(), progress=lambda text: status.update(f"niveaux : {text}"), allow_dirty=allow_dirty)
+    except (DirtyCode, FileNotFoundError) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    table = Table("Unité · événement", "Réels", "Placebos", "Taux réel", "Taux placebo", "Écart", "IC", "Années +", "Paires +", "Verdict")
+    for name, r in payload["rows"].items():
+        table.add_row(name, str(r.get("real_events")), str(r.get("placebo_events")), str(r.get("real_rate")), str(r.get("placebo_rate")),
+                      str(r.get("diff")), str(r.get("ci")), str(r.get("years_positive")), str(r.get("pairs_positive_share")),
+                      r.get("verdict", "descriptif"))
+    console.print(table)
+    console.print(f"Rapport : {settings.reports_dir / payload['run_id'] / 'summary.json'} ; programme : {payload['program_trials']} essais")
+
+
 @app.command("xsection")
 def xsection_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Essai local sur du code non commité (enregistré comme tel)"),
                      verbose: bool = False):
