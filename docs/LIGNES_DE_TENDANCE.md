@@ -124,7 +124,32 @@ année ; part des transactions qui touchent TP1, TP2, TP3, contre les placebos ;
   détecteur si (4 déclencheurs), négligeable ; intervalles par blocs un peu étroits (les placebos d'une paire partagent
   son historique), effet faible.
 
+## Résultat (exécution unique, `TRND-20261004T142935Z-6702de`, 2026-10-04, essais 852 et 853) : **`PISTE_CONFIRMEE`**, **`GAIN_NON_DEMONTRE`** (de justesse)
+
+223 paires, 8 sans historique 1 h, 211 avec des déclencheurs, minutes couvertes à 100 % pour toutes (aucun refus) ;
+6 628 déclencheurs : 5 598 exécutés sur 209 paires, 942 annulés, 88 géométries invalides. Intervalles à 97,5 %.
+
+| Scénario | R moyen | IC | Excès sur les placebos (frais égaux) | IC | Placebos (R moyen) | Gagnantes |
+|---|---|---|---|---|---|---|
+| central | **+0,088** | **[+0,016 ; +0,161]** | **+0,117** | **[+0,044 ; +0,192]** | −0,041 | 52 % |
+| défavorable | +0,066 | [−0,006 ; +0,140] | **+0,117** | **[+0,044 ; +0,193]** | −0,076 | 51 % |
+
+- **La piste est confirmée** : sur des paires jamais utilisées, une cassure de ligne de tendance en 1 h fait mieux qu'un
+  achat au hasard de même géométrie, de +0,12 R par transaction (borne basse +0,044, au-dessus du biais maximal de
+  l'instrument mesuré sous l'hypothèse nulle, +0,014). Plus faible que sur les 40 paires (+0,21, surestimé comme prévu).
+- **Le gain n'est pas démontré au sens déclaré** : démontré en frais centraux (borne basse +0,016), pas en frais
+  défavorables (borne basse −0,006). Lecture déclarée : « la cassure contient de l'information » ; aucun usage avant un
+  test en direct.
+- Descriptif (95 %) : **les 7 années sont positives** (R de +0,03 en 2022 à +0,15 en 2020 ; excès de +0,04 à +0,16) ;
+  la paire qui apporte le plus (LAZIO) pèse 4,7 % du total, l'année qui apporte le plus (2024) 29 % ; paires retirées
+  R +0,15 [+0,07 ; +0,24] (1 134 transactions) et paires encore cotées +0,07 [0,00 ; +0,15] ; quand la paire est dans le
+  top 40 du mois, R +0,13 [+0,05 ; +0,21], excès +0,17 ; avant sa première entrée dans le top 40, R +0,08 [−0,02 ; +0,17]
+  (753 transactions) ; issues : stop 32 %, TP3 25 %, sortie au temps après TP1 ou TP2 23 %, sortie au temps 8 % ; 92 %
+  des exécutions en maker. Les taux d'objectifs contre les placebos (59 % contre 52 % au TP1) et l'excès contre les
+  placebos de F15 (+0,14) sont donnés pour mémoire : biaisés, voir ci-dessus.
+
 ## Historique
 
 - 2026-10-04 : déclaré avant tout code et toute exécution ; téléchargement des minutes lancé le même jour.
 - 2026-10-04 : relecture indépendante avant l'exécution ; ajouts ci-dessus (garde de couverture des minutes, déclarations).
+- 2026-10-04 : téléchargement terminé (214 paires, 0 échec) ; exécution unique `TRND-20261004T142935Z-6702de` (essais 852 et 853, programme 853).

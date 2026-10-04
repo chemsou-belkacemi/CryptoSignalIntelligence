@@ -2,7 +2,7 @@
 
 Document vivant : ce qui est fait, ce qui tourne, ce qui reste. Chaque ligne « à faire » se fait comme d'habitude :
 déclarée avant, mesurée avec intervalle (et placebos en direct), comptée au programme. Les décisions du
-propriétaire sont marquées **[propriétaire]**. Programme au 2026-10-04 : **851 essais** sur DEVELOPMENT ; période
+propriétaire sont marquées **[propriétaire]**. Programme au 2026-10-04 : **853 essais** sur DEVELOPMENT ; période
 finale réservée consultée **une fois**, le 2026-10-03, pour la volatilité seulement (décision du
 propriétaire).
 
@@ -50,6 +50,7 @@ refusé (aucune donnée payante) ; points 6 à 10 en attente (voir § 5).
 | Figures et méthodes des analystes rejouées sur 2019 → mi-2025 (détecteur de F15, FVG, OB, sweep, BOS, CHoCH, divergences RSI ; 19 essais) | aucune supérieure au hasard ; OB, sweep et divergences RSI perdent ; double creux 75 % de TP1 pour 76 % nécessaires ; placebos tirés avant l'exécution biaisés en 4 h / 1 jour (aussi dans F15) ; piste remarquée après coup : lignes de tendance en 1 h | `FIGURES_HISTORIQUE.md` |
 | Gestion du propriétaire sur le double creux (60 % au TP1, 5 TP, stop à l'entrée puis au TP précédent ; 2 essais) | NON_DEMONTRE, identique aux tiers : +0,02 R, 76 % gagnantes, +0,019 % du capital par transaction à 1 % de risque | `FIGURES_HISTORIQUE.md` |
 | Stop resserré sur le double creux (moitié au toucher, clôture à 0,4, −3 % fixe ; 3 essais) | NON_DEMONTRE : deux fois plus de stops pour des pertes deux fois plus petites, même résultat par unité de risque ; zéro en 1 h | `FIGURES_HISTORIQUE.md` |
+| **Cassures de ligne de tendance en 1 h, confirmation sur 214 paires jamais utilisées** (2 essais) | **PISTE_CONFIRMEE** : +0,12 R sur le hasard [+0,04 ; +0,19] ; GAIN_NON_DEMONTRE de justesse (R +0,09 [+0,02 ; +0,16] en central, [−0,01 ; +0,14] en défavorable) ; 7 années positives ; premier résultat directionnel confirmé hors échantillon | `LIGNES_DE_TENDANCE.md` |
 
 ## 2. En cours
 

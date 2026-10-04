@@ -44,6 +44,7 @@ stratégies actuelles sont **REJECTED** hors échantillon (README). Vérificatio
 | Figures et méthodes des analystes sur l'historique (19 essais) | TESTÉ, EXÉCUTÉ | aucune `SUPERIEUR_AU_HASARD` ; `OB`, `SWEEP`, `RSI_DIV` `INFERIEUR_AU_HASARD` ; biais des placebos en 4 h / 1 jour documenté (FIGURES_HISTORIQUE.md) |
 | Gestion du propriétaire sur le double creux (2 essais) | TESTÉ, EXÉCUTÉ | `NON_DEMONTRE`, identique à la règle des tiers (FIGURES_HISTORIQUE.md) |
 | Stop resserré sur le double creux (3 essais) | TESTÉ, EXÉCUTÉ | `NON_DEMONTRE` pour les trois (FIGURES_HISTORIQUE.md) |
+| Cassures de ligne de tendance en 1 h, confirmation sur 214 paires (2 essais) | TESTÉ, EXÉCUTÉ | `PISTE_CONFIRMEE`, `GAIN_NON_DEMONTRE` (LIGNES_DE_TENDANCE.md) ; aucun usage avant un test en direct |
 
 ## Intégration avec BinanceSpotManager (Binance Demo uniquement)
 
