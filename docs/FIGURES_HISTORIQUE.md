@@ -287,6 +287,38 @@ l'intervalle contient 0). Avec un stop à 7,9 % sous l'entrée, risquer 1 % du c
 paires. L'objectif « 1 à 2 % par jour » demanderait 20 à 40 fois cela. TP4 et TP5 ne sont atteints que 10 % et 5 % du
 temps en 60 bougies : des objectifs plus lointains n'ajoutent presque rien.
 
+## Stop resserré sur le double creux (déclaré le 2026-10-04, après les deux exécutions précédentes : piste contaminée)
+
+Demande du propriétaire du 2026-10-04 : « diviser le SL par 2, −6,6 % c'est trop grand ; −3 % au toucher ou −2,5 % à la
+fermeture de la bougie ». Mêmes 2 455 doubles creux, mêmes exécutions, mêmes placebos, même gestion des objectifs que
+la répartition A (60 % au TP1 puis 10 % aux TP2 à TP5, stop remonté à l'entrée après TP1 puis au TP précédent). Code :
+`research/double_stops.py` ; tests : `tests/test_double_stops.py` ; commande : `csi double-stops`. **3 essais.**
+
+Notations : `E` entrée prévue, `S0` stop d'origine (sous les creux − 0,25 ATR), `D = E − S0`.
+
+| Variante | Stop avant TP1 | Risque prévu (pour la taille) |
+|---|---|---|
+| `REFERENCE` (non comptée : répartition A déjà jouée) | `S0` au toucher | `D` |
+| `MOITIE_TOUCHE` | `E − 0,5 D` au toucher | `0,5 D` |
+| `CLOTURE_0_4` | sortie si une bougie **de l'unité de temps de la figure** (1 h, 4 h ou 1 jour, alignées sur 00:00 UTC) clôture sous `E − 0,4 D` : vente du reste à l'ouverture de la minute suivante, au marché ; `S0` gardé au toucher comme stop de sécurité | `0,4 D` |
+| `FIXE_3_PCT` | `max(S0, 0,97 E)` au toucher (−3 % fixe, sauf si le stop d'origine est plus proche) | `E − max(S0, 0,97 E)` |
+
+Clôture d'une bougie = dernière minute présente de son intervalle ; vérifiée tant qu'aucun objectif n'est atteint.
+Après TP1, la gestion A s'applique à toutes les variantes (stop à l'entrée au toucher, puis au TP précédent).
+Objectifs inchangés (`E + k × hauteur/3`). Minute ambiguë : stop d'abord. Placebos : même gestion, niveaux mis à
+l'échelle, mêmes bougies de l'unité de temps pour la clôture.
+
+**Mesure.** R **par unité de risque prévu** (résultat net / risque prévu de la variante : c'est ce que donne une taille
+calculée pour risquer une part fixe du capital) ; R moyen et intervalle ; excès à frais d'entrée égaux et intervalle ;
+écart apparié avec `REFERENCE` (même transaction) et intervalle ; blocs de 28 jours présents, niveau
+**1 − 0,05/3**. Verdict comme ci-dessus. Descriptif : gain moyen en % de la position ; gain en % du capital par
+transaction à 1 % de risque prévu ; part des sorties au stop avant TP1 et perte moyenne de ces sorties en % ; parts
+des objectifs ; par unité de temps et par année.
+
+**Attendu, déclaré.** Un stop plus serré est touché plus souvent par le bruit ; les frais pèsent deux fois plus par
+unité de risque. Le stop à la clôture peut perdre plus que son niveau (trou après la clôture), jusqu'au stop de
+sécurité.
+
 ## Historique
 
 - 2026-10-04 : déclaré avant tout code et toute exécution.
