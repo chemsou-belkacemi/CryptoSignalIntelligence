@@ -148,8 +148,51 @@ année ; part des transactions qui touchent TP1, TP2, TP3, contre les placebos ;
   des exécutions en maker. Les taux d'objectifs contre les placebos (59 % contre 52 % au TP1) et l'excès contre les
   placebos de F15 (+0,14) sont donnés pour mémoire : biaisés, voir ci-dessus.
 
+## Confirmation sur la période réservée (déclaré le 2026-10-05, avant code, téléchargement et lecture)
+
+**Décision du propriétaire du 2026-10-05** : « j'autorise l'ouverture de la période réservée pour les lignes de
+tendance ». **Deuxième consultation** de la période réservée du programme (la première, le 2026-10-03, ne portait que
+sur la volatilité). Enregistrée **avant** toute lecture ; une seule exécution ; après elle, ces 15 mois ne servent plus
+de juge neutre pour une stratégie de direction. Code : `research/trendline_final.py` ; tests :
+`tests/test_trendline_final.py` ; commande : `csi trendline-final --i-understand-final-test` (répétition :
+`--rehearsal`). **2 essais** comptés sur la période finale.
+
+**Ce qui est testé, sans aucun changement** : le même déclencheur (`TRENDLINE` 1 h du détecteur de F15), les mêmes
+transactions (`figures_history.play`), les mêmes placebos tirés uniformément sur la période utilisable de la paire, le
+même excès à frais d'entrée égaux, la même décision à deux comparaisons au niveau 1 − 0,05/2.
+
+- **Période** : déclencheurs dont la clôture de détection est au plus tôt le **2025-07-01 00:00 UTC**, et 90 jours après
+  la première bougie 1 h de la paire ; tout l'horizon (20 + 60 bougies) avant la coupure du **2026-09-30 23:59:59 UTC**.
+  La détection lit l'historique d'avant (pivots), comme en direct.
+- **Paires** : toutes les paires passées au moins une fois par le top 40 à date **avant le 2025-07-01** (263 paires,
+  recensement de `UNIVERSE_PIT.md`, connu au début de la période ; les 40 paires de recherche en font partie), qui ont
+  des bougies 1 h dans la période. Les paires retirées pendant la période comptent jusqu'à leur retrait ; les paires
+  cotées après le 2025-06 n'y sont pas (univers figé au début de la période).
+- **Placebos** : 20 minutes tirées uniformément sur [max(2025-07-01, première heure + 90 jours) ; min(coupure,
+  dernière minute) − 60 heures] de la paire.
+- **Complétude avant la consultation** : pour chaque paire qui a des bougies 1 h de juin 2025 à la coupure, les
+  bougies 1 minute doivent couvrir au moins 99 % de ces heures et ne pas s'arrêter plus d'un jour avant la dernière ;
+  sinon **rien n'est lu ni consulté** (le contrôle ne regarde que la présence des bougies, aucun prix).
+- **Ordre** : contrôle de complétude → consultation enregistrée au registre (refus si cette stratégie a déjà consulté)
+  → calcul → enregistrement. **Répétition** du même code sur 2024-04-01 → 2025-06-30 (DEVELOPMENT), rien d'enregistré.
+- **Nombre attendu** (estimé sans rien lire de la période : 7 à 8 déclencheurs par paire et par an sur DEVELOPMENT ;
+  environ 205 paires sur 15 mois) : environ **2 000 déclencheurs**, 1 700 exécutions. Intervalles par blocs de 28 jours
+  présents : environ 16 blocs.
+
+**Décision** (identique à DEVELOPMENT) : `PISTE_CONFIRMEE` / `NON_CONFIRMEE` / `INVERSE` (excès à frais égaux, central
+et défavorable) ; `GAIN_DEMONTRE` / `GAIN_NON_DEMONTRE` / `PERTE_DEMONTREE` (R moyen, central et défavorable) ;
+`INSUFFISANT` sous 30 transactions ou 10 blocs. Descriptif : 40 paires de recherche contre les autres ; mois où la
+paire est dans le top 40 ; paires retirées ; par trimestre ; paire et trimestre qui apportent le plus.
+
+**Lecture déclarée.**
+- `PISTE_CONFIRMEE` + `GAIN_DEMONTRE` : deuxième confirmation, dans le temps cette fois ; la méthode devient candidate
+  à des signaux shadow puis à BSM sur **Binance Demo**, sur décision du propriétaire, avec le suivi en direct (F17).
+- `PISTE_CONFIRMEE` seule : l'information tient dans le temps, le gain après frais reste à montrer.
+- `NON_CONFIRMEE` ou `INVERSE` : l'avantage mesuré sur 2019-2025 ne tient pas sur 2025-2026 ; aucun usage.
+
 ## Historique
 
 - 2026-10-04 : déclaré avant tout code et toute exécution ; téléchargement des minutes lancé le même jour.
 - 2026-10-04 : relecture indépendante avant l'exécution ; ajouts ci-dessus (garde de couverture des minutes, déclarations).
 - 2026-10-04 : téléchargement terminé (214 paires, 0 échec) ; exécution unique `TRND-20261004T142935Z-6702de` (essais 852 et 853, programme 853).
+- 2026-10-05 : confirmation sur la période réservée déclarée avant code, téléchargement et lecture (décision du propriétaire).
