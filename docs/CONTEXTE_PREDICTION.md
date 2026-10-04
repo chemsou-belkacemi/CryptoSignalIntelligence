@@ -61,6 +61,32 @@ depuis le 2026-10-04 (dominances, options, TVL).
 Causalité testée (falsifier les données postérieures à la décision ne change aucune variable ni aucun rang) ;
 relecture indépendante avant l'exécution unique.
 
+## Résultat (exécution unique, `CTXP-20261004T015026Z-30e516`, 2026-10-04, essais 803 à 823) : **RIEN** sur les 21
+
+Écart de rendement de l'actif entre les jours où la variable est dans son tiers haut et ceux où elle est dans son tiers
+bas (en %, horizon 7 jours ; IC au niveau 1 − 0,05/21) :
+
+| Variable | Écart à 7 j | IC | Depuis 2020 | Années de même signe | Verdict |
+|---|---|---|---|---|---|
+| BTC_NETFLOW (entrées nettes de BTC) | −1,14 | [−4,25 ; +2,05] | −0,43 | 8 sur 9 négatives | RIEN |
+| ETH_NETFLOW | −1,75 | [−5,23 ; +2,11] | −0,23 | 7 sur 9 négatives | RIEN |
+| CB_PREMIUM | +1,43 | [−1,60 ; +4,44] | +1,39 | 4 sur 7 positives | RIEN |
+| KR_PREMIUM | +0,54 | [−2,51 ; +4,02] | — | mitigé | RIEN |
+| STABLE_GROWTH (depuis 2021-07) | +0,95 | [−1,91 ; +3,63] | +0,95 | 1 sur 3 positive | RIEN |
+| TOP_TRADERS | −1,32 | [−5,43 ; +2,27] | −1,32 | 3 sur 4 négatives | RIEN |
+| WIKI_ATTENTION | +2,89 | [−1,81 ; +7,60] | +3,01 | 4 sur 5 positives | RIEN |
+
+À 1 et 3 jours : mêmes signes, intervalles contenant 0 partout.
+
+**Lecture.** Aucune variable ne sépare démontrablement les bons jours des mauvais : les intervalles sont larges, parce
+que BTC et ETH ne fournissent qu'une série chacun, dominée par 3 ou 4 cycles haussiers et baissiers. Les signes sont
+pour la plupart ceux qu'on attend (BTC qui entre sur les plateformes → semaine plus faible ; prime Coinbase, attention
+du public → semaine plus forte), mais rien ne dépasse le bruit au niveau déclaré, et les variables d'engouement
+(Wikipédia, prime Coinbase) recoupent l'élan des prix déjà testé sans avantage net de coûts. La régularité la plus nette
+est celle des **flux nets de BTC** (8 années sur 9 négatives à 7 jours), avec deux réserves : l'écart depuis 2020 est
+petit (−0,4 %) et CoinMetrics étiquette les adresses des plateformes après coup ; une suite exigerait les relevés du
+jour (RELEVE) sur plusieurs mois. Rien n'est branché.
+
 ## Historique
 
 - 2026-10-04 : déclaré avant tout code et toute exécution.
