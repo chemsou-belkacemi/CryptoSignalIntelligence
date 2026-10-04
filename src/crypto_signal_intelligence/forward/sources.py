@@ -29,7 +29,8 @@ ALLOWED = {
     "www.bitstamp.net": ("/api/v2/ticker/",),
     "www.okx.com": ("/api/v5/public/liquidation-orders", "/api/v5/market/ticker"),
     "api.nasdaq.com": ("/api/quote/NDX/historical",
-                       "/api/quote/GLD/historical"),        # or (approximation par l'ETF GLD), validé le 2026-10-04
+                       "/api/quote/GLD/historical",         # or (approximation par l'ETF GLD), validé le 2026-10-04
+                       "/api/quote/SPY/historical"),        # S&P 500 (approximation par l'ETF SPY), validé le 2026-10-04
     # Émissions de stablecoins (F3_STABLECOINS) : événements publics des contrats, sans clé.
     "api.trongrid.io": ("/v1/contracts/",),
     "ethereum-rpc.publicnode.com": ("/",),
@@ -49,6 +50,10 @@ ALLOWED = {
     "api.llama.fi": ("/tvl/", "/summary/fees/"),
     "stablecoins.llama.fi": ("/stablecoincharts/all",),
     "wikimedia.org": ("/api/rest_v1/metrics/pageviews/per-article/",),
+    # Remplaçants de FRED (téléchargement CSV muet depuis le 2026-10-02), validés par le propriétaire le 2026-10-04 :
+    # taux du Trésor américain (fichier annuel) et masse monétaire M2 (publication H.6 de la Fed).
+    "home.treasury.gov": ("/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/",),
+    "www.federalreserve.gov": ("/datadownload/Output.aspx",),
 }
 TRON_API = "https://api.trongrid.io"
 ETH_RPC = "https://ethereum-rpc.publicnode.com"

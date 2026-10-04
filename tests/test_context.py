@@ -38,6 +38,13 @@ class FakeWeb:
                     b"x,D,KRW,2026-10-02,1500\nx,D,USD,2026-10-02,1.25\nx,D,KRW,2026-10-03,1500\nx,D,USD,2026-10-03,1.25\n")
         if "fred" in url:
             return f"observation_date,{params['id']}\n2026-09-01,100.5\n2026-10-01,.\n".encode()
+        if "treasury" in url:
+            return b'Date,"3 Mo","10 Yr","30 Yr"\n10/02/2026,4.10,5.28,5.60\n10/01/2026,4.11,,5.61\n'
+        if "federalreserve" in url:
+            head = '"Series Description","x"\n"Unit:","Currency"\n'
+            if params["series"] == fetch.FED_H6["monthly"][0]:
+                return (head + '"Time Period","M2_N.M","M2.M"\n2026-07,23157.4,23217.9\n2026-08,23300.0,ND\n').encode()
+            return (head + '"Time Period","M2_N.WM","M2.WM"\n2026-08-31,23305.5,\n').encode()
         raise AssertionError(url)
 
     def get_json(self, url, params=None, headers=None):
@@ -145,6 +152,10 @@ def test_parsers_on_fake_sources(clients):
     assert options["put_call_oi"] == 0.5 and options["put_call_volume"] == 0.5 and options["max_pain_1"] == 80000.0
     assert options["days_to_expiry_1"] > 26
     assert fetch.fred(web, "M2SL") == [{"key": "M2SL", "date": "2026-09-01", "field": "value", "value": 100.5}]
+    assert fetch.treasury_10y(web, 2026) == [{"key": "UST10Y", "date": pd.Timestamp("2026-10-02"), "field": "yield_pct",
+                                              "value": 5.28}]                       # case vide écartée
+    m2 = {(r["key"], str(r["date"].date())): r["value"] for r in fetch.fed_m2(web)}
+    assert m2 == {("M2SL", "2026-07-01"): 23217.9, ("WM2NS", "2026-08-31"): 23305.5}   # « ND » écarté
     assert fetch.nasdaq_gld(web, start="2026-10-01", end="2026-10-03")[0]["value"] == 377.91
     assert fetch.wikipedia_views(web, "Bitcoin", start="20261001", end="20261003")[0]["value"] == 2500.0
     basis = fetch.binance_basis(clients.futures, "BTCUSDT", "CURRENT_QUARTER")
@@ -181,7 +192,9 @@ def test_daily_record_once_after_3am_and_retries_only_failures(settings, clients
 def test_new_hosts_stay_within_the_whitelist():
     web = PublicSources()
     for url in ("https://api.llama.fi/protocols", "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart",
-                "https://wikimedia.org/w/index.php", "https://api.upbit.com/v1/orders"):
+                "https://wikimedia.org/w/index.php", "https://api.upbit.com/v1/orders",
+                "https://www.federalreserve.gov/apps/login", "https://home.treasury.gov/admin",
+                "https://api.nasdaq.com/api/quote/AAPL/historical"):
         with pytest.raises(PermissionError):
             web.get(url)
     futures = PublicHttpClient.futures_rest("https://fapi.binance.com")

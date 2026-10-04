@@ -27,6 +27,10 @@ DEFILLAMA = {"ENS": "ens", "GRT": "the-graph", "LPT": "livepeer", "ZRO": "layerz
              "KAITO": "kaito", "LINK": "chainlink", "WAL": "walrus-protocol", "OPEN": "openledger",
              "FIL": "filecoin", "HOLO": "holoworld-ai"}
 FRED_SERIES = ("SP500", "DGS10", "M2SL", "WM2NS")
+#: Paquets CSV de la publication H.6 de la Fed : mensuel (M2.M, corrigé des variations saisonnières, = M2SL de FRED)
+#: et hebdomadaire (M2_N.WM, non corrigé, = WM2NS).
+FED_H6 = {"monthly": ("798e2796917702a5f8423426ba7e6b42", "M2.M", "M2SL"),
+          "weekly": ("928eea31529f0502123259a8cf41c5c5", "M2_N.WM", "WM2NS")}
 WIKI_ARTICLES = ("Bitcoin", "Cryptocurrency")
 # Règle des robots de Wikimedia (https://w.wiki/4wJS) : nom, version, adresse du projet et bibliothèque.
 WIKI_USER_AGENT = (f"crypto-signal-intelligence/0.1 (+https://github.com/chemsou-belkacemi/CryptoSignalIntelligence ; "
@@ -294,12 +298,53 @@ def fred(client: PublicSources, series: str, *, start: str = "1990-01-01") -> li
             for row in reader if len(row) >= 2 and row[1] not in ("", ".")]
 
 
-def nasdaq_gld(client: PublicSources, *, start: str, end: str) -> list[dict]:
-    payload = client.get_json("https://api.nasdaq.com/api/quote/GLD/historical",
+def nasdaq_etf(client: PublicSources, symbol: str, *, start: str, end: str) -> list[dict]:
+    """Clôtures d'un ETF (GLD : or ; SPY : S&P 500) sur l'API publique de Nasdaq (10 ans au plus)."""
+    payload = client.get_json(f"https://api.nasdaq.com/api/quote/{symbol}/historical",
                               {"assetclass": "etf", "fromdate": start, "todate": end, "limit": "9999"})
     rows = (((payload or {}).get("data") or {}).get("tradesTable") or {}).get("rows") or []
-    return [{"key": "GLD", "date": pd.Timestamp(r["date"]), "field": "close",
+    return [{"key": symbol, "date": pd.Timestamp(r["date"]), "field": "close",
              "value": _number(str(r["close"]).replace("$", "").replace(",", ""))} for r in rows]
+
+
+def nasdaq_gld(client: PublicSources, *, start: str, end: str) -> list[dict]:
+    return nasdaq_etf(client, "GLD", start=start, end=end)
+
+
+def treasury_10y(client: PublicSources, year: int) -> list[dict]:
+    """Taux à 10 ans du Trésor américain (courbe quotidienne, fichier d'une année)."""
+    url = (f"https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/"
+           f"{year}/all")
+    text = client.get(url, {"type": "daily_treasury_yield_curve", "field_tdr_date_value": str(year), "page": "",
+                            "_format": "csv"}, timeout=90).decode()
+    rows = list(csv.DictReader(io.StringIO(text)))
+    if rows and "10 Yr" not in rows[0]:
+        raise SourceError("Trésor : colonne « 10 Yr » absente")
+    return [{"key": "UST10Y", "date": pd.Timestamp(datetime.strptime(r["Date"], "%m/%d/%Y")), "field": "yield_pct",
+             "value": float(r["10 Yr"])} for r in rows if r.get("10 Yr") not in (None, "")]
+
+
+def fed_m2(client: PublicSources, *, last: int | None = None) -> list[dict]:
+    """M2 de la Fed (milliards de dollars) : mensuel corrigé (M2SL) et hebdomadaire non corrigé (WM2NS)."""
+    out = []
+    for frequency, (package, column, key) in FED_H6.items():
+        text = client.get("https://www.federalreserve.gov/datadownload/Output.aspx",
+                          {"rel": "H6", "series": package, "lastobs": "" if last is None else str(last), "from": "",
+                           "to": "", "filetype": "csv", "label": "include", "layout": "seriescolumn",
+                           "type": "package"}, timeout=90).decode()
+        lines = text.splitlines()
+        header = next((i for i, line in enumerate(lines) if line.startswith('"Time Period"')), None)
+        if header is None:
+            raise SourceError("Fed H.6 : en-tête « Time Period » absent")
+        reader = csv.DictReader(io.StringIO("\n".join(lines[header:])))
+        for row in reader:
+            value = row.get(column)
+            if value in (None, "", "ND", "NA"):
+                continue
+            stamp = row["Time Period"]
+            when = pd.Timestamp(stamp + "-01") if frequency == "monthly" else pd.Timestamp(stamp)
+            out.append({"key": key, "date": when, "field": "value", "value": float(value)})
+    return out
 
 
 def wikipedia_views(client: PublicSources, article: str, *, start: str, end: str) -> list[dict]:

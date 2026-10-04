@@ -26,6 +26,7 @@ SOURCES = {"flows": "CoinMetrics community (CC BY-NC, attribution)", "market_glo
            "binance_daily": "Binance spot public", "coinbase": "Coinbase Exchange public", "upbit": "Upbit public",
            "ecb": "BCE", "protocols": "DefiLlama", "protocols_tvl": "DefiLlama", "stablecoins": "DefiLlama",
            "fred": "FRED (St. Louis Fed ; SP500 sous licence S&P)", "gold_gld": "Nasdaq (ETF GLD)",
+           "macro": "Trésor américain (10 ans), Fed H.6 (M2), Nasdaq (ETF SPY)",
            "wikipedia": "Wikimedia pageviews"}
 
 
@@ -132,8 +133,12 @@ def _jobs(settings: Settings, clients: Clients, *, now: datetime, history: bool,
         "protocols_tvl": lambda: per_pair("protocols_tvl", list(fetch.DEFILLAMA),
                                           lambda t: fetch.defillama_tvl(clients.web, t, fetch.DEFILLAMA[t], day=day)),
         "stablecoins": lambda: {"records": fetch.stablecoin_supply(clients.web)},
-        "fred": lambda: {"records": [r for s in fetch.FRED_SERIES
-                                     for r in fetch.fred(clients.web, s, start="1990-01-01" if history else str((day - pd.Timedelta(days=120)).date()))]},
+        # FRED (fredgraph.csv) ne répond plus depuis le 2026-10-02 : remplaçants validés le 2026-10-04.
+        "macro": lambda: {"records": [r for y in range(1990 if history else day.year, day.year + 1)
+                                      for r in fetch.treasury_10y(clients.web, y)]
+                          + fetch.fed_m2(clients.web, last=None if history else 12)
+                          + fetch.nasdaq_etf(clients.web, "SPY", start=str((day - pd.Timedelta(days=3650 if history else 10)).date()),
+                                             end=str(day.date()))},
         "gold_gld": lambda: {"records": fetch.nasdaq_gld(clients.web, start=str((HISTORY_START if history else recent).date()),
                                                          end=str(day.date()))},
         "wikipedia": lambda: {"records": [r for a in fetch.WIKI_ARTICLES

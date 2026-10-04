@@ -36,7 +36,8 @@ test qui voudrait s'en servir doit le déclarer dans son pré-enregistrement, av
 | `protocols` | revenus et frais journaliers (USD) | 15 jetons de protocole (table `fetch.DEFILLAMA`, vérifiée) | depuis le lancement | DefiLlama |
 | `protocols_tvl` | TVL actuelle (USD) | mêmes jetons | **aucun** au quotidien (fichiers de 10 Mo) : relevé seulement | DefiLlama |
 | `stablecoins` | stablecoins indexés sur le dollar en circulation | all | plusieurs années | DefiLlama |
-| `fred` | S&P 500, taux à 10 ans, M2 mensuel et hebdomadaire | SP500, DGS10, M2SL, WM2NS | S&P 10 ans (licence S&P), le reste des décennies | FRED |
+| `macro` | taux à 10 ans du Trésor américain ; M2 mensuel corrigé (= M2SL) et hebdomadaire non corrigé (= WM2NS) ; clôture de l'ETF SPY (approximation du S&P 500) | UST10Y, M2SL, WM2NS, SPY | taux depuis 1990, M2 depuis 1959, SPY 10 ans | Trésor américain, Fed (publication H.6), Nasdaq |
+| `fred` | (ancienne source, conservée dans le code) | — | — | FRED : le téléchargement CSV ne répond plus depuis le 2026-10-02 |
 | `gold_gld` | clôture de l'ETF GLD (approximation de l'or) | GLD | depuis 2017 | Nasdaq public |
 | `wikipedia` | vues quotidiennes (filtre « utilisateurs », quelques robots passent) | Bitcoin, Cryptocurrency | depuis 2015-07 | Wikimedia (User-Agent conforme à leur règle des robots) |
 
@@ -62,3 +63,7 @@ Primes calculées (`context/views.py`) :
 
 - 2026-10-04 : module, magasin, relevé quotidien et téléchargement de l'historique ; sources validées par le
   propriétaire le même jour.
+- 2026-10-04 : FRED muet (`fredgraph.csv`) ; remplacé, sur accord du propriétaire, par le Trésor américain (taux à
+  10 ans), la Fed (M2, publication H.6, mêmes valeurs que FRED vérifiées) et l'ETF SPY sur Nasdaq ; verrou
+  d'écriture du magasin (le téléchargement de l'historique avait écrasé le journal du relevé du jour).
+
