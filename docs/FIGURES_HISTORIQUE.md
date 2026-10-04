@@ -268,6 +268,25 @@ transactions qui repassent par l'entrée avant de monter ; TP4 et TP5 ne sont at
 60 bougies. Les placebos tirés avant l'exécution sont biaisés en 4 h et 1 jour (voir le contrôle ci-dessus) :
 l'excès est lu avec cette réserve, le R moyen et l'écart apparié ne le sont pas.
 
+### Résultat (exécution unique, `DBLM-20261004T122738Z-576a37`, 2026-10-04, essais 847 et 848) : **NON_DEMONTRE**, identique à la règle des tiers
+
+| Répartition | n | R moyen | IC du R (97,5 %) | Tiers (1re exécution) | Écart apparié | Excès (frais égaux) | Gagnantes | TP1 / TP2 / TP3 / TP4 / TP5 atteints |
+|---|---|---|---|---|---|---|---|---|
+| A 60/10/10/10/10 | 2 455 | +0,019 | [−0,031 ; +0,064] | +0,021 | −0,002 [−0,028 ; +0,024] | +0,011 [−0,032 ; +0,052] | 76 % | 75 / 38 / 18 / 10 / 5 % |
+| B 60/15/10/10/5 | 2 455 | +0,019 | [−0,031 ; +0,064] | +0,021 | −0,002 [−0,028 ; +0,024] | +0,011 [−0,032 ; +0,052] | 76 % | idem |
+
+Défavorable : +0,008 R pour les deux. Issues (A) : stop à l'entrée après TP1 **36 %**, stop au TP1 après TP2 19 %,
+stop initial 17 %, TP5 complet 5 %, échéance 8 %. Par année : 2020 et 2021 positives, 2022, 2023 et 2025 négatives.
+
+**Lecture.** Les deux répartitions sont indiscernables (0,05 R d'écart au plus, comme prévu) et indiscernables de la
+règle des tiers : le stop remonté à l'entrée supprime bien les pertes après TP1, mais il coupe 36 % des transactions
+à zéro, là où la règle des tiers en laissait une partie monter jusqu'au TP2 ou TP3 ; les deux effets se compensent
+exactement. 76 % de transactions gagnantes pour **+0,39 % de la position par transaction** en moyenne (non démontré :
+l'intervalle contient 0). Avec un stop à 7,9 % sous l'entrée, risquer 1 % du capital par transaction revient à engager
+13 % du capital : soit environ **+0,05 % du capital par transaction**, à raison d'une transaction par jour sur les 40
+paires. L'objectif « 1 à 2 % par jour » demanderait 20 à 40 fois cela. TP4 et TP5 ne sont atteints que 10 % et 5 % du
+temps en 60 bougies : des objectifs plus lointains n'ajoutent presque rien.
+
 ## Historique
 
 - 2026-10-04 : déclaré avant tout code et toute exécution.
@@ -285,3 +304,5 @@ l'excès est lu avec cette réserve, le R moyen et l'écart apparié ne le sont 
     1 h / 4 h / 1 jour, comparaison avec `f15.resolve_one` en 4 h et avec un grand trou de données).
 - 2026-10-04 : exécution unique `FIGH-20261004T102820Z-479ac6` (essais 828 à 846, programme 846) ; contrôle de
   l'instrument sur marches aléatoires ensuite (biais des placebos tirés avant l'exécution en 4 h et 1 jour).
+- 2026-10-04 : exécution unique `DBLM-20261004T122738Z-576a37` de la gestion du propriétaire sur le double creux
+  (essais 847 et 848, programme 848).
