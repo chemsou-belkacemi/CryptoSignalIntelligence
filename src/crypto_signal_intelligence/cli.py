@@ -1116,6 +1116,33 @@ def trendline_final_command(
     console.print(f"Rapport : {settings.reports_dir / payload['run_id'] / 'summary.json'}")
 
 
+@app.command("ia-bias")
+def ia_bias_command(model: str = typer.Option(..., "--model", help="Modèle Ollama local déclaré (qwen2.5vl:7b ou gemma3:12b)"),
+                    allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Code non commité : enregistré et COMPTÉ"),
+                    verbose: bool = False):
+    """IA locale qui lit les graphiques contre la règle EMA 50 / 200, 400 moments de 2025-2026 (docs/IA_GRAPHES.md) :
+    1 essai par modèle ; consultation n° 3 de la période réservée (autorisation du propriétaire)."""
+    from .research.factors import DirtyCode
+    from .research.ia_bias import run
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    try:
+        with console.status("IA locale…") as status:
+            payload = run(settings, model=model, now=_now(), progress=lambda text: status.update(f"IA locale : {text}"),
+                          allow_dirty=allow_dirty)
+    except (DirtyCode, ValueError) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    r = payload["result"]
+    console.print(f"Modèle {payload['model']} ({payload['digest']}) — {r['n']} moments, {r['weeks']} semaines")
+    console.print(f"Écart de rendement signé IA − règle : {r['decision']['diff_mean_pct']} % [{r['decision']['ci_pct']}] → "
+                  f"{r['decision']['verdict']}")
+    console.print(f"IA seule : {r['ia_signed_mean_pct']} % [{r['ia_signed_ci_pct']}] ; règle : {r['rule_signed_mean_pct']} % ; "
+                  f"bons sens IA {r['ia_right_share']} / règle {r['rule_right_share']} (part en hausse {r['share_up']})")
+    console.print(f"Avis : {r['biases']} ; accord avec la règle {r['agreement_with_rule']}")
+    console.print(f"Rapport : {settings.reports_dir / payload['run_id'] / 'summary.json'}")
+
+
 @app.command("xsection-premium")
 def xsection_premium_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Code non commité : enregistré et COMPTÉ"),
                              verbose: bool = False):
