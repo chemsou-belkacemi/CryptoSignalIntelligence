@@ -204,6 +204,24 @@ bougies publiques.
 
 ## Historique
 
+- 2026-10-05 : **nom du trader lu en tête du signal** (`external/parser.group_of`), même lecture et même forme
+  canonique que BinanceSpotManager (`trader_name.trader_of` et `name_key`, comparées en-tête par en-tête par
+  `tests/test_group_name.py`) : dernière ligne utile avant la paire ou la première étiquette ; formules (« بسم الله
+  … », reconnues par phrase entière, diacritiques et tatouil retirés), mots-dièses, données (« Type: Spot »,
+  « Risk Level - High »), dates et lignes d'événement (« Harmonic Pattern Detected ») ignorés ; préfixes (« Trader/ »,
+  « Ph. ») et suffixes (« Harmonic Indicator Ultra », « SIGNAL ALERT ») retirés. Forme canonique **stricte**, parce
+  qu'un nom peut lever des vetos par la preuve de son groupe : majuscules sans accents, particules collées
+  (« AL-MAHWASHI » = « ALMAHWASHI », « ABD ELOUADOUD » = « ABDELOUADOUD »), aucun mot retiré (« CRYPTO LEGEND » reste
+  distinct de « LEGEND TRADING ») ; les variantes d'un même nom ne sont réunies que par une liste déclarée
+  (`NAME_ALIASES` : « AL-MAHWASHI CRYPTO TRADING » = « AL-MAHWASHI CRYPTO », « ALAFIFY TRADING » = « ALAFIFY ») ; un
+  nom fait seulement de mots banals (« VIP », « CRYPTO VIP ») ne nomme personne. Sur les exports du propriétaire,
+  un nom est lu pour 867 signaux lisibles sur 874, avec les mêmes groupes dans CSI et dans BSM ; l'ancienne règle (première ligne lisible) en
+  rangeait une partie sous une ligne d'événement (« HARMONIC TRADE DETECTED » pour Suhaib AlMashhadani, « Harmonic
+  Pattern Detected » pour Al-Afify comme pour Apex). Décision du propriétaire : corriger tout de suite. Effet : les
+  sources des avis et des bilans prennent les nouveaux noms ; les fournisseurs de F4 et F16 aussi, à partir du
+  redémarrage de la surveillance avec l'image reconstruite (ce redémarrage sera inscrit dans « Démarrages » de
+  `FORWARD_TESTS.md`) ; aucune décision F4/F16 ni aucune preuve de groupe n'existait avant (deux relectures
+  leak-auditor le 2026-10-05).
 - 2026-10-02 : taux de base `LIMIT_ALIGNED_V4` : l'écart entre l'entrée et le dernier prix est mesuré en ATR,
   comme le stop et la cible. En % fixe, un signal reçu après une baisse (entrée au-dessus du prix, achat aussitôt
   au marché) plaçait, dans les périodes calmes de l'historique, le stop au-dessus du prix d'achat : stops

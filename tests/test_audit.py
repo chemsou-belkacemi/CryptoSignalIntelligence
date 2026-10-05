@@ -94,9 +94,9 @@ def test_bsm_inbox_is_read_only_with_the_original_time(tmp_path):
 
 
 def test_group_name_units_and_weights():
-    assert au.group_of(SIGNAL) == "LEGEND TRADING INDICATOR"
+    assert au.group_of(SIGNAL) == "LEGEND TRADING"
     assert au.group_of("📈 Trader/ Suhaib AlMashhadani\n💎 PAIR: WLD/USDT\nENTRY 1: 0.44\nSL: 0.43") == \
-        "Trader/ Suhaib AlMashhadani"
+        "SUHAIB ALMASHHADANI"
     assert au.group_of("PAIR: ETH/USDT\nENTRY 1: 1") == "" and au.group_of("#ABC/USDT\nEntry1: 1") == ""
     assert au.group_of("───────\n\n") == "" and au.group_of("bonjour à tous\nça va ?") == ""
     assert [au.stop_bars(x) for x in ("4h", "1h", "15m", "15min", "30 min", "", "10m", "7m", "1d")] == [16, 4, 1, 1, 2, 0, 0, 0, 0]
@@ -135,7 +135,7 @@ WICK = [(101, 101, 99.5, 100.5),          # 10:00 : traverse l'entrée 100 → r
 def test_a_wick_stops_the_touch_convention_but_not_the_close_rule(settings):
     report = run(settings, scenario(WICK))
     row = report.rows[0]
-    assert (row.status, row.group, row.symbol, row.stop_timeframe) == ("OK", "LEGEND TRADING INDICATOR", "ABCUSDT", "4h")
+    assert (row.status, row.group, row.symbol, row.stop_timeframe) == ("OK", "LEGEND TRADING", "ABCUSDT", "4h")
     assert (row.stop_pct, row.tp1_pct) == (5.0, 4.0)
     assert row.outcomes[au.TP1_TOUCH] == {"issue": "SL_FIRST", "r": round(r_of([(1, 95, True)]), 4), "provisoire": False}
     assert row.outcomes[au.TP1_RULE] == {"issue": "TP1_FIRST", "r": round(r_of([(1, 104, False)]), 4), "provisoire": False}
@@ -332,7 +332,7 @@ def test_report_and_command(settings, monkeypatch, tmp_path):
     report = run(settings, scenario(WICK), [item(), item("illisible")])
     directory = au.write_report(settings, report)
     saved = json.loads((directory / "audit.json").read_text(encoding="utf-8"))
-    assert saved["summary"]["LEGEND TRADING INDICATOR"]["conventions"][au.TP1_RULE]["r_moyen"] > 0
+    assert saved["summary"]["LEGEND TRADING"]["conventions"][au.TP1_RULE]["r_moyen"] > 0
     table = pd.read_csv(directory / "signaux.csv")
     assert list(table["status"]) == ["OK", "ILLISIBLE"] and table.loc[0, "tp1_contact_issue"] == "SL_FIRST"
     assert np.isnan(table.loc[1, "tp1"]) and table.loc[0, "tp1"] == 104.0

@@ -49,7 +49,7 @@ def test_robot_file_and_bsm_inbox_are_read_and_deduplicated(settings, tmp_path):
     settings.forward.bsm_inbox = str(db)
     items = telegram_live.read_all(settings, since=T0 - pd.Timedelta(days=1))
     assert [s.id for s in items] == ["robot:-100:7", "bsm:s1", "robot:-100:8"]
-    assert items[0].provider == "AL-MAHWASHI VIP" and items[2].provider == "chat -100"
+    assert items[0].provider == "ALMAHWASHI VIP" and items[2].provider == "chat -100"
     assert items[1].provider == "telegram -100123" and items[1].edited is True and items[1].chat == "-100123"
     assert items[1].received_at == (T0 + pd.Timedelta(seconds=120)).isoformat()
     assert telegram_live.read_bsm(tmp_path / "absent.sqlite3", since=T0) == []
@@ -58,7 +58,7 @@ def test_robot_file_and_bsm_inbox_are_read_and_deduplicated(settings, tmp_path):
 def test_api_deposit_writes_a_file_in_the_drop_folder(settings):
     api = CsiApi(settings, now=lambda: datetime(2026, 10, 5, 12, tzinfo=UTC))
     out = api.dispatch("POST", "/telegram/live", {}, {"signals": [ROBOT_ROW]})
-    assert out == {"deposited": 1, "readable": 1, "providers": ["AL-MAHWASHI VIP"]}
+    assert out == {"deposited": 1, "readable": 1, "providers": ["ALMAHWASHI VIP"]}
     files = list(telegram_live.live_dir(settings).glob("*.json"))
     assert len(files) == 1 and files[0].name.startswith("20261005T120000Z-")
     with pytest.raises(Exception, match="liste non vide"):
@@ -186,7 +186,7 @@ def test_f4_end_to_end(settings, monkeypatch):
     out = f4.stats(journal, start, now=later)
     whole = out["providers"][f4.ALL]
     assert out["decisions"] == 1 and out["counted"] == 1 and whole["resolved"] == 1 and whole["halal_share"] == 0.5
-    assert out["by_status"][f4.SHORT] == 1 and "AL-MAHWASHI VIP" in out["providers"]
+    assert out["by_status"][f4.SHORT] == 1 and "ALMAHWASHI VIP" in out["providers"]
     assert whole["verdict"] == f4.RUNNING and f4.finalize(journal, start, now=later) is None
     assert journal.verify()["ok"]
 

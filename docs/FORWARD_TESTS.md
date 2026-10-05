@@ -1248,6 +1248,13 @@ stop et à l'échéance. Mesure : moyenne des rendements nets par signal exécut
 suivante. Compté comme **1 essai** au registre à la lecture. Le choix « TP4-TP5 » ayant été fait sur septembre,
 septembre n'entre jamais dans la mesure.
 
+**Addendum du 2026-10-05 (avant toute donnée de la période).** La lecture du nom du trader a changé ce jour
+(`external/parser.group_of`, forme canonique) : le groupe que l'audit écrivait « AL-MAHWASHI VIP » s'écrit
+désormais « ALMAHWASHI VIP ». Les deux désignent exactement les mêmes messages : vérifié sur tous les exports
+disponibles (fichier du robot, `mahwashiVip.json`, export AL-MAHWASHI CRYPTO, export LEGEND TRADING), aucune
+divergence. La population de la lecture est donc « ALMAHWASHI VIP » ; au versement de `tp_ladder.py`, le filtre
+compare la forme canonique (`canonical_name(groupe) == "ALMAHWASHI VIP"`), rien d'autre ne change.
+
 ## MISSION_2026_10_03 : correspondance avec la mission du propriétaire et nouveaux essais
 
 Mission collée par le propriétaire le 2026-10-03 (« construire tous les tests en direct maintenant »), confirmée le

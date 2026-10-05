@@ -70,25 +70,165 @@ def content_hash(text: str) -> str:
     return hashlib.sha256(re.sub(r"\s*:\s*", ":", " ".join(normalize(text).split())).encode()).hexdigest()
 
 
+# Nom du trader écrit en tête d'un signal : même lecture et même forme canonique que BinanceSpotManager
+# (`trader_name.trader_of` et `name_key`, 2026-10-05 ; comparées par tests/test_group_name.py). Sur les exports du
+# propriétaire (LEGEND TRADING, AL-MAHWASHI CRYPTO, IN CRYPTO, fichiers de son robot), un nom est lu pour 867
+# signaux lisibles sur 874 ; l'ancienne règle (première ligne lisible) en rangeait une partie sous une ligne
+# d'événement (« HARMONIC TRADE DETECTED » pour Suhaib AlMashhadani, « Harmonic Pattern Detected » pour Al-Afify
+# comme pour Apex). Deux relectures leak-auditor le 2026-10-05.
+NAME_FORMULAS = ("بسم الله", "بيم الله", "توكلت على الله", "توكلنا على الله", "الرحمن الرحيم", "الحمد لله",
+                 "سبحان الله", "شاء الله", "استغفر الله", "صلى الله", "BISMILLAH", "INSHALLAH", "IN SHAA ALLAH")
+NAME_GENERIC = frozenset({
+    "HARMONIC", "PATTERN", "PATTERNS", "DETECTED", "TRADE", "TRADES", "TIME", "BASED", "TIME-BASED", "CYCLE",
+    "ANALYSIS", "INDICATOR", "INDICATORS", "ULTRA", "SIGNAL", "SIGNALS", "ALERT", "ALERTS", "NEW", "SPOT",
+    "LONG", "BUY", "ICT", "PREVIEW", "SETUP", "SWING", "SCALP", "SCALPING", "TERM", "SHORT", "MID", "UPDATE",
+    "SPECIAL", "TP", "TRACKING", "HOLD",
+    "معاينة", "الصفقة", "صفقة", "جديدة", "توصية", "اشارة", "إشارة", "شراء", "سبوت",
+})
+# Première mot d'une donnée (« Type: Spot », « Risk Level - High », « Market = Spot ») : jamais un nom.
+NAME_METADATA_KEYS = frozenset({"TYPE", "MARKET", "RISK", "LEVEL", "POSITION", "DIRECTION", "SIDE", "TIMEFRAME",
+                                "TF", "DURATION", "STRATEGY", "EXCHANGE", "LEVERAGE", "DATE", "TIME", "STATUS",
+                                "CATEGORY", "MODE", "ORDER", "PLATFORM", "NOTE", "INFO",
+                      "ATTENTION", "WARNING", "REMINDER", "DISCLAIMER"})
+# Noms faits seulement de ces mots : personne n'est nommé (aucun nom plutôt qu'un nom partagé par des canaux).
+NAME_BANAL = frozenset({"VIP", "KING", "PRO", "PREMIUM", "FREE", "BINANCE", "SPOT", "CRYPTO", "TRADING", "TRADER",
+                        "TRADERS", "SIGNAL", "SIGNALS", "IN", "THE", "BEST", "TOP", "GOLD", "MASTER", "EXPERT",
+                        "ELITE", "TEAM", "CHANNEL", "GROUP", "CLUB", "ACADEMY",
+                        "GOOD", "MORNING", "EVENING", "NIGHT", "HELLO", "HI", "DEAR", "FRIENDS", "GUYS",
+                        "EVERYONE", "ALL",
+                        "BTC", "ETH", "BNB", "SOL", "USDT", "USDC", "XRP",
+                        "توصيات", "كريبتو", "تداول", "اشارات", "إشارات", "قناة", "مجموعة", "صباح", "مساء", "الخير",
+                        "اخواني", "إخواني"})
+NAME_PREFIX = re.compile(r"^(?:(?:TRADER|ANALYST)\s*[/:]\s*|(?:TRADER|ANALYST|BY|FROM|PH\.?)\s+"
+                         r"|(?:المحلل|المتداول)\s*[/:]\s*)", re.IGNORECASE)
+NAME_SEPARATED = re.compile(r"^(?P<key>[^:=|→]{1,40}?)\s*[:=|→]\s*(?P<value>\S.*)$")
+_MONTHS = (r"(?:JAN(?:UARY|VIER)?|FEB(?:RUARY)?|F[EÉ]V(?:RIER)?|MAR(?:CH|S)?|APR(?:IL)?|AVR(?:IL)?|MAY|MAI"
+           r"|JUN(?:E)?|JUIN|JUL(?:Y)?|JUIL(?:LET)?|AUG(?:UST)?|AO[UÛ]T|SEP(?:T(?:EMBER|EMBRE)?)?"
+           r"|OCT(?:OBER|OBRE)?|NOV(?:EMBER|EMBRE)?|DEC(?:EMBER)?|D[EÉ]C(?:EMBRE)?)")
+NAME_DATE_OR_TIME = re.compile(
+    r"\d{1,4}\s*[/.-]\s*\d{1,2}(?:\s*[/.-]\s*\d{1,4})?|\b\d{1,2}\s*[:hH]\s*\d{2}\b"
+    r"|\b\d{1,2}\s*(?:AM|PM)\b|\b(?:UTC|GMT)\b"
+    r"|\b(?:MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY|LUNDI|MARDI|MERCREDI|JEUDI|VENDREDI|SAMEDI"
+    r"|DIMANCHE)\b"
+    rf"|\b\d{{1,2}}\s+{_MONTHS}\b|\b{_MONTHS}\s+\d{{1,2}}\b",
+    re.IGNORECASE)
+NAME_PARTICLE_DASH = re.compile(r"\b(AL|EL|ABD|ABU|ABO|BEN|BIN|IBN)\s*-\s*([^\W_]+)", re.IGNORECASE)
+# Forme canonique, volontairement stricte (un nom peut lever des vetos par la preuve de son groupe) : majuscules
+# sans accents ni signes diacritiques, particules collées au mot suivant (« Al-Mashhadani » = « AlMashhadani »,
+# « ABD ELOUADOUD » = « ABDELOUADOUD »). Aucun mot retiré : « CRYPTO LEGEND » reste distinct de « LEGEND TRADING ».
+# Les variantes d'un même nom ne sont réunies que par la liste NAME_ALIASES (variantes vues dans ses exports).
+NAME_PARTICLES = frozenset({"AL", "EL", "ABD", "ABU", "ABO", "BEN", "BIN", "IBN"})
+NAME_ALIASES = {
+    "ALMAHWASHI CRYPTO TRADING": "ALMAHWASHI CRYPTO",
+    "ALMAHWASHI TRADING CRYPTO": "ALMAHWASHI CRYPTO",
+    "ALAFIFY TRADING": "ALAFIFY",
+}
+
+
+def _name_words(text: str) -> list[str]:
+    return [word.upper().strip(".:") for word in text.split()]
+
+
+#: Mots d'une description placée après « - » ou « : » (« Bat Pattern Detected », « Daily Chart », « Gartley »).
+NAME_DESCRIPTION = frozenset({"PATTERN", "PATTERNS", "DETECTED", "CHART", "DAILY", "WEEKLY", "GARTLEY", "BAT",
+                                "BUTTERFLY", "CRAB", "SHARK", "CYPHER", "ABCD"})
+
+
+def _generic(word: str) -> bool:
+    """Mot générique, y compris composé (« MID-TERM », « TIME-BASED »)."""
+    word = word.upper().strip(".:")
+    return word in NAME_GENERIC or ("-" in word and all(part in NAME_GENERIC for part in word.split("-") if part))
+
+
+def _without_description(text: str) -> str:
+    """« NOM - Bat Pattern Detected » → « NOM » ; « AL-MAHWASHI CRYPTO - VIP » reste entier (VIP distingue)."""
+    left, separator, right = text.partition(" - ")
+    words = _name_words(right)
+    if separator and words and (all(_generic(word) for word in words) or NAME_DESCRIPTION & set(words)):
+        return left.strip()
+    return text
+
+
+def _name_from_line(line: str) -> str:
+    """Nom porté par une ligne d'en-tête, ou « » (formule, mot-dièse, donnée, date, ligne d'événement ou
+    générique, phrase, mots banals)."""
+    plain = "".join(ch for ch in unicodedata.normalize("NFKC", line)
+                    if unicodedata.category(ch) != "Mn" and ch != "\u0640")       # diacritiques, tatouil
+    bare = "".join(" " if unicodedata.category(ch) in ("So", "Sk") else ch for ch in plain)
+    head = re.sub(r"^\d{1,2}[.)]\s*", "", bare.strip().lstrip("*•·▪▫-–—_( "))
+    if head.startswith(("#", "$")) or re.search(r"t\.me/|https?:|www\.", bare, re.IGNORECASE):
+        return ""
+    text = "".join(ch if unicodedata.category(ch)[0] in "LNZ" or ch in "/&'.-:=|→" else " "
+                   for ch in plain.replace("*", " ").replace("_", " "))
+    text = " ".join(text.split()).strip(" -/.:&'=|→")
+    if not text or any(formula in text.upper() for formula in NAME_FORMULAS) or NAME_DATE_OR_TIME.search(text):
+        return ""
+    text = NAME_PREFIX.sub("", text).strip(" -/.:")
+    if _name_words(text) and _name_words(text)[0] in NAME_METADATA_KEYS:
+        return ""
+    separated = NAME_SEPARATED.match(text)
+    if separated:
+        # « LEGEND TRADING: NEW SIGNAL » → « LEGEND TRADING » ; toute autre « clé : valeur » est une donnée.
+        value = _name_words(separated.group("value"))
+        if not (all(_generic(word) for word in value) or NAME_DESCRIPTION & set(value)):
+            return ""
+        text = separated.group("key").strip()
+    text = NAME_PARTICLE_DASH.sub(lambda match: match.group(0) if match.group(2).upper() in NAME_GENERIC
+                                  else f"{match.group(1)}-{match.group(2)}", text)
+    words = _without_description(text).strip(" -/.:").split()
+    while words and _generic(words[-1]):
+        words.pop()
+    while words and _generic(words[0]):
+        words.pop(0)
+    name = " ".join(words).strip(" -/.:")
+    if not name or len(name) > 48 or len(words) > 6:
+        return ""
+    if all(word in NAME_BANAL for word in re.findall(r"[^\W_]+", name.upper())):
+        return ""
+    return name
+
+
+def _starts_the_signal(line: str) -> bool:
+    """Ligne de paire ou d'étiquette (entrée, objectif, stop) : la fin de l'en-tête."""
+    text = _label_text(line).strip().lstrip("#").strip()
+    return bool(LABELLED_LINE.match(text) or SLASH_PAIR.search(text) or JOINED_PAIR.search(text))
+
+
+def canonical_name(name: str) -> str:
+    """Forme unique des variantes d'écriture d'un nom : majuscules sans accents ni diacritiques, particules collées
+    au mot suivant, puis variantes déclarées (NAME_ALIASES)."""
+    text = unicodedata.normalize("NFKD", name)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch) and ch != "\u0640").upper()
+    words: list[str] = []
+    for word in re.findall(r"[^\W_]+", text):
+        if words and words[-1] in NAME_PARTICLES:
+            words[-1] += word
+        else:
+            words.append(word)
+    canonical = " ".join(words)[:60]
+    return NAME_ALIASES.get(canonical, canonical)
+
+
 def group_of(text: str) -> str:
-    """Nom du groupe écrit en tête d'un signal transféré (première ligne lisible qui n'est pas un champ). Seulement
-    pour un texte qui ressemble à un signal : une entrée et un stop ou un objectif ; sinon « » (un simple message
-    n'est pas un nom de groupe)."""
+    """Nom du trader ou du groupe écrit en tête d'un signal, sous sa forme canonique (« SUHAIB ALMASHHADANI »,
+    « ALMAHWASHI VIP », « ABK »). Seulement pour un texte qui ressemble à un signal : une entrée et un stop ou
+    un objectif ; sinon « » (un simple message n'est pas un nom de groupe).
+
+    Lignes placées avant la paire ou la première étiquette ; formules (« بسم الله … »), mots-dièses, données
+    « clé : valeur », dates et lignes d'événement (« Harmonic Pattern Detected ») ignorés ; préfixes (« Trader/ »,
+    « Ph. ») et suffixes (« Harmonic Indicator Ultra », « SIGNAL ALERT ») retirés ; la dernière ligne restante
+    est le nom. Des mots banals seuls (« VIP », « CRYPTO VIP ») ne nomment personne. Aucun nom n'est inventé."""
     upper_text = normalize(text)
     if not (re.search(r"\bENTRY", upper_text) and re.search(r"\b(?:SL|STOP|TP\s*\d?|T\d|TARGET)", upper_text)):
         return ""
+    names = []
     for line in text.splitlines():
-        name = "".join(ch if unicodedata.category(ch)[0] in "LN" or ch in " /'&.-" else " "
-                       for ch in unicodedata.normalize("NFKC", line))
-        name = " ".join(name.split()).strip(" -/.'&")
-        if not name:
-            continue
-        upper = name.upper()
-        if re.match(r"(PAIR|COIN|ENTRY|BUY|SELL|LONG|SHORT|TP|SL|STOP|TARGET|PLATFORM)\b", upper) or \
-                re.fullmatch(r"[A-Z0-9]+\s*/\s*(USDT|USDC|USD)", upper):
-            return ""
-        return name[:60]
-    return ""
+        if _starts_the_signal(line):
+            break
+        name = _name_from_line(line)
+        if name:
+            names.append(name)
+    return canonical_name(names[-1]) if names else ""
 
 
 LABELS = {

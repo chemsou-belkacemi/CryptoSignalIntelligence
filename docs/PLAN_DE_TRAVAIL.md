@@ -92,12 +92,18 @@ Aucun calcul de recherche en cours.
    - **2026-10-05** : corrections tirées du journal Telegram du bot (stop au TP précédent, pertes annoncées frais
      compris, TP atteint avant l'achat, reliquats sous les minimums, filtre de History), fusionnées et poussées sur
      demande du propriétaire (BSM `main` c00e089) ;
-   - **2026-10-05, branche `feat/suivi-canaux-protection`** (bed5d5d, c640d2f ; 1 128 tests BSM réussis), à
-     fusionner **[propriétaire]** : résultats par trader ou canal (nom lu en tête du signal : 867 signaux lisibles
+   - **2026-10-05, branche `feat/suivi-canaux-protection`** (bed5d5d, c640d2f ; 1 128 tests BSM réussis),
+     fusionnée et poussée sur demande du propriétaire (BSM `main` f5f8022) : résultats par trader ou canal (nom lu en tête du signal : 867 signaux lisibles
      sur 874 de ses exports), règle « canal perdant » (désactivée par défaut), protection en cas de chute de BTC
      (−3 % en 4 h → entrées automatiques suspendues 6 h, rien n'est vendu), rapport quotidien Telegram, « BSM face
-     au marché » sur le Dashboard, achat gardé (mesuré) ou annulé si le TP1 arrive avant. Mise à jour du VPS après
-     fusion : `git pull` puis `make up`.
+     au marché » sur le Dashboard, achat gardé (mesuré) ou annulé si le TP1 arrive avant. Mise à jour du VPS
+     **[propriétaire]** : `git pull` puis `make up`.
+   - **2026-10-05, CSI** : même lecture du nom du trader dans `external/parser.group_of` (décision du
+     propriétaire ; `EXTERNAL_SIGNALS.md`, Historique), forme canonique stricte après relecture ; en service pour
+     F4 et F16 au redémarrage de la surveillance (aucune décision F4/F16 n'existait).
+   - **Constat du 2026-10-05** : F4 et F16 n'ont rien reçu depuis leur démarrage (journal : la seule ligne de
+     démarrage). Ils lisent la boîte de BSM montée depuis ce PC, vide depuis que BSM tourne sur le VPS, et aucun
+     fichier du robot n'a été déposé. Sans source, leur verdict du 2026-12-25 sera vide **[propriétaire]**.
 6. **Recherche** : gelée, sauf source d'information nouvelle et gratuite, sur demande du propriétaire, déclarée et
    comptée.
 7. **2026-12-25** : un test qui passe est confirmé sur données jamais vues puis en Demo ; si rien ne passe,
@@ -127,12 +133,18 @@ Aucun calcul de recherche en cours.
   images en cours) ; **AL-MAHWASHI CRYPTO à refaire au format JSON** (l'export du 2026-10-04 est en HTML).
 - **[propriétaire] VPS** : refusé pour CSI le 2026-10-03 (kit prêt dans `VPS.md`) ; BSM y tourne depuis le
   2026-10-02 à 23 h.
-- **[propriétaire] Fusion de la branche BSM `feat/suivi-canaux-protection`**, puis mise à jour du VPS (§ 2 bis, 5).
-- **[propriétaire] Lecture du nom du trader dans CSI** (`external/parser.group_of`) : juste pour 74 % des signaux
-  de ses exports (« HARMONIC TRADE DETECTED » range 74 signaux de Suhaib, « Harmonic Pattern Detected » mélange
-  Al-Afify et Apex). La corriger change les noms de fournisseurs de F4 et F16 à partir de la correction (les
-  premiers jours resteraient sous les anciens noms) ; le parseur n'est pas gelé, son empreinte est dans chaque
-  décision.
+- **[propriétaire] Mise à jour du VPS** avec BSM `main` f5f8022 : `git pull` puis `make up` (§ 2 bis, 5).
+- **[propriétaire] Source de F4/F16** : copier régulièrement la boîte de BSM du VPS vers ce PC (lecture seule), ou
+  déposer les fichiers du robot ; sinon F4/F16 ne mesurent rien.
+- **[propriétaire] Fournisseur = trader ou outil** : un indicateur automatique signé du nom d'un trader (« Suhaib
+  AlMashhadani Harmonic Indicator ») compte aujourd'hui avec ses appels manuels ; à trancher avant le premier
+  événement F4/F16 (relecture du 2026-10-05).
+- **[propriétaire] Variantes réunies** (`NAME_ALIASES`) : « AL-MAHWASHI CRYPTO TRADING » = « AL-MAHWASHI CRYPTO »,
+  « ALAFIFY TRADING » = « ALAFIFY » ; toute autre fusion se déclare dans cette liste.
+- **[propriétaire] Avant la prochaine importation d'historique** (`audit-telegram`, `POST /sources/history`, qui peut
+  créer une preuve sur-le-champ) : une preuve lève les vetos de tout signal portant le même nom, quelle que soit la
+  conversation ; décider si elle doit aussi être liée à la conversation, sinon une copie ou une imitation du nom
+  en hériterait (relectures du 2026-10-05). Aucune preuve n'existe aujourd'hui.
 - **[propriétaire] Taille des positions BSM selon le risque** : à discuter (point 4 de la liste du 2026-10-05).
 - **[propriétaire] Ollama** (modèle local des news de risque) : installation par `sudo` dans ton terminal,
   `curl -fsSL https://ollama.com/install.sh | sh` puis `ollama pull qwen3:8b` (environ 5 Go, tient dans les 6 Go

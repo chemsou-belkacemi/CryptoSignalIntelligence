@@ -156,10 +156,10 @@ def test_a_proven_group_lifts_geometry_vetoes_but_never_refusals(settings, marke
 def test_a_live_proof_also_counts_and_generic_names_take_the_header(settings, market):
     close, atr, now = market
     registry = ExternalSignalRegistry(settings.external_db)
-    live_signals(registry, "LEGEND TRADING INDICATOR", 30, r=0.6, base=-0.1, days=15, start=now - timedelta(days=40))
+    live_signals(registry, "LEGEND TRADING", 30, r=0.6, base=-0.1, days=15, start=now - timedelta(days=40))
     wide = signal(close * 1.001, close * 1.001 - 9 * atr, close * 1.001 + 0.5 * atr)
     named = evaluate(settings, wide, source="telegram 8793686453", now=now, record=False)
-    assert named.source == "LEGEND TRADING INDICATOR" == group_of(wide)
+    assert named.source == "LEGEND TRADING" == group_of(wide)          # en-tête « LEGEND TRADING INDICATOR »
     assert named.verdict == "FAVORABLE" and named.source_proof["basis"] == "direct"
     plain = evaluate(settings, wide.split("\n", 1)[1], source="telegram 8793686453", now=now, record=False)
     assert plain.source == "telegram 8793686453" and plain.verdict == "DEFAVORABLE"       # aucun en-tête : nom gardé
@@ -167,6 +167,20 @@ def test_a_live_proof_also_counts_and_generic_names_take_the_header(settings, ma
     live_signals(registry, "Débutant", 10, r=0.6, base=-0.1, days=10, start=now - timedelta(days=40))
     young = evaluate(settings, wide, source="Débutant", now=now, record=False)
     assert young.verdict == "DEFAVORABLE" and not young.source_proof["proven"] and "10/30" in young.source_proof["proof"]
+
+
+def test_a_lookalike_header_does_not_inherit_a_group_proof(settings, market):
+    """Relecture du 2026-10-05 : une preuve pour « LEGEND TRADING » ne lève pas les vetos d'un signal signé
+    « CRYPTO LEGEND » venu d'une autre conversation."""
+    close, atr, now = market
+    registry = ExternalSignalRegistry(settings.external_db)
+    live_signals(registry, "LEGEND TRADING", 30, r=0.6, base=-0.1, days=15, start=now - timedelta(days=40))
+    wide = signal(close * 1.001, close * 1.001 - 9 * atr, close * 1.001 + 0.5 * atr, header="CRYPTO LEGEND")
+    other = evaluate(settings, wide, source="telegram 555", now=now, record=False)
+    assert other.source == "CRYPTO LEGEND" and other.verdict_basis != "groupe" and other.verdict != "FAVORABLE"
+    proven = evaluate(settings, signal(close * 1.001, close * 1.001 - 9 * atr, close * 1.001 + 0.5 * atr),
+                      source="telegram 555", now=now, record=False)
+    assert proven.source == "LEGEND TRADING" and proven.verdict == "FAVORABLE"
 
 
 def test_the_summary_says_how_often_tp1_must_be_hit(settings, market):
@@ -199,12 +213,12 @@ def test_history_route_measures_the_export_saves_proofs_and_guards_its_input(set
         {"id": 1, "type": "message", "date_unixtime": str(int((start + pd.Timedelta(hours=10)).timestamp())), "text": message},
         {"id": 3, "type": "service"}]}
     result = api.dispatch("POST", "/sources/history", {}, {"export": export, "weights": "equal"})
-    group = result["summary"]["LEGEND TRADING INDICATOR"]
+    group = result["summary"]["LEGEND TRADING"]
     assert group["statuts"] == {"OK": 1} and group["messages_supprimes_part"] == round(1 / 3, 4)
     assert not group["preuve"]["proven"] and result["rows"][0]["symbol"] == "ABCUSDT" and result["messages"] == 1
     assert (settings.reports_dir / result["report"] / "audit.json").exists()
     saved = api.dispatch("GET", "/sources/history", {}, None)["groups"]
-    assert [g["source"] for g in saved] == ["LEGEND TRADING INDICATOR"] and saved[0]["proven"] is False
+    assert [g["source"] for g in saved] == ["LEGEND TRADING"] and saved[0]["proven"] is False
     for bad in ({"export": export, "weights": "late"}, {"export": "x"}, {"export": {"name": "Vide", "messages": []}}):
         with pytest.raises(ApiError) as error:
             api.dispatch("POST", "/sources/history", {}, bad)
