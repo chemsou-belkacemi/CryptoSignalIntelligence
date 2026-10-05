@@ -133,11 +133,12 @@ Aucun calcul de recherche en cours.
   images en cours) ; **AL-MAHWASHI CRYPTO à refaire au format JSON** (l'export du 2026-10-04 est en HTML).
 - **[propriétaire] VPS** : refusé pour CSI le 2026-10-03 (kit prêt dans `VPS.md`) ; BSM y tourne depuis le
   2026-10-02 à 23 h.
-- **[propriétaire] Mise à jour du VPS** avec BSM `main` 4ab155b (2026-10-05 : reliquat sous les minimums terminé,
-  achat vu par la réconciliation → ACTIVE, prix à 4-5 décimales, rapport et Dashboard alignés) : `git pull` puis
-  `make up`, puis acquitter l'alerte critique de FETUSDT dans Operations.
-- **[propriétaire] Branche sécurité BSM** `feat/securite-ops` (bot muet, perte max du jour, liquidité, commandes
-  Telegram, alertes de connexion, stop de secours) : trois relectures, non fusionnée ; « plus tard » (2026-10-05).
+- **[propriétaire] Mise à jour du VPS** avec BSM `main` c2b3247 (2026-10-05 : corrections du reliquat, du statut,
+  des prix et du rapport ; branche sécurité fusionnée sur demande : bot muet, perte max du jour, liquidité,
+  commandes Telegram, alertes de connexion, stop de secours réglable dans Settings) : vérifier
+  `docker compose version` (≥ 2.24), `git pull`, `make up`, puis acquitter l'alerte critique de FETUSDT.
+- **[propriétaire] Secrets affichés le 2026-10-05** (`docker compose config`) : renouveler la clé Binance Demo,
+  le jeton du bot Telegram (`/revoke` dans @BotFather) et `CSI_API_TOKEN`.
 - **[propriétaire] Source de F4/F16** : copier régulièrement la boîte de BSM du VPS vers ce PC (lecture seule), ou
   déposer les fichiers du robot ; sinon F4/F16 ne mesurent rien.
 - **[propriétaire] Fournisseur = trader ou outil** : un indicateur automatique signé du nom d'un trader (« Suhaib
