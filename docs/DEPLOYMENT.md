@@ -47,6 +47,11 @@ docker compose stop monitor                   # SIGTERM : le cycle en cours se t
 - **Volumes persistants** : tout l'état (bougies, registres, retours, actualités, expériences,
   sauvegardes, état de santé) est dans le volume nommé `csi-state`, monté sur `/srv/csi`. Le code
   de l'image est en lecture seule.
+- **Exports Telegram avec photos** : le dossier `./exports` de l'hôte (à créer avec `mkdir -p exports` avant le
+  premier démarrage) est monté **en lecture seule** sur `/srv/csi/exports` dans les services `api` et `tools` :
+  un sous-dossier par groupe, audité avec ses images depuis le tableau de bord ou par
+  `docker compose run --rm tools audit-telegram --dir /srv/csi/exports --ocr` ([OCR.md](OCR.md)). Rien d'autre du
+  volume n'est exposé à l'hôte.
 - **Limites de ressources** : `monitor` plafonné à 1 Go et 4 CPU (plafond, pas réservation : un cycle ne dure que quelques secondes toutes les 15 min), 2 Go et 1 CPU pour les outils ponctuels. Un
   walk-forward sur 16 paires utilise environ 1 Go : le lancer avec `tools`, un seul à la fois.
 - **Arrêt propre** : SIGTERM termine le cycle en cours puis libère le verrou

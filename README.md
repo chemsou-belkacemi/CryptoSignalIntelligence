@@ -229,6 +229,11 @@ groupe. CSI rejoue tous ses signaux passés, comme le bot les aurait joués, et 
 rend ses signaux FAVORABLES. Terminal : `csi audit-telegram --file result.json`. Détail :
 [docs/EXTERNAL_SIGNALS.md](docs/EXTERNAL_SIGNALS.md).
 
+Signaux publiés en **image** : exporter avec les photos, copier le dossier de l'export dans `exports/`
+(un sous-dossier par groupe ; avec Docker, `./exports` à côté de `docker-compose.yml`), puis « Mesurer avec
+les images » dans la même carte : l'audit tourne en arrière-plan sur la machine de CSI, les images ne passent
+jamais par le navigateur. Terminal : `csi audit-telegram --dir exports --ocr`. Détail : [docs/OCR.md](docs/OCR.md).
+
 ## Univers de paires
 
 16 paires USDT depuis le 2026-09-30 : BTC, ETH et 14 paires retenues par un screening halal croisé
@@ -295,7 +300,9 @@ Indépendant de BinanceSpotManager (servi par le service `api` de CSI ; sans Doc
   Ce sont des fréquences passées, jamais des propositions d'entrer. Adresse directe :
   `http://127.0.0.1:8503/?onglet=opportunites&lancer=1`.
 - **Évaluer un signal** : coller un signal (Telegram ou écrit à la main) → contrôles, géométrie,
-  taux de base de la même géométrie, contexte, avis expliqué ; enregistré pour suivre son issue.
+  taux de base de la même géométrie, contexte, avis expliqué ; enregistré pour suivre son issue. Plus bas, le
+  bilan d'un groupe sur son historique : import d'un `result.json` (texte seul), ou audit **avec les images**
+  d'un dossier d'export copié dans `exports/`, en arrière-plan avec sa progression.
 - **Suivi** :
   - santé de la surveillance ;
   - verdicts de tous les modèles (registre de la surveillance, et registre de recherche du PC monté en

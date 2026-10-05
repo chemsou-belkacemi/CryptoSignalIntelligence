@@ -79,6 +79,10 @@ services:
       - csi-state:/srv/csi          # écriture : les évaluations sont enregistrées puis résolues par monitor
       # Registre de RECHERCHE du PC (sélections ML lancées hors Docker), en lecture seule, pour l'onglet Suivi.
       - ./experiments:/srv/research:ro
+      # Exports de Telegram Desktop faits AVEC les photos (un sous-dossier par groupe, copié par le propriétaire
+      # dans ./exports, créé par `mkdir -p exports` AVANT le premier démarrage) : audit avec lecture des images
+      # depuis le tableau de bord (docs/OCR.md). Lecture seule ; le reste du volume n'est pas exposé à l'hôte.
+      - ./exports:/srv/csi/exports:ro
     environment:
       CSI_RESEARCH_REGISTRY: /srv/research/experiments.sqlite3
       CSI_API_TOKEN: ${CSI_API_TOKEN:-}
@@ -96,7 +100,8 @@ services:
       timeout: 10s
       start_period: 20s
       retries: 3
-    mem_limit: 768m
+    # Audit d'un export avec lecture des images (modèles OCR chargés, milliers de photos) : même marge que monitor.
+    mem_limit: 2g
     cpus: 1.0
 
   # Outils ponctuels (même volume) : téléchargement initial, sauvegarde, walk-forward…
@@ -107,6 +112,10 @@ services:
     profiles: ["tools"]
     restart: "no"
     mem_limit: 2g
+    volumes:
+      - csi-state:/srv/csi
+      # Mêmes exports que le service api : `docker compose run --rm tools audit-telegram --dir /srv/csi/exports --ocr`.
+      - ./exports:/srv/csi/exports:ro
     entrypoint: ["python", "-m", "crypto_signal_intelligence"]
     command: ["doctor"]
 

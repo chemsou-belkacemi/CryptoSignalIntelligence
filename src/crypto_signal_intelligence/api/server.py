@@ -31,6 +31,11 @@ demande de clé Binance. Pages : `/` (application : analyser une paire, évaluer
     POST /evaluate             {"text": "...", "source": "groupe", "record": true, "user_validated": false}
                                → verdict expliqué ; user_validated = signal soumis à la main par le
                                propriétaire (sa validation ajoute une paire inconnue à l'univers)
+    GET  /sources/exports      dossiers d'exports Telegram copiés dans exports/ (messages, images présentes) et
+                               état du dernier audit avec images de chacun
+    POST /sources/exports/audit  {"folder": "<dossier>", "weights": "early" | "equal", "ocr": true} → audit en
+                               arrière-plan, images lues sur la machine de CSI ; un seul à la fois (jeton requis)
+    GET  /sources/exports/audit?folder=X  état et résultat de l'audit de ce dossier
 
 Sécurité :
 - écoute sur 127.0.0.1 par défaut ; dans Docker, le port n'est publié que sur 127.0.0.1 de l'hôte ;
@@ -68,6 +73,8 @@ from urllib.parse import parse_qs, urlparse
 from ..config import Settings
 from ..data.http import PublicHttpClient
 from ..data.schema import interval
+from ..external.audit import AuditReport, ImageReader
+from ..external.exports import ExportAudit
 
 log = logging.getLogger(__name__)
 
@@ -213,6 +220,12 @@ class CsiApi:
         self._admissions_lock = threading.Lock()                     # un seul « Appliquer le screening » à la fois
         self._history_lock = threading.Lock()                        # un seul bilan d'historique à la fois
         self.audit_bars: Callable[..., object] | None = None        # bougies du bilan (tests : sans réseau)
+        # Audits des exports copiés dans exports/ (images lues ici) : un à la fois, en arrière-plan.
+        self._exports_lock = threading.Lock()
+        self._export_audits: dict[str, ExportAudit] | None = None   # dossier → dernier audit (relus au démarrage)
+        self._export_thread: threading.Thread | None = None
+        self._exports_cache: dict[str, tuple[tuple[int, int], dict]] = {}
+        self.image_reader: Callable[[], ImageReader] | None = None  # lecteur d'images (tests : factice, aucun OCR)
 
     # --- lecture ---------------------------------------------------------------------------
     def health(self) -> dict:
@@ -340,15 +353,7 @@ class CsiApi:
     def sources_history_run(self, payload: dict) -> dict:
         """Bilan d'un groupe sur son historique exporté de Telegram : rejoue chaque signal (bougies publiques),
         enregistre la preuve de chaque groupe et renvoie le bilan. Mesure d'une source externe, aucun ordre."""
-        from ..external.audit import (
-            ALL,
-            CONVENTION_LABELS,
-            audit,
-            market_bars,
-            read_telegram_export,
-            save_history,
-            write_report,
-        )
+        from ..external.audit import audit, market_bars, read_telegram_export, save_history, write_report
         export, weights = payload.get("export"), payload.get("weights", "early")
         if weights not in ("early", "equal"):
             raise ApiError(HTTPStatus.BAD_REQUEST, "champ « weights » : early ou equal")
@@ -368,9 +373,139 @@ class CsiApi:
             directory = write_report(self.settings, report)
         finally:
             self._history_lock.release()
-        rows = [asdict(r) for r in report.rows if r.status == "OK"][-MAX_AUDIT_ROWS:]
-        return {"summary": report.summary, "notes": report.notes, "conventions": CONVENTION_LABELS, "all": ALL,
-                "rows": rows, "report": directory.name, "messages": len(report.rows)}
+        return _history_result(report, directory)
+
+    # --- exports copiés dans exports/ : audit avec les images, en arrière-plan ----------------------------
+    def _audits(self) -> dict[str, ExportAudit]:
+        """Dernier audit de chaque dossier ; les audits terminés sont relus une fois depuis reports/."""
+        from ..external.exports import load_index
+        with self._exports_lock:
+            if self._export_audits is None:
+                self._export_audits = load_index(self.settings)
+            return self._export_audits
+
+    def _describe_export(self, folder: Path) -> dict:
+        """Contenu d'un export, relu seulement quand son result.json change (le tableau de bord interroge toutes
+        les 5 s pendant un audit)."""
+        from ..external.exports import RESULT_FILE, describe_export
+        stat = (folder / RESULT_FILE).stat()
+        key = (stat.st_mtime_ns, stat.st_size)
+        cached = self._exports_cache.get(folder.name)
+        if cached is None or cached[0] != key:
+            cached = (key, describe_export(folder))
+            self._exports_cache[folder.name] = cached
+        return dict(cached[1])
+
+    def _ocr_available(self) -> bool:
+        from ..external import chart_ocr
+        return self.image_reader is not None or chart_ocr.available()
+
+    def sources_exports(self) -> dict:
+        """Dossiers d'`exports/` (un export de Telegram Desktop par groupe, photos comprises) : contenu et état du
+        dernier audit lancé depuis le tableau de bord. Lecture seule, rien n'est lu hors de ce dossier."""
+        from ..external.exports import RUNNING, list_folders
+        audits = self._audits()
+        exports = []
+        for folder in list_folders(self.settings):
+            audit = audits.get(folder.name)
+            exports.append(self._describe_export(folder) | {"audit": audit.to_dict(with_result=False) if audit else None})
+        running = next((a.folder for a in audits.values() if a.state == RUNNING), None)
+        return {"directory": str(self.settings.exports_dir), "exports": exports, "running": running,
+                "ocr_available": self._ocr_available(),
+                "note": "Exports faits AVEC les photos, un sous-dossier par groupe ; les images sont lues sur la machine "
+                        "de CSI, jamais envoyées par le navigateur. Mesure d'une source externe, aucun ordre."}
+
+    def sources_exports_result(self, folder: str) -> dict:
+        """État et résultat (même forme que POST /sources/history) du dernier audit d'un dossier."""
+        from ..external.exports import folder_name_ok
+        if not folder_name_ok(folder):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "paramètre « folder » : nom d'un sous-dossier d'exports/ (sans chemin)")
+        audit = self._audits().get(folder)
+        if audit is None:
+            raise ApiError(HTTPStatus.NOT_FOUND, f"aucun audit lancé pour « {folder} »")
+        return {"folder": folder, "audit": audit.to_dict()}
+
+    def sources_exports_audit(self, payload: dict) -> dict:
+        """Lance en arrière-plan l'audit d'un export d'`exports/` AVEC ses images (`{"folder", "weights", "ocr"}`) :
+        même lecture, même rejeu, même preuve enregistrée et même rapport que `audit-telegram --dir … --ocr`.
+        Un seul bilan d'historique à la fois (409 sinon) ; l'avancement se suit dans GET /sources/exports."""
+        from ..external.exports import ExportAudit, export_folder
+        self._require_token("audit d'un export")
+        folder, weights, ocr = payload.get("folder"), payload.get("weights", "early"), payload.get("ocr", True)
+        if weights not in ("early", "equal"):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "champ « weights » : early ou equal")
+        if not isinstance(ocr, bool):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "champ « ocr » : booléen")
+        try:
+            path = export_folder(self.settings, folder if isinstance(folder, str) else "")
+        except ValueError:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "champ « folder » : nom d'un sous-dossier d'exports/ (sans chemin)") from None
+        except FileNotFoundError as exc:
+            raise ApiError(HTTPStatus.NOT_FOUND, str(exc)) from None
+        if ocr and not self._ocr_available():
+            raise ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "lecture des images impossible : installer l'extra « ocr » "
+                                                           "(opencv-python-headless, rapidocr, onnxruntime)")
+        if not self._history_lock.acquire(blocking=False):
+            raise ApiError(HTTPStatus.CONFLICT, "un bilan d'historique est déjà en cours : attendre sa fin")
+        now = self.now()
+        job = ExportAudit(folder=path.name, weights=weights, ocr=ocr, started_at=now.isoformat())
+        audits = self._audits()
+        with self._exports_lock:
+            audits[path.name] = job
+        thread = threading.Thread(target=self._run_export_audit, args=(job, path, now), daemon=True, name="audit-export")
+        self._export_thread = thread
+        thread.start()
+        return {"folder": path.name, "audit": job.to_dict(with_result=False)}
+
+    def _run_export_audit(self, job: ExportAudit, path: Path, now: datetime) -> None:
+        """Corps du fil d'audit : lecture (images comprises), rejeu, preuve, rapport ; libère le verrou à la fin."""
+        from ..external import exports as ex
+        from ..external.audit import (
+            audit,
+            chart_reader,
+            market_bars,
+            read_telegram_export,
+            save_history,
+            write_report,
+        )
+        try:
+            reader = None
+            if job.ocr:
+                job.step = "chargement du lecteur d'images"
+                reader = ex.counting_reader((self.image_reader or chart_reader)(), job)
+            job.step = "lecture de l'export" + (" et de ses images" if reader else "")
+            with open(path / ex.RESULT_FILE, encoding="utf-8") as handle:
+                payload = json.load(handle)
+            job.images_named, job.images_present = ex.export_images(payload, path)
+            items = read_telegram_export(payload, images_dir=path, image_reader=reader)
+            if not items:
+                raise ValueError("aucun message texte dans cet export")
+
+            def say(text: str) -> None:
+                job.step = f"rejeu : {text}"
+
+            bars = self.audit_bars or market_bars(self.settings, now=now)
+            report = audit(self.settings, items, now=now, weights=job.weights, bars_for=bars, progress=say)
+            job.step = "enregistrement de la preuve et du rapport"
+            save_history(self.settings, report)
+            directory = write_report(self.settings, report)
+            job.result = _history_result(report, directory)
+            job.state, job.step = ex.DONE, "terminé"
+        except Exception as exc:  # noqa: BLE001 - l'erreur est montrée au tableau de bord, jamais une trace
+            log.exception("audit de l'export %s", job.folder)
+            job.state, job.step, job.error = ex.FAILED, "échec", f"{type(exc).__name__} : {exc}"
+        finally:
+            job.finished_at = self.now().isoformat()
+            try:
+                ex.save_index(self.settings, self._audits())
+            except OSError as exc:
+                log.warning("index des audits d'exports non écrit : %s", exc)
+            self._history_lock.release()
+
+    def join_export_audit(self, timeout: float | None = None) -> None:
+        """Attend la fin de l'audit en cours (tests, arrêt propre)."""
+        if self._export_thread is not None:
+            self._export_thread.join(timeout)
 
     def recent(self, limit: int) -> dict:
         from ..external.registry import ExternalSignalRegistry
@@ -853,7 +988,8 @@ class CsiApi:
                 "/admissions": self.admissions, "/sources/history": self.sources_history,
                 "/volatility": lambda: self.volatility(query.get("symbol", [""])[0]),
                 "/plans/live": self.plans_live, "/forward": self.forward, "/risk": self.risk,
-                "/images/pending": self.images_pending,
+                "/images/pending": self.images_pending, "/sources/exports": self.sources_exports,
+                "/sources/exports/audit": lambda: self.sources_exports_result(query.get("folder", [""])[0]),
             }
             if path in routes:
                 return routes[path]()
@@ -873,6 +1009,8 @@ class CsiApi:
             return self.admissions_decide_all(body or {})
         elif method == "POST" and path == "/sources/history":
             return self.sources_history_run(body or {})
+        elif method == "POST" and path == "/sources/exports/audit":
+            return self.sources_exports_audit(body or {})
         elif method == "POST" and path == "/telegram/live":
             return self.telegram_live(body or {})
         elif method == "POST" and path == "/telegram/image":
@@ -899,6 +1037,15 @@ class CsiApi:
 def _text(value: Any) -> str:
     """Valeur d'énumération ou chaîne, en texte."""
     return str(getattr(value, "value", value))
+
+
+def _history_result(report: AuditReport, directory: Path) -> dict:
+    """Réponse d'un bilan d'historique (import d'un fichier ou audit d'un export) : bilan par groupe, conventions,
+    dernières lignes mesurées (le rapport complet est écrit dans reports/)."""
+    from ..external.audit import ALL, CONVENTION_LABELS
+    rows = [asdict(r) for r in report.rows if r.status == "OK"][-MAX_AUDIT_ROWS:]
+    return {"summary": report.summary, "notes": report.notes, "conventions": CONVENTION_LABELS, "all": ALL,
+            "rows": rows, "report": directory.name, "messages": len(report.rows)}
 
 
 def _int(value: str) -> int:

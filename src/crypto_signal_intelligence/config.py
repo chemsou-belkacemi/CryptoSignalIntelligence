@@ -299,6 +299,12 @@ class Settings(BaseSettings):
         return self.root / "reports"
 
     @property
+    def exports_dir(self) -> Path:
+        """Exports de Telegram Desktop copiés par le propriétaire (un sous-dossier par groupe, photos comprises),
+        audités avec leurs images depuis le tableau de bord ; lecture seule (external/exports.py)."""
+        return self.root / "exports"
+
+    @property
     def experiments_db(self) -> Path:
         return self.root / "experiments" / "experiments.sqlite3"
 

@@ -121,9 +121,16 @@ Aucun calcul de recherche en cours.
 
 ## 4. À faire — exécution et produit
 
-- **Signaux en image** : lecture des images depuis le tableau de bord (aujourd'hui : terminal seulement ; il
-  faudrait envoyer le dossier de l'export entier). Le contrôle du prix est couvert par le rejeu commun ; le
-  `tickSize` est écarté (il change au fil du temps), voir `OCR.md`.
+- **Signaux en image** — **fait le 2026-10-06** (branche `feat/audit-images-dashboard`) : audit avec lecture des
+  images depuis le tableau de bord. Le navigateur n'envoie pas les photos : le dossier de l'export est copié dans
+  `exports/` (Docker : `./exports`, lecture seule dans `api` et `tools`), la carte « Bilan d'un groupe » liste les
+  dossiers (images présentes sur nommées), lance l'audit en arrière-plan (un seul à la fois, jeton exigé) et montre
+  sa progression puis le bilan avec le bloc « Signaux lus sur image » ; même preuve et même rapport que la commande
+  (`OCR.md`, « Depuis le tableau de bord » ; `tests/test_api_exports.py`). Reste **[propriétaire]** : fusionner la
+  branche, reconstruire l'image (`docker compose up -d --build`), `mkdir -p exports` puis y copier les exports faits
+  avec les photos (IN CRYPTO, LEGEND TRADING ; AL-MAHWASHI à refaire en JSON), et vérifier un vrai audit depuis la
+  page (non vérifié en Docker). Le contrôle du prix est couvert par le rejeu commun ; le `tickSize` est écarté (il
+  change au fil du temps), voir `OCR.md`.
 
 ## 5. Décisions qui attendent le propriétaire
 
