@@ -1044,9 +1044,13 @@ async function showExportResult(folder) {
     const r = await api("/sources/exports/audit?folder=" + encodeURIComponent(folder));
     const a = r.audit || {};
     if (!a.result) throw new Error(a.error || "résultat indisponible");
+    // Le résultat peut dater (relu au redémarrage) : la preuve qui compte est celle d'aujourd'hui.
+    const proofs = Object.entries(r.proofs_now || {}).map(([name, p]) => el("li", { class: p.proven ? "ok" : "warn",
+      text: `${name} : ${p.generated_at ? `preuve enregistrée le ${when(p.generated_at)}, valable jusqu'au ${when(p.expires_at)}${p.expired ? " (EXPIRÉE)" : ""} ; ` : ""}état actuel : ${p.text}` }));
     const intro = el("section", { class: "card" },
       el("h2", { text: `Audit du dossier « ${folder} », images comprises` }),
-      el("p", { class: "muted small", text: `${exportProgress(a)} Images nommées dans l'export : ${a.images_named}, présentes : ${a.images_present}, lues : ${a.images_read}, lues comme signaux : ${a.images_as_signals}. Ventes aux objectifs : ${a.weights === "equal" ? "parts égales" : "davantage aux premiers objectifs"}.` }));
+      el("p", { class: "muted small", text: `${exportProgress(a)} Images nommées dans l'export : ${a.images_named}, présentes : ${a.images_present}, lues : ${a.images_read}, lues comme signaux : ${a.images_as_signals}. Ventes aux objectifs : ${a.weights === "equal" ? "parts égales" : "davantage aux premiers objectifs"}.` }),
+      proofs.length ? el("ul", { class: "list small" }, proofs) : null);
     renderHistory(a.result, intro);
   } catch (error) {
     showError(target, error);

@@ -120,9 +120,12 @@ def test_unknown_folders_and_symlinks_outside_are_not_read(api, settings, tmp_pa
     (settings.exports_dir / "Vide").mkdir()
     elsewhere = tmp_path / "ailleurs"
     elsewhere.mkdir()
-    (elsewhere / "result.json").write_text("{}", encoding="utf-8")
+    shutil.copy(settings.exports_dir / "Groupe A" / "result.json", elsewhere / "result.json")   # un vrai export
     (settings.exports_dir / "Lien").symlink_to(elsewhere, target_is_directory=True)
-    for name in ("Inconnu", "Vide", "Lien"):
+    # Dossier réel dans exports/, mais son result.json est un lien vers l'extérieur.
+    (settings.exports_dir / "Lien interne").mkdir()
+    (settings.exports_dir / "Lien interne" / "result.json").symlink_to(elsewhere / "result.json")
+    for name in ("Inconnu", "Vide", "Lien", "Lien interne"):
         with pytest.raises(ApiError) as caught:
             launch(api, folder=name)
         assert caught.value.status == HTTPStatus.NOT_FOUND, name
@@ -133,7 +136,19 @@ def test_unknown_folders_and_symlinks_outside_are_not_read(api, settings, tmp_pa
         with pytest.raises(ApiError) as caught:
             launch(api, weights=weights, ocr=ocr)
         assert caught.value.status == HTTPStatus.BAD_REQUEST
-    assert api.dispatch("GET", "/sources/exports", {}, None)["exports"][0]["folder"] == "Groupe A"   # le lien n'est pas listé
+    # La liste (lisible sans jeton) ne suit aucun lien qui sort d'exports/.
+    assert [x["folder"] for x in api.dispatch("GET", "/sources/exports", {}, None)["exports"]] == ["Groupe A"]
+    assert [p.name for p in ex.list_folders(settings)] == ["Groupe A"]
+
+
+def test_photos_copied_after_a_first_listing_are_counted(api, settings):
+    """F4 : le compte des images suit les photos copiées après coup (le listing est mis en cache)."""
+    folder = make_export(settings, "Groupe A", photos=False)
+    first = listed(api)["Groupe A"]
+    assert (first["images_present"], first["without_photos"]) == (0, True)
+    export(folder)                                                       # recrée photos/ et ses images
+    again = listed(api)["Groupe A"]
+    assert again["images_present"] == 4 and again["without_photos"] is False
 
 
 # --- Jeton --------------------------------------------------------------------------------------------------
@@ -245,6 +260,76 @@ def test_audit_without_images_then_a_failure_both_release_the_lock(api, settings
     assert api.dispatch("GET", "/sources/exports/audit", {"folder": ["Groupe A"]}, None)["audit"]["state"] == ex.DONE
     index = ex.load_index(settings)
     assert index["Groupe A"].state == ex.DONE                                       # le dernier audit remplace l'échec
+
+
+def test_a_thread_that_cannot_start_releases_the_lock(api, settings, monkeypatch):
+    """F6 : si le fil d'audit ne démarre pas, le verrou est rendu et l'audit est marqué en échec."""
+    from types import SimpleNamespace
+
+    from crypto_signal_intelligence.api import server
+
+    class Broken(threading.Thread):
+        def start(self):
+            raise RuntimeError("can't start new thread")
+
+    make_export(settings, "Groupe A")
+    monkeypatch.setattr(server, "threading", SimpleNamespace(Thread=Broken, Lock=threading.Lock))
+    with pytest.raises(ApiError) as caught:
+        launch(api)
+    assert caught.value.status == HTTPStatus.SERVICE_UNAVAILABLE
+    out = listed(api)
+    assert out["_"]["running"] is None and out["Groupe A"]["audit"]["state"] == ex.FAILED
+    monkeypatch.setattr(server, "threading", threading)
+    launch(api)                                                          # le verrou est libre
+    api.join_export_audit(30)
+    assert listed(api)["Groupe A"]["audit"]["state"] == ex.DONE
+
+
+def test_a_result_read_back_later_shows_the_current_proof(api, settings):
+    """F7 : un résultat relu après redémarrage montre la date de la preuve, sa fin de validité et son état actuel."""
+    from datetime import timedelta
+    make_export(settings, "Groupe A")
+    launch(api)
+    api.join_export_audit(30)
+    now = api.dispatch("GET", "/sources/exports/audit", {"folder": ["Groupe A"]}, None)["proofs_now"]["Groupe A"]
+    assert now["generated_at"] == NOW.isoformat() and now["expired"] is False
+    assert now["expires_at"] == (NOW + timedelta(days=30)).isoformat()
+    later = CsiApi(settings, now=lambda: NOW + timedelta(days=40))
+    old = later.dispatch("GET", "/sources/exports/audit", {"folder": ["Groupe A"]}, None)
+    proof = old["proofs_now"]["Groupe A"]
+    assert proof["expired"] is True and proof["proven"] is False and "à refaire" in proof["text"]
+    assert old["audit"]["result"]["summary"]["Groupe A"]["preuve"]                 # résultat d'origine gardé à côté
+
+
+def test_the_dashboard_and_the_command_write_the_same_report(api, settings, monkeypatch):
+    """Même export, mêmes bougies synthétiques (signaux remplis et résolus), même lecteur d'images : l'audit lancé
+    depuis le tableau de bord et `audit-telegram --dir … --ocr` écrivent le même audit.json (hors date)."""
+    import pandas as pd
+    from typer.testing import CliRunner
+
+    from crypto_signal_intelligence import cli
+    from crypto_signal_intelligence.external import audit as au
+
+    from .test_audit_independence import synthetic_bars
+    folder = make_export(settings, "Groupe A")
+    bars = synthetic_bars(pd.Timestamp("2026-03-02 12:30", tz="UTC"))
+    api.audit_bars = bars
+    launch(api)
+    api.join_export_audit(30)
+    result = api.dispatch("GET", "/sources/exports/audit", {"folder": ["Groupe A"]}, None)["audit"]["result"]
+    from_api = json.loads((settings.reports_dir / result["report"] / "audit.json").read_text(encoding="utf-8"))
+    monkeypatch.setattr(au, "market_bars", lambda settings, now: bars)
+    monkeypatch.setattr(au, "chart_reader", lambda: fake_reader())
+    done = CliRunner().invoke(cli.app, ["audit-telegram", "--dir", str(folder), "--ocr", "--weights", "early"])
+    assert done.exit_code == 0, done.output
+    reports = sorted(d for d in settings.reports_dir.glob("AUDIT-*") if d.name != result["report"])
+    assert len(reports) == 1
+    from_cli = json.loads((reports[0] / "audit.json").read_text(encoding="utf-8"))
+    measured = [r for r in from_api["rows"] if r["status"] == "OK"]
+    assert {r["from_image"] for r in measured} == {True, False}          # un signal image et un signal texte mesurés
+    assert all(r["outcomes"][au.TP1_TOUCH]["r"] is not None for r in measured)
+    assert {k: v for k, v in from_api.items() if k != "generated_at"} == \
+        {k: v for k, v in from_cli.items() if k != "generated_at"}
 
 
 def test_image_reading_unavailable_is_a_clear_refusal(api, settings, monkeypatch):

@@ -36,8 +36,15 @@ routes qui écrivent), `GET /sources/exports/audit?folder=X` (état et résultat
 fois, import de fichier compris (409 sinon) ; le nom de dossier est un simple nom (pas de chemin, pas de « .. »,
 pas de lien hors d'`exports/`), l'API ne lit jamais ailleurs. À la fin, la preuve du groupe est enregistrée et
 le rapport écrit dans `reports/AUDIT-<date>/`, **exactement comme la commande** ; l'état des audits terminés est
-gardé dans `reports/exports_audits.json` et relu au redémarrage de l'API. Tests : `tests/test_api_exports.py`
-(lecteur d'images factice, aucune bougie, aucun réseau).
+gardé dans `reports/exports_audits.json` et relu au redémarrage de l'API ; un résultat relu affiche aussi la
+preuve ACTUELLE de chaque groupe (date d'enregistrement, fin de validité à 30 jours, état aujourd'hui), car le
+résultat d'origine peut avoir expiré ou été remplacé. Tests : `tests/test_api_exports.py` (lecteur d'images
+factice, aucun réseau ; même `audit.json` que la commande sur bougies synthétiques).
+
+**Où lancer un gros audit** : sur le PC de préférence. Pendant l'audit, le service `api` charge les modèles OCR
+(jusqu'à 2 Go) et occupe un cœur de longues minutes pour des milliers de photos ; sur un petit VPS où tournent
+déjà la surveillance et BinanceSpotManager, il les priverait de mémoire. La preuve enregistrée sur le PC vaut pour
+ce PC ; copier ensuite l'export sur le VPS seulement si l'avis y est nécessaire.
 
 ## Comment l'image est lue
 
@@ -79,7 +86,9 @@ rejeu** que les messages texte, avec trois précautions :
 - **Bilan à part** : les signaux lus sur image ne comptent **ni dans le bilan du groupe ni dans sa preuve sur
   historique** (taux d'erreur hors échantillon inconnu). Ils ont leur propre bilan (« Signaux lus sur image »),
   à comparer à celui des signaux texte ; la preuve enregistrée dit si l'OCR a servi et combien de signaux image
-  ont été exclus.
+  ont été exclus. Depuis le 2026-10-06, le bilan texte, la preuve et les « Gestions comparées » sont **identiques
+  avec et sans lecture des images** : un signal texte n'est jamais déclaré doublon d'une image, et l'étude des
+  gestions ne prend que les signaux texte (`tests/test_audit_independence.py`).
 - **Images ignorées comptées** : une image douteuse reste dans le bilan comme message illisible (« image
   ignorée »), pour que le taux de rejet se voie.
 - **Mises à jour** : une réponse à un message (« TP1 ✅ » avec la capture mise à jour) n'est jamais lue ; un

@@ -232,7 +232,8 @@ rend ses signaux FAVORABLES. Terminal : `csi audit-telegram --file result.json`.
 Signaux publiés en **image** : exporter avec les photos, copier le dossier de l'export dans `exports/`
 (un sous-dossier par groupe ; avec Docker, `./exports` à côté de `docker-compose.yml`), puis « Mesurer avec
 les images » dans la même carte : l'audit tourne en arrière-plan sur la machine de CSI, les images ne passent
-jamais par le navigateur. Terminal : `csi audit-telegram --dir exports --ocr`. Détail : [docs/OCR.md](docs/OCR.md).
+jamais par le navigateur. Terminal, un groupe à la fois : `csi audit-telegram --dir "exports/<groupe>" --ocr`.
+Les gros audits avec images se font de préférence sur le PC, pas sur un petit VPS. Détail : [docs/OCR.md](docs/OCR.md).
 
 ## Univers de paires
 

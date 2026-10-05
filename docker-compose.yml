@@ -114,7 +114,8 @@ services:
     mem_limit: 2g
     volumes:
       - csi-state:/srv/csi
-      # Mêmes exports que le service api : `docker compose run --rm tools audit-telegram --dir /srv/csi/exports --ocr`.
+      # Mêmes exports que le service api :
+      # `docker compose run --rm tools audit-telegram --dir "/srv/csi/exports/<groupe>" --ocr`.
       - ./exports:/srv/csi/exports:ro
     entrypoint: ["python", "-m", "crypto_signal_intelligence"]
     command: ["doctor"]

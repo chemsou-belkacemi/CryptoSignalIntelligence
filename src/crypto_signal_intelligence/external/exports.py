@@ -55,17 +55,35 @@ def export_folder(settings: Settings, name: str) -> Path:
     path = (base / name).resolve()
     if path.parent != base or not path.is_dir():
         raise FileNotFoundError(f"dossier « {name} » absent d'exports/")
-    if not (path / RESULT_FILE).is_file():
+    if not _result_inside(path):
         raise FileNotFoundError(f"dossier « {name} » sans {RESULT_FILE} (export au format JSON attendu)")
     return path
 
 
+def _result_inside(folder: Path) -> bool:
+    """`result.json` présent et réellement DANS le dossier (un lien vers l'extérieur ne compte pas)."""
+    result = folder / RESULT_FILE
+    return result.is_file() and result.resolve().parent == folder.resolve()
+
+
 def list_folders(settings: Settings) -> list[Path]:
-    """Sous-dossiers d'`exports/` qui contiennent un `result.json`, par nom."""
+    """Sous-dossiers d'`exports/` qui contiennent un `result.json`, par nom ; un lien symbolique qui sort
+    d'`exports/` (dossier ou `result.json`) n'est jamais listé (la liste est lisible sans jeton)."""
     base = settings.exports_dir
     if not base.is_dir():
         return []
-    return sorted(p for p in base.iterdir() if folder_name_ok(p.name) and p.is_dir() and (p / RESULT_FILE).is_file())
+    root = base.resolve()
+    return sorted(p for p in base.iterdir() if folder_name_ok(p.name) and p.is_dir()
+                  and p.resolve().parent == root and _result_inside(p))
+
+
+def listing_key(folder: Path) -> tuple[int, ...]:
+    """Signature du contenu d'un export pour le cache du listing : `result.json` (date, taille), le dossier lui-même
+    et son dossier `photos/` (dates de modification : des photos copiées après coup changent le compte)."""
+    stat = (folder / RESULT_FILE).stat()
+    photos = folder / "photos"
+    return (stat.st_mtime_ns, stat.st_size, folder.stat().st_mtime_ns,
+            photos.stat().st_mtime_ns if photos.is_dir() else 0)
 
 
 def describe_export(folder: Path) -> dict:

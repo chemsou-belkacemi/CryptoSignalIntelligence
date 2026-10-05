@@ -224,7 +224,7 @@ class CsiApi:
         self._exports_lock = threading.Lock()
         self._export_audits: dict[str, ExportAudit] | None = None   # dossier → dernier audit (relus au démarrage)
         self._export_thread: threading.Thread | None = None
-        self._exports_cache: dict[str, tuple[tuple[int, int], dict]] = {}
+        self._exports_cache: dict[str, tuple[tuple[int, ...], dict]] = {}
         self.image_reader: Callable[[], ImageReader] | None = None  # lecteur d'images (tests : factice, aucun OCR)
 
     # --- lecture ---------------------------------------------------------------------------
@@ -384,12 +384,17 @@ class CsiApi:
                 self._export_audits = load_index(self.settings)
             return self._export_audits
 
+    def _audits_snapshot(self) -> dict[str, ExportAudit]:
+        """Copie du dictionnaire des audits, prise sous verrou (le fil d'audit peut l'écrire en même temps)."""
+        audits = self._audits()
+        with self._exports_lock:
+            return dict(audits)
+
     def _describe_export(self, folder: Path) -> dict:
         """Contenu d'un export, relu seulement quand son result.json change (le tableau de bord interroge toutes
         les 5 s pendant un audit)."""
-        from ..external.exports import RESULT_FILE, describe_export
-        stat = (folder / RESULT_FILE).stat()
-        key = (stat.st_mtime_ns, stat.st_size)
+        from ..external.exports import describe_export, listing_key
+        key = listing_key(folder)
         cached = self._exports_cache.get(folder.name)
         if cached is None or cached[0] != key:
             cached = (key, describe_export(folder))
@@ -404,7 +409,7 @@ class CsiApi:
         """Dossiers d'`exports/` (un export de Telegram Desktop par groupe, photos comprises) : contenu et état du
         dernier audit lancé depuis le tableau de bord. Lecture seule, rien n'est lu hors de ce dossier."""
         from ..external.exports import RUNNING, list_folders
-        audits = self._audits()
+        audits = self._audits_snapshot()
         exports = []
         for folder in list_folders(self.settings):
             audit = audits.get(folder.name)
@@ -420,16 +425,39 @@ class CsiApi:
         from ..external.exports import folder_name_ok
         if not folder_name_ok(folder):
             raise ApiError(HTTPStatus.BAD_REQUEST, "paramètre « folder » : nom d'un sous-dossier d'exports/ (sans chemin)")
-        audit = self._audits().get(folder)
+        audit = self._audits_snapshot().get(folder)
         if audit is None:
             raise ApiError(HTTPStatus.NOT_FOUND, f"aucun audit lancé pour « {folder} »")
-        return {"folder": folder, "audit": audit.to_dict()}
+        return {"folder": folder, "audit": audit.to_dict(), "proofs_now": self._proofs_now(audit)}
+
+    def _proofs_now(self, audit: ExportAudit) -> dict[str, dict]:
+        """Preuve ACTUELLE de chaque groupe d'un résultat (relu au redémarrage, il peut dater) : date d'enregistrement,
+        fin de validité (PROOF_VALID_DAYS) et état aujourd'hui selon `latest_history` (un audit plus récent du même
+        groupe, ou une preuve expirée, l'emportent sur le résultat affiché)."""
+        import pandas as pd
+
+        from ..external.audit import ALL, PROOF_VALID_DAYS, latest_history
+        out: dict[str, dict] = {}
+        now = self.now()
+        for name in (audit.result or {}).get("summary", {}):
+            if name == ALL:
+                continue
+            current = latest_history(self.settings, name, now=now)
+            if current is None:
+                out[name] = {"proven": False, "text": "aucune preuve enregistrée pour ce groupe", "generated_at": None,
+                             "expires_at": None}
+                continue
+            expires = pd.Timestamp(current["generated_at"]) + pd.Timedelta(days=PROOF_VALID_DAYS)
+            out[name] = {"proven": bool(current.get("proven")), "text": current.get("text", ""),
+                         "generated_at": current["generated_at"], "expires_at": expires.isoformat(),
+                         "expired": pd.Timestamp(now) > expires}
+        return out
 
     def sources_exports_audit(self, payload: dict) -> dict:
         """Lance en arrière-plan l'audit d'un export d'`exports/` AVEC ses images (`{"folder", "weights", "ocr"}`) :
         même lecture, même rejeu, même preuve enregistrée et même rapport que `audit-telegram --dir … --ocr`.
         Un seul bilan d'historique à la fois (409 sinon) ; l'avancement se suit dans GET /sources/exports."""
-        from ..external.exports import ExportAudit, export_folder
+        from ..external.exports import FAILED, ExportAudit, export_folder
         self._require_token("audit d'un export")
         folder, weights, ocr = payload.get("folder"), payload.get("weights", "early"), payload.get("ocr", True)
         if weights not in ("early", "equal"):
@@ -452,9 +480,17 @@ class CsiApi:
         audits = self._audits()
         with self._exports_lock:
             audits[path.name] = job
-        thread = threading.Thread(target=self._run_export_audit, args=(job, path, now), daemon=True, name="audit-export")
+        try:
+            thread = threading.Thread(target=self._run_export_audit, args=(job, path, now), daemon=True,
+                                      name="audit-export")
+            thread.start()
+        except Exception as exc:  # noqa: BLE001 - fil impossible à lancer : verrou rendu, audit marqué en échec
+            log.exception("audit de l'export %s : fil non démarré", path.name)
+            job.state, job.step, job.error = FAILED, "échec", f"audit non démarré ({type(exc).__name__})"
+            job.finished_at = self.now().isoformat()
+            self._history_lock.release()
+            raise ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "audit non démarré : réessayer") from None
         self._export_thread = thread
-        thread.start()
         return {"folder": path.name, "audit": job.to_dict(with_result=False)}
 
     def _run_export_audit(self, job: ExportAudit, path: Path, now: datetime) -> None:
@@ -474,6 +510,7 @@ class CsiApi:
                 job.step = "chargement du lecteur d'images"
                 reader = ex.counting_reader((self.image_reader or chart_reader)(), job)
             job.step = "lecture de l'export" + (" et de ses images" if reader else "")
+            path = ex.export_folder(self.settings, path.name)        # revérifié : toujours dans exports/
             with open(path / ex.RESULT_FILE, encoding="utf-8") as handle:
                 payload = json.load(handle)
             job.images_named, job.images_present = ex.export_images(payload, path)
@@ -497,7 +534,7 @@ class CsiApi:
         finally:
             job.finished_at = self.now().isoformat()
             try:
-                ex.save_index(self.settings, self._audits())
+                ex.save_index(self.settings, self._audits_snapshot())
             except OSError as exc:
                 log.warning("index des audits d'exports non écrit : %s", exc)
             self._history_lock.release()
