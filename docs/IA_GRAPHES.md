@@ -123,8 +123,34 @@ réservée), avec la consultation n° 3 inscrite avant le premier calcul.
 - La carte de CSI calcule ses moyennes avec `ind.ema`, le graphique et la règle avec la moyenne exponentielle de
   pandas : l'écart est négligeable avec plus de 1 200 bougies d'historique. Le graphique montre les 4 figures du JSON.
 
+## Résultats
+
+### `qwen2.5vl:7b` (`IABI-20261005T013044Z-067d7b`, 2026-10-05, consultation n° 3, 1 essai) : **`PAS_MIEUX`**
+
+400 moments, 39 blocs de 2 semaines, aucune réponse illisible, 25 s par graphique (médiane).
+
+| Mesure (rendement à 72 h) | IA 7b | Règle EMA 50 / 200 |
+|---|---|---|
+| Rendement signé moyen (suivre l'avis) | +0,25 % [−0,53 ; +1,08] | −0,19 % |
+| Écart IA − règle | +0,44 % [−0,68 ; +1,53] | — |
+| Bon sens (avis neutres exclus) | 50,9 % | 47,8 % |
+| Part des moments en hausse | 50,5 % | 50,5 % |
+
+- **Avis** : baissier 234, haussier 149, neutre 17 ; d'accord avec la règle 66 % du temps.
+- **Avant les plus forts mouvements** (`|r72|` > 10 %) :
+  - avant 36 fortes hausses, l'IA disait baissier 22 fois et haussier 13 fois ;
+  - avant 20 fortes baisses, baissier 13 fois et haussier 6 fois.
+- **Lecture « achat seulement »** : rendement moyen à 72 h de +0,62 % quand l'IA dit haussier, contre +0,24 % sur
+  tous les moments (non démontré).
+- **Par trimestre** : le rendement signé de l'IA va de −0,9 % à +2,3 %. BTC / ETH −1,3 % (18 moments), autres paires
+  +0,3 %. Sans les 3 moments proches de la démonstration : +0,16 %.
+
+**Lecture déclarée** : aucun avantage de cette taille détecté sur la règle. L'IA seule ne montre pas d'information
+non plus : son intervalle contient 0, et elle a le bon sens une fois sur deux, comme une pièce.
+
 ## Historique
 
 - 2026-10-05 : déclaré avant tout code et toute exécution ; démonstration (18 graphiques) faite avant, décrite
   ci-dessus.
 - 2026-10-05 : relecture indépendante avant l'exécution ; corrections et déclarations ci-dessus.
+- 2026-10-05 : répétition technique (0 % d'illisibles ; 21 s et 42 s par graphique) ; exécution de `qwen2.5vl:7b` : PAS_MIEUX.
