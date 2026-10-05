@@ -1,4 +1,4 @@
-# Plan de travail — état au 2026-10-04 (plan d'octobre 2026 à janvier 2027, validé)
+# Plan de travail — état au 2026-10-05 (plan d'octobre 2026 à janvier 2027, validé)
 
 Document vivant : ce qui est fait, ce qui tourne, ce qui reste. Chaque ligne « à faire » se fait comme d'habitude :
 déclarée avant, mesurée avec intervalle (et placebos en direct), comptée au programme. Les décisions du
@@ -87,7 +87,17 @@ Aucun calcul de recherche en cours.
 4. **Boucle Demo (lot 4)** : dès que BSM remonte des exécutions, rapport frais réels / glissement / entrées
    manquées, sur au moins 4 semaines.
 5. **Branches BSM** : fusionnées et poussées le 2026-10-03 sur demande du propriétaire (`REVUE_BRANCHES_BSM.md`) ;
-   le bot tourne avec le code fusionné (image reconstruite le 2026-10-03 à 16:14, après la fusion).
+   le bot tourne avec le code fusionné (image reconstruite le 2026-10-03 à 16:14, après la fusion). BSM tourne
+   depuis le 2026-10-02 à 23 h sur un petit VPS (signaux Telegram, Binance Demo) ; le worker du PC est en veille.
+   - **2026-10-05** : corrections tirées du journal Telegram du bot (stop au TP précédent, pertes annoncées frais
+     compris, TP atteint avant l'achat, reliquats sous les minimums, filtre de History), fusionnées et poussées sur
+     demande du propriétaire (BSM `main` c00e089) ;
+   - **2026-10-05, branche `feat/suivi-canaux-protection`** (bed5d5d, c640d2f ; 1 128 tests BSM réussis), à
+     fusionner **[propriétaire]** : résultats par trader ou canal (nom lu en tête du signal : 867 signaux lisibles
+     sur 874 de ses exports), règle « canal perdant » (désactivée par défaut), protection en cas de chute de BTC
+     (−3 % en 4 h → entrées automatiques suspendues 6 h, rien n'est vendu), rapport quotidien Telegram, « BSM face
+     au marché » sur le Dashboard, achat gardé (mesuré) ou annulé si le TP1 arrive avant. Mise à jour du VPS après
+     fusion : `git pull` puis `make up`.
 6. **Recherche** : gelée, sauf source d'information nouvelle et gratuite, sur demande du propriétaire, déclarée et
    comptée.
 7. **2026-12-25** : un test qui passe est confirmé sur données jamais vues puis en Demo ; si rien ne passe,
@@ -115,7 +125,15 @@ Aucun calcul de recherche en cours.
   telegram-relay` (`TELEGRAM_RELAY.md`).
 - **[propriétaire] Exports avec photos** : IN CRYPTO et LEGEND TRADING reçus le 2026-10-04 (audit avec lecture des
   images en cours) ; **AL-MAHWASHI CRYPTO à refaire au format JSON** (l'export du 2026-10-04 est en HTML).
-- **[propriétaire] VPS** : refusé pour l'instant (2026-10-03) ; kit prêt dans `VPS.md`.
+- **[propriétaire] VPS** : refusé pour CSI le 2026-10-03 (kit prêt dans `VPS.md`) ; BSM y tourne depuis le
+  2026-10-02 à 23 h.
+- **[propriétaire] Fusion de la branche BSM `feat/suivi-canaux-protection`**, puis mise à jour du VPS (§ 2 bis, 5).
+- **[propriétaire] Lecture du nom du trader dans CSI** (`external/parser.group_of`) : juste pour 74 % des signaux
+  de ses exports (« HARMONIC TRADE DETECTED » range 74 signaux de Suhaib, « Harmonic Pattern Detected » mélange
+  Al-Afify et Apex). La corriger change les noms de fournisseurs de F4 et F16 à partir de la correction (les
+  premiers jours resteraient sous les anciens noms) ; le parseur n'est pas gelé, son empreinte est dans chaque
+  décision.
+- **[propriétaire] Taille des positions BSM selon le risque** : à discuter (point 4 de la liste du 2026-10-05).
 - **[propriétaire] Ollama** (modèle local des news de risque) : installation par `sudo` dans ton terminal,
   `curl -fsSL https://ollama.com/install.sh | sh` puis `ollama pull qwen3:8b` (environ 5 Go, tient dans les 6 Go
   de la carte graphique). Facultatif : les mots-clés tournent sans lui.
