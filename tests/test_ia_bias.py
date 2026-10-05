@@ -47,7 +47,11 @@ def test_nothing_after_the_decision_is_seen():
     fake_ctx, fake_a, fake_f4 = ib.context_of(ib.known(fake, t0), "AUSDT", t0)
     assert true_ctx == fake_ctx and ib.ema_rule(true_f4) == ib.ema_rule(fake_f4)
     assert ib.chart_png(true_a, true_f4) == ib.chart_png(fake_a, fake_f4)        # image identique, octet par octet
-    assert pd.Timestamp(true_a["bars"][-1][0]) + ib.STEP <= t0
+    assert pd.Timestamp(true_a["bars"][-1][0]) + ib.STEP == t0                    # dernière bougie = celle qui clôt à t0
+    assert true_f4["open_time"].iloc[-1] + ib.STEP == t0
+    # Même sans la coupure de `known` (tout l'historique, futur falsifié compris) : rien après t0 n'entre.
+    full_ctx, full_a, full_f4 = ib.context_of(fake, "AUSDT", t0)
+    assert full_ctx == true_ctx and ib.chart_png(full_a, full_f4) == ib.chart_png(true_a, true_f4)
 
 
 def test_price_at_uses_the_close_of_the_hour_before():
@@ -77,20 +81,36 @@ def test_the_ai_client_only_calls_the_local_server():
         ib.model_digest("qwen2.5vl:7b", url="https://api.example.org")
 
 
-def test_week_interval_and_verdict():
-    weeks = np.repeat([f"2025-{k:02d}" for k in range(1, 31)], 5)
+def test_block_interval_and_verdict():
+    times = pd.Series(pd.date_range("2025-04-01", periods=150, freq="3D", tz="UTC"))
+    blocks = ib.blocks_of(times)
+    assert blocks[0] == 0 and blocks[5] == 1 and len(set(blocks)) == 32                # 447 jours en blocs de 14
     rng = np.random.default_rng(1)
-    assert ib.verdict(ib.week_ci(np.abs(rng.normal(0.02, 0.01, 150)), weeks, samples=500)) == ib.BETTER
-    assert ib.verdict(ib.week_ci(-np.abs(rng.normal(0.02, 0.01, 150)), weeks, samples=500)) == ib.WORSE
-    assert ib.verdict(ib.week_ci(rng.normal(0, 0.05, 150), weeks, samples=500)) == ib.NOT_BETTER
-    assert ib.week_ci(np.ones(9), np.arange(9), samples=100) is None and ib.verdict(None) == ib.INSUFFICIENT
+    up = ib.block_ci(np.abs(rng.normal(0.02, 0.01, 150)), blocks, samples=500)
+    down = ib.block_ci(-np.abs(rng.normal(0.02, 0.01, 150)), blocks, samples=500)
+    noise = ib.block_ci(rng.normal(0, 0.05, 150), blocks, samples=500)
+    assert ib.verdict(up, up) == ib.BETTER and ib.verdict(down, up) == ib.WORSE and ib.verdict(noise, up) == ib.NOT_BETTER
+    assert ib.verdict(up, noise) == ib.NOT_BETTER                       # l'IA seule doit aussi porter une information
+    assert ib.verdict(up, up, unreadable_share=0.03) == ib.INSUFFICIENT
+    assert ib.block_ci(np.ones(9), np.arange(9), samples=100) is None and ib.verdict(None, up) == ib.INSUFFICIENT
+
+
+def test_an_always_neutral_ai_does_not_beat_a_losing_rule():
+    """Relecture : quand la règle perd, une IA toujours NEUTRE avait un écart positif sans rien prédire."""
+    rng = np.random.default_rng(3)
+    n = 300
+    r = rng.normal(-0.01, 0.03, n)
+    rows = pd.DataFrame({"symbol": "AUSDT", "decision_at": pd.date_range("2025-04-01", periods=n, freq="1D", tz="UTC"),
+                         "bias": "NEUTRE", "rule": np.where(r > 0, -1, 1), "r72": r, "seconds": 1.0})
+    out = ib.evaluate(rows, samples=500)
+    assert out["decision"]["ci_pct"][0] > 0 and out["decision"]["verdict"] == ib.NOT_BETTER
 
 
 def test_evaluate_rewards_an_oracle_and_compares_with_the_rule():
     rng = np.random.default_rng(2)
     n = 300
     r = rng.normal(0, 0.05, n)
-    rows = pd.DataFrame({"decision_at": pd.date_range("2025-04-01", periods=n, freq="1D", tz="UTC"),
+    rows = pd.DataFrame({"symbol": "AUSDT", "decision_at": pd.date_range("2025-04-01", periods=n, freq="1D", tz="UTC"),
                          "bias": np.where(r > 0, "HAUSSIER", "BAISSIER"), "rule": rng.choice([-1, 1], n), "r72": r,
                          "seconds": 10.0})
     out = ib.evaluate(rows, samples=500)
@@ -100,32 +120,95 @@ def test_evaluate_rewards_an_oracle_and_compares_with_the_rule():
     assert ib.evaluate(neutral, samples=500)["ia_signed_mean_pct"] == 0.0
 
 
-def test_run_end_to_end_with_a_fake_ai(settings, monkeypatch):
+@pytest.fixture
+def fake_world(settings, monkeypatch):
     from crypto_signal_intelligence.research import long_history
     frames = {"AUSDT": hours(5, drift=0.0005), "BUSDT": hours(6, drift=-0.0005)}
     monkeypatch.setattr(long_history, "load_long", lambda s, symbol: frames[symbol])
     monkeypatch.setattr(ib, "FROM", pd.Timestamp("2024-03-15", tz="UTC"))
     monkeypatch.setattr(ib, "TO", pd.Timestamp("2024-08-20", tz="UTC"))
+    monkeypatch.setattr(ib, "REHEARSAL_FROM", pd.Timestamp("2024-03-15", tz="UTC"))
+    monkeypatch.setattr(ib, "REHEARSAL_TO", pd.Timestamp("2024-04-15", tz="UTC"))
     monkeypatch.setattr(ib, "code_state", lambda: "abc123")
-    registry = ExperimentRegistry(settings.experiments_db)
-    calls = []
+    return frames
 
+
+def kwargs(**extra):
+    return {"now": datetime(2026, 10, 5, tzinfo=UTC), "digest_fn": lambda m: "sha256:abc", "version_fn": lambda: "0.35.1",
+            "sleep_fn": lambda s: None, "symbols": ["AUSDT", "BUSDT"], "n": 40} | extra
+
+
+def answering(calls, registry):
     def fake_ask(model, prompt, image):
         assert registry.final_test_consulted(ib.STRATEGY) == 1            # consultation inscrite avant la 1re question
         assert image[:8] == b"\x89PNG\r\n\x1a\n" and "derniere_cloture" in prompt and "AUSDT" not in prompt
         calls.append(1)
         return {"response": json.dumps({"analyse": "tendance", "biais": "HAUSSIER" if len(calls) % 3 else "NEUTRE"})}
+    return fake_ask
 
-    payload = ib.run(settings, model="qwen2.5vl:7b", now=datetime(2026, 10, 5, tzinfo=UTC), ask_fn=fake_ask,
-                     digest_fn=lambda m: "sha256:abc", symbols=["AUSDT", "BUSDT"], n=40)
+
+def test_run_end_to_end_with_a_fake_ai(settings, fake_world):
+    registry = ExperimentRegistry(settings.experiments_db)
+    calls: list[int] = []
+    with pytest.raises(ib.FinalTestLocked):
+        ib.run(settings, model="qwen2.5vl:7b", ask_fn=answering(calls, registry), **kwargs())
+    payload = ib.run(settings, model="qwen2.5vl:7b", allow_final_test=True, ask_fn=answering(calls, registry), **kwargs())
     assert len(calls) == 40 and payload["result"]["n"] == 40 and payload["consultation"] == 1
     assert payload["result"]["biases"] == {"HAUSSIER": 27, "NEUTRE": 13}
     entry = registry.get(payload["run_id"])
     assert entry is not None and entry["period_label"] == "FINAL_TEST" and entry["metrics"]["n_trials"] == 1
-    again = ib.run(settings, model="qwen2.5vl:7b", now=datetime(2026, 10, 5, tzinfo=UTC), ask_fn=fake_ask,
-                   digest_fn=lambda m: "sha256:abc", symbols=["AUSDT", "BUSDT"], n=40)
-    assert len(calls) == 40 and again["consultation"] is None                 # réponses en cache, pas de 2e consultation
-    assert registry.final_test_consultations_total() == 1
+    assert entry["params"]["ollama"] == "0.35.1" and entry["params"]["options"]["num_predict"] == ib.OPTIONS["num_predict"]
+    with pytest.raises(ib.AlreadyConsulted):                              # une seule lecture par modèle
+        ib.run(settings, model="qwen2.5vl:7b", allow_final_test=True, ask_fn=answering(calls, registry), **kwargs())
+    other = ib.run(settings, model="gemma3:12b", allow_final_test=True, ask_fn=answering(calls, registry), **kwargs())
+    assert other["consultation"] is None and registry.final_test_consultations_total() == 1     # une consultation en tout
     with pytest.raises(ValueError):
-        ib.run(settings, model="autre:1b", now=datetime(2026, 10, 5, tzinfo=UTC), ask_fn=fake_ask,
-               digest_fn=lambda m: "x", symbols=["AUSDT"], n=5)
+        ib.run(settings, model="autre:1b", allow_final_test=True, ask_fn=answering(calls, registry), **kwargs(n=5))
+
+
+def test_a_server_failure_stops_the_run_records_failed_and_caches_nothing(settings, fake_world):
+    registry = ExperimentRegistry(settings.experiments_db)
+    attempts = []
+
+    def down(model, prompt, image):
+        attempts.append(1)
+        raise TimeoutError("délai dépassé")
+
+    with pytest.raises(ib.ServerFailure):
+        ib.run(settings, model="qwen2.5vl:7b", allow_final_test=True, ask_fn=down, **kwargs())
+    assert len(attempts) == ib.RETRIES
+    assert not ib.cache_path_for(settings, "qwen2.5vl:7b").exists() or not ib.load_cache(ib.cache_path_for(settings, "qwen2.5vl:7b"))
+    with registry.connect() as db:
+        statuses = [row[0] for row in db.execute("SELECT status FROM runs WHERE kind=?", (ib.KIND,)).fetchall()]
+    assert statuses == ["FAILED"]
+    calls: list[int] = []
+    payload = ib.run(settings, model="qwen2.5vl:7b", allow_final_test=True, ask_fn=answering(calls, registry), **kwargs())
+    assert len(calls) == 40 and payload["result"]["n"] == 40                   # reprise : toutes les questions posées
+
+
+def test_a_truncated_cache_line_is_ignored(tmp_path):
+    path = tmp_path / "c.jsonl"
+    path.write_text(json.dumps({"key": "a", "bias": "NEUTRE"}) + "\n" + '{"key": "b", "bi', encoding="utf-8")
+    assert list(ib.load_cache(path)) == ["a"]
+
+
+def test_rehearsal_measures_nothing_and_records_nothing(settings, fake_world):
+    registry = ExperimentRegistry(settings.experiments_db)
+    calls: list[int] = []
+
+    def fake_ask(model, prompt, image):
+        calls.append(1)
+        return {"response": "pas du json" if len(calls) == 1 else json.dumps({"analyse": "x", "biais": "BAISSIER"})}
+
+    out = ib.run(settings, model="qwen2.5vl:7b", rehearsal=True, ask_fn=fake_ask, **kwargs())
+    assert out["rehearsal"] and out["n"] == ib.REHEARSAL_N and out["unreadable_share"] == 0.1 and "result" not in out
+    assert registry.final_test_consultations_total() == 0 and registry.count_runs() == 0
+
+
+def test_the_answer_cache_is_ignored_by_git():
+    import subprocess
+    from pathlib import Path
+    repo = Path(__file__).resolve().parents[1]
+    target = "state/ia_cache/qwen2.5vl_7b.jsonl"
+    done = subprocess.run(["git", "check-ignore", "-q", target], cwd=repo, check=False)
+    assert done.returncode == 0

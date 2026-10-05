@@ -23,6 +23,7 @@ from ..patterns.indicators import rsi as rsi_of
 from ..technical.analysis import analyze
 from .experiments import ExperimentRegistry, code_state, dependency_versions, new_run_id
 from .factors import DirtyCode
+from .protocol import FinalTestLocked
 from .universe import RESEARCH_UNIVERSE
 
 KIND = "IA_BIAS"
@@ -38,9 +39,24 @@ MIN_BARS = 250
 SHOWN_BARS = 120
 LEVEL = 1 - 0.05 / len(MODELS)
 SAMPLES = 10_000
+BLOCK_DAYS = 14                                        # blocs de 2 semaines (relecture : fenêtres de 72 h à cheval)
+MAX_UNREADABLE = 0.02                                  # au-delà : INSUFFISANT
 OLLAMA = "http://127.0.0.1:11434"
+OPTIONS = {"temperature": 0, "seed": SEED, "num_ctx": 6144, "num_predict": 600}
+RETRIES = 3
+RETRY_WAIT = (10, 60)
+REHEARSAL_FROM = pd.Timestamp("2025-01-01", tz="UTC")
+REHEARSAL_TO = pd.Timestamp("2025-03-25", tz="UTC")
+REHEARSAL_N = 10
+#: Moments montrés au propriétaire dans la démonstration du 2026-10-05 (6 choisis après coup, 12 au hasard).
+DEMO_MOMENTS = (("DOGEUSDT", "2025-10-08 20:00"), ("SOLUSDT", "2026-02-03 04:00"), ("XRPUSDT", "2026-08-19 04:00"),
+                ("DOGEUSDT", "2025-05-08 00:00"), ("SOLUSDT", "2025-02-28 04:00"), ("LINKUSDT", "2025-08-07 00:00"),
+                ("BTCUSDT", "2026-08-20 04:00"), ("BTCUSDT", "2026-02-10 00:00"), ("ETHUSDT", "2026-07-22 16:00"),
+                ("ETHUSDT", "2026-01-13 00:00"), ("SOLUSDT", "2025-06-15 20:00"), ("SOLUSDT", "2026-06-14 16:00"),
+                ("XRPUSDT", "2025-07-30 12:00"), ("XRPUSDT", "2025-07-21 16:00"), ("DOGEUSDT", "2025-02-04 04:00"),
+                ("DOGEUSDT", "2026-07-31 20:00"), ("LINKUSDT", "2026-06-07 04:00"), ("LINKUSDT", "2025-04-20 16:00"))
 BIASES = ("HAUSSIER", "BAISSIER", "NEUTRE")
-UNREADABLE = "ILLISIBLE"
+UNREADABLE = "ILLISIBLE"                               # réponse du modèle sans biais lisible (≠ panne du serveur)
 SCORE = {"HAUSSIER": 1, "BAISSIER": -1, "NEUTRE": 0, UNREADABLE: 0}
 BETTER, WORSE, NOT_BETTER, INSUFFICIENT = "MIEUX_QUE_LA_REGLE", "MOINS_BIEN_QUE_LA_REGLE", "PAS_MIEUX", "INSUFFISANT"
 PROMPT = ("Tu es un analyste technique crypto expérimenté. Le graphique montre des bougies 4 h (paire et dates masquées) "
@@ -56,6 +72,14 @@ SCHEMA = {"type": "object", "properties": {"analyse": {"type": "string"},
 
 class LocalOnly(ValueError):
     """Le client IA n'appelle que le serveur local (aucune donnée envoyée dehors)."""
+
+
+class ServerFailure(RuntimeError):
+    """Le serveur local n'a pas répondu après les nouvelles tentatives : le calcul s'arrête, rien n'est mis en cache."""
+
+
+class AlreadyConsulted(PermissionError):
+    pass
 
 
 # --- Données ----------------------------------------------------------------------------------------------------
@@ -154,7 +178,7 @@ def chart_png(a: dict, f4: pd.DataFrame) -> bytes:
         ax.axhline(lv["price"], color=color, linestyle="--", linewidth=1)
         ax.text(len(bars) + 0.5, lv["price"], f"{tag} {lv['price']:.6g}", color=color, va="center", fontsize=8)
     last_open = pd.Timestamp(a["bars"][-1][0])
-    for figure in a["figures"][-3:]:
+    for figure in a["figures"][-4:]:
         pts = [(len(bars) - 1 - (last_open - pd.Timestamp(p["time"])) / STEP, p["price"]) for p in figure["points"]]
         pts = [(x, y) for x, y in pts if x >= 0]
         if len(pts) >= 2:
@@ -194,12 +218,30 @@ def _local(url: str) -> str:
 
 
 def ask(model: str, prompt: str, image: bytes, *, url: str = OLLAMA, timeout: int = 900) -> dict:
-    """Une question à Ollama en local : JSON imposé, température 0, graine fixe. Renvoie la réponse brute décodée."""
+    """Une question à Ollama en local : JSON imposé, température 0, graine fixe, longueur bornée. Réponse brute."""
     body = json.dumps({"model": model, "prompt": prompt, "images": [base64.b64encode(image).decode()], "format": SCHEMA,
-                       "stream": False, "options": {"temperature": 0, "seed": SEED, "num_ctx": 6144}}).encode()
+                       "stream": False, "options": OPTIONS}).encode()
     request = urllib.request.Request(_local(url) + "/api/generate", data=body, headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read())
+
+
+def server_version(*, url: str = OLLAMA) -> str | None:
+    with urllib.request.urlopen(_local(url) + "/api/version", timeout=30) as response:
+        return json.loads(response.read()).get("version")
+
+
+def ask_with_retries(ask_fn: Callable[..., dict], model: str, prompt: str, image: bytes, *,
+                     sleep_fn: Callable[[float], None] = time.sleep) -> dict:
+    """Nouvelles tentatives sur une panne du serveur ; après la dernière, ServerFailure (jamais une réponse inventée)."""
+    for attempt in range(RETRIES):
+        try:
+            return ask_fn(model, prompt, image)
+        except Exception as exc:  # noqa: BLE001 - délai, mémoire de la carte, serveur arrêté…
+            if attempt == RETRIES - 1:
+                raise ServerFailure(f"{type(exc).__name__}: {exc}") from exc
+            sleep_fn(RETRY_WAIT[min(attempt, len(RETRY_WAIT) - 1)])
+    raise ServerFailure("aucune tentative")
 
 
 def model_digest(model: str, *, url: str = OLLAMA) -> str | None:
@@ -222,10 +264,15 @@ def parse_bias(raw: dict) -> tuple[str, str]:
 
 # --- Mesure ---------------------------------------------------------------------------------------------------------
 
-def week_ci(values: np.ndarray, weeks: np.ndarray, *, level: float = LEVEL, samples: int = SAMPLES,
-            seed: int = SEED) -> tuple[float, float] | None:
-    """Intervalle de la moyenne par tirage avec remise des semaines calendaires (moments d'une même semaine ensemble)."""
-    frame = pd.DataFrame({"w": weeks, "v": values}).groupby("w")["v"].agg(["sum", "count"])
+def blocks_of(times: pd.Series, *, start: pd.Timestamp = FROM, days: int = BLOCK_DAYS) -> np.ndarray:
+    """Numéro du bloc de `days` jours calendaires (depuis `start`) de chaque décision."""
+    return ((pd.to_datetime(times, utc=True) - start) // pd.Timedelta(days=days)).to_numpy()
+
+
+def block_ci(values: np.ndarray, blocks: np.ndarray, *, level: float = LEVEL, samples: int = SAMPLES,
+             seed: int = SEED) -> tuple[float, float] | None:
+    """Intervalle de la moyenne par tirage avec remise des blocs (moments d'un même bloc ensemble)."""
+    frame = pd.DataFrame({"w": blocks, "v": values}).groupby("w")["v"].agg(["sum", "count"])
     if len(frame) < 10:
         return None
     sums, counts = frame["sum"].to_numpy(), frame["count"].to_numpy()
@@ -237,30 +284,58 @@ def week_ci(values: np.ndarray, weeks: np.ndarray, *, level: float = LEVEL, samp
     return round(float(low), 6), round(float(high), 6)
 
 
-def verdict(ci: tuple[float, float] | None) -> str:
-    if ci is None:
+def verdict(diff_ci: tuple[float, float] | None, alone_ci: tuple[float, float] | None,
+            unreadable_share: float = 0.0) -> str:
+    """MIEUX exige l'écart avec la règle ET l'information de l'IA seule au-dessus de 0 (relecture : une IA toujours
+    neutre « battait » une règle perdante) ; trop de réponses illisibles : INSUFFISANT."""
+    if diff_ci is None or alone_ci is None or unreadable_share > MAX_UNREADABLE:
         return INSUFFICIENT
-    return BETTER if ci[0] > 0 else WORSE if ci[1] < 0 else NOT_BETTER
+    if diff_ci[0] > 0 and alone_ci[0] > 0:
+        return BETTER
+    return WORSE if diff_ci[1] < 0 else NOT_BETTER
+
+
+def _signed(part: pd.DataFrame) -> dict:
+    r = part["r72"].to_numpy(float)
+    return {"n": int(len(part)), "ia_pct": round(100 * float((part["bias"].map(SCORE).to_numpy(float) * r).mean()), 4)
+            if len(part) else None, "rule_pct": round(100 * float((part["rule"].to_numpy(float) * r).mean()), 4) if len(part) else None}
+
+
+def near_demo(rows: pd.DataFrame) -> pd.Series:
+    """Moments à moins de 72 h d'un moment de la démonstration, sur la même paire."""
+    demo = [(sym, pd.Timestamp(t, tz="UTC")) for sym, t in DEMO_MOMENTS]
+    times = pd.to_datetime(rows["decision_at"], utc=True)
+    return pd.Series([any(sym == d_sym and abs(t - d_t) < HORIZON for d_sym, d_t in demo)
+                      for sym, t in zip(rows["symbol"], times, strict=True)], index=rows.index)
 
 
 def evaluate(rows: pd.DataFrame, *, samples: int = SAMPLES) -> dict:
-    """Décision (écart de rendement signé IA − règle) et descriptif."""
+    """Décision (écart de rendement signé IA − règle, ET information de l'IA seule) et descriptif déclaré."""
     done = rows[rows["r72"].notna()].copy()
     r = done["r72"].to_numpy(float)
     s_ia = done["bias"].map(SCORE).to_numpy(float)
     s_rule = done["rule"].to_numpy(float)
-    weeks = pd.to_datetime(done["decision_at"], utc=True).dt.strftime("%G-%V").to_numpy()
+    blocks = blocks_of(done["decision_at"])
     diff = s_ia * r - s_rule * r
-    ci = week_ci(diff, weeks, samples=samples)
+    ci = block_ci(diff, blocks, samples=samples)
+    alone = block_ci(s_ia * r, blocks, samples=samples)
+    unreadable = float((done["bias"] == UNREADABLE).mean()) if len(done) else 1.0
     directional = done[done["bias"].isin(["HAUSSIER", "BAISSIER"])]
     right = (np.sign(directional["r72"]) == directional["bias"].map(SCORE)).mean() if len(directional) else None
     rule_right = (np.sign(done["r72"]) == done["rule"]).mean()
     big = done[done["r72"].abs() > 0.10]
-    alone = week_ci(s_ia * r, weeks, samples=samples)
+    stamps = pd.to_datetime(done["decision_at"], utc=True)
+    quarters = stamps.dt.year.astype(str) + "T" + stamps.dt.quarter.astype(str)
+    majors = done["symbol"].isin(["BTCUSDT", "ETHUSDT"])
+    demo = near_demo(done)
+    readable = done[done["bias"] != UNREADABLE]
     return {
-        "n": int(len(done)), "missing_return": int(rows["r72"].isna().sum()), "weeks": int(len(set(weeks))),
+        "n": int(len(done)), "missing_return": int(rows["r72"].isna().sum()), "blocks": int(len(set(blocks))),
+        "unreadable_share": round(unreadable, 4),
         "decision": {"diff_mean_pct": round(100 * float(diff.mean()), 4),
-                     "ci_pct": [round(100 * x, 4) for x in ci] if ci else None, "level": LEVEL, "verdict": verdict(ci)},
+                     "ci_pct": [round(100 * x, 4) for x in ci] if ci else None,
+                     "ia_alone_ci_pct": [round(100 * x, 4) for x in alone] if alone else None,
+                     "level": LEVEL, "verdict": verdict(ci, alone, unreadable)},
         "ia_signed_mean_pct": round(100 * float((s_ia * r).mean()), 4),
         "ia_signed_ci_pct": [round(100 * x, 4) for x in alone] if alone else None,
         "rule_signed_mean_pct": round(100 * float((s_rule * r).mean()), 4),
@@ -275,87 +350,130 @@ def evaluate(rows: pd.DataFrame, *, samples: int = SAMPLES) -> dict:
                       "mean_r72_all_pct": round(100 * float(r.mean()), 4)},
         "big_moves": {"rises": big[big["r72"] > 0]["bias"].value_counts().to_dict(),
                       "falls": big[big["r72"] < 0]["bias"].value_counts().to_dict()},
+        "without_unreadable": _signed(readable),
+        "quarters": {q: _signed(g) for q, g in done.groupby(quarters)},
+        "btc_eth": _signed(done[majors]), "other_pairs": _signed(done[~majors]),
+        "near_demo": int(demo.sum()), "without_near_demo": _signed(done[~demo]),
         "seconds_median": round(float(rows["seconds"].median()), 1) if "seconds" in rows else None,
     }
 
 
 # --- Exécution --------------------------------------------------------------------------------------------------
 
-def run(settings: Settings, *, model: str, now: datetime, progress: Callable[[str], None] | None = None,
-        allow_dirty: bool = False, ask_fn: Callable[..., dict] = ask, digest_fn: Callable[[str], str | None] = model_digest,
-        symbols: list[str] | None = None, n: int = N_MOMENTS) -> dict:
+def cache_path_for(settings: Settings, model: str) -> Path:
+    """Cache des réponses du modèle : sous `state/` (ignoré par git : le code reste propre entre les deux modèles)."""
+    return settings.root / "state" / "ia_cache" / f"{model.replace(':', '_')}.jsonl"
+
+
+def load_cache(path: Path) -> dict[str, dict]:
+    """Réponses déjà obtenues ; une dernière ligne tronquée (arrêt brutal) est ignorée."""
+    cache: dict[str, dict] = {}
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            cache[item["key"]] = item
+    return cache
+
+
+def completed_for(registry: ExperimentRegistry, model: str) -> bool:
+    with registry.connect() as db:
+        rows = db.execute("SELECT params FROM runs WHERE kind=? AND status='COMPLETED'", (KIND,)).fetchall()
+    return any(json.loads(row[0] or "{}").get("model") == model for row in rows)
+
+
+def run(settings: Settings, *, model: str, now: datetime, allow_final_test: bool = False, rehearsal: bool = False,
+        progress: Callable[[str], None] | None = None, allow_dirty: bool = False, ask_fn: Callable[..., dict] = ask,
+        digest_fn: Callable[[str], str | None] = model_digest, version_fn: Callable[[], str | None] = server_version,
+        sleep_fn: Callable[[float], None] = time.sleep, symbols: list[str] | None = None, n: int = N_MOMENTS) -> dict:
+    """`rehearsal` : répétition technique (10 moments de DEVELOPMENT, ni rendement ni registre) pour le temps de réponse
+    et la part de réponses illisibles. Sinon : la lecture unique par modèle, consultation inscrite avant la 1re question."""
     from .long_history import load_long
     say = progress or (lambda _text: None)
     if model not in MODELS:
         raise ValueError(f"modèle non déclaré : {model} (déclarés : {', '.join(MODELS)})")
     state = code_state()
-    if (state.endswith("+DIRTY") or state == "NO_GIT_COMMIT") and not allow_dirty:
+    if (state.endswith("+DIRTY") or state == "NO_GIT_COMMIT") and not (allow_dirty and rehearsal):
         raise DirtyCode(f"code non commité ({state}) : exécution refusée (versions reproductibles)")
+    registry = ExperimentRegistry(settings.experiments_db)
+    if not rehearsal:
+        if not allow_final_test:
+            raise FinalTestLocked("période réservée : ajouter --i-understand-final-test (une seule lecture par modèle)")
+        if completed_for(registry, model):
+            raise AlreadyConsulted(f"{model} a déjà été mesuré : aucune seconde lecture")
     digest = digest_fn(model)
     if digest is None:
         raise ValueError(f"modèle absent du serveur local : {model} (ollama pull {model})")
+    version = version_fn()
     frames = {s: load_long(settings, s) for s in (symbols or list(RESEARCH_UNIVERSE))}
-    moments = sample_moments(frames, n=n, start=FROM, end=TO)
-    registry = ExperimentRegistry(settings.experiments_db)
-    run_id = new_run_id("IABI")
-    consultation = None
-    if not registry.final_test_consulted(STRATEGY):         # consultation n° 3, inscrite avant le premier calcul
-        consultation = registry.consult_final_test(run_id, STRATEGY)
-    cache_path = settings.root / "ia_cache" / f"{model.replace(':', '_')}.jsonl"
+    if rehearsal:
+        moments = sample_moments(frames, n=REHEARSAL_N, start=REHEARSAL_FROM, end=REHEARSAL_TO)
+    else:
+        moments = sample_moments(frames, n=n, start=FROM, end=TO)
+    cache_path = cache_path_for(settings, model)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
-    cache = {}
-    if cache_path.exists():
-        for line in cache_path.read_text(encoding="utf-8").splitlines():
-            item = json.loads(line)
-            cache[item["key"]] = item
-    prompt_hash = hashlib.sha256((PROMPT + json.dumps(SCHEMA)).encode()).hexdigest()[:16]
-    rows = []
-    for k, (symbol, t0) in enumerate(moments, 1):
-        h1 = frames[symbol]
-        past = known(h1, t0)
-        context, a, f4 = context_of(past, symbol, t0)
-        image = chart_png(a, f4)
-        key = f"{model}|{digest}|{prompt_hash}|{symbol}|{t0.isoformat()}|{hashlib.sha256(image).hexdigest()[:16]}"
-        if key in cache:
-            item = cache[key]
-        else:
-            started = time.time()
-            try:
-                raw = ask_fn(model, PROMPT.format(context=json.dumps(context, ensure_ascii=False, default=str)), image)
-            except Exception as exc:  # noqa: BLE001 - une panne du serveur local est comptée illisible
-                raw = {"response": "", "error": f"{type(exc).__name__}: {exc}"}
-            bias, analysis = parse_bias(raw)
-            item = {"key": key, "bias": bias, "analysis": analysis, "seconds": round(time.time() - started, 1)}
-            with cache_path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(item, ensure_ascii=False) + "\n")
-        p0, p1 = price_at(h1, t0), price_at(h1, t0 + HORIZON)
-        rows.append({"symbol": symbol, "decision_at": t0, "bias": item["bias"], "analysis": item["analysis"],
-                     "seconds": item["seconds"], "rule": ema_rule(f4),
-                     "r72": (p1 / p0 - 1) if p0 and p1 else None})
-        say(f"{k}/{len(moments)} {symbol} {item['bias']}")
-    table = pd.DataFrame(rows)
-    result = evaluate(table)
-    report_dir = settings.reports_dir / run_id
-    report_dir.mkdir(parents=True, exist_ok=True)
-    payload = {"run_id": run_id, "model": model, "digest": digest, "prompt_hash": prompt_hash, "n_trials": 1,
-               "consultation": consultation, "result": result, "doc": "docs/IA_GRAPHES.md"}
-    (report_dir / "summary.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
-    table.to_parquet(report_dir / "moments.parquet", index=False)
-    registry.record(run_id=run_id, created_at=now.isoformat(), kind=KIND,
-                    hypothesis="l'avis à 72 h d'une IA locale qui lit le graphique et la carte d'analyse bat-il la règle "
-                               "EMA 50 / 200 ?",
-                    strategy=STRATEGY, strategy_version=1, variant=f"{model} ({digest}), consigne {prompt_hash}",
-                    params={"model": model, "digest": digest, "n": n, "seed": SEED, "from": str(FROM), "to": str(TO),
-                            "level": LEVEL, "samples": SAMPLES},
-                    period_label="FINAL_TEST", period_start=str(FROM), period_end=str(TO),
-                    universe=sorted(frames), data_hashes={"moments": hashlib.sha256(
-                        json.dumps([(s, t.isoformat()) for s, t in moments]).encode()).hexdigest()[:16]},
-                    git_commit=state, dependencies=dependency_versions(), seed=SEED, cost_scenario="aucun (prévision)",
-                    simulation_rules={"horizon": "72 h", "rule": "EMA 50 > EMA 200 sur les clôtures 4 h"},
-                    metrics={"n_trials": 1, "verdict": result["decision"]["verdict"], "consultation": consultation},
-                    status="COMPLETED", report_dir=str(report_dir))
-    return payload
-
-
-def cache_dir(settings: Settings) -> Path:
-    return settings.root / "ia_cache"
+    cache = load_cache(cache_path)                          # lu AVANT la consultation
+    run_id = new_run_id("IABR" if rehearsal else "IABI")
+    consultation = None
+    if not rehearsal and not registry.final_test_consulted(STRATEGY):   # consultation n° 3, avant la 1re question
+        consultation = registry.consult_final_test(run_id, STRATEGY)
+    prompt_hash = hashlib.sha256((PROMPT + json.dumps(SCHEMA) + json.dumps(OPTIONS)).encode()).hexdigest()[:16]
+    base = {"run_id": run_id, "created_at": now.isoformat(), "kind": KIND,
+            "hypothesis": "l'avis à 72 h d'une IA locale qui lit le graphique et la carte d'analyse bat-il la règle EMA 50 / 200 ?",
+            "strategy": STRATEGY, "strategy_version": 1, "variant": f"{model} ({digest}), consigne {prompt_hash}",
+            "params": {"model": model, "digest": digest, "ollama": version, "options": OPTIONS, "n": n, "seed": SEED,
+                       "from": str(FROM), "to": str(TO), "level": LEVEL, "samples": SAMPLES, "block_days": BLOCK_DAYS},
+            "period_label": "FINAL_TEST", "period_start": str(FROM), "period_end": str(TO), "universe": sorted(frames),
+            "data_hashes": {"moments": hashlib.sha256(json.dumps([(sy, t.isoformat()) for sy, t in moments]).encode()).hexdigest()[:16]},
+            "git_commit": state, "dependencies": dependency_versions(), "seed": SEED, "cost_scenario": "aucun (prévision)",
+            "simulation_rules": {"horizon": "72 h", "rule": "EMA 50 > EMA 200 sur les clôtures 4 h"}}
+    try:
+        rows = []
+        for k, (symbol, t0) in enumerate(moments, 1):
+            h1 = frames[symbol]
+            context, a, f4 = context_of(known(h1, t0), symbol, t0)
+            image = chart_png(a, f4)
+            prompt = PROMPT.format(context=json.dumps(context, ensure_ascii=False, default=str))
+            key = hashlib.sha256("|".join([model, digest, prompt, json.dumps(OPTIONS), json.dumps(SCHEMA),
+                                           hashlib.sha256(image).hexdigest()]).encode()).hexdigest()
+            if key in cache:
+                item = cache[key]
+            else:
+                started = time.time()
+                raw = ask_with_retries(ask_fn, model, prompt, image, sleep_fn=sleep_fn)   # panne : arrêt, rien en cache
+                bias, analysis = parse_bias(raw)
+                item = {"key": key, "symbol": symbol, "decision_at": t0.isoformat(), "bias": bias, "analysis": analysis,
+                        "raw": str(raw.get("response", ""))[:2000], "seconds": round(time.time() - started, 1)}
+                with cache_path.open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(item, ensure_ascii=False) + "\n")
+                cache[key] = item
+            row = {"symbol": symbol, "decision_at": t0, "bias": item["bias"], "analysis": item["analysis"],
+                   "seconds": item["seconds"], "rule": ema_rule(f4)}
+            if not rehearsal:
+                p0, p1 = price_at(h1, t0), price_at(h1, t0 + HORIZON)
+                row["r72"] = (p1 / p0 - 1) if p0 and p1 else None
+            rows.append(row)
+            say(f"{k}/{len(moments)} {symbol} {item['bias']}")
+        table = pd.DataFrame(rows)
+        if rehearsal:                                       # aucune mesure : temps et réponses illisibles seulement
+            return {"run_id": run_id, "rehearsal": True, "model": model, "digest": digest, "n": len(table),
+                    "biases": table["bias"].value_counts().to_dict(),
+                    "unreadable_share": round(float((table["bias"] == UNREADABLE).mean()), 4),
+                    "seconds_median": round(float(table["seconds"].median()), 1)}
+        result = evaluate(table)
+        report_dir = settings.reports_dir / run_id
+        report_dir.mkdir(parents=True, exist_ok=True)
+        payload = {"run_id": run_id, "model": model, "digest": digest, "ollama": version, "prompt_hash": prompt_hash,
+                   "n_trials": 1, "consultation": consultation, "result": result, "doc": "docs/IA_GRAPHES.md"}
+        (report_dir / "summary.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
+        table.to_parquet(report_dir / "moments.parquet", index=False)
+        registry.record(**base, metrics={"n_trials": 1, "verdict": result["decision"]["verdict"], "consultation": consultation},
+                        status="COMPLETED", report_dir=str(report_dir))
+        return payload
+    except BaseException as exc:                            # panne après la consultation : trace au registre
+        if not rehearsal:
+            registry.record(**base, metrics={"n_trials": 1, "consultation": consultation,
+                                             "error": f"{type(exc).__name__}: {exc}"}, status="FAILED")
+        raise

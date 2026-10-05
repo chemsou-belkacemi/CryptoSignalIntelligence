@@ -1118,27 +1118,38 @@ def trendline_final_command(
 
 @app.command("ia-bias")
 def ia_bias_command(model: str = typer.Option(..., "--model", help="Modèle Ollama local déclaré (qwen2.5vl:7b ou gemma3:12b)"),
-                    allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Code non commité : enregistré et COMPTÉ"),
+                    rehearsal: bool = typer.Option(False, "--rehearsal", help="Répétition technique : 10 moments de DEVELOPMENT, ni rendement ni registre"),
+                    i_understand_final_test: bool = typer.Option(False, "--i-understand-final-test",
+                                                                 help="Lecture de la période réservée (une seule par modèle, enregistrée)"),
+                    allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Répétition locale sur du code non commité"),
                     verbose: bool = False):
     """IA locale qui lit les graphiques contre la règle EMA 50 / 200, 400 moments de 2025-2026 (docs/IA_GRAPHES.md) :
     1 essai par modèle ; consultation n° 3 de la période réservée (autorisation du propriétaire)."""
     from .research.factors import DirtyCode
-    from .research.ia_bias import run
+    from .research.ia_bias import AlreadyConsulted, ServerFailure, run
+    from .research.protocol import FinalTestLocked
     settings = _settings(verbose)
+    if allow_dirty and not rehearsal:
+        console.print("[red]--allow-dirty n'est permis que pour la répétition.[/red]")
+        raise typer.Exit(2)
     _heavy_job(settings)
     try:
         with console.status("IA locale…") as status:
-            payload = run(settings, model=model, now=_now(), progress=lambda text: status.update(f"IA locale : {text}"),
-                          allow_dirty=allow_dirty)
-    except (DirtyCode, ValueError) as exc:
+            payload = run(settings, model=model, now=_now(), allow_final_test=i_understand_final_test, rehearsal=rehearsal,
+                          progress=lambda text: status.update(f"IA locale : {text}"), allow_dirty=allow_dirty)
+    except (DirtyCode, ValueError, FinalTestLocked, AlreadyConsulted, ServerFailure) as exc:
         console.print(f"[red]Aucun résultat :[/red] {exc}")
         raise typer.Exit(3) from None
+    if payload.get("rehearsal"):
+        console.print(f"RÉPÉTITION {payload['model']} : {payload['n']} moments, avis {payload['biases']}, "
+                      f"illisibles {payload['unreadable_share']}, {payload['seconds_median']} s par graphique (médiane)")
+        return
     r = payload["result"]
-    console.print(f"Modèle {payload['model']} ({payload['digest']}) — {r['n']} moments, {r['weeks']} semaines")
-    console.print(f"Écart de rendement signé IA − règle : {r['decision']['diff_mean_pct']} % [{r['decision']['ci_pct']}] → "
-                  f"{r['decision']['verdict']}")
-    console.print(f"IA seule : {r['ia_signed_mean_pct']} % [{r['ia_signed_ci_pct']}] ; règle : {r['rule_signed_mean_pct']} % ; "
-                  f"bons sens IA {r['ia_right_share']} / règle {r['rule_right_share']} (part en hausse {r['share_up']})")
+    console.print(f"Modèle {payload['model']} ({payload['digest']}) — {r['n']} moments, {r['blocks']} blocs de 2 semaines")
+    console.print(f"Écart de rendement signé IA − règle : {r['decision']['diff_mean_pct']} % {r['decision']['ci_pct']} ; "
+                  f"IA seule {r['ia_signed_mean_pct']} % {r['decision']['ia_alone_ci_pct']} → {r['decision']['verdict']}")
+    console.print(f"Règle : {r['rule_signed_mean_pct']} % ; bons sens IA {r['ia_right_share']} / règle {r['rule_right_share']} "
+                  f"(part en hausse {r['share_up']}) ; illisibles {r['unreadable_share']}")
     console.print(f"Avis : {r['biases']} ; accord avec la règle {r['agreement_with_rule']}")
     console.print(f"Rapport : {settings.reports_dir / payload['run_id'] / 'summary.json'}")
 

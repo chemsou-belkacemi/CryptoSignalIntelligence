@@ -15,9 +15,11 @@ Deux modèles locaux servis par Ollama (127.0.0.1 seulement), chacun jugé sépa
 - `qwen2.5vl:7b`, publié le 2025-01-28 ;
 - `gemma3:12b`, publié le 2025-03-12. Il dépasse la mémoire de la carte graphique : une partie tourne sur le processeur.
 
-Les deux ont été entraînés **avant** la période testée. Ils ne peuvent pas connaître la suite des graphiques montrés,
-et le nom de la paire et les dates sont masqués de toute façon. Les empreintes Ollama des modèles sont enregistrées
-avec chaque exécution.
+Les deux ont été entraînés **avant** la période testée : ils ne peuvent pas connaître la suite des graphiques
+montrés. Le nom de la paire et les dates ne sont pas écrits, mais la paire et la période restent **en partie
+reconnaissables** (prix réels, niveaux de la période précédente qui trahissent le calendrier) : sans fuite du futur
+pour autant, puisque tous les moments sont postérieurs à la publication des deux modèles. Les empreintes Ollama des
+modèles et la version du serveur sont enregistrées avec chaque exécution.
 
 ## Moments testés
 
@@ -85,14 +87,44 @@ détecté.
 
 **Lecture déclarée.**
 - `MIEUX_QUE_LA_REGLE` pour un modèle : candidat à un test en direct déclaré (F17), seul juge d'une utilité réelle.
-- `PAS_MIEUX` ou `MOINS_BIEN_QUE_LA_REGLE` pour les deux : l'IA locale n'apporte rien de plus qu'une règle de
-  moyennes. Pas de test en direct de l'IA locale ; l'API Claude reste une option non testée, à la décision du
-  propriétaire.
+- `PAS_MIEUX` ou `MOINS_BIEN_QUE_LA_REGLE` pour les deux : **aucun avantage de cette taille détecté** sur la
+  règle des moyennes (la puissance ne permet pas de dire « rien du tout »). Pas de test en direct de l'IA locale ;
+  l'API Claude reste une option non testée, à la décision du propriétaire.
 
 **Comptage.** 1 essai par modèle exécuté, inscrit au registre au label `FINAL_TEST` (les moments lisent la période
 réservée), avec la consultation n° 3 inscrite avant le premier calcul.
+
+## Corrections de la relecture, avant l'exécution (2026-10-05, `leak-auditor` ; aucune réponse de l'IA obtenue)
+
+**Corrigé (bloquant) :**
+- **Panne du serveur** : une panne n'est plus jamais comptée comme une réponse. Après 3 tentatives, le calcul
+  s'arrête, est inscrit `FAILED` au registre (1 essai compté par prudence), et rien n'est mis en cache. La reprise est
+  permise : les réponses déjà obtenues sont gardées, et aucune nouvelle consultation n'est inscrite. `ERREUR`
+  (serveur) et `ILLISIBLE` (modèle) sont distingués ; la réponse brute est gardée ; la longueur de réponse est bornée
+  (600 tokens).
+- **Lecture de la période réservée** : drapeau `--i-understand-final-test` obligatoire, une seule lecture par modèle
+  (refus si un essai terminé existe), `--allow-dirty` réservé à une **répétition technique**. Cette répétition porte
+  sur 10 moments de janvier à mars 2025 (DEVELOPMENT) : aucun rendement n'y est calculé et rien n'est enregistré.
+- **Cache des réponses** sous `state/ia_cache/` (ignoré par git), lu avant la consultation, une ligne tronquée
+  ignorée. Sa clé hache la consigne remplie, les options, le schéma, le modèle et l'image.
+- **Verdict** : `MIEUX_QUE_LA_REGLE` exige que l'intervalle de l'écart avec la règle **ET** celui du rendement signé
+  de l'IA seule soient au-dessus de 0. Sans cela, une IA toujours « neutre » battait une règle perdante.
+
+**Déclaré :**
+- **Intervalle par blocs de 2 semaines** au lieu des semaines : les fenêtres de 72 h chevauchent deux semaines, et la
+  simulation de la relecture donnait 3,5 % de faux positifs au lieu de 2,5 %.
+- **Réponses illisibles** : plus de 2 % donne `INSUFFISANT` ; lecture descriptive sans les moments illisibles.
+- **Consigne et règle** choisies après la démonstration sur 18 graphiques de la période, dont 6 choisis après coup :
+  les moments à moins de 72 h d'un moment de la démonstration (même paire) sont comptés, avec une lecture
+  descriptive sans eux.
+- **Descriptif ajouté avant toute lecture** : par trimestre, et BTC / ETH contre les autres paires.
+- **Latence** : le rendement part de la clôture, alors que l'IA répond en 15 à 60 secondes. C'est acceptable pour
+  une question de prévision.
+- La carte de CSI calcule ses moyennes avec `ind.ema`, le graphique et la règle avec la moyenne exponentielle de
+  pandas : l'écart est négligeable avec plus de 1 200 bougies d'historique. Le graphique montre les 4 figures du JSON.
 
 ## Historique
 
 - 2026-10-05 : déclaré avant tout code et toute exécution ; démonstration (18 graphiques) faite avant, décrite
   ci-dessus.
+- 2026-10-05 : relecture indépendante avant l'exécution ; corrections et déclarations ci-dessus.
