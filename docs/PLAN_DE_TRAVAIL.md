@@ -3,8 +3,8 @@
 Document vivant : ce qui est fait, ce qui tourne, ce qui reste. Chaque ligne « à faire » se fait comme d'habitude :
 déclarée avant, mesurée avec intervalle (et placebos en direct), comptée au programme. Les décisions du
 propriétaire sont marquées **[propriétaire]**. Programme au 2026-10-04 : **853 essais** sur DEVELOPMENT ; période
-finale réservée consultée **deux fois** (décisions du propriétaire) : le 2026-10-03 pour la volatilité, le
-2026-10-05 pour les lignes de tendance 1 h.
+finale réservée consultée **trois fois** (décisions du propriétaire) : le 2026-10-03 pour la volatilité, le
+2026-10-05 pour les lignes de tendance 1 h puis pour l'IA locale qui lit les graphiques.
 
 **Plan validé par le propriétaire le 2026-10-03 (« oui pour tout à part le VPS »)** : plus de nouvelle recherche
 directionnelle sur les bougies ; rendre utile ce qui marche (volatilité, filtrage des signaux Telegram, boucle Demo).
@@ -52,6 +52,7 @@ refusé (aucune donnée payante) ; points 6 à 10 en attente (voir § 5).
 | Stop resserré sur le double creux (moitié au toucher, clôture à 0,4, −3 % fixe ; 3 essais) | NON_DEMONTRE : deux fois plus de stops pour des pertes deux fois plus petites, même résultat par unité de risque ; zéro en 1 h | `FIGURES_HISTORIQUE.md` |
 | **Cassures de ligne de tendance en 1 h, confirmation sur 214 paires jamais utilisées** (2 essais) | **PISTE_CONFIRMEE** : +0,12 R sur le hasard [+0,04 ; +0,19] ; GAIN_NON_DEMONTRE de justesse (R +0,09 [+0,02 ; +0,16] en central, [−0,01 ; +0,14] en défavorable) ; 7 années positives ; premier résultat directionnel confirmé hors échantillon | `LIGNES_DE_TENDANCE.md` |
 | Lignes de tendance 1 h sur la période réservée (2025-07 → 2026-09, lecture unique, 1 essai) | **NON_CONFIRMEE** : excès +0,04 [−0,06 ; +0,15], R −0,03 après frais ; dépend d'un seul trimestre ; aucun usage, suivi par F15 | `LIGNES_DE_TENDANCE.md` |
+| IA locale qui lit les graphiques (Qwen2.5-VL 7b, Gemma 3 12B ; 400 moments de 2025-2026 ; 2 essais) | PAS_MIEUX pour les deux : bon sens 51 % et 47 % (50,5 % de hausses), aucune information démontrée, pas même avant les plus forts mouvements ; pas de test en direct | `IA_GRAPHES.md` |
 
 ## 2. En cours
 

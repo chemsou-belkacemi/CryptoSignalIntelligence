@@ -46,6 +46,7 @@ stratégies actuelles sont **REJECTED** hors échantillon (README). Vérificatio
 | Stop resserré sur le double creux (3 essais) | TESTÉ, EXÉCUTÉ | `NON_DEMONTRE` pour les trois (FIGURES_HISTORIQUE.md) |
 | Cassures de ligne de tendance en 1 h, confirmation sur 214 paires (2 essais) | TESTÉ, EXÉCUTÉ | `PISTE_CONFIRMEE`, `GAIN_NON_DEMONTRE` (LIGNES_DE_TENDANCE.md) ; aucun usage avant un test en direct |
 | Lignes de tendance 1 h sur la période réservée (lecture unique) | TESTÉ, EXÉCUTÉ | `NON_CONFIRMEE` (excès +0,04, R −0,03) ; aucun usage (LIGNES_DE_TENDANCE.md) |
+| IA locale qui lit les graphiques (2 modèles, 2 essais) | TESTÉ, EXÉCUTÉ | `PAS_MIEUX` pour les deux ; aucune information sur la direction à 72 h (IA_GRAPHES.md) |
 
 ## Intégration avec BinanceSpotManager (Binance Demo uniquement)
 

@@ -148,9 +148,37 @@ réservée), avec la consultation n° 3 inscrite avant le premier calcul.
 **Lecture déclarée** : aucun avantage de cette taille détecté sur la règle. L'IA seule ne montre pas d'information
 non plus : son intervalle contient 0, et elle a le bon sens une fois sur deux, comme une pièce.
 
+### `gemma3:12b` (`IABI-20261005T043510Z-4033fb`, 2026-10-05, même consultation, 1 essai) : **`PAS_MIEUX`**
+
+400 moments (les mêmes), aucune réponse illisible, 44 s par graphique (médiane).
+
+| Mesure (rendement à 72 h) | IA Gemma 12B | Règle EMA 50 / 200 |
+|---|---|---|
+| Rendement signé moyen (suivre l'avis) | −0,46 % [−1,18 ; +0,24] | −0,19 % |
+| Écart IA − règle | −0,27 % [−1,52 ; +0,96] | — |
+| Bon sens (avis neutres exclus) | 46,8 % | 47,8 % |
+
+- **Avis** : haussier 188, baissier 160, neutre 52 ; d'accord avec la règle 52 % du temps.
+- **Avant les plus forts mouvements** : avant 36 fortes hausses, haussier 17 fois et baissier 18 fois ; avant 20
+  fortes baisses, haussier 9 fois et baissier 7 fois.
+- **Lecture « achat seulement »** : −0,05 % à 72 h quand l'IA dit haussier, contre +0,24 % sur tous les moments.
+- **Par trimestre** : de −1,5 % à +1,5 %.
+
+### Conclusion
+
+Aucun des deux modèles locaux ne fait mieux que la règle des moyennes. **Aucun ne porte d'information à lui seul** :
+le 7b a le bon sens 51 % du temps, Gemma 47 %, pour 50,5 % de moments en hausse. La lecture d'un graphique et de
+toute la carte d'analyse de CSI par une IA locale ne prévoit pas la direction à 72 h, pas même avant les plus forts
+mouvements. Comme déclaré : pas de test en direct de l'IA locale. L'API Claude (modèle bien plus grand) reste non
+testée, à la décision du propriétaire ; rien dans ce résultat ne la rend prometteuse.
+
+Registre : consultations de la période réservée 3 ; essais sur la période finale 8 (5 volatilité, 1 lignes de
+tendance, 2 IA) ; DEVELOPMENT 853.
+
 ## Historique
 
 - 2026-10-05 : déclaré avant tout code et toute exécution ; démonstration (18 graphiques) faite avant, décrite
   ci-dessus.
 - 2026-10-05 : relecture indépendante avant l'exécution ; corrections et déclarations ci-dessus.
 - 2026-10-05 : répétition technique (0 % d'illisibles ; 21 s et 42 s par graphique) ; exécution de `qwen2.5vl:7b` : PAS_MIEUX.
+- 2026-10-05 : exécution de `gemma3:12b` : PAS_MIEUX ; conclusion inscrite.
