@@ -21,6 +21,11 @@ pas confirmées : elles restent un affichage.
 **Aucune influence** : ni sur les signaux de CSI, ni sur BinanceSpotManager, ni sur aucun test en direct. Aucune
 prévision de sens ni de gain.
 
+## BinanceSpotManager (depuis le 2026-10-06)
+
+BSM lit `GET /risk` à chaque signal automatique et affiche ce que CSI proposerait (taille relative, stop comparé à
+l'ampleur des 24 h), sans l'appliquer. Protocole de mesure déclaré : `RISK_PROTOCOL.md`.
+
 ## Ce qui reste avant d'aller plus loin
 
 - Passer ces conseils à BSM (taille, stop) demande un protocole déclaré : par exemple, sur les signaux mesurés en

@@ -75,8 +75,10 @@ Aucun calcul de recherche en cours.
      **D7 non concluant**, séquence arrêtée : les prévisions à 1, 3 et 7 jours ne sont pas confirmées ;
    - **fait** : branchement de H24 en **shadow** (`RISK_SHADOW.md`) : ampleur typique sur 24 h et taille relative à
      risque égal, carte « Risque à 24 h » de l'onglet Marché, journal quotidien ; aucune influence ;
-   - à venir : après quelques semaines de journal, protocole déclaré pour passer taille et stop à BSM en Demo
-     **[propriétaire]** ; abstention pas avant 60 jours d'historique.
+   - **fait le 2026-10-06** (demande du propriétaire) : protocole déclaré `RISK_PROTOCOL.md` ; BSM affiche le
+     conseil de CSI pour chaque signal automatique, sans l'appliquer (branche BSM `feat/taille-risque-traders`) ;
+     lecture unique à 60 positions et pas avant le 2026-11-13 ; données de BSM du VPS nécessaires **[propriétaire]** ;
+     abstention pas avant 60 jours d'historique.
 3. **Telegram** :
    - **[propriétaire]** créer le deuxième bot et poser son jeton, puis démarrer le relais (guide :
      `TELEGRAM_RELAY.md`) ; le relais, son service Docker et ses tests sont prêts ;
