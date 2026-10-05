@@ -206,6 +206,18 @@ bougies publiques.
 
 ## Historique
 
+- 2026-10-06 : **mesure d'un groupe indépendante de la lecture des images et des autres groupes** (relecture
+  leak-auditor de l'audit avec images depuis le tableau de bord). Trois changements dans `external/audit.py` :
+  (1) un signal TEXTE n'est plus déclaré doublon d'un signal lu sur IMAGE plus ancien (avant, une capture suivie
+  du même signal en texte retirait le texte du bilan et de la preuve : sur un export réel, 65 signaux texte
+  résolus sans OCR contre 57 avec, R moyen +0,413 contre +0,463, donc une preuve qui dépendait de l'option `--ocr`) ;
+  une image reste doublon d'un texte ou d'une image antérieurs ; (2) les doublons se cherchent **dans le même
+  groupe** seulement : un groupe qui reprend les signaux d'un autre garde les siens, audité seul ou avec lui
+  (avant, `--dir` sur plusieurs exports ou la boîte de BSM pouvait lui retirer ces signaux) ; (3) « Gestions
+  comparées » ne prend que les signaux texte, comme le bilan. Effet sur la preuve d'un groupe : elle ne peut que
+  compter AUTANT ou PLUS de signaux texte qu'avant (ceux qu'une image ou un autre groupe masquait). Aucun groupe
+  n'était prouvé au 2026-10-05 (`PLAN_DE_TRAVAIL.md` § 5) ; les bilans déjà faits avec `--ocr` ou sur plusieurs
+  exports à la fois sont à refaire pour une preuve à jour. Tests : `tests/test_audit_independence.py`.
 - 2026-10-05 : **nom du trader lu en tête du signal** (`external/parser.group_of`), même lecture et même forme
   canonique que BinanceSpotManager (`trader_name.trader_of` et `name_key`, comparées en-tête par en-tête par
   `tests/test_group_name.py`) : dernière ligne utile avant la paire ou la première étiquette ; formules (« بسم الله

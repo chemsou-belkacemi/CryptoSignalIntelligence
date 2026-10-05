@@ -507,6 +507,10 @@ def audit(settings: Settings, items: Iterable[HistoryItem], *, now: datetime, so
     fetch = bars_for or market_bars(settings, now=now)
     rows: list[AuditRow] = []
     parsed: list[tuple[AuditRow, ExternalSignal, pd.Timestamp]] = []
+    # Doublons, PAR GROUPE (un groupe qui reprend les signaux d'un autre garde les siens, audité seul ou avec lui).
+    # Un signal TEXTE ne se compare qu'aux textes antérieurs : la mesure du texte (et la preuve) ne dépend jamais de
+    # la lecture des images. Un signal IMAGE se compare aux deux.
+    seen_text: dict[tuple, pd.Timestamp] = {}
     seen: dict[tuple, pd.Timestamp] = {}
     for item in sorted(items, key=lambda i: i.received_at):
         received = pd.Timestamp(item.received_at)
@@ -529,18 +533,21 @@ def audit(settings: Settings, items: Iterable[HistoryItem], *, now: datetime, so
         row.targets, row.stop_timeframe = list(signal.targets), signal.stop_timeframe
         row.stop_pct = round((row.entry - row.stop) / row.entry * 100, 2)
         row.tp1_pct = round((row.targets[0] / row.entry - 1) * 100, 2)
-        key = (signal.symbol, tuple(signal.entries), row.stop, tuple(signal.targets))
-        if key in seen and received - seen[key] <= pd.Timedelta(days=DUPLICATE_DAYS):
-            row.status, row.reason = DUPLICATE, f"même signal déjà publié le {seen[key]:%Y-%m-%d %H:%M}"
+        key = (row.group, signal.symbol, tuple(signal.entries), row.stop, tuple(signal.targets))
+        before = seen if item.from_image else seen_text
+        if key in before and received - before[key] <= pd.Timedelta(days=DUPLICATE_DAYS):
+            row.status, row.reason = DUPLICATE, f"même signal déjà publié le {before[key]:%Y-%m-%d %H:%M}"
             continue
         # Une capture mise à jour (objectifs atteints effacés, stop déplacé) donne une autre clé exacte : pour un
         # signal lu sur IMAGE, même paire et même stop, ou même paire et même entrée 1, sous 7 jours = doublon.
-        loose = ((signal.symbol, "stop", row.stop), (signal.symbol, "entree", row.entry))
+        loose = ((row.group, signal.symbol, "stop", row.stop), (row.group, signal.symbol, "entree", row.entry))
         earlier = [seen[k] for k in loose if k in seen and received - seen[k] <= pd.Timedelta(days=DUPLICATE_DAYS)]
         if item.from_image and earlier:
             row.status, row.reason = DUPLICATE, f"même paire et même stop ou entrée qu'un signal du {max(earlier):%Y-%m-%d %H:%M}"
             continue
         seen[key] = received
+        if not item.from_image:
+            seen_text[key] = received
         for k in loose:
             seen[k] = received
         parsed.append((row, signal, received))
@@ -574,7 +581,8 @@ def audit(settings: Settings, items: Iterable[HistoryItem], *, now: datetime, so
     from .trailing import Management
     current = Management(tp_count=settings.external.tp_count)
     for name in summary:
-        mine = [r for r in rows if r.status == OK and (name == ALL or r.group == name)]
+        # Signaux texte seulement, comme le bilan et la preuve : l'étude ne dépend pas de la lecture des images.
+        mine = [r for r in rows if r.status == OK and not r.from_image and (name == ALL or r.group == name)]
         if len(mine) < 2:
             continue
         signals = [{"symbol": r.symbol, "received_at": r.received_at, "entry": r.entry, "stop": r.stop,
