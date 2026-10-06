@@ -325,6 +325,29 @@ class CsiApi:
         from ..risk.advice import current
         return current(self.settings, now=self.now())
 
+    def telegram_relay_status(self) -> dict:
+        """État du relais Telegram vu par CSI : messages déposés (dossier lu par F4), le dernier, et le nombre par
+        groupe sur 24 h et 7 jours. Lecture seule ; rien n'est évalué ici."""
+        import pandas as pd
+
+        from ..forward import telegram_live
+        now = pd.Timestamp(self.now())
+        rows = telegram_live.read_robot_dir(telegram_live.live_dir(self.settings), since=now - pd.Timedelta(days=7))
+        times = [pd.Timestamp(r.received_at) for r in rows]
+        groups: dict[str, dict] = {}
+        for row, at in zip(rows, times, strict=True):
+            entry = groups.setdefault(row.provider or "(sans nom)", {"group": row.provider or "(sans nom)",
+                                                                      "day": 0, "week": 0, "last": None})
+            entry["week"] += 1
+            entry["day"] += int(at >= now - pd.Timedelta(days=1))
+            entry["last"] = max(filter(None, [entry["last"], at.isoformat()]))
+        last = max(times).isoformat() if times else None
+        silent_hours = round((now - max(times)).total_seconds() / 3600, 1) if times else None
+        return {"last_received_at": last, "silent_hours": silent_hours, "day": sum(g["day"] for g in groups.values()),
+                "week": len(rows), "groups": sorted(groups.values(), key=lambda g: -g["week"]),
+                "note": "Messages transférés par ton relais (compte Telegram → bot CSI) et déposés pour le test F4. "
+                        "Rien ici n'est un avis sur un signal."}
+
     def plans_live(self) -> dict:
         """Suivi EN DIRECT des plans indicatifs : bilan par horizon et état au moment de l'enregistrement."""
         from ..outlook.tracking import summary
@@ -1027,6 +1050,7 @@ class CsiApi:
                 "/admissions": self.admissions, "/sources/history": self.sources_history,
                 "/volatility": lambda: self.volatility(query.get("symbol", [""])[0]),
                 "/plans/live": self.plans_live, "/forward": self.forward, "/risk": self.risk,
+                "/telegram/relay": self.telegram_relay_status,
                 "/images/pending": self.images_pending, "/sources/exports": self.sources_exports,
                 "/sources/exports/audit": lambda: self.sources_exports_result(query.get("folder", [""])[0]),
             }

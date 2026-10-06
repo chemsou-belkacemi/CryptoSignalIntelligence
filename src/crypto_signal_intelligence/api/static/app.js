@@ -1133,9 +1133,10 @@ async function loadFollow(force = false) {
   if (state.followLoaded && !force) return;
   busy(target, "Chargement…");
   try {
-    const [health, models, recent, sources, generated, universe, admissions, history, plans, forward] = await Promise.all([
+    const [health, models, recent, sources, generated, universe, admissions, history, plans, forward, relay] = await Promise.all([
       api("/health"), api("/models"), api("/signals/recent?limit=15"), api("/sources"), api(`/signals/generated?limit=${GENERATED_PAGE}`), api("/universe"),
       refreshAdmissions(), api("/sources/history"), api("/plans/live"), api("/forward").catch(() => null),
+      api("/telegram/relay").catch(() => null),
     ]);
     state.followLoaded = true;
     state.models = models;
@@ -1165,6 +1166,7 @@ async function loadFollow(force = false) {
             g.resolved ? `${fmt(g.r_mean, 2, true)} R` : "–", ciR(g.ic95), g.resolved ? pctFrac(g.win_share) : "–",
             { node: el("span", { class: g.proven ? "ok" : "muted", text: g.proven ? "prouvé en direct" : g.progress }) }]),
           "aucun plan encore enregistré : le premier passage a lieu chaque jour après 00:10 UTC")),
+      relayCard(relay),
       forwardCard(forward),
       card("Signaux évalués récemment", table(["Reçu", "Source", "Paire", "Entrée · stop · TP1", "Avis", "Issue", "R"],
         (recent.signals || []).map((x) => [when(x.received_at), x.source, pair(x.symbol), `${price(x.entry)} · ${price(x.stop)} · ${price(x.tp1)}`,
@@ -1192,6 +1194,20 @@ async function loadFollow(force = false) {
 // Repli : une ligne de résumé, le détail au clic (cartes longues en fin de page).
 function folded(summary, ...children) {
   return el("details", {}, el("summary", { text: summary }), ...children);
+}
+
+// Relais Telegram : les messages arrivent-ils ? (dernier reçu, nombre par groupe sur 24 h et 7 jours)
+function relayCard(relay) {
+  if (!relay) return card("Relais Telegram", el("p", { class: "muted", text: "état du relais indisponible" }));
+  const silent = relay.silent_hours;
+  const status = relay.last_received_at === null
+    ? el("p", { class: "warn", text: "aucun message reçu sur 7 jours : vérifier que le relais tourne sur le PC (systemctl --user status relais-telegram)" })
+    : el("p", { class: silent > 12 ? "warn" : "ok", text: `Dernier message reçu ${when(relay.last_received_at)}`
+        + (silent > 12 ? ` — aucun depuis ${fmt(silent, 1)} h : vérifier le relais (systemctl --user status relais-telegram)` : "")
+        + ` · ${relay.day} sur 24 h · ${relay.week} sur 7 jours` });
+  return card("Relais Telegram", el("p", { class: "muted small", text: relay.note }), status,
+    table(["Groupe ou conversation", { label: "24 h", num: true }, { label: "7 jours", num: true }, "Dernier message"],
+      (relay.groups || []).map((g) => [g.group, g.day, g.week, when(g.last)]), "aucun message"));
 }
 
 function groupsCard(history) {
