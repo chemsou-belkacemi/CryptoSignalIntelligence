@@ -139,6 +139,10 @@ services:
       CSI_TELEGRAM_RELAY_API: http://csi-api:8503
       CSI_API_TOKEN: ${CSI_API_TOKEN:-}
     command: ["python", "-m", "crypto_signal_intelligence.relay.telegram"]
+    # Le contrôle de santé de l'image vise la surveillance (cycle du scanner) : sans objet pour le relais, qui
+    # signale ses pannes dans son journal et redémarre seul.
+    healthcheck:
+      disable: true
     networks:
       default: {}
       csi-bridge: {}
