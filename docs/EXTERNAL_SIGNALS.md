@@ -207,6 +207,7 @@ bougies publiques.
 ## Historique
 
 - 2026-10-06 : **groupes de confiance halal** (décision du propriétaire) : une paire USDT publiée par EL MAHWASHI, LEGEND TRADING, IN CRYPTO ou WHALE HUNTING, reconnus par l'identifiant de leur conversation Telegram transmis par le relais (jamais par un nom dans le texte), est ajoutée à l'univers si elle se négocie sur Binance Spot, jamais contre son refus ni un avis défavorable (`UNIVERSE.md`). L'avis d'un signal ne change pas ; F4/F16 gardent leur liste figée.
+- 2026-10-06 : **cryptos à une seule lettre** (G, T, W, S…) lues par CSI comme par BinanceSpotManager (« G/USDT », « #T/USDT », « DUSDT ») ; une lettre seule n'est jamais une crypto avec « w/ » ou un trait d'union. Sur 20 444 messages exportés, 13 passent d'illisibles à lisibles, aucun autre ne change : les bilans d'historique faits avant ne sont plus reproductibles à l'identique. Chaque bilan inscrit désormais l'empreinte du parseur. F4/F16 : aucune paire à une lettre dans leur liste figée.
 - 2026-10-06 : **mesure d'un groupe indépendante de la lecture des images et des autres groupes** (relecture
   leak-auditor de l'audit avec images depuis le tableau de bord). Trois changements dans `external/audit.py` :
   (1) un signal TEXTE n'est plus déclaré doublon d'un signal lu sur IMAGE plus ancien (avant, une capture suivie

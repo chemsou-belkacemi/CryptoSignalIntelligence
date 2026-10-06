@@ -52,7 +52,14 @@ FOREIGN = """📈 Trader/ QUEEN CLEO
 1️⃣ T1: 0.02160 (2.61%)
 🛑 SL: 0.02060 (15m) (-2.14%)
 🏦 PLATFORM: MEXC"""
-CASES = [AL_MAHWASHI, INSTANT_STOP, HARMONIC, FOREIGN]
+ONE_LETTER = "👑 WHALE HUNTING\nPAIR : G/USDT\nENTRY 1 : 0.00456\nTP 1 : 0.00463\nSL : 0.00438 (15m)"
+HASH_T = "#T/USDT\nEntry: 0.02\nTP1: 0.022\nSL: 0.018"
+JOINED_D = "Coin: DUSDT\nEntry: 0.02\nTP1: 0.022\nSL: 0.018"
+# Jamais une crypto à une lettre : « w/ » (with) avant une devise, ou un trait d'union (relecture du 2026-10-06).
+WITH_USDT = "Buy XRP w/ USDT\nEntry 0.5\nTP 0.55\nSL 0.45"
+WITH_BTC = "#SOL/USDT\nEntry: 150\nTP1: 160\nSL: 140\ncorrelation w/ BTC"
+DASH_W = "#W-USDT\nEntry: 0.1\nTP1: 0.12\nSL: 0.09"
+CASES = [AL_MAHWASHI, INSTANT_STOP, HARMONIC, FOREIGN, ONE_LETTER, HASH_T, JOINED_D, WITH_USDT, WITH_BTC, DASH_W]
 
 
 def test_real_channel_formats_are_read():
@@ -85,3 +92,21 @@ def test_csi_and_bsm_accept_the_same_signals_with_the_same_prices(text):
     assert bool(b.errors) == bool(c.errors)
     assert (b.symbol, b.entries, b.targets, b.stop, b.stop_timeframe) == \
         (c.symbol, c.entries, c.targets, c.stop, c.stop_timeframe)
+
+
+def test_one_letter_coins_are_read_and_with_is_never_a_coin():
+    """2026-10-06 : G/USDT (WHALE HUNTING) n'était lu ni par CSI ni par BSM ; la comparaison avec BSM est faite sur
+    CASES (test précédent). Une lettre seule n'est une crypto qu'avec « / » collé ou collée à USDT."""
+    for text, symbol in ((ONE_LETTER, "GUSDT"), (HASH_T, "TUSDT"), (JOINED_D, "DUSDT"), (WITH_BTC, "SOLUSDT")):
+        result = parse(text)
+        assert result.symbol == symbol and not result.errors, text
+    assert parse(WITH_USDT).errors and parse(DASH_W).errors
+    assert parse("PAIR: 1/USDT\nENTRY 1: 2\nT1: 3\nSL: 1").errors
+
+
+def test_history_reports_carry_the_parser_fingerprint(settings):
+    from datetime import UTC, datetime
+
+    from crypto_signal_intelligence.external.audit import audit, parser_fingerprint
+    report = audit(settings, [], now=datetime(2026, 10, 6, tzinfo=UTC))
+    assert any(parser_fingerprint()[:16] in note for note in report.notes)
