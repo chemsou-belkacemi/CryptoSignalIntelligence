@@ -2,11 +2,49 @@
 
 Point 10 du plan de travail (validé par le propriétaire le 2026-10-03). Beaucoup de groupes publient le signal
 sous forme de capture TradingView : niveaux en étiquettes colorées sur l'axe des prix, sans texte. CSI sait
-maintenant les lire pour **l'audit d'un groupe sur son historique** (`csi audit-telegram --file … --ocr`).
-Rien n'est envoyé hors de la machine ; aucune clé, aucun service payant.
+maintenant les lire pour **l'audit d'un groupe sur son historique** (`csi audit-telegram --file … --ocr`, ou
+depuis le tableau de bord, voir « Depuis le tableau de bord »). Rien n'est envoyé hors de la machine ; aucune clé,
+aucun service payant.
 
 Module : `external/chart_ocr.py`. Extra Python : `pip install -e ".[ocr]"` (OpenCV, RapidOCR, onnxruntime ;
-Tesseract facultatif). L'image Docker de service ne l'embarque pas.
+Tesseract facultatif). L'image Docker l'embarque (`Dockerfile`, extra `ocr`).
+
+## Depuis le tableau de bord
+
+Un export avec photos fait des milliers d'images : le navigateur ne les envoie pas. Le propriétaire **copie le
+dossier entier de l'export** (son `result.json` et son dossier `photos/`) dans `exports/` sous la racine de CSI,
+un sous-dossier par groupe (`exports/README.md` montre l'arborescence) :
+
+- en local : `<CSI_ROOT>/exports/` (`settings.exports_dir`), soit `exports/` à la racine du dépôt ;
+- avec Docker : `./exports` à côté de `docker-compose.yml`, monté **en lecture seule** sur `/srv/csi/exports` dans
+  les services `api` et `tools` (`docker-compose.yml`) ; le reste du volume `csi-state` n'est pas exposé à l'hôte.
+  Créer le dossier (`mkdir -p exports`) **avant** le premier démarrage, sinon Docker le crée au nom de root.
+  Le dossier est ignoré par git, sauf son README.
+
+Ensuite, onglet « Évaluer un signal », carte « Bilan d'un groupe sur son historique », bloc « Avec les images » :
+la liste déroulante donne chaque dossier avec son nombre de messages et « images : N présente(s) sur M » ; si
+aucune image n'est présente, la page dit que l'export a été fait sans les photos et qu'il faut le refaire en
+cochant « Photos » (les signaux texte sont quand même mesurés). Le bouton **« Mesurer avec les images »** lance
+l'audit **en arrière-plan** dans le service `api` ; l'avancement (chargement du lecteur, images lues et lues comme
+signaux, bougies par paire, enregistrement) se rafraîchit toutes les 5 secondes ; à la fin, le bilan s'affiche
+comme pour l'import d'un fichier, avec en plus le bloc « Signaux lus sur image » (lus, ignorés, mesurés, par
+convention) et la mention « (image) » dans les derniers signaux rejoués.
+
+Routes (`docs/API.md`) : `GET /sources/exports` (liste et état du dernier audit de chaque dossier),
+`POST /sources/exports/audit` (`{"folder", "weights", "ocr"}`, jeton `CSI_API_TOKEN` exigé comme pour les autres
+routes qui écrivent), `GET /sources/exports/audit?folder=X` (état et résultat). Un seul bilan d'historique à la
+fois, import de fichier compris (409 sinon) ; le nom de dossier est un simple nom (pas de chemin, pas de « .. »,
+pas de lien hors d'`exports/`), l'API ne lit jamais ailleurs. À la fin, la preuve du groupe est enregistrée et
+le rapport écrit dans `reports/AUDIT-<date>/`, **exactement comme la commande** ; l'état des audits terminés est
+gardé dans `reports/exports_audits.json` et relu au redémarrage de l'API ; un résultat relu affiche aussi la
+preuve ACTUELLE de chaque groupe (date d'enregistrement, fin de validité à 30 jours, état aujourd'hui), car le
+résultat d'origine peut avoir expiré ou été remplacé. Tests : `tests/test_api_exports.py` (lecteur d'images
+factice, aucun réseau ; même `audit.json` que la commande sur bougies synthétiques).
+
+**Où lancer un gros audit** : sur le PC de préférence. Pendant l'audit, le service `api` charge les modèles OCR
+(jusqu'à 2 Go) et occupe un cœur de longues minutes pour des milliers de photos ; sur un petit VPS où tournent
+déjà la surveillance et BinanceSpotManager, il les priverait de mémoire. La preuve enregistrée sur le PC vaut pour
+ce PC ; copier ensuite l'export sur le VPS seulement si l'avis y est nécessaire.
 
 ## Comment l'image est lue
 
@@ -48,7 +86,9 @@ rejeu** que les messages texte, avec trois précautions :
 - **Bilan à part** : les signaux lus sur image ne comptent **ni dans le bilan du groupe ni dans sa preuve sur
   historique** (taux d'erreur hors échantillon inconnu). Ils ont leur propre bilan (« Signaux lus sur image »),
   à comparer à celui des signaux texte ; la preuve enregistrée dit si l'OCR a servi et combien de signaux image
-  ont été exclus.
+  ont été exclus. Depuis le 2026-10-06, le bilan texte, la preuve et les « Gestions comparées » sont **identiques
+  avec et sans lecture des images** : un signal texte n'est jamais déclaré doublon d'une image, et l'étude des
+  gestions ne prend que les signaux texte (`tests/test_audit_independence.py`).
 - **Images ignorées comptées** : une image douteuse reste dans le bilan comme message illisible (« image
   ignorée »), pour que le taux de rejet se voie.
 - **Mises à jour** : une réponse à un message (« TP1 ✅ » avec la capture mise à jour) n'est jamais lue ; un
@@ -80,8 +120,9 @@ le bilan.
 
 - **F4 n'est pas branché** : c'est un test en direct en cours, gelé ; le modifier casserait son
   pré-enregistrement. Un éventuel F4 bis « images comprises » serait un nouveau test, à déclarer.
-- **Tableau de bord** : l'envoi d'un `result.json` ne lit pas les images (l'export doit être fait **avec les
-  photos**, et l'API ne reçoit que le JSON). Utiliser le terminal.
+- **Envoi des photos par le navigateur** : non ; l'import d'un `result.json` depuis la page reste sans images.
+  Pour les lire, copier le dossier de l'export dans `exports/` (voir « Depuis le tableau de bord »). L'audit depuis
+  la page est testé avec un lecteur factice ; **à vérifier en Docker** avec l'image reconstruite et un vrai export.
 - **Prix de l'image contre prix Binance** : couvert par le rejeu commun. Un signal dont le prix Binance à la
   publication est déjà au stop ou dessous (`INVALID`), déjà à TP1 (`PLAYED`), ou sous une entrée trop haute
   (`STALE`) n'est pas mesuré ; une erreur d'ordre de grandeur casse l'ordre stop < entrées < objectifs et bloque

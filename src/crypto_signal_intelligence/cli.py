@@ -1763,6 +1763,7 @@ def audit_telegram(file: str = typer.Option(None, "--file", help="Export JSON de
         save_history,
         write_report,
     )
+    from .external.exports import export_images
     settings = _settings(verbose)
     if sum(bool(x) for x in (file, folder, bsm_inbox)) != 1:
         console.print("[red]Donner --file (un export), --dir (un dossier d'exports) OU --bsm-inbox (boîte de BinanceSpotManager).[/red]")
@@ -1788,11 +1789,8 @@ def audit_telegram(file: str = typer.Option(None, "--file", help="Export JSON de
                         raise
                     console.print(f"[yellow]{export.parent.name} : ignoré, pas un export de Telegram Desktop ({exc})[/yellow]")
                     continue
-                chats = payload.get("chats", {}).get("list", []) if isinstance(payload.get("chats"), dict) else [payload]
-                named = [m["photo"] for c in chats for m in (c.get("messages") or [])
-                         if isinstance(m, dict) and isinstance(m.get("photo"), str)]
-                present = sum(1 for name in named if (export.parent / name).is_file())
-                console.print(f"{export.parent.name} : {len(found)} message(s) ; images : {present} présente(s) sur {len(named)}"
+                named, present = export_images(payload, export.parent)      # même calcul que le tableau de bord
+                console.print(f"{export.parent.name} : {len(found)} message(s) ; images : {present} présente(s) sur {named}"
                               + (" — export fait SANS les photos : le refaire en cochant « Photos »" if named and not present else ""))
                 items += found
             if ocr:

@@ -902,7 +902,19 @@ function managementsBlock(study) {
     top.length ? table(["Gestion (5 meilleures sur les deux premiers tiers)", { label: "R moyen au choix", num: true }, { label: "R moyen à la vérification", num: true }], top, "") : null);
 }
 
-function renderHistory(result) {
+// Signaux lus sur IMAGE (audit avec les photos) : bilan à part, jamais dans le bilan du groupe ni dans sa preuve.
+function imagesBlock(images, labels) {
+  if (!images) return null;
+  const rows = Object.entries(images.conventions || {}).filter(([, c]) => c.resolus).map(([key, c]) => [labels[key] || key,
+    c.resolus, pctFrac(c.part_gagnants), `${fmt(c.r_moyen, 2, true)} R`, c.ic95 ? ciR(c.ic95) : "–", c.conclusion]);
+  return el("div", {},
+    el("h3", { text: `Signaux lus sur image : ${images.lues} lu(s), ${images.ignorees} ignoré(s) (lecture douteuse), ${images.mesurees} mesuré(s)` }),
+    el("p", { class: "muted small", text: "Bilan à part : ces signaux ne comptent ni dans le tableau ci-dessus ni dans la preuve du groupe (taux d'erreur de lecture hors échantillon inconnu). À comparer au bilan des signaux texte ; contrôler à la main quelques lectures avant d'y croire." }),
+    table(["Façon de jouer le signal", { label: "Résolus", num: true }, { label: "Gagnants", num: true }, { label: "R moyen", num: true }, "IC95", "Conclusion"],
+      rows, "aucun signal lu sur image résolu"));
+}
+
+function renderHistory(result, intro) {
   const target = document.getElementById("history-result");
   const labels = result.conventions || {};
   const cards = Object.entries(result.summary || {}).map(([name, b]) => {
@@ -919,18 +931,148 @@ function renderHistory(result) {
         + (deleted !== null && deleted !== undefined ? ` · messages supprimés dans la numérotation : ${pctFrac(deleted)}` : "") }),
       table(["Façon de jouer le signal", { label: "Résolus", num: true }, { label: "En cours", num: true }, { label: "Gagnants", num: true },
         { label: "R moyen", num: true }, { label: "Avec positions ouvertes", num: true }, "IC95", "Conclusion"], rows, "aucun signal mesuré"),
+      imagesBlock(b.images, labels),
       managementsBlock(b.gestions));
   });
-  const detail = (result.rows || []).slice(-60).reverse().map((r) => [when(r.received_at), r.group, pair(r.symbol),
+  const detail = (result.rows || []).slice(-60).reverse().map((r) => [when(r.received_at), r.group + (r.from_image ? " (image)" : ""), pair(r.symbol),
     `−${fmt(r.stop_pct, 2)} % / +${fmt(r.tp1_pct, 2)} %`, ...["tp1_contact", "tp1_regle_du_signal", "echelle_bsm"].map((k) => {
       const o = (r.outcomes || {})[k] || {};
       return o.r === null || o.r === undefined ? (o.issue || "–") : `${o.issue} ${fmt(o.r, 2, true)} R`;
     })]);
-  target.replaceChildren(...cards,
+  target.replaceChildren(intro || null, ...cards,
     card("Derniers signaux rejoués", table(["Publié", "Groupe", "Paire", "Stop / TP1", "TP1 au contact", "Stop à la clôture", "Comme le bot"], detail, "aucun signal lisible"),
       el("ul", { class: "list muted small" }, (result.notes || []).map((n) => el("li", { text: n }))),
       el("p", { class: "muted small", text: `Rapport complet : reports/${result.report}/ (${result.messages} messages lus).` })));
   state.followLoaded = false;
+}
+
+// --- audit d'un export copié dans exports/ (images lues sur la machine de CSI, en arrière-plan) ---------------
+const EXPORT_POLL_MS = 5000;
+
+function exportLabel(x) {
+  const images = x.images_named ? `images : ${x.images_present} présente(s) sur ${x.images_named}` : "aucune image";
+  return `${x.folder} — ${x.messages} message(s), ${images}` + (x.error ? " — illisible" : "");
+}
+
+function exportProgress(a) {
+  if (!a) return "";
+  const images = a.ocr
+    ? ` · images lues : ${a.images_read} (${a.images_as_signals} signal/signaux)${a.images_present ? ` sur ${a.images_present} présente(s)` : ""}`
+    : " · sans lecture des images";
+  if (a.state === "EN_COURS") return `Audit en cours depuis ${when(a.started_at)} : ${a.step}${images}`;
+  if (a.state === "ECHEC") return `Audit en échec (${when(a.finished_at)}) : ${a.error}`;
+  return `Dernier audit terminé ${when(a.finished_at)} (lancé ${when(a.started_at)})${images}.`;
+}
+
+function selectedExport() {
+  const folder = document.getElementById("export-folder").value;
+  return ((state.exports || {}).exports || []).find((x) => x.folder === folder) || null;
+}
+
+function showExportStatus() {
+  const status = document.getElementById("export-status");
+  const button = document.getElementById("export-run");
+  const d = state.exports || {};
+  const x = selectedExport();
+  status.className = "muted small";
+  status.replaceChildren();
+  if (!x) {
+    status.textContent = d.directory ? `Aucun export dans ${d.directory} : y copier le dossier d'un export (result.json et photos).` : "";
+    button.disabled = true;
+    return;
+  }
+  const parts = [];
+  if (x.error) parts.push(x.error);
+  if (x.without_photos) parts.push(`${x.images_named} image(s) nommée(s), aucune présente : export fait sans les photos, le refaire en cochant « Photos » (les signaux texte seront quand même mesurés).`);
+  if (d.ocr_available === false) parts.push("Lecture des images indisponible sur cette installation (extra « ocr ») : l'audit lirait le texte seulement.");
+  if (x.audit) parts.push(exportProgress(x.audit));
+  if (d.running && d.running !== x.folder) parts.push(`Un audit de « ${d.running} » est en cours : un seul à la fois.`);
+  status.append(parts.join(" "));
+  if (x.audit && x.audit.state === "TERMINE" && x.audit.has_result) {
+    status.append(" ", el("button", { class: "pill", text: "Voir le résultat", onclick: () => showExportResult(x.folder) }));
+  }
+  button.disabled = Boolean(x.error || d.running);
+}
+
+async function loadExports() {
+  const select = document.getElementById("export-folder");
+  const status = document.getElementById("export-status");
+  try {
+    const d = await api("/sources/exports");
+    state.exports = d;
+    const current = select.value;
+    select.replaceChildren(...(d.exports.length ? d.exports.map((x) => el("option", { value: x.folder, text: exportLabel(x) }))
+      : [el("option", { value: "", text: "aucun export copié" })]));
+    if (current && d.exports.some((x) => x.folder === current)) select.value = current;
+    showExportStatus();
+    if (d.running) watchExport(d.running);
+  } catch (error) {
+    status.className = "error small";
+    status.textContent = "Erreur : " + error.message;
+  }
+}
+
+function watchExport(folder) {
+  state.exportWatch = folder;
+  if (state.exportTimer) return;
+  state.exportTimer = setInterval(pollExports, EXPORT_POLL_MS);
+}
+
+async function pollExports() {
+  let d;
+  try { d = await api("/sources/exports"); } catch (_err) { return; }
+  state.exports = d;
+  const x = (d.exports || []).find((e) => e.folder === state.exportWatch);
+  const select = document.getElementById("export-folder");
+  for (const option of select.options) {
+    const entry = (d.exports || []).find((e) => e.folder === option.value);
+    if (entry) option.textContent = exportLabel(entry);
+  }
+  showExportStatus();
+  if (!x || !x.audit || x.audit.state !== "EN_COURS") {
+    clearInterval(state.exportTimer);
+    state.exportTimer = null;
+    if (x && x.audit && x.audit.state === "TERMINE") showExportResult(x.folder);
+    else if (x && x.audit && x.audit.state === "ECHEC") showError(document.getElementById("history-result"), new Error(x.audit.error || "audit en échec"));
+  }
+}
+
+async function showExportResult(folder) {
+  const target = document.getElementById("history-result");
+  busy(target, "Chargement du résultat…");
+  try {
+    const r = await api("/sources/exports/audit?folder=" + encodeURIComponent(folder));
+    const a = r.audit || {};
+    if (!a.result) throw new Error(a.error || "résultat indisponible");
+    // Le résultat peut dater (relu au redémarrage) : la preuve qui compte est celle d'aujourd'hui.
+    const proofs = Object.entries(r.proofs_now || {}).map(([name, p]) => el("li", { class: p.proven ? "ok" : "warn",
+      text: `${name} : ${p.generated_at ? `preuve enregistrée le ${when(p.generated_at)}, valable jusqu'au ${when(p.expires_at)}${p.expired ? " (EXPIRÉE)" : ""} ; ` : ""}état actuel : ${p.text}` }));
+    const intro = el("section", { class: "card" },
+      el("h2", { text: `Audit du dossier « ${folder} », images comprises` }),
+      el("p", { class: "muted small", text: `${exportProgress(a)} Images nommées dans l'export : ${a.images_named}, présentes : ${a.images_present}, lues : ${a.images_read}, lues comme signaux : ${a.images_as_signals}. Ventes aux objectifs : ${a.weights === "equal" ? "parts égales" : "davantage aux premiers objectifs"}.` }),
+      proofs.length ? el("ul", { class: "list small" }, proofs) : null);
+    renderHistory(a.result, intro);
+  } catch (error) {
+    showError(target, error);
+  }
+}
+
+async function runExportAudit() {
+  const button = document.getElementById("export-run");
+  const target = document.getElementById("history-result");
+  const x = selectedExport();
+  if (!x) { target.replaceChildren(el("p", { class: "error", text: "Choisir d'abord un dossier d'export." })); return; }
+  button.disabled = true;
+  busy(target, "Audit lancé : lecture des images sur la machine de CSI, puis rejeu de chaque signal sur les bougies de Binance (plusieurs minutes pour des milliers de photos). L'avancement s'affiche au-dessus toutes les 5 secondes.");
+  try {
+    const ocr = (state.exports || {}).ocr_available !== false;
+    await api("/sources/exports/audit", { folder: x.folder, weights: document.getElementById("history-weights").value, ocr });
+    await loadExports();
+    watchExport(x.folder);
+  } catch (error) {
+    showError(target, error);
+    button.disabled = false;
+  }
 }
 
 // --- onglet Suivi --------------------------------------------------------------------------------------
@@ -1226,7 +1368,7 @@ function openTab(name) {
   }
   for (const pane of document.querySelectorAll(".tabpane")) pane.classList.toggle("hidden", pane.id !== `tab-${name}`);
   if (name === "follow") loadFollow();
-  if (name === "signal") loadImages();
+  if (name === "signal") { loadImages(); loadExports(); }
   if (name === "market") { loadTechnical(); loadVolatility(); loadRisk(); }
 }
 
@@ -1237,6 +1379,9 @@ function start() {
   document.getElementById("opportunities-run").addEventListener("click", runOpportunities);
   document.getElementById("evaluate").addEventListener("click", evaluateSignal);
   document.getElementById("history-run").addEventListener("click", runHistory);
+  document.getElementById("export-run").addEventListener("click", runExportAudit);
+  document.getElementById("export-refresh").addEventListener("click", loadExports);
+  document.getElementById("export-folder").addEventListener("change", showExportStatus);
   document.getElementById("token-save").addEventListener("click", () => {
     try { localStorage.setItem(TOKEN_KEY, document.getElementById("token").value.trim()); } catch (_err) { /* stockage bloqué */ }
     document.getElementById("token-box").classList.add("hidden");

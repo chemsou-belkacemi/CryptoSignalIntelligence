@@ -35,6 +35,9 @@ demande de clé Binance. Code : `src/crypto_signal_intelligence/api/server.py`.
 | `POST /evaluate` | évalue un signal Telegram (voir ci-dessous) ; champs `verdict_basis` (« groupe » ou « geometrie ») et `source_proof` |
 | `POST /sources/history` | `{"export": <export Telegram Desktop, texte seul>, "weights": "early" \| "equal"}` : rejoue l'historique d'un groupe, enregistre sa preuve ([EXTERNAL_SIGNALS.md](EXTERNAL_SIGNALS.md)) ; 8 Mo au plus, un bilan à la fois (409 sinon) |
 | `GET /sources/history` | dernière preuve sur historique de chaque groupe importé |
+| `GET /sources/exports` | sous-dossiers d'`exports/` contenant un `result.json` (export de Telegram Desktop copié par le propriétaire, photos comprises) : messages, images nommées et présentes, état du dernier audit de chacun ; `running` = dossier en cours, `ocr_available` ([OCR.md](OCR.md), « Depuis le tableau de bord ») |
+| `POST /sources/exports/audit` | `{"folder": "<nom du sous-dossier>", "weights": "early" \| "equal", "ocr": true}` : audit du dossier **en arrière-plan**, images lues sur la machine de CSI (jamais hors d'`exports/` : nom sans chemin ni « .. »), même preuve et même rapport que la commande ; jeton exigé (403 sans `CSI_API_TOKEN`), un seul bilan à la fois (409), 503 si l'extra « ocr » manque |
+| `GET /sources/exports/audit?folder=X` | état (`EN_COURS`, `TERMINE`, `ECHEC`), progression (étape, images lues) et résultat du dernier audit de ce dossier, même forme que `POST /sources/history` |
 | `POST /analyze-pair` | `{"symbol": "ETHUSDT", "horizon": "24h"}` : perspective d'une paire (contexte, historique comparable, plan indicatif évalué sur le passé, stratégies en simulation) ; une analyse à la fois, résultat gardé jusqu'à la bougie suivante |
 | `POST /refresh-pair` | `{"symbol": "ETHUSDT"}` : télécharge les bougies publiques manquantes de la paire et du contexte BTC (REST public, aucune clé) ; une mise à jour à la fois (409 sinon) |
 

@@ -120,6 +120,20 @@
         </label>
         <button id="history-run" class="primary">Mesurer le groupe</button>
       </div>
+      <h3>Avec les images (dossier <code>exports/</code>)</h3>
+      <p class="muted small">Pour lire aussi les signaux publiés en capture d'écran : exporter <strong>avec les photos</strong>,
+        puis copier le dossier entier de l'export (son <code>result.json</code> et ses photos) dans le dossier
+        <code>exports/</code> de CSI, un sous-dossier par groupe (avec Docker : <code>./exports</code> à côté de
+        <code>docker-compose.yml</code>). Les images sont lues sur la machine de CSI, jamais envoyées par le navigateur ;
+        au moindre doute l'image est ignorée, et les signaux lus sur image ont un bilan à part, hors preuve.</p>
+      <div class="row wrap">
+        <label class="field">Dossier d'export
+          <select id="export-folder"></select>
+        </label>
+        <button id="export-run" class="primary">Mesurer avec les images</button>
+        <button id="export-refresh">Actualiser la liste</button>
+      </div>
+      <p id="export-status" class="muted small"></p>
     </section>
     <div id="history-result"></div>
     <div id="images-result"></div>

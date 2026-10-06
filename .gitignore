@@ -33,3 +33,6 @@ signals/*.sqlite3*
 # Contraintes pip générées depuis pylock.toml (installation Linux)
 constraints.txt
 imports/
+# Exports de Telegram Desktop copiés par le propriétaire (messages et photos de ses groupes) : jamais versionnés
+/exports/*
+!/exports/README.md
