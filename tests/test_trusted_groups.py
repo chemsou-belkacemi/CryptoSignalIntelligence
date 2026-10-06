@@ -18,7 +18,7 @@ SIGNAL = "👑 WHALE HUNTING\nPAIR: {}/{}\nENTRY 1: 2.000\nT1: 2.100\nT2: 2.200\
 WHALE = "-1003226951554"
 
 
-def listing(settings, symbol):
+def listing(settings, symbol, *, quick=False):
     return Decimal("0.0001") if symbol in LISTED else None
 
 
@@ -93,3 +93,38 @@ def test_without_an_api_token_the_relay_adds_nothing(settings, monkeypatch):
     answer = CsiApi(settings, now=lambda: NOW).telegram_live({"signals": [row("c:1", WHALE, "DOGE")]})
     assert answer["admissions"] == [] and answer["deposited"] == 1
     assert UserUniverse(settings.external_db).get("DOGEUSDT") is None
+
+
+def test_a_pair_added_by_a_group_follows_a_later_haram_opinion(settings, monkeypatch):
+    """Relecture : enregistré comme décision du propriétaire, l'ajout ignorait un avis devenu défavorable."""
+    adm.admit_from_trusted_group(settings, "DOGEUSDT", group=WHALE, now=NOW, lookup=listing)
+    adm.decide(settings, "LTCUSDT", add=True, now=NOW, lookup=listing)               # décision à la main
+    assert adm.hold(settings, "DOGEUSDT", now=NOW, source="x") is None
+    haram = adm.Screening("DOGE", adm.DEFAVORABLE, {"IFG": "haram"})
+    monkeypatch.setattr(adm, "screening_for", lambda settings, symbol: haram)
+    assert adm.hold(settings, "DOGEUSDT", now=NOW, source="x")[0] == "refus"
+    assert adm.AdmissionLog(settings.external_db).get("DOGEUSDT")["decision"] == adm.REFUSEE
+    assert adm.admit(settings, "LTCUSDT", now=NOW, lookup=listing)["decided_by"] == adm.OWNER   # la sienne : gardée
+
+
+def test_a_slow_binance_never_holds_the_relay_deposit(settings, monkeypatch):
+    from crypto_signal_intelligence.api import server
+    from crypto_signal_intelligence.data.http import HttpError
+
+    calls = []
+
+    def unreachable(settings, symbol, *, quick=False):
+        calls.append(quick)
+        raise HttpError("délai dépassé")
+
+    monkeypatch.setattr(adm, "binance_listing", unreachable)
+    monkeypatch.setenv("CSI_API_TOKEN", "jeton-de-test")
+    answer = CsiApi(settings, now=lambda: NOW).telegram_live({"signals": [row("c:1", WHALE, "DOGE")]})
+    assert answer["deposited"] == 1 and calls == [True]                              # un seul essai, délai court
+    assert answer["admissions"][0]["decision"] == adm.INJOIGNABLE
+    assert UserUniverse(settings.external_db).get("DOGEUSDT") is None
+    clock = iter([0.0, 0.0, 11.0, 11.0, 11.0])
+    monkeypatch.setattr(server.time, "monotonic", lambda: next(clock))
+    calls.clear()
+    CsiApi(settings, now=lambda: NOW).telegram_live({"signals": [row("c:2", WHALE, "RARE"), row("c:3", WHALE, "LTC")]})
+    assert len(calls) == 1                                                            # budget de 10 s épuisé

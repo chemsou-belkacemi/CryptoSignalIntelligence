@@ -139,8 +139,8 @@ class ExternalSection(BaseModel):
     # Mode test (docs/UNIVERSE.md) : toute paire soumise est ajoutée à l'univers, même par un signal reçu
     # automatiquement, sans validation du propriétaire. Faux par défaut : seule sa soumission manuelle vaut.
     auto_add_pairs: bool = False
-    # Groupes de confiance halal (décision du propriétaire, 2026-10-06) : noms écrits en tête des signaux ou
-    # identifiants de conversation Telegram ; une paire qu'ils publient est ajoutée (external/admission.py).
+    # Groupes de confiance halal (décision du propriétaire, 2026-10-06) : identifiants des conversations Telegram
+    # d'origine (jamais un nom écrit dans le message) ; une paire USDT qu'ils publient est ajoutée (external/admission.py).
     halal_trusted_groups: list[str] = Field(default_factory=list)
     # Gestion jugée par l'avis (docs/EXTERNAL_SIGNALS.md) : « stop_suiveur » = celle du propriétaire (ventes aux
     # `tp_count` premiers objectifs, stop à l'entrée 1 après TP1, puis à TP(k−2) après TPk) ; « tp1 » = ancienne

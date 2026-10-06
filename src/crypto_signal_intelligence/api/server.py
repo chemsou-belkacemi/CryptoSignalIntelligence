@@ -1080,7 +1080,12 @@ class CsiApi:
         ajoutées à l'univers de CSI, jamais contre son refus ni un avis défavorable. Sans effet sur F4 (liste figée à
         son démarrage). Exige le jeton de l'API ; au plus ADMIT_BUDGET_SECONDS par dépôt (Binance lent : le reste
         attend le prochain signal de la paire). Une erreur n'empêche jamais le dépôt."""
+        from ..external import admission
         from ..external.admission import AJOUTEE, OWNER, AdmissionLog, admit_from_trusted_group, trusted_group
+
+        def quick_listing(settings: Settings, symbol: str):
+            return admission.binance_listing(settings, symbol, quick=True)
+
         from ..external.parser import parse
         if not os.environ.get(TOKEN_ENV):
             return []
@@ -1100,7 +1105,8 @@ class CsiApi:
                 known = decisions.get(parsed.symbol)
                 if known and known["decided_by"] == OWNER and known["decision"] == AJOUTEE:
                     continue
-                entry = admit_from_trusted_group(self.settings, parsed.symbol, group=group, now=self.now())
+                entry = admit_from_trusted_group(self.settings, parsed.symbol, group=group, now=self.now(),
+                                                 lookup=quick_listing)
                 done[parsed.symbol] = {"symbol": parsed.symbol, "group": group, "decision": entry["decision"]}
             except Exception:  # noqa: BLE001 - l'ajout est un complément : le dépôt pour F4 reste fait
                 log.exception("Ajout d'une paire d'un groupe de confiance impossible")

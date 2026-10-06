@@ -200,7 +200,12 @@ ami (EL MAHWASHI VIP, IN CRYPTO VIP) dès que leurs identifiants sont connus. Li
 - Une **paire USDT** publiée par l'un de ces groupes est ajoutée comme **décision du propriétaire** (motif « groupe de
   confiance halal … ») si elle se négocie sur Binance Spot.
 - Elle reste **refusée** si le propriétaire a refusé cette crypto (sur n'importe quelle paire : BNB, PEPE, SHIB…) ou
-  si elle est **défavorable** au screening (UNI, AAVE, MKR, ENA). Une décision du propriétaire n'est jamais remplacée.
+  si elle est **défavorable** au screening (AAVE, ENA, HYPE, MKR, ONDO…), même si l'avis devient défavorable
+  après l'ajout. Une autre décision du propriétaire n'est jamais remplacée.
+- Seuls les **canaux** donnent leur identifiant : un message transféré depuis un groupe où chacun écrit porte le
+  nom de son auteur, pas celui du groupe, et n'ajoute rien.
+- Frontière de confiance : l'identifiant est lu dans le dépôt du relais, accepté de tout porteur du jeton de l'API
+  (le relais et BinanceSpotManager, outils du propriétaire).
 - Il faut le jeton de l'API (`CSI_API_TOKEN`, obligatoire en Docker) ; au plus 10 s de vérifications Binance par
   dépôt (le reste attend le prochain signal de la paire).
 - **Tests en direct** : F4 et F16 gardent la liste figée à leur démarrage. Limite connue : la prévision de
