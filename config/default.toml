@@ -195,6 +195,16 @@ tp_count = 5                      # objectifs vendus (parts 33/27/20/13/7 %), co
 trail_max_hold_bars = 2880        # au-delà de 30 jours, le reste est vendu (BinanceSpotManager n'a pas de limite)
 auto_add_pairs = false            # mode test : toute paire soumise est ajoutée, même sans validation manuelle
                                   # (CSI_EXTERNAL__AUTO_ADD_PAIRS=true ; Docker : CSI_AUTO_ADD_PAIRS dans .env)
+# Groupes de confiance halal (décision du propriétaire, 2026-10-06) : une paire USDT publiée par l'un d'eux est
+# ajoutée à l'univers si elle se négocie sur Binance Spot, sauf refus du propriétaire (pour la crypto, toutes paires
+# confondues) ou avis défavorable au screening. Identifiants des conversations Telegram d'origine, transmis par le
+# relais : jamais un nom écrit dans le message (usurpable). Groupes VIP de son ami : identifiants à ajouter.
+halal_trusted_groups = [
+  "-1003920138786",   # EL MAHWASHI
+  "-1003742935429",   # LEGEND TRADING
+  "-1001909237586",   # IN CRYPTO
+  "-1003226951554",   # WHALE HUNTING
+]
 
 [derivatives]
 # Données PUBLIQUES du marché à terme USDⓈ-M de Binance (docs/DERIVATIVES.md) : financement, prime,

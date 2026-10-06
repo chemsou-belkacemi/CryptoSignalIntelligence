@@ -275,6 +275,8 @@ def evaluate(settings: Settings, text: str, *, source: str, now: datetime, recor
         return finish()
     evaluation.checks.append(Check("lecture du signal", True, f"modèle {signal.template}, {len(signal.entries)} "
                                    f"entrée(s), {len(signal.targets)} objectif(s), stop {signal.stop:g}", REFUSAL))
+    # Les groupes de confiance halal (2026-10-06) n'ajoutent une paire qu'à la réception par le relais, sur
+    # l'identifiant de leur conversation (api/server.py) : jamais ici, où la source est un nom (usurpable).
     if signal.symbol not in universe_symbols(settings):
         evaluation.checks.append(_universe_check(settings, signal.symbol, source=source, now=now,
                                                  user_validated=user_validated, tick_size_lookup=tick_size_lookup))

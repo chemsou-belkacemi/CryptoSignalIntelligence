@@ -186,6 +186,33 @@ inexploitable aussi, avec un bouton pour choisir ».
   externes. Elles n'entrent pas dans les protocoles de recherche, qui gardent l'univers de la
   configuration.
 
+## Groupes de confiance halal (décision du propriétaire, 2026-10-06)
+
+Le propriétaire : « les paires reçues de ces groupes sont fiables et halal, ajoute-les automatiquement si elles
+sont sur Binance ». Groupes : EL MAHWASHI, LEGEND TRADING, IN CRYPTO, WHALE HUNTING ; les deux groupes VIP de son
+ami (EL MAHWASHI VIP, IN CRYPTO VIP) dès que leurs identifiants sont connus. Liste : `config/default.toml`,
+`[external] halal_trusted_groups`.
+
+- Un groupe est reconnu **par l'identifiant de sa conversation Telegram d'origine**, que Telegram pose sur un message
+  transféré et que le relais transmet (`POST /telegram/live`) ; **jamais par un nom écrit dans le message**, que
+  n'importe quel canal peut copier (relecture du 2026-10-06). Une copie de texte (groupe qui interdit le transfert)
+  n'a pas cet identifiant : rien n'est ajouté.
+- Une **paire USDT** publiée par l'un de ces groupes est ajoutée comme **décision du propriétaire** (motif « groupe de
+  confiance halal … ») si elle se négocie sur Binance Spot.
+- Elle reste **refusée** si le propriétaire a refusé cette crypto (sur n'importe quelle paire : BNB, PEPE, SHIB…) ou
+  si elle est **défavorable** au screening (AAVE, ENA, HYPE, MKR, ONDO…), même si l'avis devient défavorable
+  après l'ajout. Une autre décision du propriétaire n'est jamais remplacée.
+- Seuls les **canaux** donnent leur identifiant : un message transféré depuis un groupe où chacun écrit porte le
+  nom de son auteur, pas celui du groupe, et n'ajoute rien.
+- Frontière de confiance : l'identifiant est lu dans le dépôt du relais, accepté de tout porteur du jeton de l'API
+  (le relais et BinanceSpotManager, outils du propriétaire).
+- Il faut le jeton de l'API (`CSI_API_TOKEN`, obligatoire en Docker) ; au plus 10 s de vérifications Binance par
+  dépôt (le reste attend le prochain signal de la paire).
+- **Tests en direct** : F4 et F16 gardent la liste figée à leur démarrage. Limite connue : la prévision de
+  volatilité en service (lue par F5 et F14) s'ajuste sur toutes les paires prêtes de l'univers ; chaque ajout, de
+  cette règle comme des précédentes, change un peu son panel en cours de mois (F14 déclare un réajustement mensuel
+  « sur l'univers du moment »). Le code de cette prévision est gelé par F5 et F14 : non modifié.
+
 ## Modifier l'univers
 
 1. Ajouter ou retirer la paire dans `[data].symbols` et son pas de prix dans `[data.tick_size]`

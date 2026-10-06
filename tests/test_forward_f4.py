@@ -58,7 +58,8 @@ def test_robot_file_and_bsm_inbox_are_read_and_deduplicated(settings, tmp_path):
 def test_api_deposit_writes_a_file_in_the_drop_folder(settings):
     api = CsiApi(settings, now=lambda: datetime(2026, 10, 5, 12, tzinfo=UTC))
     out = api.dispatch("POST", "/telegram/live", {}, {"signals": [ROBOT_ROW]})
-    assert out == {"deposited": 1, "readable": 1, "providers": ["ALMAHWASHI VIP"]}
+    # « admissions » : paires ajoutées par un groupe de confiance halal (rien ici : paire déjà dans l'univers).
+    assert out == {"deposited": 1, "readable": 1, "providers": ["ALMAHWASHI VIP"], "admissions": []}
     files = list(telegram_live.live_dir(settings).glob("*.json"))
     assert len(files) == 1 and files[0].name.startswith("20261005T120000Z-")
     with pytest.raises(Exception, match="liste non vide"):

@@ -33,6 +33,8 @@ STATUS_LABELS = {FAVORABLE: "favorable", DEFAVORABLE: "défavorable", DOUTEUX: "
                  INEXPLOITABLE: "inexploitable"}
 # Motif d'ajout d'une paire soumise à la main par le propriétaire (external/evaluate.py) : sa décision.
 MANUAL_REASON = "signal soumis à la main"
+# Motif d'ajout d'une paire publiée par un groupe de confiance halal (règle du propriétaire du 2026-10-06).
+TRUSTED_REASON = "groupe de confiance halal"
 
 
 class DefavorableRefused(ValueError):
@@ -103,10 +105,13 @@ def screening_for(settings: Settings, symbol: str) -> Screening:
     return screenings.get(base, Screening(base, INEXPLOITABLE, note="absente du screening consigné"))
 
 
-def binance_listing(settings: Settings, symbol: str) -> Decimal | None:
+def binance_listing(settings: Settings, symbol: str, *, quick: bool = False) -> Decimal | None:
     """Pas de prix si la paire existe et se négocie (TRADING) sur Binance Spot ; None si elle n'existe pas ou
-    est suspendue. API publique `exchangeInfo`, aucune clé. Une panne réseau lève HttpError."""
-    client = PublicHttpClient.rest(settings.data.rest_base_url, retries=2)
+    est suspendue. API publique `exchangeInfo`, aucune clé. Une panne réseau lève HttpError. `quick` : un seul
+    essai, délai court (dépôt du relais, sous son délai de 30 s)."""
+    client = (PublicHttpClient.rest(settings.data.rest_base_url, retries=1, timeout=5.0, sleep=lambda _s: None)
+              if quick
+              else PublicHttpClient.rest(settings.data.rest_base_url, retries=2))
     try:
         try:
             data = client.get_json("/api/v3/exchangeInfo", {"symbol": symbol})
@@ -168,6 +173,13 @@ class AdmissionLog:
         return entry
 
 
+def _by_trusted_group(entry: dict | None) -> bool:
+    """Ajout fait par un groupe de confiance halal (motif TRUSTED_REASON) : décision du propriétaire, mais qui suit
+    un avis défavorable venu après coup (sa règle du 2026-10-06)."""
+    return (entry is not None and entry.get("decided_by") == OWNER and entry.get("decision") == AJOUTEE
+            and str(entry.get("reason", "")).startswith(TRUSTED_REASON))
+
+
 def _added_by_owner(entry: dict | None) -> bool:
     """Paire de l'univers ajouté soumise à la main par le propriétaire (sa décision, motif enregistré)."""
     return entry is not None and str(entry.get("reason", "")).startswith(MANUAL_REASON)
@@ -183,9 +195,13 @@ def admit(settings: Settings, symbol: str, *, now: datetime, lookup: Lookup = bi
     symbol = symbol.upper()
     log = AdmissionLog(settings.external_db)
     previous = log.get(symbol)
+    screening = screening_for(settings, symbol)
+    if _by_trusted_group(previous) and screening.status == DEFAVORABLE:
+        return log.record(symbol, screening, REFUSEE, by=RULE, now=now,
+                          reason=f"devenue défavorable au screening halal : {screening.explain()} (ajoutée par un "
+                                 "groupe de confiance)")
     if previous and previous["decided_by"] == OWNER:
         return previous
-    screening = screening_for(settings, symbol)
     present = UserUniverse(settings.external_db).get(symbol)
     if _added_by_owner(present) and screening.status != DEFAVORABLE:
         return log.record(symbol, screening, AJOUTEE, by=OWNER, now=now,
@@ -230,10 +246,18 @@ def hold(settings: Settings, symbol: str, *, now: datetime, source: str) -> tupl
         return None
     log = AdmissionLog(settings.external_db)
     decided = log.get(symbol)
-    if decided and decided["decided_by"] == OWNER:
+    if decided and decided["decided_by"] == OWNER and not _by_trusted_group(decided):
         return ("refus", f"{symbol} refusée par toi le {decided['decided_at'][:16]}") \
             if decided["decision"] == REFUSEE else None
     screening = screening_for(settings, symbol)
+    if _by_trusted_group(decided):
+        # Ajoutée par un groupe de confiance : ta règle tient « jamais contre un avis défavorable », même plus tard.
+        if screening.status != DEFAVORABLE:
+            return None
+        log.record(symbol, screening, REFUSEE, by=RULE, now=now,
+                   reason=f"devenue défavorable au screening halal : {screening.explain()} (ajoutée par un groupe de "
+                          "confiance)")
+        return "refus", f"{symbol} défavorable au screening halal ({screening.explain()}) : refusée"
     if screening.status == DEFAVORABLE:
         if not decided:
             log.record(symbol, screening, REFUSEE, by=RULE, now=now,
@@ -292,3 +316,67 @@ def pending_group(screening: Screening) -> str:
     if screening.status == DOUTEUX:
         return GROUP_DOUBTFUL
     return GROUP_ONE_SOURCE if "halal" in screening.sources.values() else GROUP_NO_SOURCE
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Groupes de confiance halal (décision du propriétaire, 2026-10-06)
+# ---------------------------------------------------------------------------------------------------------------
+
+def trusted_group(settings: Settings, chat_id: object) -> str:
+    """Groupe de confiance désigné par l'identifiant de la conversation Telegram d'origine (métadonnée posée par
+    Telegram et transmise par le relais), sinon "". Jamais par un nom écrit dans le message : n'importe quel canal
+    peut écrire « WHALE HUNTING » en tête (relecture du 2026-10-06)."""
+    chat = str(chat_id or "").strip()
+    if not chat.lstrip("-").isdigit():
+        return ""
+    for group in settings.external.halal_trusted_groups:
+        if str(group).strip() == chat:
+            return chat
+    return ""
+
+
+def trusted_reason(group: str, screening: Screening) -> str:
+    return f"{TRUSTED_REASON} « {group} » (règle du propriétaire du 2026-10-06 ; avis {screening.explain()})"
+
+
+def admit_from_trusted_group(settings: Settings, symbol: str, *, group: str, now: datetime,
+                             lookup: Lookup | None = None) -> dict:
+    """Paire publiée par un groupe de confiance halal : ajoutée comme décision du propriétaire si elle se négocie
+    sur Binance Spot. Jamais contre un refus du propriétaire ni contre un avis défavorable (sa règle) ; une paire
+    déjà ajoutée reste telle quelle. Binance injoignable : rien n'est enregistré (INJOIGNABLE), à relancer."""
+    symbol = symbol.upper()
+    log = AdmissionLog(settings.external_db)
+    decided = log.get(symbol)
+    if decided and decided["decided_by"] == OWNER and decided["decision"] in {REFUSEE, AJOUTEE}:
+        return decided
+    screening = screening_for(settings, symbol)
+    refused = next((e for e in log.all() if e["decided_by"] == OWNER and e["decision"] == REFUSEE
+                    and base_of(e["symbol"]) == screening.base), None)
+    if refused is not None:
+        # Le refus du propriétaire vaut pour la crypto, quelle que soit la paire (BNBUSDC refusée → BNBUSDT aussi).
+        return refused
+    if not symbol.endswith("USDT"):
+        # Règle du propriétaire : paire USDT seulement (une paire USDC ne passe jamais par ce chemin).
+        return {"symbol": symbol, "base": screening.base, "screening": screening.status, "decision": INDISPONIBLE,
+                "decided_by": RULE, "reason": "groupe de confiance : seules les paires USDT sont ajoutées",
+                "decided_at": now.isoformat()}
+    if screening.status == DEFAVORABLE:
+        if decided and decided["decision"] == REFUSEE:
+            return decided
+        return log.record(symbol, screening, REFUSEE, by=RULE, now=now,
+                          reason=f"défavorable au screening halal : {screening.explain()} (reçue de « {group} »)")
+    universe = UserUniverse(settings.external_db)
+    if universe.get(symbol) is None and symbol not in settings.data.symbols:
+        try:
+            tick = (lookup or binance_listing)(settings, symbol)
+        except HttpError as exc:
+            return {"symbol": symbol, "base": screening.base, "screening": screening.status, "decision": INJOIGNABLE,
+                    "decided_by": RULE, "reason": f"Binance injoignable ({exc}) : rien n'est enregistré, à relancer",
+                    "decided_at": now.isoformat()}
+        if tick is None:
+            if decided and decided["decided_by"] == OWNER:
+                return decided                 # sa décision n'est jamais remplacée par la règle
+            return log.record(symbol, screening, INDISPONIBLE, by=RULE, now=now,
+                              reason=f"reçue de « {group} » ; pas de paire négociable sur Binance Spot")
+        universe.request(symbol, tick, now=now, reason=trusted_reason(group, screening))
+    return log.record(symbol, screening, AJOUTEE, by=OWNER, now=now, reason=trusted_reason(group, screening))

@@ -58,6 +58,7 @@ import os
 import secrets
 import sqlite3
 import threading
+import time
 from collections import OrderedDict
 from collections.abc import Callable
 from contextlib import closing
@@ -84,6 +85,7 @@ ROUTE_BODY_LIMITS = {"/sources/history": 8 * 1024 * 1024, "/telegram/image": 6 *
 MAX_AUDIT_ROWS = 400                    # lignes de détail renvoyées à la page (le rapport complet est écrit)
 MAX_SOURCE_CHARS = 80
 TOKEN_ENV = "CSI_API_TOKEN"
+ADMIT_BUDGET_SECONDS = 10.0             # ajouts des groupes de confiance : sous le délai du relais (30 s)
 ALLOWED_HOSTS_ENV = "CSI_API_ALLOWED_HOSTS"
 DEFAULT_HOSTS = ("127.0.0.1", "localhost", "::1", "csi-api")
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -1059,7 +1061,8 @@ class CsiApi:
     def telegram_live(self, payload: dict) -> dict:
         """Dépôt d'une liste de signaux reçus en direct par le robot du propriétaire (`{"signals": [...]}`, format
         du 2026-10-02 : signal_id, source_chat_id, raw_text, received_at). Enregistrée telle quelle dans le dossier
-        de dépôt ; le test F4_TELEGRAM la lit à son passage suivant. Aucune évaluation, aucun ordre."""
+        de dépôt ; le test F4_TELEGRAM la lit à son passage suivant. Aucune évaluation, aucun ordre. Ensuite, si
+        l'API a un jeton : paires publiées par un groupe de confiance halal ajoutées à l'univers (_admit_trusted)."""
         from ..forward import telegram_live
         rows = payload.get("signals") if isinstance(payload, dict) else None
         if not isinstance(rows, list) or not rows or not all(isinstance(r, dict) for r in rows):
@@ -1068,7 +1071,46 @@ class CsiApi:
             raise ApiError(HTTPStatus.BAD_REQUEST, "au plus 5 000 signaux par dépôt")
         readable = telegram_live.read_robot_file(telegram_live.store_drop(self.settings, rows, now=self.now()))
         return {"deposited": len(rows), "readable": len(readable),
-                "providers": sorted({s.provider for s in readable})}
+                "providers": sorted({s.provider for s in readable}),
+                "admissions": self._admit_trusted(readable)}
+
+    def _admit_trusted(self, signals: list) -> list[dict]:
+        """Paires publiées par un groupe de confiance halal (règle du propriétaire du 2026-10-06,
+        external/admission.py), reconnu par l'identifiant de sa conversation Telegram (jamais par le texte) :
+        ajoutées à l'univers de CSI, jamais contre son refus ni un avis défavorable. Sans effet sur F4 (liste figée à
+        son démarrage). Exige le jeton de l'API ; au plus ADMIT_BUDGET_SECONDS par dépôt (Binance lent : le reste
+        attend le prochain signal de la paire). Une erreur n'empêche jamais le dépôt."""
+        from ..external import admission
+        from ..external.admission import AJOUTEE, OWNER, AdmissionLog, admit_from_trusted_group, trusted_group
+
+        def quick_listing(settings: Settings, symbol: str):
+            return admission.binance_listing(settings, symbol, quick=True)
+
+        from ..external.parser import parse
+        if not os.environ.get(TOKEN_ENV):
+            return []
+        started = time.monotonic()
+        done: dict[str, dict] = {}
+        decisions = AdmissionLog(self.settings.external_db)
+        for signal in signals:
+            if time.monotonic() - started > ADMIT_BUDGET_SECONDS:
+                break
+            try:
+                group = trusted_group(self.settings, signal.chat)
+                parsed = parse(signal.text) if group else None
+                if not parsed or parsed.errors or not parsed.symbol or parsed.symbol in done:
+                    continue
+                if parsed.symbol in self.settings.data.symbols:
+                    continue
+                known = decisions.get(parsed.symbol)
+                if known and known["decided_by"] == OWNER and known["decision"] == AJOUTEE:
+                    continue
+                entry = admit_from_trusted_group(self.settings, parsed.symbol, group=group, now=self.now(),
+                                                 lookup=quick_listing)
+                done[parsed.symbol] = {"symbol": parsed.symbol, "group": group, "decision": entry["decision"]}
+            except Exception:  # noqa: BLE001 - l'ajout est un complément : le dépôt pour F4 reste fait
+                log.exception("Ajout d'une paire d'un groupe de confiance impossible")
+        return list(done.values())
 
 
 def _text(value: Any) -> str:
