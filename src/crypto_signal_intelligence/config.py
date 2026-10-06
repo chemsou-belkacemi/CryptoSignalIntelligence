@@ -142,6 +142,8 @@ class ExternalSection(BaseModel):
     # Groupes de confiance halal (décision du propriétaire, 2026-10-06) : identifiants des conversations Telegram
     # d'origine (jamais un nom écrit dans le message) ; une paire USDT qu'ils publient est ajoutée (external/admission.py).
     halal_trusted_groups: list[str] = Field(default_factory=list)
+    # Noms affichés des conversations Telegram suivies par le relais (identifiant → nom), carte « Relais Telegram ».
+    chat_names: dict[str, str] = Field(default_factory=dict)
     # Gestion jugée par l'avis (docs/EXTERNAL_SIGNALS.md) : « stop_suiveur » = celle du propriétaire (ventes aux
     # `tp_count` premiers objectifs, stop à l'entrée 1 après TP1, puis à TP(k−2) après TPk) ; « tp1 » = ancienne
     # convention (TP1 ou stop). `trail_max_hold_bars` : au-delà, le reste est vendu (30 jours de bougies 15 min).
