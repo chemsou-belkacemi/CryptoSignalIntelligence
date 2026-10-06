@@ -1,4 +1,4 @@
-# Plan de travail — état au 2026-10-05 (plan d'octobre 2026 à janvier 2027, validé)
+# Plan de travail — état au 2026-10-06 (plan d'octobre 2026 à janvier 2027, validé)
 
 Document vivant : ce qui est fait, ce qui tourne, ce qui reste. Chaque ligne « à faire » se fait comme d'habitude :
 déclarée avant, mesurée avec intervalle (et placebos en direct), comptée au programme. Les décisions du
@@ -136,20 +136,30 @@ Aucun calcul de recherche en cours.
 
 ## 5. Décisions qui attendent le propriétaire
 
-- **[propriétaire] Deuxième bot Telegram** : jeton dans `.env`, puis `docker compose --profile telegram up -d
-  telegram-relay` (`TELEGRAM_RELAY.md`).
+- **Fait le 2026-10-06 — relais Telegram** : le propriétaire a créé deux bots (CSI, BSM). Son relais personnel
+  (`~/BinanceSpotManager/RelaisTelegram`, compte Telegram, service utilisateur systemd) transfère ses 4 canaux
+  (EL MAHWASHI, LEGEND TRADING, IN CRYPTO, WHALE HUNTING) au bot CSI ; le relais de CSI (`telegram-relay`) les
+  dépose pour F4/F16 depuis 17:17 UTC. Carte « Relais Telegram » dans l'onglet Suivi. Paires USDT de ces canaux
+  ajoutées à l'univers (groupes de confiance halal, `UNIVERSE.md`). Cryptos à une lettre lues (CSI et BSM).
+- **[propriétaire] Groupes VIP de son ami** (EL MAHWASHI VIP, IN CRYPTO VIP) : identifiants de conversation à
+  ajouter (relais de l'ami, `lister`).
+- **[propriétaire] BSM sur le nouveau bot** : pas pour l'instant (choix du 2026-10-06) ; BSM garde l'ancien bot.
 - **[propriétaire] Exports avec photos** : IN CRYPTO et LEGEND TRADING reçus le 2026-10-04 (audit avec lecture des
   images en cours) ; **AL-MAHWASHI CRYPTO à refaire au format JSON** (l'export du 2026-10-04 est en HTML).
 - **[propriétaire] VPS** : refusé pour CSI le 2026-10-03 (kit prêt dans `VPS.md`) ; BSM y tourne depuis le
   2026-10-02 à 23 h.
-- **[propriétaire] Mise à jour du VPS** avec BSM `main` c2b3247 (2026-10-05 : corrections du reliquat, du statut,
-  des prix et du rapport ; branche sécurité fusionnée sur demande : bot muet, perte max du jour, liquidité,
-  commandes Telegram, alertes de connexion, stop de secours réglable dans Settings) : vérifier
-  `docker compose version` (≥ 2.24), `git pull`, `make up`, puis acquitter l'alerte critique de FETUSDT.
+- **[propriétaire] Mise à jour du VPS** avec BSM `main` d888506 (le 2026-10-06, l'ami qui gère le VPS n'était pas
+  disponible) : branche sécurité (bot muet, perte max du jour, liquidité, commandes Telegram, alertes de connexion,
+  stop de secours), corrections du 2026-10-05 (reliquat, statut, prix, rapport), taille selon le risque, trader
+  perdant, conseil de taille de CSI, cryptos à une lettre, interrupteurs « toutes les conversations de confiance /
+  toutes les cryptos ». Vérifier `docker compose version` (≥ 2.24), `git pull`, `make up`, puis acquitter l'alerte
+  critique de FETUSDT. En attendant : listes d'actifs et de conversations remplies à la main dans Settings
+  (`~/BinanceSpotManager/actifs_tous_binance.txt`).
 - **[propriétaire] Secrets affichés le 2026-10-05** (`docker compose config`) : renouveler la clé Binance Demo,
   le jeton du bot Telegram (`/revoke` dans @BotFather) et `CSI_API_TOKEN`.
-- **[propriétaire] Source de F4/F16** : copier régulièrement la boîte de BSM du VPS vers ce PC (lecture seule), ou
-  déposer les fichiers du robot ; sinon F4/F16 ne mesurent rien.
+- **Source de F4/F16** : réglée le 2026-10-06 par le relais (voir plus haut). Le PC doit rester allumé ; plus
+  tard, VPS de 8 Go / 4 vCPU / 80 Go conseillé pour CSI + BSM (le relais garde alors la session Telegram du
+  propriétaire sur le serveur).
 - **[propriétaire] Fournisseur = trader ou outil** : un indicateur automatique signé du nom d'un trader (« Suhaib
   AlMashhadani Harmonic Indicator ») compte aujourd'hui avec ses appels manuels ; à trancher avant le premier
   événement F4/F16 (relecture du 2026-10-05).
