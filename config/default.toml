@@ -205,6 +205,8 @@ halal_trusted_groups = [
   "-1001909237586",   # IN CRYPTO
   "-1003226951554",   # WHALE HUNTING
 ]
+# Noms affichés des conversations du relais (carte « Relais Telegram » du tableau de bord), sans effet sur les avis.
+chat_names = { "-1003920138786" = "EL MAHWASHI", "-1003742935429" = "LEGEND TRADING", "-1001909237586" = "IN CRYPTO", "-1003226951554" = "WHALE HUNTING" }
 
 [derivatives]
 # Données PUBLIQUES du marché à terme USDⓈ-M de Binance (docs/DERIVATIVES.md) : financement, prime,

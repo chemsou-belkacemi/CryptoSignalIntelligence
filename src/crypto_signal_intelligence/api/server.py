@@ -334,13 +334,19 @@ class CsiApi:
         now = pd.Timestamp(self.now())
         rows = telegram_live.read_robot_dir(telegram_live.live_dir(self.settings), since=now - pd.Timedelta(days=7))
         times = [pd.Timestamp(r.received_at) for r in rows]
+        names = self.settings.external.chat_names
         groups: dict[str, dict] = {}
         for row, at in zip(rows, times, strict=True):
-            entry = groups.setdefault(row.provider or "(sans nom)", {"group": row.provider or "(sans nom)",
-                                                                      "day": 0, "week": 0, "last": None})
+            # Une conversation = une ligne : nom réglé, sinon nom lu en tête d'un de ses signaux, sinon son numéro.
+            key = str(row.chat or row.provider or "(sans nom)")
+            entry = groups.setdefault(key, {"group": names.get(key, ""), "day": 0, "week": 0, "last": None})
+            if not entry["group"] and row.provider and not row.provider.startswith("chat "):
+                entry["group"] = row.provider
             entry["week"] += 1
             entry["day"] += int(at >= now - pd.Timedelta(days=1))
             entry["last"] = max(filter(None, [entry["last"], at.isoformat()]))
+        for key, entry in groups.items():
+            entry["group"] = entry["group"] or (key if not key.lstrip("-").isdigit() else f"conversation {key}")
         last = max(times).isoformat() if times else None
         silent_hours = round((now - max(times)).total_seconds() / 3600, 1) if times else None
         return {"last_received_at": last, "silent_hours": silent_hours, "day": sum(g["day"] for g in groups.values()),

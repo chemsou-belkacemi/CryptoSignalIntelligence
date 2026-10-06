@@ -23,8 +23,15 @@ def test_the_relay_card_counts_messages_by_group(settings):
     out = CsiApi(settings, now=lambda: NOW).dispatch("GET", "/telegram/relay", {}, None)
     assert out["week"] == 3 and out["day"] == 2 and out["silent_hours"] == 1.0
     groups = {g["group"]: (g["day"], g["week"]) for g in out["groups"]}
-    # Un en-tête que la lecture du nom ne retient pas (« IN CRYPTO », mots génériques) : nom de la conversation.
-    assert groups == {"WHALE HUNTING": (1, 2), "chat -1001909237586": (1, 1)}
+    # Une ligne par conversation, sous le nom réglé (config : chat_names), même pour un message sans nom lisible.
+    assert groups == {"WHALE HUNTING": (1, 2), "IN CRYPTO": (1, 1)}
+
+
+def test_an_unnamed_conversation_shows_its_number(settings):
+    rows = [{"signal_id": "c:9", "source_chat_id": "-100555", "raw_text": "TP1 ✅", "received_at": "2026-10-06T21:00:00+00:00"}]
+    telegram_live.store_drop(settings, rows, now=NOW)
+    out = CsiApi(settings, now=lambda: NOW).dispatch("GET", "/telegram/relay", {}, None)
+    assert [g["group"] for g in out["groups"]] == ["conversation -100555"]
 
 
 def test_no_message_means_no_last_time(settings):
