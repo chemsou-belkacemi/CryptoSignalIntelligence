@@ -33,6 +33,8 @@ STATUS_LABELS = {FAVORABLE: "favorable", DEFAVORABLE: "défavorable", DOUTEUX: "
                  INEXPLOITABLE: "inexploitable"}
 # Motif d'ajout d'une paire soumise à la main par le propriétaire (external/evaluate.py) : sa décision.
 MANUAL_REASON = "signal soumis à la main"
+# Motif d'ajout d'une paire publiée par un groupe de confiance halal (règle du propriétaire du 2026-10-06).
+TRUSTED_REASON = "groupe de confiance halal"
 
 
 class DefavorableRefused(ValueError):
@@ -292,3 +294,61 @@ def pending_group(screening: Screening) -> str:
     if screening.status == DOUTEUX:
         return GROUP_DOUBTFUL
     return GROUP_ONE_SOURCE if "halal" in screening.sources.values() else GROUP_NO_SOURCE
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Groupes de confiance halal (décision du propriétaire, 2026-10-06)
+# ---------------------------------------------------------------------------------------------------------------
+
+def trusted_group(settings: Settings, *names: str) -> str:
+    """Groupe de confiance (tel qu'écrit dans `external.halal_trusted_groups`) désigné par l'un des noms ou
+    identifiants de conversation donnés, sinon "". Noms comparés sous leur forme canonique (parser.canonical_name),
+    identifiants comparés tels quels."""
+    from .parser import canonical_name
+
+    wanted = set()
+    for name in names:
+        text = str(name or "").strip()
+        if text:
+            wanted.add(text if text.lstrip("-").isdigit() else canonical_name(text))
+    for group in settings.external.halal_trusted_groups:
+        text = str(group).strip()
+        key = text if text.lstrip("-").isdigit() else canonical_name(text)
+        if key and key in wanted:
+            return text
+    return ""
+
+
+def trusted_reason(group: str, screening: Screening) -> str:
+    return f"{TRUSTED_REASON} « {group} » (règle du propriétaire du 2026-10-06 ; avis {screening.explain()})"
+
+
+def admit_from_trusted_group(settings: Settings, symbol: str, *, group: str, now: datetime,
+                             lookup: Lookup | None = None) -> dict:
+    """Paire publiée par un groupe de confiance halal : ajoutée comme décision du propriétaire si elle se négocie
+    sur Binance Spot. Jamais contre un refus du propriétaire ni contre un avis défavorable (sa règle) ; une paire
+    déjà ajoutée reste telle quelle. Binance injoignable : rien n'est enregistré (INJOIGNABLE), à relancer."""
+    symbol = symbol.upper()
+    log = AdmissionLog(settings.external_db)
+    decided = log.get(symbol)
+    if decided and decided["decided_by"] == OWNER and decided["decision"] in {REFUSEE, AJOUTEE}:
+        return decided
+    screening = screening_for(settings, symbol)
+    if screening.status == DEFAVORABLE:
+        if decided and decided["decision"] == REFUSEE:
+            return decided
+        return log.record(symbol, screening, REFUSEE, by=RULE, now=now,
+                          reason=f"défavorable au screening halal : {screening.explain()} (reçue de « {group} »)")
+    universe = UserUniverse(settings.external_db)
+    if universe.get(symbol) is None and symbol not in settings.data.symbols:
+        try:
+            tick = (lookup or binance_listing)(settings, symbol)
+        except HttpError as exc:
+            return {"symbol": symbol, "base": screening.base, "screening": screening.status, "decision": INJOIGNABLE,
+                    "decided_by": RULE, "reason": f"Binance injoignable ({exc}) : rien n'est enregistré, à relancer",
+                    "decided_at": now.isoformat()}
+        if tick is None:
+            return log.record(symbol, screening, INDISPONIBLE, by=RULE, now=now,
+                              reason=f"reçue de « {group} » ; pas de paire négociable sur Binance Spot")
+        universe.request(symbol, tick, now=now, reason=trusted_reason(group, screening))
+    return log.record(symbol, screening, AJOUTEE, by=OWNER, now=now, reason=trusted_reason(group, screening))

@@ -206,6 +206,7 @@ bougies publiques.
 
 ## Historique
 
+- 2026-10-06 : **groupes de confiance halal** (décision du propriétaire) : une paire publiée par EL MAHWASHI, LEGEND TRADING, IN CRYPTO, WHALE HUNTING ou les deux groupes VIP de son ami est ajoutée à l'univers si elle se négocie sur Binance Spot, jamais contre son refus ni un avis défavorable (`UNIVERSE.md`). Les avis et la mesure ne changent pas ; F4/F16 gardent leur liste figée.
 - 2026-10-06 : **mesure d'un groupe indépendante de la lecture des images et des autres groupes** (relecture
   leak-auditor de l'audit avec images depuis le tableau de bord). Trois changements dans `external/audit.py` :
   (1) un signal TEXTE n'est plus déclaré doublon d'un signal lu sur IMAGE plus ancien (avant, une capture suivie

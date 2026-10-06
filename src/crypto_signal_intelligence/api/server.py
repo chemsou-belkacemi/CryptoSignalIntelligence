@@ -1068,7 +1068,33 @@ class CsiApi:
             raise ApiError(HTTPStatus.BAD_REQUEST, "au plus 5 000 signaux par dépôt")
         readable = telegram_live.read_robot_file(telegram_live.store_drop(self.settings, rows, now=self.now()))
         return {"deposited": len(rows), "readable": len(readable),
-                "providers": sorted({s.provider for s in readable})}
+                "providers": sorted({s.provider for s in readable}),
+                "admissions": self._admit_trusted(readable)}
+
+    def _admit_trusted(self, signals: list) -> list[dict]:
+        """Paires publiées par un groupe de confiance halal (règle du propriétaire du 2026-10-06,
+        external/admission.py) : ajoutées à l'univers de CSI, jamais contre son refus ni un avis défavorable. Sans
+        effet sur F4 (liste de paires figée à son démarrage). Une erreur n'empêche jamais le dépôt."""
+        from ..external.admission import AJOUTEE, OWNER, AdmissionLog, admit_from_trusted_group, trusted_group
+        from ..external.parser import parse
+        done: dict[str, dict] = {}
+        decisions = AdmissionLog(self.settings.external_db)
+        for signal in signals:
+            try:
+                group = trusted_group(self.settings, signal.chat, signal.provider)
+                parsed = parse(signal.text) if group else None
+                if not parsed or parsed.errors or not parsed.symbol or parsed.symbol in done:
+                    continue
+                if parsed.symbol in self.settings.data.symbols:
+                    continue
+                known = decisions.get(parsed.symbol)
+                if known and known["decided_by"] == OWNER and known["decision"] == AJOUTEE:
+                    continue
+                entry = admit_from_trusted_group(self.settings, parsed.symbol, group=group, now=self.now())
+                done[parsed.symbol] = {"symbol": parsed.symbol, "group": group, "decision": entry["decision"]}
+            except Exception:  # noqa: BLE001 - l'ajout est un complément : le dépôt pour F4 reste fait
+                log.exception("Ajout d'une paire d'un groupe de confiance impossible")
+        return list(done.values())
 
 
 def _text(value: Any) -> str:
