@@ -498,6 +498,15 @@ def _history_table(db: sqlite3.Connection) -> None:
                   proven INTEGER NOT NULL, proof TEXT NOT NULL)""")
 
 
+def parser_fingerprint() -> str:
+    """Empreinte du code de lecture des signaux (external/parser.py), inscrite dans chaque bilan."""
+    import hashlib
+    import inspect
+
+    from . import parser
+    return hashlib.sha256(inspect.getsource(parser).encode("utf-8")).hexdigest()
+
+
 def audit(settings: Settings, items: Iterable[HistoryItem], *, now: datetime, source: str = "", weights: str = "early",
           bars_for: Bars | None = None, progress: Callable[[str], None] | None = None) -> AuditReport:
     """Rejoue chaque message de l'historique. `source` nomme le groupe quand ni l'export ni le texte ne le font."""
@@ -574,6 +583,8 @@ def audit(settings: Settings, items: Iterable[HistoryItem], *, now: datetime, so
         "glissement et demi-écart du scénario central ; R = gain net rapporté au risque prévu (entrée − stop).",
         f"Échelle : parts « {weights} » ; une position encore ouverte après {FOLLOW_DAYS} jours est valorisée au "
         "dernier prix.",
+        f"Lecture des signaux : empreinte du parseur {parser_fingerprint()[:16]}… (un parseur différent peut rendre "
+        "lisibles ou illisibles d'autres messages ; bilan reproductible à empreinte égale).",
     ]
     summary = summarize(rows, samples=settings.protocol.bootstrap_samples, seed=settings.protocol.seed)
     say("comparaison des gestions")

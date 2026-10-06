@@ -206,6 +206,7 @@ bougies publiques.
 
 ## Historique
 
+- 2026-10-06 : **cryptos à une seule lettre** (G, T, W, S…) lues par CSI comme par BinanceSpotManager (« G/USDT », « #T/USDT », « DUSDT ») ; une lettre seule n'est jamais une crypto avec « w/ » ou un trait d'union. Sur 20 444 messages exportés, 13 passent d'illisibles à lisibles, aucun autre ne change : les bilans d'historique faits avant ne sont plus reproductibles à l'identique. Chaque bilan inscrit désormais l'empreinte du parseur. F4/F16 : aucune paire à une lettre dans leur liste figée.
 - 2026-10-06 : **mesure d'un groupe indépendante de la lecture des images et des autres groupes** (relecture
   leak-auditor de l'audit avec images depuis le tableau de bord). Trois changements dans `external/audit.py` :
   (1) un signal TEXTE n'est plus déclaré doublon d'un signal lu sur IMAGE plus ancien (avant, une capture suivie

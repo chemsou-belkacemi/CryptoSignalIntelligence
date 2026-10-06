@@ -245,7 +245,8 @@ LABELLED_LINE = re.compile(
 )
 INLINE_LABEL = re.compile(r"\s(?=(?:" + "|".join(LABELS.values()) + r")(?![A-Z])\s*\d{0,2}\s*[:=])")
 QUOTES = r"USDT|USDC|FDUSD|BUSD|USD|BTC|ETH|BNB|EUR|TRY"
-SLASH_PAIR = re.compile(rf"(?<![A-Z0-9])([A-Z0-9]{{2,20}}|[A-Z])(?:\s*/\s*|[-_])({QUOTES})(?![A-Z0-9])")
+# Base d'une seule lettre (G/USDT, T/USDT…) : « / » collé des deux côtés seulement, jamais « w/ USDT » ni « W-USDT ».
+SLASH_PAIR = re.compile(rf"(?<![A-Z0-9])([A-Z0-9]{{2,20}}|[A-Z](?=/[A-Z]))(?:\s*/\s*|[-_])({QUOTES})(?![A-Z0-9])")
 JOINED_PAIR = re.compile(r"(?<![A-Z0-9])([A-Z]|(?=[A-Z0-9]*[A-Z])[A-Z0-9]{2,20}?)(USDT|USDC)(?![A-Z0-9])")
 TIMEFRAME = re.compile(r"(?<![\d.])(\d{1,3})\s*(MINUTES?|MINS?|M|HOURS?|HRS?|H|DAYS?|D|WEEKS?|W)(?![A-Z])")
 MEANING_CHANGERS = re.compile(r"\b(?:OR|OU|MARKET|CMP|NOW|CURRENT|ABOVE|BREAKOUT|BREAK|RETEST|DCA|UNTIL)\b")
