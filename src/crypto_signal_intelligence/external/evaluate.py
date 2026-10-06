@@ -33,16 +33,12 @@ from .admission import (
     AJOUTEE,
     DEFAVORABLE,
     FAVORABLE,
-    INDISPONIBLE,
-    INJOIGNABLE,
     OWNER,
     REFUSEE,
     RULE,
     AdmissionLog,
-    admit_from_trusted_group,
     hold,
     screening_for,
-    trusted_group,
 )
 from .audit import latest_history
 from .base_rate import BaseRate, base_rate
@@ -164,40 +160,8 @@ def _binance_unreachable(label: str, symbol: str, exc: Exception) -> Check:
                  "paire ni refusée ni ajoutée, redemander l'avis dans un moment", PENDING)
 
 
-def _trusted_check(settings: Settings, symbol: str, *, group: str, now: datetime, tick_size_lookup) -> Check:
-    """Paire hors univers publiée par un groupe de confiance halal (règle du propriétaire du 2026-10-06) : ajoutée
-    comme sa décision si elle se négocie sur Binance Spot, jamais contre son refus ni contre un avis défavorable."""
-    label = "paire dans l'univers"
-
-    def listing(settings_: Settings, symbol_: str):
-        try:
-            return (tick_size_lookup or _binance_tick_size)(settings_, symbol_)
-        except (StopIteration, KeyError, ValueError):
-            return None
-        except HttpError as exc:
-            if exc.status is not None and 400 <= exc.status < 500 and exc.status not in RETRYABLE_STATUS:
-                return None                  # Binance répond 400 (« Invalid symbol ») pour une paire inexistante
-            raise
-
-    try:
-        entry = admit_from_trusted_group(settings, symbol, group=group, now=now, lookup=listing)
-    except Exception as exc:  # noqa: BLE001 - réseau : ni refus ni ajout, à redemander
-        return _binance_unreachable(label, symbol, exc)
-    if entry["decision"] == AJOUTEE:
-        return Check(label, False, f"{symbol} ajoutée à l'univers : publiée par « {group} », groupe de confiance halal "
-                     "(ta règle du 2026-10-06) ; historique 15m et 1h en cours de téléchargement par la surveillance "
-                     "(quelques minutes) : redemander l'avis ensuite", PENDING)
-    if entry["decision"] == INJOIGNABLE:
-        return Check(label, False, f"vérification de {symbol} sur Binance impossible pour l'instant : paire ni refusée "
-                     "ni ajoutée, redemander l'avis dans un moment", PENDING)
-    if entry["decision"] == INDISPONIBLE:
-        return Check(label, False, f"{symbol} introuvable ou non négociable sur Binance Spot : non ajoutée", REFUSAL)
-    return Check(label, False, f"{symbol} refusée ({entry['reason']}) : un groupe de confiance ne lève ni ton refus ni "
-                 "un avis défavorable", REFUSAL)
-
-
 def _universe_check(settings: Settings, symbol: str, *, source: str, now: datetime, user_validated: bool,
-                    tick_size_lookup, trusted: str = "") -> Check:
+                    tick_size_lookup) -> Check:
     """Paire hors univers, selon l'avis de screening halal (règle du propriétaire, external/admission.py) :
     défavorable → refus, même soumise à la main ; reçue automatiquement et douteuse ou inexploitable → « à
     décider », avis EN_ATTENTE (signal non transmis) ; favorable reçue automatiquement → ajout si le mode
@@ -210,8 +174,6 @@ def _universe_check(settings: Settings, symbol: str, *, source: str, now: dateti
         return Check(label, False, f"{symbol} ajoutée à l'univers le {entry['requested_at'][:16]} ; historique en "
                      "cours de téléchargement par la surveillance (quelques minutes) : redemander l'avis ensuite",
                      PENDING)
-    if trusted and not user_validated:
-        return _trusted_check(settings, symbol, group=trusted, now=now, tick_size_lookup=tick_size_lookup)
     screening = screening_for(settings, symbol)
     log = AdmissionLog(settings.external_db)
     decided = log.get(symbol)
@@ -313,18 +275,13 @@ def evaluate(settings: Settings, text: str, *, source: str, now: datetime, recor
         return finish()
     evaluation.checks.append(Check("lecture du signal", True, f"modèle {signal.template}, {len(signal.entries)} "
                                    f"entrée(s), {len(signal.targets)} objectif(s), stop {signal.stop:g}", REFUSAL))
-    # Groupe de confiance halal (règle du propriétaire du 2026-10-06) : nom de la source ou nom écrit en tête.
-    trusted = "" if user_validated else trusted_group(settings, source, group_of(text))
+    # Les groupes de confiance halal (2026-10-06) n'ajoutent une paire qu'à la réception par le relais, sur
+    # l'identifiant de leur conversation (api/server.py) : jamais ici, où la source est un nom (usurpable).
     if signal.symbol not in universe_symbols(settings):
         evaluation.checks.append(_universe_check(settings, signal.symbol, source=source, now=now,
-                                                 user_validated=user_validated, tick_size_lookup=tick_size_lookup,
-                                                 trusted=trusted))
+                                                 user_validated=user_validated, tick_size_lookup=tick_size_lookup))
         return finish()
     held = hold(settings, signal.symbol, now=now, source=source)
-    if held is not None and held[0] == "attente" and trusted:
-        # Paire déjà ajoutée mais « à décider » : publiée par un groupe de confiance, elle devient ta décision.
-        admit_from_trusted_group(settings, signal.symbol, group=trusted, now=now)
-        held = None
     if held is not None and not (user_validated and held[0] == "attente"):
         kind, detail = held
         evaluation.checks.append(Check("paire dans l'univers", False, detail, REFUSAL if kind == "refus" else PENDING))

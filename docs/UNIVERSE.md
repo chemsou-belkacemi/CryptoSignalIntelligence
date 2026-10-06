@@ -189,19 +189,24 @@ inexploitable aussi, avec un bouton pour choisir ».
 ## Groupes de confiance halal (décision du propriétaire, 2026-10-06)
 
 Le propriétaire : « les paires reçues de ces groupes sont fiables et halal, ajoute-les automatiquement si elles
-sont sur Binance ». Groupes : EL MAHWASHI (AL-MAHWASHI CRYPTO), LEGEND TRADING, IN CRYPTO, WHALE HUNTING, et les deux
-groupes VIP de son ami (AL-MAHWASHI VIP, IN CRYPTO VIP). Liste dans `config/default.toml`, `[external]
-halal_trusted_groups` : noms écrits en tête des signaux (forme canonique, comme les bilans par groupe) et
-identifiants des conversations Telegram suivies par son relais.
+sont sur Binance ». Groupes : EL MAHWASHI, LEGEND TRADING, IN CRYPTO, WHALE HUNTING ; les deux groupes VIP de son
+ami (EL MAHWASHI VIP, IN CRYPTO VIP) dès que leurs identifiants sont connus. Liste : `config/default.toml`,
+`[external] halal_trusted_groups`.
 
-- Une paire publiée par l'un de ces groupes est **ajoutée comme décision du propriétaire** si elle se négocie en
-  USDT sur Binance Spot : à l'évaluation d'un signal (`external/evaluate.py`), ou dès la réception d'un message par
-  le relais (`POST /telegram/live`, `external/admission.admit_from_trusted_group`).
-- Elle reste **refusée** si le propriétaire l'a refusée (BNB, PEPE, SHIB…) ou si elle est **défavorable** au
-  screening (UNI, AAVE, MKR, ENA) : son choix du 2026-10-06. Il peut toujours l'ajouter à la main.
-- Une paire déjà présente mais « à décider » devient sa décision au premier signal d'un de ces groupes.
-- Un autre groupe ne change rien : ses paires douteuses ou inconnues restent « à décider ».
-- **Sans effet sur les tests en direct** : F4 et F16 gardent la liste de 166 paires figée à leur démarrage.
+- Un groupe est reconnu **par l'identifiant de sa conversation Telegram d'origine**, que Telegram pose sur un message
+  transféré et que le relais transmet (`POST /telegram/live`) ; **jamais par un nom écrit dans le message**, que
+  n'importe quel canal peut copier (relecture du 2026-10-06). Une copie de texte (groupe qui interdit le transfert)
+  n'a pas cet identifiant : rien n'est ajouté.
+- Une **paire USDT** publiée par l'un de ces groupes est ajoutée comme **décision du propriétaire** (motif « groupe de
+  confiance halal … ») si elle se négocie sur Binance Spot.
+- Elle reste **refusée** si le propriétaire a refusé cette crypto (sur n'importe quelle paire : BNB, PEPE, SHIB…) ou
+  si elle est **défavorable** au screening (UNI, AAVE, MKR, ENA). Une décision du propriétaire n'est jamais remplacée.
+- Il faut le jeton de l'API (`CSI_API_TOKEN`, obligatoire en Docker) ; au plus 10 s de vérifications Binance par
+  dépôt (le reste attend le prochain signal de la paire).
+- **Tests en direct** : F4 et F16 gardent la liste figée à leur démarrage. Limite connue : la prévision de
+  volatilité en service (lue par F5 et F14) s'ajuste sur toutes les paires prêtes de l'univers ; chaque ajout, de
+  cette règle comme des précédentes, change un peu son panel en cours de mois (F14 déclare un réajustement mensuel
+  « sur l'univers du moment »). Le code de cette prévision est gelé par F5 et F14 : non modifié.
 
 ## Modifier l'univers
 

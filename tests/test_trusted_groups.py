@@ -1,5 +1,7 @@
-"""Groupes de confiance halal (décision du propriétaire, 2026-10-06) : une paire qu'ils publient est ajoutée à
-l'univers si elle se négocie sur Binance Spot, jamais contre son refus ni contre un avis défavorable. Aucun réseau."""
+"""Groupes de confiance halal (décision du propriétaire, 2026-10-06) : une paire USDT publiée par l'un d'eux est
+ajoutée à l'univers si elle se négocie sur Binance Spot, jamais contre son refus (pour la crypto, toutes paires
+confondues) ni contre un avis défavorable. Reconnus par l'identifiant de leur conversation Telegram, jamais par un
+nom écrit dans le message (relecture du 2026-10-06). Aucun réseau."""
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -11,81 +13,83 @@ from crypto_signal_intelligence.external.evaluate import evaluate
 from crypto_signal_intelligence.external.universe import REQUESTED, UserUniverse
 
 NOW = datetime(2026, 10, 6, 18, tzinfo=UTC)
-LISTED = {"DOGEUSDT", "LTCUSDT", "UNIUSDT", "GUSDT", "RAREUSDT"}
-SIGNAL = "👑 WHALE HUNTING\nPAIR: {}/USDT\nENTRY 1: 2.000\nT1: 2.100\nT2: 2.200\nSL: 1.900\nPLATFORM: Binance"
+LISTED = {"DOGEUSDT", "LTCUSDT", "UNIUSDT", "RAREUSDT", "BNBUSDT", "BNBUSDC", "PEPEUSDC"}
+SIGNAL = "👑 WHALE HUNTING\nPAIR: {}/{}\nENTRY 1: 2.000\nT1: 2.100\nT2: 2.200\nSL: 1.900\nPLATFORM: Binance"
+WHALE = "-1003226951554"
 
 
 def listing(settings, symbol):
     return Decimal("0.0001") if symbol in LISTED else None
 
 
-def test_the_owner_groups_are_recognised_by_name_or_conversation(settings):
-    assert adm.trusted_group(settings, "WHALE HUNTING") == "WHALE HUNTING"
-    assert adm.trusted_group(settings, "𝗜𝗡 𝗖𝗥𝗬𝗣𝗧𝗢") == "IN CRYPTO"                  # écriture stylisée du groupe
-    assert adm.trusted_group(settings, "AL-MAHWASHI VIP") == "AL-MAHWASHI VIP"
-    assert adm.trusted_group(settings, "-1003226951554") == "-1003226951554"
-    assert adm.trusted_group(settings, "telegram 42", "") == ""
-    assert adm.trusted_group(settings, "WHALE") == "" and adm.trusted_group(settings, "IN CRYPTO SIGNALS") == ""
+def row(ident, chat, base, quote="USDT"):
+    return {"signal_id": ident, "source_chat_id": chat, "raw_text": SIGNAL.format(base, quote),
+            "received_at": NOW.isoformat()}
 
 
-def test_a_trusted_group_adds_a_pair_as_the_owner_decision(settings):
-    entry = adm.admit_from_trusted_group(settings, "DOGEUSDT", group="WHALE HUNTING", now=NOW, lookup=listing)
+def test_groups_are_recognised_by_conversation_only(settings):
+    assert adm.trusted_group(settings, WHALE) == WHALE
+    assert adm.trusted_group(settings, int(WHALE)) == WHALE
+    assert adm.trusted_group(settings, "WHALE HUNTING") == ""                         # un nom ne suffit jamais
+    assert adm.trusted_group(settings, "-100999") == "" and adm.trusted_group(settings, None) == ""
+
+
+def test_a_trusted_group_adds_a_usdt_pair_as_the_owner_decision(settings):
+    entry = adm.admit_from_trusted_group(settings, "DOGEUSDT", group=WHALE, now=NOW, lookup=listing)
     assert entry["decision"] == adm.AJOUTEE and entry["decided_by"] == adm.OWNER
-    assert "groupe de confiance halal « WHALE HUNTING »" in entry["reason"]
+    assert entry["reason"].startswith(adm.TRUSTED_REASON)
     assert UserUniverse(settings.external_db).get("DOGEUSDT")["status"] == REQUESTED
-    missing = adm.admit_from_trusted_group(settings, "XTZUSDT", group="WHALE HUNTING", now=NOW, lookup=listing)
-    assert missing["decision"] == adm.INDISPONIBLE
+    assert adm.admit_from_trusted_group(settings, "XTZUSDT", group=WHALE, now=NOW,
+                                        lookup=listing)["decision"] == adm.INDISPONIBLE
 
 
-def test_owner_refusals_and_haram_opinions_stay_refused(settings):
-    adm.decide(settings, "LTCUSDT", add=False, now=NOW, lookup=listing)
-    assert adm.admit_from_trusted_group(settings, "LTCUSDT", group="IN CRYPTO", now=NOW,
-                                        lookup=listing)["decision"] == adm.REFUSEE
-    uni = adm.admit_from_trusted_group(settings, "UNIUSDT", group="IN CRYPTO", now=NOW, lookup=listing)
+def test_owner_refusals_hold_for_the_whole_crypto_and_usdc_never_enters(settings):
+    """Relecture : un refus de BNBUSDT était contourné par BNBUSDC."""
+    adm.decide(settings, "BNBUSDT", add=False, now=NOW, lookup=listing)
+    for symbol in ("BNBUSDT", "BNBUSDC"):
+        assert adm.admit_from_trusted_group(settings, symbol, group=WHALE, now=NOW,
+                                            lookup=listing)["decision"] == adm.REFUSEE
+    pepe = adm.admit_from_trusted_group(settings, "PEPEUSDC", group=WHALE, now=NOW, lookup=listing)
+    assert pepe["decision"] == adm.INDISPONIBLE                                       # USDT seulement
+    universe = UserUniverse(settings.external_db)
+    assert universe.get("BNBUSDC") is None and universe.get("PEPEUSDC") is None
+
+
+def test_haram_opinions_stay_refused(settings):
+    uni = adm.admit_from_trusted_group(settings, "UNIUSDT", group=WHALE, now=NOW, lookup=listing)
     assert uni["decision"] == adm.REFUSEE and uni["decided_by"] == adm.RULE
-    universe = UserUniverse(settings.external_db)
-    assert universe.get("LTCUSDT") is None and universe.get("UNIUSDT") is None
+    assert UserUniverse(settings.external_db).get("UNIUSDT") is None
 
 
-def test_evaluating_a_trusted_group_signal_adds_the_pair_and_others_still_wait(settings):
-    trusted = evaluate(settings, SIGNAL.format("DOGE"), source="WHALE HUNTING", now=NOW, tick_size_lookup=listing)
-    assert trusted.verdict == "EN_ATTENTE" and "groupe de confiance halal" in trusted.failed[0].detail
-    assert adm.AdmissionLog(settings.external_db).get("DOGEUSDT")["decided_by"] == adm.OWNER
-    other = evaluate(settings, SIGNAL.format("RARE").replace("👑 WHALE HUNTING\n", "AUTRE GROUPE\n"),
-                     source="AUTRE GROUPE", now=NOW, tick_size_lookup=listing)
-    assert other.verdict == "EN_ATTENTE" and "en attente de ta décision" in other.failed[0].detail
-    assert adm.AdmissionLog(settings.external_db).get("RAREUSDT")["decision"] == adm.A_DECIDER
+def test_an_owner_decision_is_never_replaced_by_the_rule(settings):
+    adm.decide(settings, "XTZUSDT", add=True, now=NOW, lookup=listing)              # acceptée, non négociable
+    kept = adm.admit_from_trusted_group(settings, "XTZUSDT", group=WHALE, now=NOW, lookup=listing)
+    assert kept["decided_by"] == adm.OWNER
+
+
+def test_evaluation_never_adds_a_pair_from_a_name_in_the_text(settings):
+    """Relecture : « WHALE HUNTING » écrit en tête par un autre canal faisait ajouter la paire."""
+    result = evaluate(settings, SIGNAL.format("RARE", "USDT"), source="WHALE HUNTING", now=NOW, tick_size_lookup=listing)
+    assert result.verdict == "EN_ATTENTE" and "en attente de ta décision" in result.failed[0].detail
     assert UserUniverse(settings.external_db).get("RAREUSDT") is None
 
 
-def test_a_pending_pair_already_present_becomes_the_owner_decision(settings):
-    universe = UserUniverse(settings.external_db)
-    universe.request("RAREUSDT", Decimal("0.001"), reason="mode test auto_add_pairs (source « g »)", now=NOW)
-    universe.mark_ready("RAREUSDT", now=NOW)
-    adm.admit_all(settings, now=NOW, lookup=listing)
-    assert adm.AdmissionLog(settings.external_db).get("RAREUSDT")["decision"] == adm.A_DECIDER
-    result = evaluate(settings, SIGNAL.format("RARE"), source="telegram 1", now=NOW, tick_size_lookup=listing)
-    assert result.failed[0].label != "paire dans l'univers"                         # plus retenue
-    assert adm.AdmissionLog(settings.external_db).get("RAREUSDT")["decided_by"] == adm.OWNER
-
-
-def test_a_signal_submitted_by_hand_keeps_its_own_rule(settings):
-    manual = evaluate(settings, SIGNAL.format("DOGE"), source="WHALE HUNTING", now=NOW, user_validated=True,
-                      tick_size_lookup=listing)
-    assert "sur ta validation" in manual.failed[0].detail
-
-
-def test_the_live_relay_admits_pairs_of_trusted_conversations_only(settings, monkeypatch):
+def test_the_relay_admits_by_conversation_with_the_api_token(settings, monkeypatch):
     monkeypatch.setattr(adm, "binance_listing", listing)
+    monkeypatch.setenv("CSI_API_TOKEN", "jeton-de-test")
     api = CsiApi(settings, now=lambda: NOW)
-    rows = [{"signal_id": "c:1", "source_chat_id": "-1003226951554", "raw_text": SIGNAL.format("DOGE"),
-             "received_at": NOW.isoformat()},
-            {"signal_id": "c:2", "source_chat_id": "-100999", "raw_text": SIGNAL.format("RARE").replace(
-                "👑 WHALE HUNTING\n", "AUTRE GROUPE\n"), "received_at": NOW.isoformat()},
-            {"signal_id": "c:3", "source_chat_id": "-1003742935429", "raw_text": SIGNAL.format("UNI"),
-             "received_at": NOW.isoformat()}]
-    answer = api.telegram_live({"signals": rows})
-    decisions = {a["symbol"]: a["decision"] for a in answer["admissions"]}
-    assert decisions == {"DOGEUSDT": adm.AJOUTEE, "UNIUSDT": adm.REFUSEE}
-    assert answer["deposited"] == 3                                                  # le dépôt pour F4 est intact
+    answer = api.telegram_live({"signals": [
+        row("c:1", WHALE, "DOGE"), row("c:2", "-100999", "RARE"),               # en-tête WHALE HUNTING usurpée
+        row("c:3", "-1003742935429", "UNI"), row("c:4", WHALE, "BNB", "USDC")]})
+    assert {a["symbol"]: a["decision"] for a in answer["admissions"]} == {
+        "DOGEUSDT": adm.AJOUTEE, "UNIUSDT": adm.REFUSEE, "BNBUSDC": adm.INDISPONIBLE}
+    assert answer["deposited"] == 4                                                # le dépôt pour F4 est intact
     assert UserUniverse(settings.external_db).get("RAREUSDT") is None
+
+
+def test_without_an_api_token_the_relay_adds_nothing(settings, monkeypatch):
+    monkeypatch.setattr(adm, "binance_listing", listing)
+    monkeypatch.delenv("CSI_API_TOKEN", raising=False)
+    answer = CsiApi(settings, now=lambda: NOW).telegram_live({"signals": [row("c:1", WHALE, "DOGE")]})
+    assert answer["admissions"] == [] and answer["deposited"] == 1
+    assert UserUniverse(settings.external_db).get("DOGEUSDT") is None

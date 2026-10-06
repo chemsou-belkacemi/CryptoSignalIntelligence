@@ -300,22 +300,16 @@ def pending_group(screening: Screening) -> str:
 # Groupes de confiance halal (décision du propriétaire, 2026-10-06)
 # ---------------------------------------------------------------------------------------------------------------
 
-def trusted_group(settings: Settings, *names: str) -> str:
-    """Groupe de confiance (tel qu'écrit dans `external.halal_trusted_groups`) désigné par l'un des noms ou
-    identifiants de conversation donnés, sinon "". Noms comparés sous leur forme canonique (parser.canonical_name),
-    identifiants comparés tels quels."""
-    from .parser import canonical_name
-
-    wanted = set()
-    for name in names:
-        text = str(name or "").strip()
-        if text:
-            wanted.add(text if text.lstrip("-").isdigit() else canonical_name(text))
+def trusted_group(settings: Settings, chat_id: object) -> str:
+    """Groupe de confiance désigné par l'identifiant de la conversation Telegram d'origine (métadonnée posée par
+    Telegram et transmise par le relais), sinon "". Jamais par un nom écrit dans le message : n'importe quel canal
+    peut écrire « WHALE HUNTING » en tête (relecture du 2026-10-06)."""
+    chat = str(chat_id or "").strip()
+    if not chat.lstrip("-").isdigit():
+        return ""
     for group in settings.external.halal_trusted_groups:
-        text = str(group).strip()
-        key = text if text.lstrip("-").isdigit() else canonical_name(text)
-        if key and key in wanted:
-            return text
+        if str(group).strip() == chat:
+            return chat
     return ""
 
 
@@ -334,6 +328,16 @@ def admit_from_trusted_group(settings: Settings, symbol: str, *, group: str, now
     if decided and decided["decided_by"] == OWNER and decided["decision"] in {REFUSEE, AJOUTEE}:
         return decided
     screening = screening_for(settings, symbol)
+    refused = next((e for e in log.all() if e["decided_by"] == OWNER and e["decision"] == REFUSEE
+                    and base_of(e["symbol"]) == screening.base), None)
+    if refused is not None:
+        # Le refus du propriétaire vaut pour la crypto, quelle que soit la paire (BNBUSDC refusée → BNBUSDT aussi).
+        return refused
+    if not symbol.endswith("USDT"):
+        # Règle du propriétaire : paire USDT seulement (une paire USDC ne passe jamais par ce chemin).
+        return {"symbol": symbol, "base": screening.base, "screening": screening.status, "decision": INDISPONIBLE,
+                "decided_by": RULE, "reason": "groupe de confiance : seules les paires USDT sont ajoutées",
+                "decided_at": now.isoformat()}
     if screening.status == DEFAVORABLE:
         if decided and decided["decision"] == REFUSEE:
             return decided
@@ -348,6 +352,8 @@ def admit_from_trusted_group(settings: Settings, symbol: str, *, group: str, now
                     "decided_by": RULE, "reason": f"Binance injoignable ({exc}) : rien n'est enregistré, à relancer",
                     "decided_at": now.isoformat()}
         if tick is None:
+            if decided and decided["decided_by"] == OWNER:
+                return decided                 # sa décision n'est jamais remplacée par la règle
             return log.record(symbol, screening, INDISPONIBLE, by=RULE, now=now,
                               reason=f"reçue de « {group} » ; pas de paire négociable sur Binance Spot")
         universe.request(symbol, tick, now=now, reason=trusted_reason(group, screening))
