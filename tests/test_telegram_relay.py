@@ -224,3 +224,12 @@ def test_real_http_client_logs_never_show_the_token(tmp_path, caplog):
     tg.quiet_http_logs()
     tg.Relay(config(tmp_path), http=http).cycle()
     assert TOKEN not in caplog.text
+
+
+def test_the_image_gives_the_relay_a_writable_folder():
+    """2026-10-06 : le volume `csi-relay` était créé au nom de root (dossier absent de l'image), le relais (utilisateur
+    csi) ne pouvait pas y écrire et redémarrait en boucle. Le dossier existe dans l'image, au nom de csi."""
+    from pathlib import Path
+    dockerfile = (Path(__file__).resolve().parents[1] / "Dockerfile").read_text(encoding="utf-8")
+    assert "/srv/relay" in dockerfile.split("mkdir -p", 1)[1].splitlines()[0]
+    assert "csi:csi /srv/csi /srv/relay" in dockerfile

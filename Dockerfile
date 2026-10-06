@@ -40,8 +40,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 libgl1
     && rm -rf /var/lib/apt/lists/*
 RUN pip install -c constraints.txt ".[forecast,ocr]" \
     && python -c "from rapidocr import RapidOCR; RapidOCR()" \
-    && mkdir -p /srv/csi \
-    && chown -R csi:csi /srv/csi
+    && mkdir -p /srv/csi /srv/relay \
+    && chown -R csi:csi /srv/csi /srv/relay
 
 USER csi
 VOLUME ["/srv/csi"]
