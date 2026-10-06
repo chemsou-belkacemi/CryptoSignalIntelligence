@@ -85,3 +85,13 @@ def test_csi_and_bsm_accept_the_same_signals_with_the_same_prices(text):
     assert bool(b.errors) == bool(c.errors)
     assert (b.symbol, b.entries, b.targets, b.stop, b.stop_timeframe) == \
         (c.symbol, c.entries, c.targets, c.stop, c.stop_timeframe)
+
+
+def test_one_letter_coins_are_read_like_bsm():
+    """2026-10-06 : G/USDT (WHALE HUNTING) n'était lu ni par CSI ni par BSM ; même règle des deux côtés."""
+    from crypto_signal_intelligence.external.parser import parse
+    for text, symbol in (("👑 WHALE HUNTING\nPAIR : G/USDT\nENTRY 1 : 0.00456\nTP 1 : 0.00463\nSL : 0.00438 (15m)", "GUSDT"),
+                         ("#T/USDT\nEntry: 0.02\nTP1: 0.022\nSL: 0.018", "TUSDT")):
+        result = parse(text)
+        assert result.symbol == symbol and not result.errors, text
+    assert parse("PAIR: 1/USDT\nENTRY 1: 2\nT1: 3\nSL: 1").errors
