@@ -441,6 +441,9 @@ def run(settings: Settings, *, now: datetime, allow_final_test: bool, retry: boo
     state = code_state()
     if state.endswith("+DIRTY") or state == "NO_GIT_COMMIT":
         raise DirtyCode(f"code non commité ({state}) : exécution refusée")
+    from . import combinations_study as cs
+    if cs.CODE_REVIEW is None:
+        raise cs.NotReady("relecture leak-auditor du code non inscrite (CODE_REVIEW) : voie A refusée (§ 5.8)")
     if not allow_final_test:
         raise FinalTestLocked("voie A : consultation déclarée de la période réservée, ajouter --i-understand-final-test")
     registry = ExperimentRegistry(settings.experiments_db)

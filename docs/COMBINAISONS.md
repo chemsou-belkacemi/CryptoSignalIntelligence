@@ -262,6 +262,59 @@ avec son intervalle.
   d'événements `CVD_DIV` et part des heures où `FLUX` voterait oui, **par année** (contrôle du centrage, § 2 :
   **descriptif seulement**, la définition de `deltaC` ne change plus quoi que montrent ces comptages).
 
+#### Contrôles sur données synthétiques (inscrits le 2026-10-07, avant toute exécution sur données réelles)
+
+Commande `csi combinaisons controles` (code `bf68bf6`), même code de bout en bout que l'étude ; 120 marches de 3 ans
+(2019 → 2021) par cas ; fichier `reports/COMBO-CONTROLES-20261007T001523Z/hypothese_nulle.json`. Excès moyen en R
+(z, erreur type en grappes marche × mois), central ; le défavorable diffère de moins de 0,001 R partout. Critère :
+`|z| < 3` et `|biais| ≤ 0,02 R` dans les deux scénarios ; « — » : non jugé (excès uniforme des règles à états dans les
+cas à dérive persistante, § 1.8).
+
+| Règle | constante (U / T) | régimes de volatilité | tendances | hausse puis chute | facteur commun |
+|---|---|---|---|---|---|
+| `VP_POC` | +0,000 (0,0) / −0,003 (−0,2) | +0,010 (0,8) / +0,016 (1,4) | −0,011 (−0,9) / −0,002 (−0,2) | +0,008 (0,7) / +0,006 (0,5) | −0,013 (−1,1) / −0,006 (−0,6) |
+| `VP_VAL` | +0,008 (0,6) / +0,011 (0,9) | +0,019 (1,6) / +0,008 (0,6) | **−0,035 (−2,7)** / −0,020 (−1,6) | −0,019 (−1,5) / **+0,021 (1,7)** | **−0,032 (−2,5)** / −0,014 (−1,1) |
+| `AVWAP_RECLAIM` | −0,014 (−2,2) / −0,011 (−1,8) | +0,008 (1,3) / +0,009 (1,4) | +0,005 (0,7) / +0,007 (1,0) | −0,000 (−0,1) / −0,002 (−0,2) | −0,007 (−1,0) / −0,003 (−0,4) |
+| `CVD_DIV` | −0,005 (−0,9) / −0,003 (−0,6) | +0,005 (0,9) / +0,003 (0,6) | +0,000 (0,0) / +0,004 (0,7) | −0,001 (−0,1) / +0,006 (1,1) | −0,010 (−1,7) / −0,006 (−1,0) |
+| `ABSORPTION` | +0,012 (1,8) / +0,011 (1,7) | +0,012 (1,8) / +0,009 (1,4) | −0,003 (−0,5) / −0,004 (−0,6) | +0,002 (0,3) / −0,003 (−0,4) | −0,001 (−0,1) / +0,001 (0,1) |
+| `REF_TOUS` | −0,001 (−0,3) / −0,000 (−0,1) | +0,010 (2,2) / +0,009 (2,0) | −0,003 (−0,7) / +0,000 (0,1) | −0,000 (−0,1) / +0,003 (0,7) | −0,008 (−1,7) / −0,004 (−0,9) |
+| `VOTE_2` | −0,001 (−0,2) / +0,000 (0,0) | +0,010 (2,2) / +0,009 (2,1) | — / +0,001 (0,1) | — / +0,003 (0,8) | — / −0,003 (−0,7) |
+| `VOTE_3` | −0,001 (−0,3) / −0,002 (−0,4) | +0,008 (1,6) / +0,009 (2,0) | — / +0,002 (0,4) | — / +0,003 (0,5) | — / −0,003 (−0,6) |
+| `VOTE_4` | +0,002 (0,4) / +0,003 (0,5) | +0,002 (0,3) / +0,007 (1,2) | — / −0,001 (−0,1) | — / +0,002 (0,3) | — / −0,008 (−1,4) |
+| `LOGIT` (pli 2021) | −0,014 (−1,5) / −0,013 (−1,5) | **+0,020 (2,1)** / +0,014 (1,6) | — / +0,002 (0,3) | — / −0,014 (−1,3) | — / −0,011 (−1,1) |
+
+Environ 194 000 déclencheurs exécutés par cas (16 000 à 73 000 par brique, 24 000 à 37 000 pour `LOGIT`, qui n'a
+qu'un pli sur ces marches). Toutes les valeurs de z sont sous 3 ; **trois échecs, tous sur le biais** (au-delà de
+0,02 R, z entre 1,7 et 2,7) : `VP_VAL` en uniforme (tendances, facteur commun) et en timing (hausse puis chute),
+`LOGIT` en uniforme (régimes de volatilité : +0,0205 R en défavorable). Pour mémoire (non jugé) : excès uniforme de
+`LOGIT` −0,117 R (z −9,9) dans « hausse puis chute », où le modèle de 2021 apprend la hausse de 2019-2020 et achète
+pendant la chute ; les votes y restent sous 0,01 R.
+
+**Test « facteur commun »** : témoin 1 (achat quand `BTC_HAUSSIER`, une clôture sur 4 heures, 338 932 achats) :
+excès uniforme **+0,0226 R (z 3,9), borne basse +0,0114 > 0** : le simulateur contient bien un effet de régime,
+**l'exécution peut avoir lieu** ; son excès de timing −0,001 R (non concluant, apparié sur son propre état). Témoin 2
+(rendement de BTC sur 7 jours > 0, 355 310 achats) : excès uniforme +0,018 R (z 3,3), **excès de timing +0,0023 R
+(z 0,5) : fuite de régime résiduelle**, comptée parmi les biais de timing des règles à états.
+
+**Règle de repli appliquée (inscrite dans le code, `NULL_BIAS`)** : la `PISTE` (et la `CONFIRMEE`) exige une borne
+basse au-dessus de : `VP_VAL` **0,020 R** (excès uniforme) et **0,021 R** (timing) ; `LOGIT` **0,021 R** (uniforme) et
+**0,015 R** (timing) ; `VOTE_2` **0,009 R**, `VOTE_3` **0,010 R**, `VOTE_4` **0,007 R** (timing : plus grand biais
+mesuré, témoin 2 compris, choix prudent de l'historique, point 10) ; 0 pour les autres règles et types d'excès.
+
+**Contrôles positifs** (informatifs, `controles_positifs.json`, 10 simulations de 40 marches de 3 ans chacune,
+volatilité constante, dérive injectée de 0,15 R en prix sur les 60 heures qui suivent l'ordre) :
+- l'effet **mesuré** n'est que de **+0,025 à +0,052 R** d'excès de timing (moyenne ≈ +0,040 R) : la dérive étalée
+  sur 60 heures n'est vue qu'en partie par une transaction qui sort au stop ou aux objectifs avant la fin ;
+- `CVD_DIV` (≈ 23 500 transactions par simulation) : intervalles de l'excès uniforme et de timing entièrement
+  au-dessus de 0 (99,5 %, central et défavorable) dans **10 simulations sur 10** ; `VOTE_3` (≈ 50 000) : **8 sur 10**
+  (les 2 autres : différence avec `REF_TOUS` non démontrée) ;
+- **part des simulations en `PISTE` : 0 sur 10** dans les deux cas, toutes `PISTE_FRAGILE` : le garde-fou de
+  régularité (excès > 0 dans 4 années sur 7) est impossible à tenir sur des marches de 3 ans (vérifié sur une
+  simulation : seul ce garde-fou manque ; part de l'année la plus forte 0,4999, juste sous 0,50).
+- Lecture : sur 40 paires et 3 ans, l'instrument voit un excès de timing de l'ordre de +0,03 à +0,05 R ; sur les
+  vraies données (6,5 ans, garde-fou des années atteignable) la puissance n'est pas mesurée par ce contrôle, qui ne
+  dit rien de plus. Aucun paramètre n'est changé.
+
 #### Comptages d'avant exécution (inscrits le 2026-10-07, aucune transaction simulée, aucun R)
 
 Commande `csi combinaisons comptages` (code `bf68bf6`), 40 paires de recherche, DEVELOPMENT seulement (bougies 1 h
@@ -846,3 +899,6 @@ en conséquence.
   12. **Voie B** : sa pré-inscription (`FORWARD_TESTS.md`, numéro de test) et son module sous `forward/` sont une étape
       à part ; rien n'est écrit ni démarré ici, F4 et F16 intacts.
   13. Paires C : aucune brique n'y a été calculée ni comptée (comptages sur R seulement).
+  14. **Garde-fous d'exécution ajoutés** (après les contrôles, aucun résultat réel vu) : biais de repli inscrits dans
+      le code (`NULL_BIAS`, § 1.8) ; toute exécution réelle (étapes 1, 2, confirmation, voie A) est refusée tant que la
+      relecture `leak-auditor` du code n'est pas inscrite (`CODE_REVIEW`) par un commit relu.

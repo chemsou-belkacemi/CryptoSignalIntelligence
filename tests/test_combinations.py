@@ -628,6 +628,9 @@ def test_runs_refuse_without_controls_and_twice(settings, monkeypatch):
     with pytest.raises(cs.NotReady):
         cs.run_bricks(settings, now=pd.Timestamp("2026-10-07", tz="UTC").to_pydatetime())
     monkeypatch.setattr(cs, "CONTROLS_DATE", "2026-10-07")
+    with pytest.raises(cs.NotReady):                                      # relecture leak-auditor non inscrite
+        cs.run_bricks(settings, now=pd.Timestamp("2026-10-07", tz="UTC").to_pydatetime())
+    monkeypatch.setattr(cs, "CODE_REVIEW", "test")
     monkeypatch.setattr(cs, "code_state", lambda: "abc+DIRTY")
     from crypto_signal_intelligence.research.factors import DirtyCode
     with pytest.raises(DirtyCode):
@@ -786,6 +789,9 @@ def test_telegram_message_counts_read_no_prices(settings, monkeypatch, tmp_path)
 def test_telegram_run_requires_the_final_test_flag(settings, monkeypatch):
     monkeypatch.setattr(ct, "code_state", lambda: "abc")
     from crypto_signal_intelligence.research.protocol import FinalTestLocked
+    with pytest.raises(cs.NotReady):
+        ct.run(settings, now=pd.Timestamp("2026-10-07", tz="UTC").to_pydatetime(), allow_final_test=True)
+    monkeypatch.setattr(cs, "CODE_REVIEW", "test")
     with pytest.raises(FinalTestLocked):
         ct.run(settings, now=pd.Timestamp("2026-10-07", tz="UTC").to_pydatetime(), allow_final_test=False)
     with pytest.raises(FinalTestLocked):
@@ -816,6 +822,7 @@ def test_single_runs_record_their_trials_and_refuse_a_second_run(settings, monke
     monkeypatch.setattr(cs, "collect_trades", lambda *a, **k: (trades.copy(), {"1h/S6USDT": "x"}, []))
     monkeypatch.setattr(cs, "code_state", lambda: "abc")
     monkeypatch.setattr(cs, "CONTROLS_DATE", "2026-10-07")
+    monkeypatch.setattr(cs, "CODE_REVIEW", "test")
     registry = ExperimentRegistry(settings.experiments_db)
     before = registry.program_trials()
     now = pd.Timestamp("2026-10-07", tz="UTC").to_pydatetime()

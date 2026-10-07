@@ -66,8 +66,19 @@ GAIN, LOSS, NO_GAIN = "GAIN_DEMONTRE", "PERTE_DEMONTREE", "GAIN_NON_DEMONTRE"
 FRAGILE_PAIRS = "fragile au tirage par paires"
 # Règle de repli du § 1.8 : biais maximaux mesurés sous l'hypothèse nulle (données synthétiques), inscrits dans le
 # protocole avant toute exécution. Une règle absente de ce tableau a passé le contrôle : seuil 0.
-NULL_BIAS: dict[str, dict[str, float]] = {}
-CONTROLS_DATE: str | None = None           # date d'inscription des contrôles du § 1.8 (exécution refusée avant)
+# Contrôle du 2026-10-07 (reports/COMBO-CONTROLES-20261007T001523Z, 120 marches de 3 ans par cas) : VP_VAL (uniforme et
+# timing) et LOGIT (uniforme) en échec du critère ; règles à états : témoin 2 (+0,0023 R) compté parmi les biais de timing.
+NULL_BIAS: dict[str, dict[str, float]] = {
+    "VP_VAL": {"uniforme": 0.02, "timing": 0.0214},
+    "VOTE_2": {"timing": 0.0093},
+    "VOTE_3": {"timing": 0.0097},
+    "VOTE_4": {"timing": 0.0073},
+    "LOGIT": {"uniforme": 0.0205, "timing": 0.0146},
+}
+CONTROLS_DATE: str | None = "2026-10-07"   # date d'inscription des contrôles du § 1.8 (exécution refusée avant)
+# Relecture indépendante du code (`leak-auditor`) exigée avant toute exécution réelle (§ 9) : à inscrire ici, avec la
+# date et la conclusion, par un commit relu ; l'exécution est refusée tant que la valeur est None.
+CODE_REVIEW: str | None = None
 
 
 class AlreadyRun(RuntimeError):
@@ -818,6 +829,8 @@ def _check_ready(settings: Settings, kind: str, allow_dirty: bool) -> tuple[str,
         raise DirtyCode(f"code non commité ({state}) : exécution refusée (versions reproductibles)")
     if CONTROLS_DATE is None:
         raise NotReady("contrôles du § 1.8 non inscrits (CONTROLS_DATE) : exécution refusée")
+    if CODE_REVIEW is None:
+        raise NotReady("relecture leak-auditor du code non inscrite (CODE_REVIEW) : exécution refusée (§ 9)")
     registry = ExperimentRegistry(settings.experiments_db)
     with registry.connect() as db:
         done = db.execute("SELECT COUNT(*) FROM runs WHERE kind=?", (kind,)).fetchone()[0]
@@ -850,7 +863,8 @@ def _record(settings: Settings, registry: ExperimentRegistry, *, kind: str, pref
                     strategy_version=1, variant="définitions figées (docs/COMBINAISONS.md)",
                     params={"placebos": PLACEBOS, "matched_min": MATCHED_MIN, "stop_atr": cb.STOP_ATR,
                             "blocks": {"evenement": BLOCKS_EVENT, "etats": BLOCKS_STATE}, "samples": samples,
-                            "seed": SEED, "null_bias": NULL_BIAS, "controls": CONTROLS_DATE},
+                            "seed": SEED, "null_bias": NULL_BIAS, "controls": CONTROLS_DATE,
+                            "code_review": CODE_REVIEW},
                     period_label="DEVELOPMENT", period_start=str(fh.FIRST_DAY.date()),
                     period_end=str(trades["at"].max()) if len(trades) else "", universe=sorted(set(trades["symbol"])),
                     data_hashes=hashes, git_commit=state, dependencies=dependency_versions(), seed=SEED,

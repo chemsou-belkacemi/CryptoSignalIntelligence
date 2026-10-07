@@ -2418,7 +2418,7 @@ def combinaisons_telegram(i_understand_final_test: bool = typer.Option(False, "-
         with console.status("voie A…") as status:
             payload = ct.run(settings, now=_now(), allow_final_test=i_understand_final_test, retry=reprise,
                              progress=lambda text: status.update(f"voie A : {text}"))
-    except (DirtyCode, FinalTestLocked, ct.AlreadyConsulted, ct.IncompleteBars, FileNotFoundError) as exc:
+    except (DirtyCode, FinalTestLocked, ct.AlreadyConsulted, ct.IncompleteBars, FileNotFoundError, RuntimeError) as exc:
         console.print(f"[red]Aucun résultat :[/red] {exc}")
         raise typer.Exit(3) from None
     for name, row in payload["result"]["filters"].items():
