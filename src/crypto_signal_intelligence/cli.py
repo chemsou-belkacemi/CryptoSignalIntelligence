@@ -2292,7 +2292,7 @@ def _combo_rows(payload: dict) -> None:
     console.print(f"Rapport : {payload['run_id']} ; programme : {payload['program_trials']} essais")
 
 
-def _combo_run(step: str, executer: bool, allow_dirty: bool, workers: int, verbose: bool) -> None:
+def _combo_run(step: str, executer: bool, workers: int, verbose: bool) -> None:
     from .research import combinations_study as cs
     from .research.factors import DirtyCode
     from .research.trendline_confirmation import IncompleteMinutes
@@ -2304,7 +2304,7 @@ def _combo_run(step: str, executer: bool, allow_dirty: bool, workers: int, verbo
     runner = {"briques": cs.run_bricks, "votes": cs.run_votes, "confirmation": cs.run_confirmation}[step]
     try:
         with console.status(f"combinaisons, {step}…") as status:
-            payload = runner(settings, now=_now(), allow_dirty=allow_dirty, workers=workers,
+            payload = runner(settings, now=_now(), workers=workers,
                              progress=lambda text: status.update(f"combinaisons, {step} : {text}"))
     except (DirtyCode, cs.AlreadyRun, cs.NotReady, IncompleteMinutes, FileNotFoundError) as exc:
         console.print(f"[red]Aucun résultat :[/red] {exc}")
@@ -2343,6 +2343,9 @@ def combinaisons_telegram_counts(verbose: bool = False):
 def combinaisons_controls(marches: int = typer.Option(120, "--marches", help="Marches de 3 ans par cas (120 au moins)"),
                           simulations: int = typer.Option(10, "--simulations", help="Simulations par contrôle positif"),
                           workers: int = typer.Option(4, "--workers"), sans_positifs: bool = typer.Option(False, "--sans-positifs"),
+                          sans_nulle: bool = typer.Option(False, "--sans-nulle", help="Contrôles positifs seulement"),
+                          cas_positifs: list[str] = typer.Option(None, "--cas-positifs", help="Cas synthétiques des contrôles positifs (défaut : constante)"),
+                          annees_positifs: float = typer.Option(3.0, "--annees-positifs", help="Durée des marches des contrôles positifs"),
                           verbose: bool = False):
     """Contrôles du § 1.8 sur données SYNTHÉTIQUES : hypothèse nulle (5 cas), facteur commun et témoins, contrôles
     positifs. Aucune donnée réelle, rien d'inscrit au registre."""
@@ -2351,40 +2354,42 @@ def combinaisons_controls(marches: int = typer.Option(120, "--marches", help="Ma
     _heavy_job(settings)
     directory = settings.reports_dir / f"COMBO-CONTROLES-{_now():%Y%m%dT%H%M%SZ}"
     with console.status("contrôles…") as status:
-        null = cc.run_null(walks=marches, workers=workers, progress=lambda text: status.update(f"hypothèse nulle : {text}"))
-        cc.write(directory, null, "hypothese_nulle.json")
+        if not sans_nulle:
+            null = cc.run_null(walks=marches, workers=workers, progress=lambda text: status.update(f"hypothèse nulle : {text}"))
+            cc.write(directory, null, "hypothese_nulle.json")
+            for case, res in null["results"].items():
+                failed = {k: v for k, v in res["verdict"].items() if "ECHEC" in v.values()}
+                console.print(f"{case} : {res['trades']} transactions ; échecs : {failed or 'aucun'}")
+            console.print(f"Biais de repli : {null['fallback_bias']}")
         if not sans_positifs:
-            positive = cc.run_positive(simulations=simulations, workers=workers,
-                                       progress=lambda text: status.update(text))
+            positive = {case: cc.run_positive(simulations=simulations, workers=workers, case=case, years=annees_positifs,
+                                              progress=lambda text: status.update(text))
+                        for case in (cas_positifs or ["constante"])}
             cc.write(directory, positive, "controles_positifs.json")
-    for case, res in null["results"].items():
-        failed = {k: v for k, v in res["verdict"].items() if "ECHEC" in v.values()}
-        console.print(f"{case} : {res['trades']} transactions ; échecs : {failed or 'aucun'}")
-    console.print(f"Biais de repli : {null['fallback_bias']} ; détail : {directory}")
+            for case, res in positive.items():
+                console.print(f"positif {case} : " + ", ".join(f"{k} {v['piste_share']}" for k, v in res.items()))
+    console.print(f"Détail : {directory}")
 
 
 @combinaisons_app.command("briques")
 def combinaisons_bricks(executer: bool = typer.Option(False, "--executer", help="Exécution réelle UNIQUE (10 essais)"),
-                        allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Code non commité : enregistré et COMPTÉ"),
                         workers: int = typer.Option(4, "--workers"), verbose: bool = False):
     """Étape 1 (§ 3) : les 5 briques nouvelles seules sur les 40 paires, DEVELOPMENT, 10 essais."""
-    _combo_run("briques", executer, allow_dirty, workers, verbose)
+    _combo_run("briques", executer, workers, verbose)
 
 
 @combinaisons_app.command("votes")
 def combinaisons_votes(executer: bool = typer.Option(False, "--executer", help="Exécution réelle UNIQUE (10 essais)"),
-                       allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Code non commité : enregistré et COMPTÉ"),
                        workers: int = typer.Option(4, "--workers"), verbose: bool = False):
     """Étape 2 (§ 4) : REF_TOUS, VOTE_2/3/4 et LOGIT sur les 40 paires, DEVELOPMENT, 10 essais."""
-    _combo_run("votes", executer, allow_dirty, workers, verbose)
+    _combo_run("votes", executer, workers, verbose)
 
 
 @combinaisons_app.command("confirmation")
 def combinaisons_confirmation(executer: bool = typer.Option(False, "--executer", help="Exécution réelle UNIQUE"),
-                              allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Code non commité : enregistré et COMPTÉ"),
                               workers: int = typer.Option(4, "--workers"), verbose: bool = False):
     """Confirmation (§ 4.5) des règles PISTE des étapes 1 et 2 sur les paires C, en une fois, 2·(m₁ + m₂) essais."""
-    _combo_run("confirmation", executer, allow_dirty, workers, verbose)
+    _combo_run("confirmation", executer, workers, verbose)
 
 
 @combinaisons_app.command("telegram-bougies")

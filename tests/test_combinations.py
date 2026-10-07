@@ -636,6 +636,9 @@ def test_runs_refuse_without_controls_and_twice(settings, monkeypatch):
     with pytest.raises(DirtyCode):
         cs.run_bricks(settings, now=pd.Timestamp("2026-10-07", tz="UTC").to_pydatetime())
     monkeypatch.setattr(cs, "code_state", lambda: "abc")
+    with pytest.raises(cs.NotReady):                                      # « test » n'est pas un commit relu
+        cs.run_bricks(settings, now=pd.Timestamp("2026-10-07", tz="UTC").to_pydatetime())
+    monkeypatch.setattr(cs, "require_clean_and_reviewed", lambda state, **k: None)
     with pytest.raises(cs.AlreadyRun):                                    # étape 2 avant l'étape 1 : refusée
         cs.run_votes(settings, now=pd.Timestamp("2026-10-07", tz="UTC").to_pydatetime())
 
@@ -787,11 +790,15 @@ def test_telegram_message_counts_read_no_prices(settings, monkeypatch, tmp_path)
 
 
 def test_telegram_run_requires_the_final_test_flag(settings, monkeypatch):
-    monkeypatch.setattr(ct, "code_state", lambda: "abc")
+    from crypto_signal_intelligence.research.factors import DirtyCode
     from crypto_signal_intelligence.research.protocol import FinalTestLocked
+    monkeypatch.setattr(ct, "code_state", lambda: "abc+DIRTY")
+    with pytest.raises(DirtyCode):                                        # jamais de code non commité, aucune option
+        ct.run(settings, now=pd.Timestamp("2026-10-07", tz="UTC").to_pydatetime(), allow_final_test=True)
+    monkeypatch.setattr(ct, "code_state", lambda: "abc")
     with pytest.raises(cs.NotReady):
         ct.run(settings, now=pd.Timestamp("2026-10-07", tz="UTC").to_pydatetime(), allow_final_test=True)
-    monkeypatch.setattr(cs, "CODE_REVIEW", "test")
+    monkeypatch.setattr(cs, "require_clean_and_reviewed", lambda state, **k: None)
     with pytest.raises(FinalTestLocked):
         ct.run(settings, now=pd.Timestamp("2026-10-07", tz="UTC").to_pydatetime(), allow_final_test=False)
     with pytest.raises(FinalTestLocked):
@@ -822,7 +829,7 @@ def test_single_runs_record_their_trials_and_refuse_a_second_run(settings, monke
     monkeypatch.setattr(cs, "collect_trades", lambda *a, **k: (trades.copy(), {"1h/S6USDT": "x"}, []))
     monkeypatch.setattr(cs, "code_state", lambda: "abc")
     monkeypatch.setattr(cs, "CONTROLS_DATE", "2026-10-07")
-    monkeypatch.setattr(cs, "CODE_REVIEW", "test")
+    monkeypatch.setattr(cs, "require_clean_and_reviewed", lambda state, **k: None)
     registry = ExperimentRegistry(settings.experiments_db)
     before = registry.program_trials()
     now = pd.Timestamp("2026-10-07", tz="UTC").to_pydatetime()
@@ -833,6 +840,10 @@ def test_single_runs_record_their_trials_and_refuse_a_second_run(settings, monke
                for r in one["rows"].values())
     with pytest.raises(cs.AlreadyRun):
         cs.run_bricks(settings, now=now, workers=1)
+    desc = one["rows"]["VP_POC"]["conditions"]["descriptif"]
+    assert {"sans_meilleurs", "objectifs", "issues", "par_paire", "par_case", "par_tranche_horaire"} <= set(desc)
+    assert sum(r["part_declencheurs"] for r in desc["par_tranche_horaire"].values()) == pytest.approx(1, abs=1e-3)
+    assert "overview" in one and one["overview"]["declencheurs"] == len(trades)
     two = cs.run_votes(settings, now=now, workers=1)
     assert set(two["rows"]) == set(cs.STEP2_RULES) and registry.program_trials() == before + 20
     assert two["rows"]["LOGIT"]["excess"]["decision"] == "INSUFFISANT"     # une seule année : aucun pli
@@ -840,3 +851,143 @@ def test_single_runs_record_their_trials_and_refuse_a_second_run(settings, monke
     assert len(saved) == len(trades) and "logit_buy" in saved
     with pytest.raises(cs.AlreadyRun):                                    # aucune PISTE : pas d'exécution sur C
         cs.run_confirmation(settings, now=now, workers=1)
+
+
+# --- Corrections de la relecture leak-auditor (F1 à F5) ---------------------------------------------------------------
+
+def test_dirty_code_is_always_refused_without_any_override(settings, monkeypatch):
+    import inspect
+
+    from crypto_signal_intelligence.research.factors import DirtyCode
+    for runner in (cs.run_bricks, cs.run_votes, cs.run_confirmation, ct.run):
+        assert "allow_dirty" not in inspect.signature(runner).parameters
+    monkeypatch.setattr(cs, "code_state", lambda: "x+DIRTY")
+    monkeypatch.setattr(cs, "CODE_REVIEW", "0" * 40)
+    with pytest.raises(DirtyCode):
+        cs.run_bricks(settings, now=pd.Timestamp("2026-10-07", tz="UTC").to_pydatetime())
+
+
+def _git(root, *args):
+    import subprocess
+    subprocess.run(["git", *args], cwd=root, check=True, capture_output=True,
+                   env={"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+                        "GIT_COMMITTER_EMAIL": "t@t", "PATH": "/usr/bin:/bin"})
+    return subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True).stdout.strip()
+
+
+def test_execution_requires_the_reviewed_commit_unchanged(tmp_path):
+    study = tmp_path / "src" / "crypto_signal_intelligence" / "research" / "combinations.py"
+    imported = tmp_path / "src" / "crypto_signal_intelligence" / "patterns" / "volume.py"
+    other = tmp_path / "README.md"
+    for path in (study, imported, other):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x = 1\n")
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "add", "-A")
+    reviewed = _git(tmp_path, "commit", "-qm", "relu")
+    cs.require_clean_and_reviewed("abc", root=tmp_path, review=reviewed)          # identique : accepté
+    other.write_text("autre\n")
+    _git(tmp_path, "commit", "-qam", "doc")
+    cs.require_clean_and_reviewed("abc", root=tmp_path, review=reviewed)          # fichier hors étude : accepté
+    for path in (imported, study):
+        path.write_text("x = 2\n")
+        _git(tmp_path, "commit", "-qam", "modif")
+        with pytest.raises(cs.NotReady):                                          # source modifiée après la relecture
+            cs.require_clean_and_reviewed("abc", root=tmp_path, review=reviewed)
+        path.write_text("x = 1\n")
+        _git(tmp_path, "commit", "-qam", "retour")
+    with pytest.raises(cs.NotReady):
+        cs.require_clean_and_reviewed("abc", root=tmp_path, review="f" * 40)      # commit inconnu
+    with pytest.raises(cs.NotReady):
+        cs.require_clean_and_reviewed("abc", root=tmp_path, review=None)          # CODE_REVIEW vide (défaut)
+    assert cs.CODE_REVIEW is None
+
+
+def test_cross_group_duplicates_only_between_different_groups():
+    same = [_sig("2026-05-02 10:00", group="A"), _sig("2026-05-02 15:00", group="A", entry=97.0)]
+    ct.dedupe(same)
+    assert [s.status for s in same] == [ct.OK, ct.OK]                    # même groupe, autres niveaux : gardés
+    aba = [_sig("2026-05-02 10:00", group="A"), _sig("2026-05-02 11:00", group="B", entry=101.0),
+           _sig("2026-05-02 12:00", group="A", entry=97.0)]
+    ct.dedupe(aba)
+    assert [s.status for s in aba] == [ct.OK, ct.DUP_CROSS, ct.OK]
+
+
+def _telegram_items():
+    from datetime import UTC, datetime
+
+    from crypto_signal_intelligence.external.audit import HistoryItem
+    return [HistoryItem(text=f"#AB{k}/USDT\nEntry1: 100\nTP1: 104\nStop: 95", group="G",
+                        received_at=datetime(2026, 5, 1 + k, tzinfo=UTC), message_id=str(k)) for k in range(5)]
+
+
+def _telegram_fakes(monkeypatch, *, fail_in: str):
+    monkeypatch.setattr(ct, "code_state", lambda: "abc")
+    monkeypatch.setattr(cs, "require_clean_and_reviewed", lambda state, **k: None)
+    monkeypatch.setattr(ct, "read_exports", lambda root: _telegram_items())
+    monkeypatch.setattr(ct, "load_bars", lambda *a, **k: btc_frame(10, 1))
+    monkeypatch.setattr(ct, "completeness", lambda signals, bars: {s.symbol: {"ok": True} for s in signals})
+    monkeypatch.setattr(ct, "refuse", lambda *a, **k: (ct.OK, ""))
+
+    def bricks(*a, **k):
+        if fail_in == "briques":
+            raise RuntimeError("panne simulée avant les comptages")
+        return dict.fromkeys(ct.BRICKS, 1.0)
+
+    def measure(signal, *a, **k):
+        if fail_in == "R":
+            raise RuntimeError("panne simulée dans measure_signal")
+        signal.r = {"central": 0.0, "defavorable": 0.0}
+    monkeypatch.setattr(ct, "bricks_at", bricks)
+    monkeypatch.setattr(ct, "measure_signal", measure)
+
+
+def test_voie_a_failure_after_counts_cannot_be_retried(settings, monkeypatch):
+    from crypto_signal_intelligence.research.experiments import ExperimentRegistry
+    now = pd.Timestamp("2026-10-07", tz="UTC").to_pydatetime()
+    _telegram_fakes(monkeypatch, fail_in="R")
+    with pytest.raises(RuntimeError, match="measure_signal"):
+        ct.run(settings, now=now, allow_final_test=True)
+    registry = ExperimentRegistry(settings.experiments_db)
+    with registry.connect() as db:
+        status, metrics = db.execute("SELECT status, metrics FROM runs WHERE kind=?", (ct.KIND,)).fetchone()
+    import json as _json
+    metrics = _json.loads(metrics)
+    assert status == "FAILED" and metrics["stage"] == "comptages écrits, calcul des R" and metrics["counts_written"]
+    assert registry.program_trials("FINAL_TEST") == 2
+    _telegram_fakes(monkeypatch, fail_in="")
+    with pytest.raises(ct.AlreadyConsulted):
+        ct.run(settings, now=now, allow_final_test=True, retry=True)
+
+
+def test_voie_a_failure_before_counts_allows_one_retry_without_new_trials(settings, monkeypatch):
+    from crypto_signal_intelligence.research.experiments import ExperimentRegistry
+    now = pd.Timestamp("2026-10-07", tz="UTC").to_pydatetime()
+    _telegram_fakes(monkeypatch, fail_in="briques")
+    with pytest.raises(RuntimeError, match="avant les comptages"):
+        ct.run(settings, now=now, allow_final_test=True)
+    registry = ExperimentRegistry(settings.experiments_db)
+    _telegram_fakes(monkeypatch, fail_in="")
+    with pytest.raises(ct.AlreadyConsulted):                              # pas de reprise sans --reprise
+        ct.run(settings, now=now, allow_final_test=True)
+    payload = ct.run(settings, now=now, allow_final_test=True, retry=True)
+    assert payload["n_trials"] == 0 and payload["retry"]
+    assert registry.program_trials("FINAL_TEST") == 2                    # 8 → 10 dans le vrai registre, jamais plus
+    with pytest.raises(ct.AlreadyConsulted):
+        ct.run(settings, now=now, allow_final_test=True, retry=True)      # une seule reprise
+
+
+def test_newton_must_converge():
+    rng = np.random.default_rng(3)
+    X = (rng.random((500, 3)) < 0.5).astype(float)
+    y = (rng.random(500) < 0.4).astype(float)
+    with pytest.raises(cs.LogitNotConverged):
+        cs.fit_logit(X, y, ("a", "b", "c"), max_iter=1)
+    assert cs.fit_logit(X, y, ("a", "b", "c")).iterations < cs.LOGIT_MAX_ITER
+
+
+def test_pit_flags_for_confirmation_pairs():
+    rows = [{"at": pd.Timestamp("2021-03-05", tz="UTC")}, {"at": pd.Timestamp("2022-07-01", tz="UTC")}]
+    cs.add_pit_flags(rows, {"2022-07"}, last_hour=pd.Timestamp("2023-01-01", tz="UTC"),
+                     end=pd.Timestamp("2025-06-30", tz="UTC"))
+    assert [(r["top40"], r["after_first_top40"], r["delisted_pair"]) for r in rows] == [(False, False, True), (True, True, True)]

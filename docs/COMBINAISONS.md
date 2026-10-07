@@ -377,14 +377,16 @@ des heures utiles pour les 40 paires** (contrôle de `trendline_confirmation.cov
   de transactions exécutées et de transactions `LOGIT` par pli ne se connaîtra qu'à l'exécution).
 
 **Étape 3, comptages sans aucune donnée de marché** (commande `csi combinaisons telegram-comptages`, empreinte du
-parseur `65fbc90f3d73dd86`) : 20 127 messages dans les trois exports, 732 lisibles comme signaux (même répartition
-par mois qu'au § 5.2) ; doublons par groupe 38, puis doublons entre groupes 36 ; exclus par la date (réception après
-le 2026-09-06 00:00) 118 ; **540 signaux avant les refus** (qui exigent des prix de la période réservée et ne sont
-pas faits), 28 noms de groupes (les plus fréquents : ALMAHWASHI CRYPTO 117, HAMZAWY 76, ABOYASEEIN 66, SUHAIB
-ALMASHHADANI 55, ALAFIFY 49). Avant les refus (bornes hautes) : partie d'étude 391 signaux (52 cases groupe × mois,
-380 signaux dans des cases d'au moins 2), partie tenue à l'écart 149 (34 cases, 133 signaux dans des cases d'au moins
+parseur `65fbc90f3d73dd86` ; **refait le 2026-10-07 après la correction F3** de la relecture : doublons entre
+groupes limités à des groupes différents, historique point 15 ; premier comptage remplacé : 36 doublons entre groupes,
+540 signaux) : 20 127 messages dans les trois exports, 732 lisibles comme signaux (même répartition par mois qu'au
+§ 5.2) ; doublons par groupe 38, puis doublons entre groupes différents 19 ; exclus par la date (réception après le
+2026-09-06 00:00) 119 ; **556 signaux avant les refus** (qui exigent des prix de la période réservée et ne sont pas
+faits), 28 noms de groupes (les plus fréquents : ALMAHWASHI CRYPTO 124, HAMZAWY 76, ABOYASEEIN 67, SUHAIB
+ALMASHHADANI 55, ALAFIFY 53). Avant les refus (bornes hautes) : partie d'étude 402 signaux (52 cases groupe × mois,
+392 signaux dans des cases d'au moins 2), partie tenue à l'écart 154 (36 cases, 136 signaux dans des cases d'au moins
 2). Les cases utiles dépendent des votes, donc des prix : non comptées. Le minimum de 40 signaux en cases utiles
-dans la partie tenue à l'écart reste atteignable mais **fragile** (133 au plus avant les refus et l'exigence d'un
+dans la partie tenue à l'écart reste atteignable mais **fragile** (136 au plus avant les refus et l'exigence d'un
 filtre qui garde certains signaux d'une case sans les garder tous), surtout pour `FILTRE_4`, comme prévu au § 5.7.
 
 ## 2. Les briques (définitions exactes et causales)
@@ -902,3 +904,32 @@ en conséquence.
   14. **Garde-fous d'exécution ajoutés** (après les contrôles, aucun résultat réel vu) : biais de repli inscrits dans
       le code (`NULL_BIAS`, § 1.8) ; toute exécution réelle (étapes 1, 2, confirmation, voie A) est refusée tant que la
       relecture `leak-auditor` du code n'est pas inscrite (`CODE_REVIEW`) par un commit relu.
+- 2026-10-07 : **corrections de la relecture `leak-auditor` du code** (aucune fuite trouvée, verdict « à corriger ») ;
+  **précisions de mise en œuvre, aucun résultat vu** (aucun R calculé sur des données réelles).
+  15. **Doublons entre groupes (F3)** : limités à des **groupes différents**, comme l'écrit le § 5.2. Même paire, même
+      jour UTC : le premier reçu est gardé et les signaux **d'autres groupes** sont exclus ; deux signaux d'un même
+      groupe ne relèvent que du dédoublonnage par groupe sur 7 jours. Cas A, puis B, puis A (autres niveaux), même
+      paire, même jour : A gardé, B exclu, le second A gardé. Comptage de l'étape 3 refait (§ 1.8 : 19 doublons entre
+      groupes au lieu de 36, 556 signaux avant les refus au lieu de 540), toujours sans aucun prix.
+  16. **Code non commité (F1)** : toujours refusé pour les exécutions `COMBO_*` et la voie A ; l'option
+      `--allow-dirty` est retirée de ces commandes.
+  17. **Commit relu (F2)** : `CODE_REVIEW` est le commit relu par `leak-auditor` (inscrit par le coordinateur après la
+      relecture, vide à ce jour) ; chaque exécution réelle vérifie par `git diff --quiet <commit> HEAD` que les quatre
+      modules de l'étude et les modules importés (`figures_history`, `trendline_confirmation`, `volatility`,
+      `protocol`, `experiments`, `universe`, `pit_universe`, `long_history`, `minute_history`, `patterns/`,
+      `forward/f15.py`, `forward/costs.py`, `external/`, `backtest/metrics.py`, `ml/logistic.py`,
+      `features/loader.py`) n'ont pas changé ; sinon refus.
+  18. **Panne de la voie A (F4)** : l'exécution `FAILED` inscrit l'étape atteinte (`stage`) et si les comptages ont été
+      écrits ; la reprise (`--reprise`) n'est permise qu'une fois, et seulement si la panne est survenue **avant
+      l'écriture des comptages** ; la reprise s'inscrit avec `n_trials = 0` : le total FINAL_TEST passe de 8 à 10,
+      jamais plus.
+  19. **Descriptifs déclarés calculés avec la mesure (F5)**, dans `evaluate` et le rapport, jamais après coup : sans la
+      paire et sans l'année qui apportent le plus (excès uniforme, de timing, gain), objectifs atteints contre les
+      placebos uniformes et appariés, issues, tableaux par paire, par case d'états et par tranche horaire UTC de 4
+      heures (déclencheurs contre placebos appariés) ; sur C, sous-ensembles « à date » (mois dans le top 40, avant /
+      après la première entrée, paires cotées / retirées), comme `trendline_confirmation` ; vue d'ensemble des statuts
+      par année.
+  20. **Recommandations de la relecture** : Newton doit converger (itérations sous le maximum et gradient < 10⁻⁶), sinon
+      l'exécution s'arrête sans rien inscrire ; voie A : `P_d` disponible si l'`available_at` **stocké** de la bougie
+      de 23:00 du jour `d − 1` est ≤ réception (`d` + latence seulement si cette bougie manque aux données) ;
+      contrôle positif refait sur des marches de 6,5 ans (cas `facteur_commun` et `regimes_vol`), informatif (§ 1.8).

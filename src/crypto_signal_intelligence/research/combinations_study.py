@@ -15,10 +15,12 @@ import hashlib
 import json
 import math
 import random
+import subprocess
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -54,6 +56,7 @@ LOGIT_MIN_POSITIVE_FOLDS = 3
 LOGIT_ABSENT_SHARE = 0.01
 LOGIT_C = 1.0
 LOGIT_MAX_ITER = 1000
+LOGIT_GRADIENT_TOL = 1e-6
 VOTE_RULES = {"VOTE_2": 2, "VOTE_3": 3, "VOTE_4": 4}
 STEP2_RULES = ("REF_TOUS", *VOTE_RULES, "LOGIT")
 STATE_RULES = frozenset({*VOTE_RULES, "LOGIT"})
@@ -76,13 +79,27 @@ NULL_BIAS: dict[str, dict[str, float]] = {
     "LOGIT": {"uniforme": 0.0205, "timing": 0.0146},
 }
 CONTROLS_DATE: str | None = "2026-10-07"   # date d'inscription des contrôles du § 1.8 (exécution refusée avant)
-# Relecture indépendante du code (`leak-auditor`) exigée avant toute exécution réelle (§ 9) : à inscrire ici, avec la
-# date et la conclusion, par un commit relu ; l'exécution est refusée tant que la valeur est None.
+# Relecture indépendante du code (`leak-auditor`) exigée avant toute exécution réelle (§ 9) : COMMIT relu, inscrit ici
+# après la relecture. L'exécution est refusée tant que la valeur est None, et dès que l'un des fichiers de
+# REVIEWED_PATHS diffère entre ce commit et HEAD.
 CODE_REVIEW: str | None = None
+_SRC = "src/crypto_signal_intelligence"
+REVIEWED_PATHS: tuple[str, ...] = (
+    *(f"{_SRC}/research/{m}.py" for m in ("combinations", "combinations_study", "combinations_controls",
+                                          "combinations_telegram", "figures_history", "trendline_confirmation",
+                                          "volatility", "protocol", "experiments", "universe", "pit_universe",
+                                          "long_history", "minute_history")),
+    f"{_SRC}/patterns", f"{_SRC}/forward/f15.py", f"{_SRC}/forward/costs.py", f"{_SRC}/external",
+    f"{_SRC}/backtest/metrics.py", f"{_SRC}/ml/logistic.py", f"{_SRC}/features/loader.py",
+)
 
 
 class AlreadyRun(RuntimeError):
     """Exécution unique déjà faite (ou étape précédente absente) : rien n'est compté."""
+
+
+class LogitNotConverged(RuntimeError):
+    """Newton n'a pas atteint le minimum (itérations épuisées ou gradient non nul) : l'exécution s'arrête."""
 
 
 class NotReady(RuntimeError):
@@ -187,6 +204,7 @@ def play_rows(data: PairData, rows: np.ndarray, m: fh.Minutes, latency: pd.Timed
     hold_ns = f15.HOLD_BARS * f15.TIMEFRAMES["1h"].value
     hi_ns = min(data.end.as_unit("ns").value, int(m.ns[-1])) - hold_ns
     years = pd.DatetimeIndex(table["at"]).year.to_numpy()
+    hours = pd.DatetimeIndex(table["at"]).hour.to_numpy()
     states = cb.state_key(table)
     starts = order_start_ns(table["at"], latency)
     groups: dict[tuple, np.ndarray] = {}
@@ -219,6 +237,7 @@ def play_rows(data: PairData, rows: np.ndarray, m: fh.Minutes, latency: pd.Timed
             with_uniform_placebos(row, m, lo_ns=lo_ns, hi_ns=hi_ns)
             drawn = matched_draw(setup.key, candidates)
             row["matched_rows"] = [int(x) for x in drawn]
+            row["matched_hours"] = [int(h) for h in hours[drawn]]
             _placebo_columns(row, m, starts[drawn], "t")
         out.append(row)
     return out
@@ -305,6 +324,11 @@ def fit_logit(X: np.ndarray, y: np.ndarray, features: tuple[str, ...], *, c: flo
         w -= step
         if np.max(np.abs(step)) < tol:
             break
+    p = 1.0 / (1.0 + np.exp(-np.clip(Z @ w, -500, 500)))
+    gradient = Z.T @ (p - y) + penalty * w
+    if not (np.max(np.abs(step)) < tol and np.max(np.abs(gradient)) < LOGIT_GRADIENT_TOL):
+        raise LogitNotConverged(f"Newton n'a pas convergé ({iterations} itérations, gradient "
+                                f"{float(np.max(np.abs(gradient))):.2e}) : pli non utilisable, rien n'est décidé")
     return Logit(features, w[1:], float(w[0]), float(y.mean()), len(y), iterations)
 
 
@@ -592,6 +616,79 @@ def subset_condition(part: pd.DataFrame, plan: Plan) -> tuple[bool | None, dict]
     return all(detail[s]["ci"][0] > 0 for s in SCENARIOS), detail
 
 
+# --- Descriptifs déclarés (§ 3, § 4.3, § 4.5), calculés avec la mesure, jamais après coup ---------------------------------
+
+TRANCHE_HOURS = 4                     # tranches horaires UTC de 4 heures (clôture de décision)
+
+
+def _mean(values) -> float | None:
+    values = pd.Series(values, dtype=float).dropna()
+    return round(float(values.mean()), 4) if len(values) else None
+
+
+def without_top(part: pd.DataFrame, column: str) -> dict:
+    """Paire et année qui apportent le plus (somme de la colonne) et moyenne sans elles."""
+    values = part[column].astype(float)
+    ok = values.notna()
+    if not ok.any():
+        return {}
+    values, sub = values[ok], part[ok]
+    out: dict = {}
+    for label, key in (("paire", sub["symbol"]), ("annee", sub["year"])):
+        sums = values.groupby(key.to_numpy()).sum()
+        top = sums.idxmax()
+        total = float(sums.sum())
+        out[label] = {"groupe": str(top), "part": round(float(sums.max()) / total, 4) if total > 0 else None,
+                      "moyenne_sans": _mean(values[key.to_numpy() != top])}
+    return out
+
+
+def _table(part: pd.DataFrame, key) -> dict:
+    out = {}
+    for k, g in part.groupby(key):
+        out[str(k)] = {"n": int(len(g)), "texcess": _mean(g[f"texcess_{CENTRAL}"]),
+                       "uexcess": _mean(g[f"uexcess_adj_{CENTRAL}"]), "r": _mean(g[f"r_{CENTRAL}"])}
+    return out
+
+
+def describe_rule(all_part: pd.DataFrame, one_part: pd.DataFrame, plan: Plan) -> dict:
+    """Descriptif hors décision (frais centraux) : sans la paire et l'année qui apportent le plus ; objectifs atteints
+    contre les deux sortes de placebos ; tableaux par paire, par case d'états et par tranche horaire (déclencheurs
+    contre placebos appariés) ; sous-ensembles « à date » des paires C (top 40, cotées / retirées)."""
+    done, one = _executed(all_part), _executed(one_part)
+    if done.empty:
+        return {}
+    out: dict = {"sans_meilleurs": {"excess_timing": without_top(done, f"texcess_{CENTRAL}"),
+                                    "excess_uniforme": without_top(done, f"uexcess_adj_{CENTRAL}"),
+                                    "gain": without_top(one, f"r_{CENTRAL}")}}
+    hits = done[f"hits_{CENTRAL}"].astype(float)
+    out["objectifs"] = {f"TP{k}": {"transactions": _mean(hits >= k),
+                                   "placebos_uniformes": _mean(done[f"uplacebo_tp{k}_{CENTRAL}"]),
+                                   "placebos_apparies": _mean(done[f"tplacebo_tp{k}_{CENTRAL}"])} for k in (1, 2, 3)}
+    out["issues"] = done[f"outcome_{CENTRAL}"].value_counts(normalize=True).round(4).to_dict()
+    out["par_paire"] = _table(done, "symbol")
+    out["par_case"] = _table(done, "state")
+    tranche = pd.to_datetime(done["at"], utc=True).dt.hour.to_numpy() // TRANCHE_HOURS
+    table = _table(done.assign(tranche=tranche), "tranche")
+    if "matched_hours" in done:
+        placebo = pd.Series([h // TRANCHE_HOURS for hs in done["matched_hours"] if isinstance(hs, list | np.ndarray)
+                             for h in hs], dtype=float)
+        shares = placebo.value_counts(normalize=True)
+        trig = pd.Series(tranche).value_counts(normalize=True)
+        for key, row in table.items():
+            row["part_declencheurs"] = round(float(trig.get(int(key), 0.0)), 4)
+            row["part_placebos_apparies"] = round(float(shares.get(float(key), 0.0)), 4)
+    out["par_tranche_horaire"] = table
+    if "top40" in done:
+        subsets = {"top40": done["top40"].astype(bool), "hors_top40": ~done["top40"].astype(bool),
+                   "avant_premier_top40": ~done["after_first_top40"].astype(bool),
+                   "apres_premier_top40": done["after_first_top40"].astype(bool),
+                   "paires_cotees": ~done["delisted_pair"].astype(bool), "paires_retirees": done["delisted_pair"].astype(bool)}
+        out["a_date"] = {k: {c: _stat(done[mask], f"{c}_{CENTRAL}", plan, cross=False)
+                             for c in ("texcess", "uexcess_adj", "r")} for k, mask in subsets.items()}
+    return out
+
+
 # --- Règles -------------------------------------------------------------------------------------------------------------
 
 def rule_masks(trades: pd.DataFrame, *, logit_buy: np.ndarray | None = None) -> dict[str, np.ndarray]:
@@ -632,6 +729,7 @@ def evaluate(trades: pd.DataFrame, names: tuple[str, ...], *, level: float, samp
             late = np.isin(years, LOGIT_FOLDS)
             detail["descriptif_2021_2025"] = measure_rule(trades[mask & late], trades[one_position_mask(trades, mask & late)],
                                                           plan, cross=False)
+        detail["descriptif"] = describe_rule(all_part, one_part, Plan(0.95, 2000, block))
         rows[name] = {"measures": m, "guards": g, "conditions": detail,
                       "excess": decide_excess(name, m, g, extra=extra, confirmation=confirmation),
                       "gain": decide_gain(m), "block_days": block, "one_position_ignored": int(mask.sum() - len(one_part))}
@@ -662,7 +760,7 @@ def _pair_job(args: tuple) -> tuple[str, list[dict] | None, dict]:
     from .derivatives_screen import fingerprint
     from .minute_history import load_minutes
     from .trendline_confirmation import coverage
-    settings, symbol, end, daily, bricks = args
+    settings, symbol, end, daily, bricks, top_months = args
     h1 = _load_pair(settings, symbol, end)
     if h1 is None:
         return symbol, None, {}
@@ -683,14 +781,37 @@ def _pair_job(args: tuple) -> tuple[str, list[dict] | None, dict]:
     if not check["ok"]:
         return symbol, [], hashes
     latency = pd.Timedelta(seconds=settings.data.assumed_availability_latency_seconds)
-    return symbol, play_rows(data, rows, m, latency), hashes
+    out = play_rows(data, rows, m, latency)
+    if top_months is not None:                            # paires C : descriptif « à date » (comme les lignes de tendance)
+        add_pit_flags(out, top_months, last_hour=pd.Timestamp(data.table["open_time"].iloc[-1]), end=end)
+    return symbol, out, hashes
+
+
+def add_pit_flags(rows: list[dict], top_months: set[str], *, last_hour: pd.Timestamp, end: pd.Timestamp) -> None:
+    """`top40` : mois de la décision où la paire est dans le top 40 à date (causal) ; `after_first_top40` ; paire
+    retirée de la cote (rétrospectif, descriptif seulement)."""
+    first_top = min(top_months) if top_months else None
+    delisted = bool(last_hour < end - pd.Timedelta(days=2))
+    for row in rows:
+        month = pd.Timestamp(row["at"]).strftime("%Y-%m")
+        row["top40"] = month in top_months
+        row["after_first_top40"] = first_top is not None and month >= first_top
+        row["delisted_pair"] = delisted
+
+
+def top_months_by_symbol(settings: Settings) -> dict[str, set[str]]:
+    from .pit_universe import load_membership
+    members = load_membership(settings)
+    months = members.assign(m=pd.to_datetime(members["month"], utc=True).dt.strftime("%Y-%m")).groupby("symbol")["m"]
+    return {str(k): set(v) for k, v in months}
 
 
 def collect_trades(settings: Settings, symbols: list[str], *, end: pd.Timestamp, bricks: tuple[str, ...], workers: int,
-                   say: Callable[[str], None]) -> tuple[pd.DataFrame, dict, list[str]]:
+                   say: Callable[[str], None], pit: bool = False) -> tuple[pd.DataFrame, dict, list[str]]:
     from .trendline_confirmation import IncompleteMinutes
     daily = btc_reference(settings, end)
-    jobs = [(settings, s, end, daily, bricks) for s in symbols]
+    top = top_months_by_symbol(settings) if pit else None
+    jobs = [(settings, s, end, daily, bricks, None if top is None else top.get(s, set())) for s in symbols]
     rows: list[dict] = []
     hashes: dict = {}
     coverages: dict = {}
@@ -823,14 +944,31 @@ def run_counts(settings: Settings, *, symbols: list[str] | None = None, workers:
 
 # --- Exécutions uniques (étapes 1, 2 et confirmation) -------------------------------------------------------------------
 
-def _check_ready(settings: Settings, kind: str, allow_dirty: bool) -> tuple[str, ExperimentRegistry]:
-    state = code_state()
-    if (state.endswith("+DIRTY") or state == "NO_GIT_COMMIT") and not allow_dirty:
+def require_clean_and_reviewed(state: str, *, root: Path | None = None, review: str | None = None) -> None:
+    """Code commité (jamais « +DIRTY », aucune option pour passer outre) et identique, sur les modules de l'étude et
+    ceux qu'elle importe, au commit relu par `leak-auditor` (`CODE_REVIEW`). Sinon : exécution refusée."""
+    if state.endswith("+DIRTY") or state == "NO_GIT_COMMIT":
         raise DirtyCode(f"code non commité ({state}) : exécution refusée (versions reproductibles)")
+    commit = CODE_REVIEW if review is None else review
+    if not commit:
+        raise NotReady("relecture leak-auditor du code non inscrite (CODE_REVIEW) : exécution refusée (§ 9)")
+    root = root or Path(__file__).resolve().parents[3]
+    try:
+        out = subprocess.run(["git", "diff", "--quiet", commit, "HEAD", "--", *REVIEWED_PATHS], cwd=root,
+                             capture_output=True, text=True, timeout=30, check=False)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise NotReady(f"comparaison au commit relu impossible : {exc}") from None
+    if out.returncode == 1:
+        raise NotReady(f"code modifié depuis le commit relu {commit[:12]} : nouvelle relecture exigée")
+    if out.returncode != 0:
+        raise NotReady(f"commit relu {commit[:12]} introuvable ou illisible : {out.stderr.strip()[:200]}")
+
+
+def _check_ready(settings: Settings, kind: str) -> tuple[str, ExperimentRegistry]:
+    state = code_state()
     if CONTROLS_DATE is None:
         raise NotReady("contrôles du § 1.8 non inscrits (CONTROLS_DATE) : exécution refusée")
-    if CODE_REVIEW is None:
-        raise NotReady("relecture leak-auditor du code non inscrite (CODE_REVIEW) : exécution refusée (§ 9)")
+    require_clean_and_reviewed(state)
     registry = ExperimentRegistry(settings.experiments_db)
     with registry.connect() as db:
         done = db.execute("SELECT COUNT(*) FROM runs WHERE kind=?", (kind,)).fetchone()[0]
@@ -857,8 +995,12 @@ def _record(settings: Settings, registry: ExperimentRegistry, *, kind: str, pref
     report_dir = settings.reports_dir / run_id
     report_dir.mkdir(parents=True, exist_ok=True)
     decisions = {k: {"excess": v["excess"]["decision"], "gain": v["gain"]} for k, v in rows.items()}
+    overview = {"declencheurs": int(len(trades)), "statuts": trades["status"].value_counts().to_dict(),
+                "raisons": trades["reason"].dropna().value_counts().to_dict() if "reason" in trades else {},
+                "paires": int(trades["symbol"].nunique()),
+                "par_annee": trades.groupby("year")["status"].value_counts().unstack(fill_value=0).to_dict("index")}
     payload = {"run_id": run_id, "kind": kind, "n_trials": n_trials, "program_trials": program, "level": round(level, 6),
-               "samples": samples, "rows": rows, "missing": missing, "doc": cb.DOC} | (extra or {})
+               "samples": samples, "rows": rows, "overview": overview, "missing": missing, "doc": cb.DOC} | (extra or {})
     registry.record(run_id=run_id, created_at=now.isoformat(), kind=kind, hypothesis=hypothesis, strategy=kind,
                     strategy_version=1, variant="définitions figées (docs/COMBINAISONS.md)",
                     params={"placebos": PLACEBOS, "matched_min": MATCHED_MIN, "stop_atr": cb.STOP_ATR,
@@ -878,11 +1020,11 @@ def _record(settings: Settings, registry: ExperimentRegistry, *, kind: str, pref
     return payload
 
 
-def run_bricks(settings: Settings, *, now: datetime, allow_dirty: bool = False, workers: int = 4,
+def run_bricks(settings: Settings, *, now: datetime, workers: int = 4,
                progress: Callable[[str], None] | None = None) -> dict:
     """Étape 1 (§ 3) : les 5 briques nouvelles seules sur les 40 paires, 10 essais."""
     kind = KINDS["bricks"]
-    state, registry = _check_ready(settings, kind, allow_dirty)
+    state, registry = _check_ready(settings, kind)
     end = pd.Timestamp(development_end(settings)).tz_convert("UTC")
     trades, hashes, missing = collect_trades(settings, list(RESEARCH_UNIVERSE), end=end, bricks=cb.NEW_BRICKS,
                                              workers=workers, say=progress or (lambda _t: None))
@@ -919,11 +1061,11 @@ def describe_folds(trades: pd.DataFrame, infos: list[dict]) -> None:
                         "kept_share": round(float(trades.loc[test, "logit_buy"].mean()), 4)}
 
 
-def run_votes(settings: Settings, *, now: datetime, allow_dirty: bool = False, workers: int = 4,
+def run_votes(settings: Settings, *, now: datetime, workers: int = 4,
               progress: Callable[[str], None] | None = None) -> dict:
     """Étape 2 (§ 4) : REF_TOUS, VOTE_2/3/4 et LOGIT sur les 40 paires, 10 essais."""
     kind = KINDS["votes"]
-    state, registry = _check_ready(settings, kind, allow_dirty)
+    state, registry = _check_ready(settings, kind)
     _latest(registry, KINDS["bricks"])
     end = pd.Timestamp(development_end(settings)).tz_convert("UTC")
     trades, hashes, missing = collect_trades(settings, list(RESEARCH_UNIVERSE), end=end, bricks=cb.EVENT_BRICKS,
@@ -948,12 +1090,12 @@ def confirmation_plan(pistes1: list[str], pistes2: list[str]) -> tuple[int, floa
     return 2 * count, 1 - 0.05 / (2 * count)
 
 
-def run_confirmation(settings: Settings, *, now: datetime, allow_dirty: bool = False, workers: int = 4,
+def run_confirmation(settings: Settings, *, now: datetime, workers: int = 4,
                      progress: Callable[[str], None] | None = None, symbols: list[str] | None = None) -> dict:
     """Confirmation sur les paires C (§ 4.5) des règles `PISTE` des étapes 1 et 2, en une seule exécution."""
     from .trendline_confirmation import universe
     kind = KINDS["confirmation"]
-    state, registry = _check_ready(settings, kind, allow_dirty)
+    state, registry = _check_ready(settings, kind)
     step1, step2 = _latest(registry, KINDS["bricks"]), _latest(registry, KINDS["votes"])
     pistes1 = [k for k, v in step1["metrics"]["decisions"].items() if v["excess"] == PISTE]
     pistes2 = [k for k, v in step2["metrics"]["decisions"].items() if v["excess"] == PISTE]
@@ -961,7 +1103,7 @@ def run_confirmation(settings: Settings, *, now: datetime, allow_dirty: bool = F
     end = pd.Timestamp(development_end(settings)).tz_convert("UTC")
     bricks = cb.EVENT_BRICKS if pistes2 else cb.NEW_BRICKS
     trades, hashes, missing = collect_trades(settings, symbols or universe(settings), end=end, bricks=bricks,
-                                             workers=workers, say=progress or (lambda _t: None))
+                                             workers=workers, say=progress or (lambda _t: None), pit=True)
     buy = None
     infos: list[dict] = []
     if "LOGIT" in pistes2:

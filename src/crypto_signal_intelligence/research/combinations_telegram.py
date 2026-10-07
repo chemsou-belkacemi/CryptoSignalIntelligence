@@ -28,7 +28,6 @@ from ..external.trailing import replay_trailing
 from ..patterns.indicators import ema
 from . import combinations as cb
 from .experiments import ExperimentRegistry, code_state, dependency_versions, new_run_id
-from .factors import DirtyCode
 from .protocol import FinalTestLocked
 from .volatility import _window_means
 
@@ -123,7 +122,9 @@ def signals_from(items: list[HistoryItem]) -> list[Signal]:
 
 def dedupe(signals: list[Signal]) -> list[Signal]:
     """(1) doublons PAR GROUPE sur 7 jours (même clé exacte qu'`audit.py`) ; (2) puis, parmi les restants, doublons
-    ENTRE GROUPES : même paire, même jour UTC de réception, seul le premier reçu est gardé."""
+    ENTRE GROUPES DIFFÉRENTS : même paire, même jour UTC de réception, groupes différents, seul le premier reçu est
+    gardé. Deux signaux d'un même groupe ne relèvent que de (1) : A, puis B, puis A (autres niveaux) le même jour sur la
+    même paire → A gardé, B exclu, le second A gardé (il n'est pas un doublon de son propre groupe)."""
     seen: dict[tuple, pd.Timestamp] = {}
     for s in sorted(signals, key=lambda x: x.received):
         if s.status != OK:
@@ -138,10 +139,11 @@ def dedupe(signals: list[Signal]) -> list[Signal]:
         if s.status != OK:
             continue
         day_key = (s.symbol, s.received.floor("D"))
-        if day_key in first:
-            s.status, s.reason = DUP_CROSS, f"déjà reçu de {first[day_key].group} le même jour"
-            continue
-        first[day_key] = s
+        kept = first.get(day_key)
+        if kept is None:
+            first[day_key] = s
+        elif kept.group != s.group:
+            s.status, s.reason = DUP_CROSS, f"déjà reçu de {kept.group} le même jour"
     return signals
 
 
@@ -197,7 +199,8 @@ def bricks_at(signal: Signal, h1: pd.DataFrame, daily_btc: pd.DataFrame, *, late
               mutation: str | None = None) -> dict[str, float]:
     """Les 5 votes (1 / 0 / NaN si non calculable) à la réception, sur les seules bougies 1 h disponibles
     (`available_at` ≤ réception). « Dernier profil disponible » : `P_d` (jour de la réception) seulement si sa dernière
-    bougie, celle de 23:00 du jour `d − 1`, est disponible (`d` + latence ≤ réception), sinon `P_{d−1}`. Mutation
+    bougie, celle de 23:00 du jour `d − 1`, est disponible (son `available_at` stocké ≤ réception ; `d` + latence si
+    elle manque aux données), sinon `P_{d−1}`. Mutation
     `profil_courant` (fuite, pour les tests) : `P_d` toujours, calculé sur toutes les bougies."""
     frame = cb.prepare(h1)
     known = frame[frame["available_at"] <= signal.received].reset_index(drop=True)
@@ -213,7 +216,10 @@ def bricks_at(signal: Signal, h1: pd.DataFrame, daily_btc: pd.DataFrame, *, late
     if mutation == "profil_courant":
         _, val, _, _ = cb.profile_window(frame, cb.Grid.of(frame), day)
     else:
-        chosen = day if day + latency <= signal.received else day - pd.Timedelta(days=1)
+        # `available_at` STOCKÉ de la bougie de 23:00 du jour d − 1 ; si elle manque aux données, d + latence.
+        last_bar = frame.loc[frame["open_time"] == day - cb.HOUR, "available_at"]
+        ready = pd.Timestamp(last_bar.iloc[0]) if len(last_bar) else day + latency
+        chosen = day if ready <= signal.received else day - pd.Timedelta(days=1)
         _, val, _, _ = cb.profile_window(known, grid, chosen)
     if np.isfinite(val):
         out["PROFIL"] = float(signal.entry >= val)
@@ -425,12 +431,17 @@ def evaluate(measured: list[Signal]) -> dict:
     return {"filters": rows}
 
 
+AFTER_COUNTS = frozenset({"écriture des comptages", "comptages écrits, calcul des R", "décisions"})
+
+
 def _failed_once(registry: ExperimentRegistry) -> bool:
-    """Une seule consultation, terminée en panne sans aucun chiffre : une reprise est permise (règle de
-    LIGNES_DE_TENDANCE.md)."""
+    """Une seule consultation, terminée en panne AVANT l'écriture des comptages (aucun chiffre produit) : une seule
+    reprise est permise (règle de LIGNES_DE_TENDANCE.md). Une panne après les comptages n'est jamais reprise."""
     with registry.connect() as db:
-        rows = db.execute("SELECT status FROM runs WHERE kind=?", (KIND,)).fetchall()
-    return registry.final_test_consulted(STRATEGY) == 1 and [r[0] for r in rows] == ["FAILED"]
+        rows = db.execute("SELECT status, json_extract(metrics, '$.counts_written') FROM runs WHERE kind=?",
+                          (KIND,)).fetchall()
+    return (registry.final_test_consulted(STRATEGY) == 1 and len(rows) == 1 and rows[0][0] == "FAILED"
+            and not rows[0][1])
 
 
 def run(settings: Settings, *, now: datetime, allow_final_test: bool, retry: bool = False,
@@ -439,16 +450,16 @@ def run(settings: Settings, *, now: datetime, allow_final_test: bool, retry: boo
     `retry` : seule reprise permise après une panne sans aucun chiffre produit."""
     say = progress or (lambda _t: None)
     state = code_state()
-    if state.endswith("+DIRTY") or state == "NO_GIT_COMMIT":
-        raise DirtyCode(f"code non commité ({state}) : exécution refusée")
     from . import combinations_study as cs
-    if cs.CODE_REVIEW is None:
-        raise cs.NotReady("relecture leak-auditor du code non inscrite (CODE_REVIEW) : voie A refusée (§ 5.8)")
+    cs.require_clean_and_reviewed(state)                  # jamais de code « +DIRTY », commit relu exigé
     if not allow_final_test:
         raise FinalTestLocked("voie A : consultation déclarée de la période réservée, ajouter --i-understand-final-test")
     registry = ExperimentRegistry(settings.experiments_db)
-    if registry.final_test_consulted(STRATEGY) and not (retry and _failed_once(registry)):
-        raise AlreadyConsulted(f"{STRATEGY} a déjà consulté la période réservée : aucune seconde lecture")
+    retrying = bool(registry.final_test_consulted(STRATEGY))
+    if retrying and not (retry and _failed_once(registry)):
+        raise AlreadyConsulted(f"{STRATEGY} a déjà consulté la période réservée : aucune seconde lecture (une reprise "
+                               "n'est permise qu'une fois, après une panne survenue avant l'écriture des comptages)")
+    n_trials = 0 if retrying else N_TRIALS                # la reprise ne compte aucun essai de plus (8 → 10 en tout)
     signals = apply_cutoff(dedupe(signals_from(read_exports(settings.root / "imports" / "telegram"))))
     symbols = sorted({s.symbol for s in signals if s.status == OK})
     bars = {sym: {"1h": load_bars(settings, sym, "1h"), "15m": load_bars(settings, sym, "15m")} for sym in symbols}
@@ -460,19 +471,22 @@ def run(settings: Settings, *, now: datetime, allow_final_test: bool, retry: boo
                              "rien n'est consulté")
     run_id = new_run_id("CMBT")
     consultations = registry.consult_final_test(run_id, STRATEGY)
+    stage = {"value": "consultation inscrite"}
     try:
-        result = _compute(settings, signals, bars, btc, run_id, say)
+        result = _compute(settings, signals, bars, btc, run_id, say, stage)
     except BaseException as exc:                            # consultation consommée sans résultat : trace au registre
         registry.record(run_id=run_id, created_at=now.isoformat(), kind=KIND, hypothesis="voie A (panne)",
                         strategy=STRATEGY, strategy_version=1, variant="définitions figées (docs/COMBINAISONS.md § 5)",
                         params={}, period_label="FINAL_TEST", period_start=str(DOWNLOAD_START), period_end=str(CUTOFF),
                         universe=[], data_hashes={}, git_commit=state, dependencies=dependency_versions(), seed=SEED,
                         cost_scenario="", simulation_rules={}, status="FAILED", report_dir=None,
-                        metrics={"n_trials": N_TRIALS, "consultations_total": consultations,
+                        metrics={"n_trials": n_trials, "consultations_total": consultations, "stage": stage["value"],
+                                 "counts_written": stage["value"] in AFTER_COUNTS, "retry": retrying,
                                  "error": f"{type(exc).__name__}: {exc}"})
         raise
     report_dir = settings.reports_dir / run_id
-    payload = {"run_id": run_id, "n_trials": N_TRIALS, "consultations_total": consultations, "result": result,
+    payload = {"run_id": run_id, "n_trials": n_trials, "retry": retrying, "consultations_total": consultations,
+               "result": result,
                "parser": parser_fingerprint(), "doc": cb.DOC, "checks": checks}
     registry.record(run_id=run_id, created_at=now.isoformat(), kind=KIND,
                     hypothesis="garder les signaux Telegram où au moins 3 (ou 4) briques sur 5 sont d'accord améliore-t-il "
@@ -483,7 +497,8 @@ def run(settings: Settings, *, now: datetime, allow_final_test: bool, retry: boo
                     universe=symbols, data_hashes={"parser": parser_fingerprint()}, git_commit=state,
                     dependencies=dependency_versions(), seed=SEED, cost_scenario="central (décision) et défavorable",
                     simulation_rules={"gestion": "stop suiveur (external/trailing.py)", "non_rempli": "0 R"},
-                    metrics={"n_trials": N_TRIALS, "decisions": {k: v["decision"] for k, v in result["filters"].items()}},
+                    metrics={"n_trials": n_trials, "retry": retrying,
+                             "decisions": {k: v["decision"] for k, v in result["filters"].items()}},
                     status="COMPLETED", report_dir=str(report_dir))
     (report_dir / "summary.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
     pd.DataFrame([asdict(s) for s in signals]).to_json(report_dir / "signaux.json", orient="records", force_ascii=False,
@@ -492,7 +507,9 @@ def run(settings: Settings, *, now: datetime, allow_final_test: bool, retry: boo
 
 
 def _compute(settings: Settings, signals: list[Signal], bars: dict, btc: pd.DataFrame, run_id: str,
-             say: Callable[[str], None]) -> dict:
+             say: Callable[[str], None], stage: dict[str, str]) -> dict:
+    """Étapes inscrites au fur et à mesure (`stage`) : une panne dit où elle est survenue."""
+    stage["value"] = "refus et briques"
     report_dir = settings.reports_dir / run_id
     report_dir.mkdir(parents=True, exist_ok=True)
     daily = cb.btc_daily(btc)
@@ -511,10 +528,13 @@ def _compute(settings: Settings, signals: list[Signal], bars: dict, btc: pd.Data
         say(f"{s.symbol} {s.received:%Y-%m-%d}")
     measured = [s for s in signals if s.status == OK]
     split(measured)
+    stage["value"] = "écriture des comptages"
     before = pre_counts(measured)                         # comptages inscrits AVANT tout R (§ 5.6)
     (report_dir / "comptages.json").write_text(json.dumps(before, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
+    stage["value"] = "comptages écrits, calcul des R"
     for s in measured:
         measure_signal(s, bars[s.symbol]["15m"], settings)
+    stage["value"] = "décisions"
     result = evaluate(measured)
     result["counts_before_r"] = before
     result["status"] = pd.Series([s.status for s in signals]).value_counts().to_dict()

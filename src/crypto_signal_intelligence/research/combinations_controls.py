@@ -75,13 +75,13 @@ def _hourly(o, h, lo, c, rng: np.random.Generator, with_flow: bool = True) -> pd
     return frame
 
 
-def synthetic_walk(case: str, seed: int, *, years: int = YEARS, drift_after: list[tuple[int, int, float]] | None = None) -> Walk:
+def synthetic_walk(case: str, seed: int, *, years: float = YEARS, drift_after: list[tuple[int, int, float]] | None = None) -> Walk:
     """Une paire synthétique de `years` années en minutes, et son BTC. `drift_after` : (minute de début, durée en
     minutes, dérive log totale) ajoutées aux rendements (contrôles positifs)."""
     if case not in CASES:
         raise ValueError(f"cas inconnu : {case}")
     rng = np.random.default_rng(seed)
-    n = years * 365 * 1440
+    n = int(round(years * 365)) * 1440
     mult = np.ones(n)
     drift = np.zeros(n)
     if case in ("regimes_vol", "hausse_chute"):
@@ -245,8 +245,8 @@ def run_null(*, walks: int = WALKS, cases: tuple[str, ...] = CASES, workers: int
 # --- Contrôles positifs (informatifs) ---------------------------------------------------------------------------------
 
 def _positive_job(args: tuple) -> pd.DataFrame:
-    kind, seed = args
-    walk = synthetic_walk("constante", seed)
+    kind, seed, case, years = args
+    walk = synthetic_walk(case, seed, years=years)
     end = pd.Timestamp(int(walk.minutes.ns[-1]), tz="UTC")
     data = cs.pair_data(walk.symbol, walk.h1, cb.btc_daily(walk.btc), end=end)
     if kind == "CVD_DIV":
@@ -261,30 +261,35 @@ def _positive_job(args: tuple) -> pd.DataFrame:
         risk = cb.STOP_ATR * float(row["atr"]) / float(row["close"])
         if math.isfinite(risk):
             drifts.append((start, 60 * 60, POSITIVE_EFFECT * risk))
-    injected = synthetic_walk("constante", seed, drift_after=drifts)
+    injected = synthetic_walk(case, seed, years=years, drift_after=drifts)
     return walk_trades(injected).assign(walk=seed)
 
 
 def run_positive(*, simulations: int = 10, pairs: int = 40, workers: int = 4, seed0: int = 90_000,
-                 progress: Callable[[str], None] | None = None) -> dict:
+                 progress: Callable[[str], None] | None = None, case: str = "constante", years: float = YEARS,
+                 kinds: tuple[str, ...] = ("CVD_DIV", "VOTE_3")) -> dict:
     """Part des simulations (univers de `pairs` marches de 3 ans) où la règle sort `PISTE` avec un effet injecté de
     +0,15 R : (1) après une divergence CVD, (2) après un vote à 3 au moins. Puissance informative, non bloquante."""
     say = progress or (lambda _t: None)
     out: dict = {}
-    for kind, rule in (("CVD_DIV", "CVD_DIV"), ("VOTE_3", "VOTE_3")):
+    for kind in kinds:
+        rule = kind
         decisions = []
         for sim in range(simulations):
-            jobs = [(kind, seed0 + 10_000 * (kind == "VOTE_3") + 100 * sim + p) for p in range(pairs)]
+            jobs = [(kind, seed0 + 10_000 * (kind == "VOTE_3") + 100 * sim + p, case, years) for p in range(pairs)]
             with ProcessPoolExecutor(workers) as pool:
                 trades = pd.concat(list(pool.map(_positive_job, jobs)), ignore_index=True)
             trig = trades[trades["trigger"]].reset_index(drop=True)
             rows = cs.evaluate(trig, (rule,), level=cs.LEVEL_R, samples=cs.SAMPLES_R)
-            decisions.append({"decision": rows[rule]["excess"]["decision"],
+            failed = sorted({k for g in rows[rule]["guards"].values() for k in ("top", "pair", "year", "regular")
+                             if not g.get(k)})
+            decisions.append({"decision": rows[rule]["excess"]["decision"], "guards_failed": failed,
+                              "uniform_ci": rows[rule]["measures"]["central"]["uniform"]["ci"],
                               "timing_mean": rows[rule]["measures"]["central"]["timing"]["mean"],
                               "timing_ci": rows[rule]["measures"]["central"]["timing"]["ci"],
                               "n": rows[rule]["measures"]["central"]["timing"]["n"]})
             say(f"contrôle positif {kind} : simulation {sim + 1}/{simulations}")
-        out[kind] = {"simulations": simulations, "pairs": pairs, "years": YEARS,
+        out[kind] = {"simulations": simulations, "pairs": pairs, "years": years, "case": case,
                      "piste_share": round(sum(d["decision"] == cs.PISTE for d in decisions) / simulations, 3),
                      "runs": decisions}
     return out
