@@ -2272,3 +2272,155 @@ def forward_report():
     settings = _settings()
     path = write(settings, now=_now())
     console.print(path.read_text(encoding="utf-8"))
+
+
+combinaisons_app = typer.Typer(no_args_is_help=True,
+                               help="Combiner les briques (docs/COMBINAISONS.md) : comptages, contrôles, étapes 1 à 3. "
+                                    "Chaque exécution réelle est unique et exige --executer (ou --i-understand-final-test).")
+app.add_typer(combinaisons_app, name="combinaisons")
+
+
+def _combo_rows(payload: dict) -> None:
+    table = Table("Règle", "Scénario", "Excès uniforme (IC)", "Excès de timing (IC)", "R moyen une position (IC)",
+                  "Excès", "Gain", title=f"{payload['kind']} — {payload['n_trials']} essais, niveau {payload['level']}")
+    for name, row in payload["rows"].items():
+        for scenario, m in row["measures"].items():
+            table.add_row(name, scenario, f"{m['uniform']['mean']} {m['uniform']['ci']}",
+                          f"{m['timing']['mean']} {m['timing']['ci']}", f"{m['gain']['mean']} {m['gain']['ci']}",
+                          row["excess"]["decision"], row["gain"])
+    console.print(table)
+    console.print(f"Rapport : {payload['run_id']} ; programme : {payload['program_trials']} essais")
+
+
+def _combo_run(step: str, executer: bool, allow_dirty: bool, workers: int, verbose: bool) -> None:
+    from .research import combinations_study as cs
+    from .research.factors import DirtyCode
+    from .research.trendline_confirmation import IncompleteMinutes
+    if not executer:
+        console.print("[red]Exécution réelle unique : ajouter --executer (après la relecture leak-auditor).[/red]")
+        raise typer.Exit(2)
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    runner = {"briques": cs.run_bricks, "votes": cs.run_votes, "confirmation": cs.run_confirmation}[step]
+    try:
+        with console.status(f"combinaisons, {step}…") as status:
+            payload = runner(settings, now=_now(), allow_dirty=allow_dirty, workers=workers,
+                             progress=lambda text: status.update(f"combinaisons, {step} : {text}"))
+    except (DirtyCode, cs.AlreadyRun, cs.NotReady, IncompleteMinutes, FileNotFoundError) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    _combo_rows(payload)
+
+
+@combinaisons_app.command("comptages")
+def combinaisons_counts(workers: int = typer.Option(4, "--workers"),
+                        sans_minutes: bool = typer.Option(False, "--sans-minutes", help="Sans le contrôle de couverture des minutes"),
+                        verbose: bool = False):
+    """Comptages du § 1.8 sur les 40 paires (DEVELOPMENT) : déclencheurs, votes, cases d'états, placebos appariés,
+    CVD et FLUX par année. Aucune transaction simulée, aucun R, rien d'inscrit au registre."""
+    from .research.combinations_study import run_counts
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    with console.status("comptages…") as status:
+        payload = run_counts(settings, workers=workers, check_minutes=not sans_minutes,
+                             progress=lambda text: status.update(f"comptages : {text}"))
+    total = payload["total"]
+    table = Table("Règle", *[str(y) for y in range(2019, 2026)], "Total", title="Déclencheurs dans la période (aucun R)")
+    for rule, years in total["rules_by_year"].items():
+        table.add_row(rule, *[str(years.get(str(y), years.get(y, 0))) for y in range(2019, 2026)], str(sum(years.values())))
+    console.print(table)
+    console.print(f"Détail : {payload['directory']}/comptages.json")
+
+
+@combinaisons_app.command("telegram-comptages")
+def combinaisons_telegram_counts(verbose: bool = False):
+    """Comptages de l'étape 3 qui n'exigent aucune donnée de marché : messages, doublons, coupure, parties (§ 5.2)."""
+    from .research.combinations_telegram import message_counts
+    console.print_json(json.dumps(message_counts(_settings(verbose)), ensure_ascii=False, default=str))
+
+
+@combinaisons_app.command("controles")
+def combinaisons_controls(marches: int = typer.Option(120, "--marches", help="Marches de 3 ans par cas (120 au moins)"),
+                          simulations: int = typer.Option(10, "--simulations", help="Simulations par contrôle positif"),
+                          workers: int = typer.Option(4, "--workers"), sans_positifs: bool = typer.Option(False, "--sans-positifs"),
+                          verbose: bool = False):
+    """Contrôles du § 1.8 sur données SYNTHÉTIQUES : hypothèse nulle (5 cas), facteur commun et témoins, contrôles
+    positifs. Aucune donnée réelle, rien d'inscrit au registre."""
+    from .research import combinations_controls as cc
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    directory = settings.reports_dir / f"COMBO-CONTROLES-{_now():%Y%m%dT%H%M%SZ}"
+    with console.status("contrôles…") as status:
+        null = cc.run_null(walks=marches, workers=workers, progress=lambda text: status.update(f"hypothèse nulle : {text}"))
+        cc.write(directory, null, "hypothese_nulle.json")
+        if not sans_positifs:
+            positive = cc.run_positive(simulations=simulations, workers=workers,
+                                       progress=lambda text: status.update(text))
+            cc.write(directory, positive, "controles_positifs.json")
+    for case, res in null["results"].items():
+        failed = {k: v for k, v in res["verdict"].items() if "ECHEC" in v.values()}
+        console.print(f"{case} : {res['trades']} transactions ; échecs : {failed or 'aucun'}")
+    console.print(f"Biais de repli : {null['fallback_bias']} ; détail : {directory}")
+
+
+@combinaisons_app.command("briques")
+def combinaisons_bricks(executer: bool = typer.Option(False, "--executer", help="Exécution réelle UNIQUE (10 essais)"),
+                        allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Code non commité : enregistré et COMPTÉ"),
+                        workers: int = typer.Option(4, "--workers"), verbose: bool = False):
+    """Étape 1 (§ 3) : les 5 briques nouvelles seules sur les 40 paires, DEVELOPMENT, 10 essais."""
+    _combo_run("briques", executer, allow_dirty, workers, verbose)
+
+
+@combinaisons_app.command("votes")
+def combinaisons_votes(executer: bool = typer.Option(False, "--executer", help="Exécution réelle UNIQUE (10 essais)"),
+                       allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Code non commité : enregistré et COMPTÉ"),
+                       workers: int = typer.Option(4, "--workers"), verbose: bool = False):
+    """Étape 2 (§ 4) : REF_TOUS, VOTE_2/3/4 et LOGIT sur les 40 paires, DEVELOPMENT, 10 essais."""
+    _combo_run("votes", executer, allow_dirty, workers, verbose)
+
+
+@combinaisons_app.command("confirmation")
+def combinaisons_confirmation(executer: bool = typer.Option(False, "--executer", help="Exécution réelle UNIQUE"),
+                              allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Code non commité : enregistré et COMPTÉ"),
+                              workers: int = typer.Option(4, "--workers"), verbose: bool = False):
+    """Confirmation (§ 4.5) des règles PISTE des étapes 1 et 2 sur les paires C, en une fois, 2·(m₁ + m₂) essais."""
+    _combo_run("confirmation", executer, allow_dirty, workers, verbose)
+
+
+@combinaisons_app.command("telegram-bougies")
+def combinaisons_telegram_bars(i_understand_final_test: bool = typer.Option(False, "--i-understand-final-test"),
+                               verbose: bool = False):
+    """Télécharge les bougies 1 h et 15 min des paires des signaux (2025-11-01 → coupure), période réservée."""
+    from .research import combinations_telegram as ct
+    from .research.protocol import FinalTestLocked
+    settings = _settings(verbose)
+    signals = ct.apply_cutoff(ct.dedupe(ct.signals_from(ct.read_exports(settings.root / "imports" / "telegram"))))
+    try:
+        out = ct.download_bars(settings, [s.symbol for s in signals if s.status == ct.OK],
+                               allow_final_test=i_understand_final_test)
+    except FinalTestLocked as exc:
+        console.print(f"[red]Refusé :[/red] {exc}")
+        raise typer.Exit(2) from None
+    console.print(f"{len(out)} séries ; échecs : {[o for o in out if 'error' in o]}")
+
+
+@combinaisons_app.command("telegram")
+def combinaisons_telegram(i_understand_final_test: bool = typer.Option(False, "--i-understand-final-test",
+                                                                       help="Consultation n° 4 de la période réservée (enregistrée)"),
+                          reprise: bool = typer.Option(False, "--reprise", help="Seule reprise après une panne sans chiffre"),
+                          verbose: bool = False):
+    """Étape 3, voie A (§ 5) : filtre des signaux Telegram de 2026, 2 essais sur FINAL_TEST."""
+    from .research import combinations_telegram as ct
+    from .research.factors import DirtyCode
+    from .research.protocol import FinalTestLocked
+    settings = _settings(verbose)
+    try:
+        with console.status("voie A…") as status:
+            payload = ct.run(settings, now=_now(), allow_final_test=i_understand_final_test, retry=reprise,
+                             progress=lambda text: status.update(f"voie A : {text}"))
+    except (DirtyCode, FinalTestLocked, ct.AlreadyConsulted, ct.IncompleteBars, FileNotFoundError) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    for name, row in payload["result"]["filters"].items():
+        console.print(f"{name} : {row['decision']} (étude p = {row['study'].get('p')}, écart p = {row['holdout'].get('p')})")
+    console.print(f"Rapport : {payload['run_id']} ; consultations du programme : {payload['consultations_total']}")
