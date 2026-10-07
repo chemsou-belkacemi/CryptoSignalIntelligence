@@ -806,3 +806,30 @@ def test_null_control_pipeline_and_judgement_on_a_small_sample():
     bias = cc.fallback_bias(results)
     for name, entry in bias.items():
         assert all(v >= 0 for v in entry.values()) and name in cc.NULL_RULES
+
+
+def test_single_runs_record_their_trials_and_refuse_a_second_run(settings, monkeypatch):
+    from crypto_signal_intelligence.research import combinations_controls as cc
+    from crypto_signal_intelligence.research.experiments import ExperimentRegistry
+    trades = cc.walk_trades(cc.synthetic_walk("constante", 6, years=1))
+    trades = trades[trades["trigger"]].reset_index(drop=True)
+    monkeypatch.setattr(cs, "collect_trades", lambda *a, **k: (trades.copy(), {"1h/S6USDT": "x"}, []))
+    monkeypatch.setattr(cs, "code_state", lambda: "abc")
+    monkeypatch.setattr(cs, "CONTROLS_DATE", "2026-10-07")
+    registry = ExperimentRegistry(settings.experiments_db)
+    before = registry.program_trials()
+    now = pd.Timestamp("2026-10-07", tz="UTC").to_pydatetime()
+    one = cs.run_bricks(settings, now=now, workers=1)
+    assert one["n_trials"] == 10 and registry.program_trials() == before + 10
+    assert set(one["rows"]) == set(cb.NEW_BRICKS)
+    assert all(r["excess"]["decision"] in ("PISTE", "PISTE_FRAGILE", "INVERSE", "INSUFFISANT", "RIEN")
+               for r in one["rows"].values())
+    with pytest.raises(cs.AlreadyRun):
+        cs.run_bricks(settings, now=now, workers=1)
+    two = cs.run_votes(settings, now=now, workers=1)
+    assert set(two["rows"]) == set(cs.STEP2_RULES) and registry.program_trials() == before + 20
+    assert two["rows"]["LOGIT"]["excess"]["decision"] == "INSUFFISANT"     # une seule année : aucun pli
+    saved = pd.read_parquet(settings.reports_dir / two["run_id"] / "trades.parquet")
+    assert len(saved) == len(trades) and "logit_buy" in saved
+    with pytest.raises(cs.AlreadyRun):                                    # aucune PISTE : pas d'exécution sur C
+        cs.run_confirmation(settings, now=now, workers=1)

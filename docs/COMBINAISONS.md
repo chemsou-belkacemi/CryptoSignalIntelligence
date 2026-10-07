@@ -262,6 +262,78 @@ avec son intervalle.
   d'événements `CVD_DIV` et part des heures où `FLUX` voterait oui, **par année** (contrôle du centrage, § 2 :
   **descriptif seulement**, la définition de `deltaC` ne change plus quoi que montrent ces comptages).
 
+#### Comptages d'avant exécution (inscrits le 2026-10-07, aucune transaction simulée, aucun R)
+
+Commande `csi combinaisons comptages` (code `bf68bf6`), 40 paires de recherche, DEVELOPMENT seulement (bougies 1 h
+coupées au 2025-06-30 23:59:59), période des déclencheurs de `in_period`. Fichier :
+`reports/COMBO-COMPTAGES-20261007T001433Z/comptages.json`. Aucune paire absente ; **couverture des minutes : 100 %
+des heures utiles pour les 40 paires** (contrôle de `trendline_confirmation.coverage` : aucun blocage).
+
+- **Heures de décision dans la période** : 1 655 199 (129 523 en 2019, 194 830, 257 005, 274 528, 298 127, 330 626,
+  170 560 au premier semestre 2025).
+- **Événements par brique et par année** (2019 → 2025-S1) :
+
+  | Brique | 2019 | 2020 | 2021 | 2022 | 2023 | 2024 | 2025-S1 | Total |
+  |---|---|---|---|---|---|---|---|---|
+  | `VP_POC` | 780 | 1 160 | 1 460 | 1 505 | 1 787 | 1 819 | 957 | 9 468 |
+  | `VP_VAL` | 535 | 631 | 921 | 1 280 | 1 260 | 1 420 | 911 | 6 958 |
+  | `AVWAP_RECLAIM` | 2 033 | 3 087 | 4 052 | 4 184 | 4 787 | 5 138 | 2 641 | 25 922 |
+  | `CVD_DIV` | 2 027 | 2 738 | 3 569 | 4 103 | 4 106 | 5 013 | 2 819 | 24 375 |
+  | `ABSORPTION` | 943 | 1 098 | 1 605 | 1 407 | 1 703 | 1 850 | 948 | 9 554 |
+  | `TRENDLINE` | 133 | 167 | 250 | 306 | 301 | 359 | 196 | 1 712 |
+
+- **Déclencheurs de l'étape 2 par année** (heures où au moins un événement se produit ; règles emboîtées) :
+
+  | Règle | 2019 | 2020 | 2021 | 2022 | 2023 | 2024 | 2025-S1 | Total |
+  |---|---|---|---|---|---|---|---|---|
+  | `REF_TOUS` | 6 296 | 8 694 | 11 584 | 12 521 | 13 623 | 15 252 | 8 275 | 76 245 |
+  | `VOTE_2` | 6 060 | 8 492 | 11 215 | 11 516 | 13 310 | 14 867 | 7 954 | 73 414 |
+  | `VOTE_3` | 4 892 | 7 436 | 9 447 | 7 921 | 11 506 | 12 715 | 6 528 | 60 445 |
+  | `VOTE_4` | 2 811 | 4 771 | 5 869 | 3 625 | 7 163 | 7 902 | 3 823 | 35 964 |
+
+  Nombre de votes oui aux déclencheurs : 1 vote 2 831, 2 : 12 969, 3 : 24 481, 4 : 22 984, 5 : 10 382, 6 : 2 352,
+  7 : 237, 8 : 9. Votes oui par brique (sur les 76 245 déclencheurs) : `VP_POC` 17 576, `VP_VAL` 13 111,
+  `AVWAP_RECLAIM` 43 555, `CVD_DIV` 39 841, `ABSORPTION` 16 792, `TRENDLINE` 3 497, `TENDANCE` 32 591, `VOL_CALME`
+  51 653, `BTC_HAUSSIER` 43 285. Votes absents : `ABSORPTION` 875, `VOL_CALME` 435, aucun pour les autres. Heures de
+  la période où une brique est absente : `ABSORPTION` 19 871 (1,2 %), `VOL_CALME` 10 810 (0,7 %), aucune pour les
+  autres. Lignes du modèle logistique (déclencheurs par année de décision, avant exécution) : premier entraînement
+  2019-2020 ≈ 15 000 lignes, plis 2021 à 2025-S1 de 8 275 à 15 252 déclencheurs.
+- **Déclencheurs par case d'états** (`TENDANCE`-`VOL_CALME`-`BTC_HAUSSIER`, `A` = absente) :
+
+  | Règle | 0-0-0 | 0-0-1 | 0-1-0 | 0-1-1 | 0-A-0 | 0-A-1 | 1-0-0 | 1-0-1 | 1-1-0 | 1-1-1 | 1-A-0 | 1-A-1 |
+  |---|---|---|---|---|---|---|---|---|---|---|---|---|
+  | `REF_TOUS` | 6 849 | 5 594 | 17 157 | 13 788 | 131 | 135 | 2 264 | 9 450 | 6 539 | 14 169 | 20 | 149 |
+  | `VOTE_2` | 4 074 | 5 594 | 17 157 | 13 788 | 75 | 135 | 2 264 | 9 450 | 6 539 | 14 169 | 20 | 149 |
+  | `VOTE_3` | 1 130 | 3 714 | 10 047 | 13 788 | 20 | 79 | 1 346 | 9 450 | 6 539 | 14 169 | 14 | 149 |
+  | `VOTE_4` | 179 | 1 334 | 2 712 | 8 372 | 4 | 24 | 421 | 5 011 | 3 661 | 14 169 | 3 | 74 |
+  | `VP_POC` | 390 | 707 | 1 555 | 1 624 | 12 | 18 | 358 | 972 | 1 383 | 2 427 | 6 | 16 |
+  | `VP_VAL` | 932 | 911 | 2 273 | 1 914 | 20 | 23 | 164 | 158 | 335 | 227 | 1 | 0 |
+  | `AVWAP_RECLAIM` | 2 267 | 1 643 | 5 121 | 3 995 | 47 | 33 | 885 | 4 353 | 2 230 | 5 279 | 8 | 61 |
+  | `CVD_DIV` | 2 383 | 1 693 | 6 325 | 4 843 | 30 | 45 | 544 | 2 605 | 1 731 | 4 132 | 3 | 41 |
+  | `ABSORPTION` | 909 | 722 | 1 851 | 1 455 | 11 | 19 | 294 | 1 410 | 813 | 2 037 | 1 | 32 |
+
+- **Heures candidates aux placebos appariés** : 2 057 cases paire × année × états non vides ; médiane 565 heures par
+  case, 10e centile 46 ; 60 cases de moins de 20 heures, 24 de moins de 5 (presque toutes des cases où `VOL_CALME`
+  est absente). **Déclencheurs sans placebo apparié (moins de 5 candidats)** : 4 sur 76 245 (`REF_TOUS`), 32 avec moins
+  de 20 candidats ; par brique de l'étape 1 : `VP_POC` 0 (8 sous 20), `VP_VAL` 1 (2), `AVWAP_RECLAIM` 2 (10),
+  `CVD_DIV` 0 (10), `ABSORPTION` 0 (2).
+- **Centrage du flux (descriptif)** : `CVD_DIV` par année ci-dessus ; part des heures où `FLUX` voterait oui : 49,4 %
+  (2019), 49,5 %, 47,9 %, 47,7 %, 47,7 %, 47,9 %, 49,1 % (2025-S1).
+- **Minimums** : chaque règle des étapes 1 et 2 a plusieurs milliers de déclencheurs (au moins 6 958) et chaque pli
+  de `LOGIT` plus de 8 000 lignes : aucune règle n'est attendue `INSUFFISANT` par manque de déclencheurs (le nombre
+  de transactions exécutées et de transactions `LOGIT` par pli ne se connaîtra qu'à l'exécution).
+
+**Étape 3, comptages sans aucune donnée de marché** (commande `csi combinaisons telegram-comptages`, empreinte du
+parseur `65fbc90f3d73dd86`) : 20 127 messages dans les trois exports, 732 lisibles comme signaux (même répartition
+par mois qu'au § 5.2) ; doublons par groupe 38, puis doublons entre groupes 36 ; exclus par la date (réception après
+le 2026-09-06 00:00) 118 ; **540 signaux avant les refus** (qui exigent des prix de la période réservée et ne sont
+pas faits), 28 noms de groupes (les plus fréquents : ALMAHWASHI CRYPTO 117, HAMZAWY 76, ABOYASEEIN 66, SUHAIB
+ALMASHHADANI 55, ALAFIFY 49). Avant les refus (bornes hautes) : partie d'étude 391 signaux (52 cases groupe × mois,
+380 signaux dans des cases d'au moins 2), partie tenue à l'écart 149 (34 cases, 133 signaux dans des cases d'au moins
+2). Les cases utiles dépendent des votes, donc des prix : non comptées. Le minimum de 40 signaux en cases utiles
+dans la partie tenue à l'écart reste atteignable mais **fragile** (133 au plus avant les refus et l'exigence d'un
+filtre qui garde certains signaux d'une case sans les garder tous), surtout pour `FILTRE_4`, comme prévu au § 5.7.
+
 ## 2. Les briques (définitions exactes et causales)
 
 Notations de `INDICATEURS.md` : bougies 1 h clôturées `i`, `O, H, L, C, V` (volume en devise de base), `TB` = volume
@@ -711,3 +783,66 @@ en conséquence.
   - **J.** Ordre des doublons.
   - **K.** Total FINAL_TEST de 8 vérifié (§ 6).
   - **L.** L'excès de timing des règles à états ne peut venir que de l'interaction événement × régime.
+- 2026-10-07 : **précisions de mise en œuvre, aucun résultat vu** (code `bf68bf6`, écrit avant toute exécution sur
+  données réelles ; seuls des comptages sans R ont été faits ensuite, § 1.8). Chaque choix est le plus prudent quand le
+  texte en laissait deux.
+  1. **Code et commandes** : `research/combinations.py` (briques, votes), `research/combinations_study.py`
+     (transactions, placebos, modèle, mesures, décisions, exécutions), `research/combinations_controls.py` (§ 1.8),
+     `research/combinations_telegram.py` (voie A) ; tests `tests/test_combinations.py`. Les commandes du § 10 sont des
+     sous-commandes : `csi combinaisons briques | votes | confirmation | telegram` (plus `comptages`,
+     `telegram-comptages`, `controles`, `telegram-bougies`). Chaque exécution réelle exige `--executer` (ou
+     `--i-understand-final-test`), un code commité, les contrôles du § 1.8 inscrits dans le code (`CONTROLS_DATE`,
+     `NULL_BIAS`) et n'a lieu qu'une fois par type (`COMBO_BRIQUES`, `COMBO_VOTES`, `COMBO_CONFIRMATION`,
+     `COMBO_TELEGRAM`) ; l'étape 2 exige l'étape 1, la confirmation les deux.
+  2. **Indices et fenêtres** : `t − 1`, ATR, EMA, pivots fractals et ZigZag se lisent sur la suite des bougies
+     **présentes** (comme F15 et `figures_history`) ; les fenêtres de 24, 168 et 720 heures (centrage, profil,
+     absorption, `VOL_CALME`, `STOP_VOL`) sur la **grille horaire complète** (heure absente = bougie absente).
+  3. **Vote d'une brique événement** : oui si un événement a eu lieu dans les heures `t − 23 … t` ; sinon non si la
+     brique est calculable à `t`, sinon absente. Calculable : `VP_*` si `P_d` existe et que la bougie précédente
+     existe ; `AVWAP_RECLAIM` si une ancre est connue ; `CVD_DIV` si `deltaC_t` existe ; `ABSORPTION` si la
+     référence a 360 bougies valides ; `TRENDLINE` dès que l'ATR existe.
+  4. **Une heure = une transaction** pour toutes les règles et les deux étapes (clé `paire:1h:COMBO:bull:heure`),
+     d'où des ensembles exactement emboîtés. Graines : `COMBINAISONS:clé` (uniformes) et `COMBINAISONS:APPARIE:clé`
+     (appariés). Année d'une transaction = année de sa clôture de décision (placebos appariés, régularité, plis).
+  5. **Sortie connue** = fin de la minute de sortie (`exit_at` + 1 min) : « une position par paire » ne garde un
+     déclencheur que si la sortie connue de la transaction gardée précédente est ≤ sa clôture ; purge de `LOGIT` :
+     `exit_at` + 1 min ≤ 1er janvier. Un déclencheur non exécuté n'ouvre aucune position.
+  6. **Garde-fous** (§ 1.7) vérifiés en central **et** en défavorable ; « meilleur 1 % » = ⌈1 % × n⌉ transactions.
+     `LOGIT` : régularité comptée sur les plis comptés (≥ 100 transactions) ; garde-fou 6 appliqué aussi sur C.
+  7. **Différence avec `REF_TOUS` qui échoue** : `RIEN` sur R (raison inscrite), `NON_CONFIRMEE` sur C ; non calculable :
+     `INSUFFISANT`. `INVERSE` sur C : dans les deux scénarios. Le sous-ensemble « sans `TRENDLINE` » (§ 4.6)
+     s'applique à toute règle de l'étape 2, `REF_TOUS` comprise, avec les blocs de la règle.
+  8. **Régression logistique** : scikit-learn n'est pas installé ; la même fonction objectif que
+     `LogisticRegression()` par défaut (L2, `C = 1`, ordonnée non pénalisée, variables brutes, minimum unique) est
+     minimisée par Newton (1 000 itérations au plus) ; un test vérifie qu'elle atteint le minimum trouvé par L-BFGS
+     (scipy) à 10⁻⁴ près.
+  9. **Copies prouvées identiques** : profil de volume compilé (`volume_profile_fast`, test d'égalité exacte avec
+     `patterns.volume.volume_profile`) ; centile et médiane d'`ABSORPTION` calculés seulement aux bougies candidates
+     (même résultat) ; placebos uniformes réimplémentés (test d'identité avec l'identifiant de
+     `trendline_confirmation`).
+  10. **Contrôles du § 1.8** : z par erreur type en grappes marche × mois ; critère vérifié dans les deux scénarios ;
+      borne basse du témoin 1 = moyenne − 1,96 erreur type ; témoins tirés sur une clôture toutes les 4 heures (non
+      comptés, même espérance) ; chaque marche a son propre BTC synthétique. Cas : σ = 0,12 % par minute ; régimes
+      ×0,5 / 1 / 2 sur 20 jours ; dérives ±0,4 %/jour sur 30 jours ; hausse puis chute (±0,4 %/jour, moitié-moitié,
+      régimes de volatilité) ; facteur commun (BTC σ 0,08 %/min avec dérives ±0,4 %/jour sur 30 jours, β ∈ [0,5 ; 1,5],
+      bruit propre 0,09 %/min) ; flux indépendants des rendements (volume log-normal, part acheteuse N(0,48 ; 0,06),
+      transactions de Poisson). Repli : par type d'excès ; pour les règles à états, un biais de timing du témoin 2 > 0
+      fixe le seuil de timing même si la règle passe (choix prudent). Contrôles positifs : 10 simulations de 40
+      marches de 3 ans (volatilité constante), dérive de 0,15 × (2 ATR / C) étalée sur les 60 heures qui suivent
+      l'ordre.
+  11. **Étape 3** : `P_d` est « disponible » si `d` + latence ≤ réception (c'est l'`available_at` de sa dernière
+      bougie, 23:00 du jour `d − 1`), décidé sans lire de bougie non encore disponible ; `FLUX` sur les 24 dernières
+      bougies présentes disponibles, toutes avec `deltaC` ; `STOP_VOL` sur les 168 heures de la grille finissant à la
+      dernière bougie disponible (160 connues au moins). Ordre : doublons par groupe → doublons entre groupes (sur
+      les signaux restants, avant les refus) → coupure par la date → refus (prix) → briques (une brique non
+      calculable exclut le signal). Âge de la bougie de référence (2 h au plus) mesuré depuis sa clôture, comme
+      `audit.py`. Contrôle de complétude : 1 h jusqu'à la dernière réception, 15 min jusqu'à la dernière réception
+      + 24 h + 30 jours ; une paire cotée tard ne bloque pas (ses signaux sans brique sont exclus et comptés).
+      Partie d'étude avec p ≤ 0,05/2 mais moins de 30 signaux gardés ou moins de 10 jours : `INSUFFISANT`.
+      Panne après l'inscription de la consultation : exécution `FAILED` inscrite (2 essais comptés), une seule reprise
+      (`--reprise`) si aucun chiffre n'a été produit. Bougies de la période réservée : `csi combinaisons
+      telegram-bougies --i-understand-final-test`, magasin séparé `<racine>/combinaisons_telegram/`, rien après la
+      coupure ; **non téléchargées à ce jour**.
+  12. **Voie B** : sa pré-inscription (`FORWARD_TESTS.md`, numéro de test) et son module sous `forward/` sont une étape
+      à part ; rien n'est écrit ni démarré ici, F4 et F16 intacts.
+  13. Paires C : aucune brique n'y a été calculée ni comptée (comptages sur R seulement).
