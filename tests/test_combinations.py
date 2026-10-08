@@ -1011,6 +1011,14 @@ def test_inscribing_the_review_touches_no_watched_file(tmp_path):
     review.write_text(f'CODE_REVIEW = "{reviewed}"\n')
     _git(tmp_path, "commit", "-qam", "inscription")
     cs.require_clean_and_reviewed("abc", root=tmp_path, review=reviewed)          # inscription seule : acceptée
+    review.write_text(f'import os\nCODE_REVIEW = "{reviewed}"\n')                 # code qui s'exécuterait à l'import
+    _git(tmp_path, "commit", "-qam", "contournement")
+    with pytest.raises(cs.NotReady, match="inscription"):
+        cs.require_clean_and_reviewed("abc", root=tmp_path, review=reviewed)
+    review.write_text(f'"""Inscription."""\nfrom __future__ import annotations\n\nCODE_REVIEW: str | None = "{reviewed}"\n'
+                      'CONFIG_FINGERPRINT: str | None = None\n')
+    _git(tmp_path, "commit", "-qam", "inscription conforme")
+    cs.require_clean_and_reviewed("abc", root=tmp_path, review=reviewed)
     for path in (seconds, toml):
         path.write_text("x = 2\n")
         _git(tmp_path, "commit", "-qam", "modif")

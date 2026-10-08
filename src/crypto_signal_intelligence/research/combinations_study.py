@@ -95,7 +95,8 @@ REVIEWED_PATHS: tuple[str, ...] = (
     f"{_SRC}/external", f"{_SRC}/backtest/metrics.py", f"{_SRC}/ml/logistic.py", f"{_SRC}/features/loader.py",
     # Relecture du 2026-10-08 : départage dans la minute (seconds), `available_at` (schema), lecture des bougies
     # (store), configuration (config.py, config/default.toml) et commandes (cli.py).
-    f"{_SRC}/data/seconds.py", f"{_SRC}/data/schema.py", f"{_SRC}/data/store.py", f"{_SRC}/config.py",
+    f"{_SRC}/data/seconds.py", f"{_SRC}/data/schema.py", f"{_SRC}/data/store.py", f"{_SRC}/data/timeunits.py",
+    f"{_SRC}/config.py",
     f"{_SRC}/cli.py", "config/default.toml",
 )
 # Sections de la configuration lues par le calcul (latence, coûts, protocole, simulation, signaux externes).
@@ -958,6 +959,36 @@ def run_counts(settings: Settings, *, symbols: list[str] | None = None, workers:
 
 # --- Exécutions uniques (étapes 1, 2 et confirmation) -------------------------------------------------------------------
 
+REVIEW_FILE = f"{_SRC}/research/combinations_review.py"
+
+
+def review_file_is_inert(path: Path) -> bool:
+    """Le fichier d'inscription (hors surveillance, importé) ne contient que sa docstring, `from __future__ import
+    annotations` et les affectations `CODE_REVIEW` / `CONFIG_FINGERPRINT` à une chaîne ou None : aucun code qui
+    s'exécuterait à l'import (relecture du 2026-10-08)."""
+    import ast
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return False
+    for index, node in enumerate(tree.body):
+        if index == 0 and isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) \
+                and isinstance(node.value.value, str):
+            continue
+        if isinstance(node, ast.ImportFrom) and node.module == "__future__" \
+                and [a.name for a in node.names] == ["annotations"]:
+            continue
+        targets = ([node.target] if isinstance(node, ast.AnnAssign)
+                   else node.targets if isinstance(node, ast.Assign) else [])
+        value = getattr(node, "value", None)
+        if len(targets) == 1 and isinstance(targets[0], ast.Name) \
+                and targets[0].id in {"CODE_REVIEW", "CONFIG_FINGERPRINT"} and isinstance(value, ast.Constant) \
+                and (value.value is None or isinstance(value.value, str)):
+            continue
+        return False
+    return True
+
+
 def require_clean_and_reviewed(state: str, *, root: Path | None = None, review: str | None = None,
                                settings: Settings | None = None) -> None:
     """Code commité (jamais « +DIRTY », aucune option pour passer outre) et identique, sur les modules de l'étude et
@@ -978,6 +1009,10 @@ def require_clean_and_reviewed(state: str, *, root: Path | None = None, review: 
         raise NotReady(f"code modifié depuis le commit relu {commit[:12]} : nouvelle relecture exigée")
     if out.returncode != 0:
         raise NotReady(f"commit relu {commit[:12]} introuvable ou illisible : {out.stderr.strip()[:200]}")
+    inscription = root / REVIEW_FILE
+    if inscription.exists() and not review_file_is_inert(inscription):
+        raise NotReady("fichier d'inscription de la relecture modifié au-delà des deux valeurs permises : exécution "
+                       "refusée")
     if settings is not None:
         if not CONFIG_FINGERPRINT:
             raise NotReady("empreinte de la configuration relue non inscrite (CONFIG_FINGERPRINT) : exécution refusée")
