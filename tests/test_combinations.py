@@ -991,3 +991,49 @@ def test_pit_flags_for_confirmation_pairs():
     cs.add_pit_flags(rows, {"2022-07"}, last_hour=pd.Timestamp("2023-01-01", tz="UTC"),
                      end=pd.Timestamp("2025-06-30", tz="UTC"))
     assert [(r["top40"], r["after_first_top40"], r["delisted_pair"]) for r in rows] == [(False, False, True), (True, True, True)]
+
+
+
+def test_inscribing_the_review_touches_no_watched_file(tmp_path):
+    """Relecture du 2026-10-08 : l'inscription du commit relu (combinations_review.py) ne doit pas modifier un fichier
+    surveillé ; un module de mesure ajouté à la liste (data/seconds.py) est bien surveillé."""
+    base = tmp_path / "src" / "crypto_signal_intelligence"
+    study = base / "research" / "combinations_study.py"
+    review = base / "research" / "combinations_review.py"
+    seconds = base / "data" / "seconds.py"
+    toml = tmp_path / "config" / "default.toml"
+    for path in (study, review, seconds, toml):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("x = 1\n")
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "add", "-A")
+    reviewed = _git(tmp_path, "commit", "-qm", "relu")
+    review.write_text(f'CODE_REVIEW = "{reviewed}"\n')
+    _git(tmp_path, "commit", "-qam", "inscription")
+    cs.require_clean_and_reviewed("abc", root=tmp_path, review=reviewed)          # inscription seule : acceptée
+    for path in (seconds, toml):
+        path.write_text("x = 2\n")
+        _git(tmp_path, "commit", "-qam", "modif")
+        with pytest.raises(cs.NotReady):
+            cs.require_clean_and_reviewed("abc", root=tmp_path, review=reviewed)
+        path.write_text("x = 1\n")
+        _git(tmp_path, "commit", "-qam", "retour")
+
+
+def test_the_effective_configuration_must_match_the_review(settings, monkeypatch, tmp_path):
+    reviewed = _git_repo_with_one_commit(tmp_path)
+    monkeypatch.setattr(cs, "CONFIG_FINGERPRINT", None)
+    with pytest.raises(cs.NotReady, match="CONFIG_FINGERPRINT"):
+        cs.require_clean_and_reviewed("abc", root=tmp_path, review=reviewed, settings=settings)
+    monkeypatch.setattr(cs, "CONFIG_FINGERPRINT", cs.config_fingerprint(settings))
+    cs.require_clean_and_reviewed("abc", root=tmp_path, review=reviewed, settings=settings)
+    changed = settings.model_copy(update={"data": settings.data.model_copy(update={"assumed_availability_latency_seconds": 99.0})})
+    with pytest.raises(cs.NotReady, match="configuration effective"):
+        cs.require_clean_and_reviewed("abc", root=tmp_path, review=reviewed, settings=changed)
+
+
+def _git_repo_with_one_commit(root):
+    (root / "README.md").write_text("x\n")
+    _git(root, "init", "-q")
+    _git(root, "add", "-A")
+    return _git(root, "commit", "-qm", "relu")

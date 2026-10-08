@@ -79,19 +79,33 @@ NULL_BIAS: dict[str, dict[str, float]] = {
     "LOGIT": {"uniforme": 0.0205, "timing": 0.0146},
 }
 CONTROLS_DATE: str | None = "2026-10-07"   # date d'inscription des contrôles du § 1.8 (exécution refusée avant)
-# Relecture indépendante du code (`leak-auditor`) exigée avant toute exécution réelle (§ 9) : COMMIT relu, inscrit ici
-# après la relecture. L'exécution est refusée tant que la valeur est None, et dès que l'un des fichiers de
-# REVIEWED_PATHS diffère entre ce commit et HEAD.
-CODE_REVIEW: str | None = None
+# Relecture indépendante du code (`leak-auditor`) exigée avant toute exécution réelle (§ 9) : commit relu et empreinte
+# de la configuration, inscrits dans `combinations_review.py` (fichier hors des chemins surveillés : l'inscription ne
+# modifie aucun fichier relu). L'exécution est refusée tant qu'ils sont vides, dès qu'un fichier de REVIEWED_PATHS
+# diffère entre ce commit et HEAD, et dès que la configuration effective diffère de celle de la relecture.
+from .combinations_review import CODE_REVIEW, CONFIG_FINGERPRINT  # noqa: E402
+
 _SRC = "src/crypto_signal_intelligence"
 REVIEWED_PATHS: tuple[str, ...] = (
     *(f"{_SRC}/research/{m}.py" for m in ("combinations", "combinations_study", "combinations_controls",
                                           "combinations_telegram", "figures_history", "trendline_confirmation",
                                           "volatility", "protocol", "experiments", "universe", "pit_universe",
-                                          "long_history", "minute_history")),
-    f"{_SRC}/patterns", f"{_SRC}/forward/f15.py", f"{_SRC}/forward/costs.py", f"{_SRC}/external",
-    f"{_SRC}/backtest/metrics.py", f"{_SRC}/ml/logistic.py", f"{_SRC}/features/loader.py",
+                                          "long_history", "minute_history", "derivatives_screen")),
+    f"{_SRC}/patterns", f"{_SRC}/forward/f15.py", f"{_SRC}/forward/f4.py", f"{_SRC}/forward/costs.py",
+    f"{_SRC}/external", f"{_SRC}/backtest/metrics.py", f"{_SRC}/ml/logistic.py", f"{_SRC}/features/loader.py",
+    # Relecture du 2026-10-08 : départage dans la minute (seconds), `available_at` (schema), lecture des bougies
+    # (store), configuration (config.py, config/default.toml) et commandes (cli.py).
+    f"{_SRC}/data/seconds.py", f"{_SRC}/data/schema.py", f"{_SRC}/data/store.py", f"{_SRC}/config.py",
+    f"{_SRC}/cli.py", "config/default.toml",
 )
+# Sections de la configuration lues par le calcul (latence, coûts, protocole, simulation, signaux externes).
+CONFIG_SECTIONS: tuple[str, ...] = ("data", "protocol", "simulation", "external", "costs")
+
+
+def config_fingerprint(settings: Settings) -> str:
+    """Empreinte des valeurs EFFECTIVES (fichier et variables `CSI_*`) des sections lues par le calcul."""
+    values = settings.model_dump(mode="json", include=set(CONFIG_SECTIONS))
+    return hashlib.sha256(json.dumps(values, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
 class AlreadyRun(RuntimeError):
@@ -944,9 +958,11 @@ def run_counts(settings: Settings, *, symbols: list[str] | None = None, workers:
 
 # --- Exécutions uniques (étapes 1, 2 et confirmation) -------------------------------------------------------------------
 
-def require_clean_and_reviewed(state: str, *, root: Path | None = None, review: str | None = None) -> None:
+def require_clean_and_reviewed(state: str, *, root: Path | None = None, review: str | None = None,
+                               settings: Settings | None = None) -> None:
     """Code commité (jamais « +DIRTY », aucune option pour passer outre) et identique, sur les modules de l'étude et
-    ceux qu'elle importe, au commit relu par `leak-auditor` (`CODE_REVIEW`). Sinon : exécution refusée."""
+    ceux qu'elle importe, au commit relu par `leak-auditor` (`CODE_REVIEW`) ; avec `settings`, configuration effective
+    identique à celle de la relecture (`CONFIG_FINGERPRINT`). Sinon : exécution refusée."""
     if state.endswith("+DIRTY") or state == "NO_GIT_COMMIT":
         raise DirtyCode(f"code non commité ({state}) : exécution refusée (versions reproductibles)")
     commit = CODE_REVIEW if review is None else review
@@ -962,13 +978,19 @@ def require_clean_and_reviewed(state: str, *, root: Path | None = None, review: 
         raise NotReady(f"code modifié depuis le commit relu {commit[:12]} : nouvelle relecture exigée")
     if out.returncode != 0:
         raise NotReady(f"commit relu {commit[:12]} introuvable ou illisible : {out.stderr.strip()[:200]}")
+    if settings is not None:
+        if not CONFIG_FINGERPRINT:
+            raise NotReady("empreinte de la configuration relue non inscrite (CONFIG_FINGERPRINT) : exécution refusée")
+        if config_fingerprint(settings) != CONFIG_FINGERPRINT:
+            raise NotReady("configuration effective différente de celle de la relecture (fichier ou variables "
+                           "CSI_*) : exécution refusée")
 
 
 def _check_ready(settings: Settings, kind: str) -> tuple[str, ExperimentRegistry]:
     state = code_state()
     if CONTROLS_DATE is None:
         raise NotReady("contrôles du § 1.8 non inscrits (CONTROLS_DATE) : exécution refusée")
-    require_clean_and_reviewed(state)
+    require_clean_and_reviewed(state, settings=settings)
     registry = ExperimentRegistry(settings.experiments_db)
     with registry.connect() as db:
         done = db.execute("SELECT COUNT(*) FROM runs WHERE kind=?", (kind,)).fetchone()[0]

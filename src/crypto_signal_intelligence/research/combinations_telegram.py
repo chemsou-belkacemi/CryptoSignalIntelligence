@@ -451,7 +451,7 @@ def run(settings: Settings, *, now: datetime, allow_final_test: bool, retry: boo
     say = progress or (lambda _t: None)
     state = code_state()
     from . import combinations_study as cs
-    cs.require_clean_and_reviewed(state)                  # jamais de code « +DIRTY », commit relu exigé
+    cs.require_clean_and_reviewed(state, settings=settings)   # jamais « +DIRTY », commit et configuration relus
     if not allow_final_test:
         raise FinalTestLocked("voie A : consultation déclarée de la période réservée, ajouter --i-understand-final-test")
     registry = ExperimentRegistry(settings.experiments_db)

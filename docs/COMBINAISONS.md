@@ -933,3 +933,11 @@ en conséquence.
       l'exécution s'arrête sans rien inscrire ; voie A : `P_d` disponible si l'`available_at` **stocké** de la bougie
       de 23:00 du jour `d − 1` est ≤ réception (`d` + latence seulement si cette bougie manque aux données) ;
       contrôle positif refait sur des marches de 6,5 ans (cas `facteur_commun` et `regimes_vol`), informatif (§ 1.8).
+
+- 2026-10-08 — précision de mise en œuvre, aucun résultat vu (relecture rapide du commit 06cc5db) : l'inscription de la
+  relecture passe dans un fichier à part, `research/combinations_review.py`, hors des chemins surveillés (le commit
+  qui l'inscrit ne modifie aucun fichier relu) ; chemins surveillés élargis à `data/seconds.py` (départage dans la
+  minute), `data/schema.py` (`available_at`), `data/store.py`, `config.py`, `config/default.toml`, `forward/f4.py`,
+  `research/derivatives_screen.py` et `cli.py` ; empreinte des valeurs EFFECTIVES de la configuration lue par le calcul
+  (sections data, protocol, simulation, external, costs ; fichier et variables `CSI_*`) inscrite avec le commit relu,
+  toute autre valeur refuse l'exécution ; non-convergence de Newton traitée comme « aucun résultat » par la commande.

@@ -2306,7 +2306,7 @@ def _combo_run(step: str, executer: bool, workers: int, verbose: bool) -> None:
         with console.status(f"combinaisons, {step}…") as status:
             payload = runner(settings, now=_now(), workers=workers,
                              progress=lambda text: status.update(f"combinaisons, {step} : {text}"))
-    except (DirtyCode, cs.AlreadyRun, cs.NotReady, IncompleteMinutes, FileNotFoundError) as exc:
+    except (DirtyCode, cs.AlreadyRun, cs.NotReady, IncompleteMinutes, FileNotFoundError, cs.LogitNotConverged) as exc:
         console.print(f"[red]Aucun résultat :[/red] {exc}")
         raise typer.Exit(3) from None
     _combo_rows(payload)
