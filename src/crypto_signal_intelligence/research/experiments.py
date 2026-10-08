@@ -117,6 +117,14 @@ class ExperimentRegistry:
                                 FROM runs WHERE period_label=?""", (period_label,)).fetchone()
         return int(row[0])
 
+    def descriptive_total(self, period_label: str = "DEVELOPMENT") -> int:
+        """Comparaisons DESCRIPTIVES inscrites (`n_descriptive` des métriques, docs/METEO_MARCHE.md § 5.9) : sans
+        p-valeur ni verdict, comptées à part ; elles n'entrent jamais dans `program_trials`."""
+        with self.connect() as db:
+            row = db.execute("""SELECT COALESCE(SUM(COALESCE(json_extract(metrics, '$.n_descriptive'), 0)), 0)
+                                FROM runs WHERE period_label=?""", (period_label,)).fetchone()
+        return int(row[0])
+
     def get(self, run_id: str) -> dict | None:
         with self.connect() as db:
             row = db.execute("SELECT * FROM runs WHERE run_id=?", (run_id,)).fetchone()
