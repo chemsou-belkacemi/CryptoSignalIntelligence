@@ -3,7 +3,7 @@
 **Statut : pré-enregistrement.** Écrit le 2026-10-08, avant tout code, tout téléchargement et tout calcul sur des prix.
 Révisé deux fois le même jour, toujours avant tout code et tout calcul : deux relectures `leak-auditor` (verdict « à
 corriger » les deux fois, aucune fuite nouvelle à la deuxième) et décision du propriétaire (voir « Historique »).
-**La marge Δ_min (§ 5.6) reste à valider par le propriétaire.** Aucun résultat de ce programme n'existe. Les chiffres qui suivent ont
+**La marge Δ_min (§ 5.6) est validée par le propriétaire le 2026-10-08 (candidat C : 0,15 σ).** Aucun résultat de ce programme n'existe. Les chiffres qui suivent ont
 trois origines possibles : ils sont cités d'études précédentes (avec leur document), ce sont des hypothèses déclarées
 comme telles, ou ils viennent de lectures de métadonnées (registre des essais, dates de cotation), sans aucun prix.
 Toute modification ultérieure est datée en bas. Elle ne peut porter que sur des points techniques, et jamais après
@@ -374,7 +374,7 @@ haute (`VOL_HAUTE`, et l'effet de levier : la volatilité monte après les baiss
 ### 5.6 Décision : supériorité, équivalence, ou ni l'un ni l'autre
 
 **La marge Δ_min : « à partir de quel écart, par jour rouge, ça vaut la peine de sauter les jours rouges »**
-**(À VALIDER PAR LE PROPRIÉTAIRE, non figée).**
+**: Δ_min = 0,15 σ, validé par le propriétaire le 2026-10-08 (candidat C).**
 
 La marge porte sur **Δ**, l'écart entre jours rouges et autres jours à l'intérieur d'un bloc (§ 5.2). C'est ce que
 chaque jour rouge sauté fait gagner ou perdre. Elle ne dépend pas de la part de rouge.
@@ -406,8 +406,13 @@ chaque jour rouge sauté fait gagner ou perdre. Elle ne dépend pas de la part d
 - **Conséquence honnête.** Avec la règle d'arrêt du § 7.2 (les deux puissances ≥ 0,50), **A** arrêterait sûrement
   l'étude avant toute exécution (`INSTRUMENT_TROP_FAIBLE`). **B** serait à la limite. **C** passerait probablement.
   Cinq ans d'historique ne peuvent pas certifier qu'un écart du prix d'un aller-retour est absent.
-- **Le propriétaire choisit A, B ou C** (ou une autre valeur, motivée) **avant** les contrôles synthétiques. La valeur
-  est alors inscrite ici, avec la date, et ne bouge plus.
+- **Choix du propriétaire, le 2026-10-08 : candidat C, Δ_min = 0,15 σ** (≈ 0,6 % par jour rouge, ≈ 0,23 R), avant les
+  contrôles synthétiques et avant toute donnée réelle. Le tableau des trois candidats est gardé pour la trace. La
+  valeur ne bouge plus.
+- **Conséquence, dite franchement** : cette étude ne peut conclure « pas pires » qu'au-delà de 0,6 % par jour rouge.
+  **Un écart plus petit, par exemple 0,4 % par jour (candidat B) ou 0,2 % (le prix d'un aller-retour), ne peut pas
+  être exclu par cette étude.** Même une issue `EQUIVALENT_NUL` laissera possible un écart de cette taille. La borne
+  haute rapportée dira où il se situe.
 - **Toujours rapporté, quel que soit le verdict** : la borne haute de l'intervalle à 90 % de Δ_exc, en σ, en % par
   jour pour l'altcoin médiane réelle du panier, en % brut non normalisé et en R. Formulation : « **les jours rouges ne
   sont pas pires de plus de X % par jour** ». La borne basse est rapportée aussi (« pas meilleurs de plus de Y »).
@@ -990,3 +995,7 @@ cette bougie. Seul l'ensemble « tous les déclencheurs » sert (chaque achat es
   - **Compte d'essais** inchangé : 2 sûrs, 5 au plus sur DEVELOPMENT (873 → 875, au plus 878, recompté à
     l'exécution) ; 0 sur FINAL_TEST ; 1 au registre FORWARD.
   - Aucune lecture de données réelles pour cette révision (puissances calculées par formules seulement).
+- 2026-10-08 : **marge validée par le propriétaire, aucun résultat vu** : candidat C, **Δ_min = 0,15 σ** (≈ 0,6 % par
+  jour rouge, ≈ 0,23 R), choisi avant les contrôles synthétiques et avant toute donnée réelle. Tableau des candidats
+  gardé pour la trace. Conséquence écrite au § 5.6 : un écart plus petit (par exemple 0,4 % par jour) ne peut pas être
+  exclu par cette étude.
