@@ -355,6 +355,9 @@ un achat générique du marché, sans frais, en unités de volatilité prévue ?
 
 ### 5.2 bis Instrument corrigé (2026-10-08) : il remplace la statistique du § 5.2, le placebo `P_T` du § 5.4 et le tirage du § 5.6
 
+> **Révision 1 ci-dessous remplacée par la révision 2** (plus bas dans ce paragraphe) pour l'inclusion des blocs, le
+> test, l'intervalle et le rôle du placebo ; gardée pour la trace (itération 2 de l'instrument).
+
 **Échec N1 sur synthétique seulement, aucune donnée réelle.** La rotation circulaire donnait aux premiers jours d'un
 bloc la couleur de jours plus tardifs, qui dépend de leur propre `y` : le placebo lisait le futur (N1 : z moyen −1,51,
 § 7.5). Les fenêtres circulaires du tirage avaient le même défaut. Les passages « statistique », « placebo `P_T` » et
@@ -382,6 +385,37 @@ règles d'inutilité, confirmation C) est inchangé.
 - **`S2N` en rendement simple** ; générateur synthétique à **prix martingales** (§ 7.2).
 - Les **puissances du § 5.6 et du § 13 ne valent plus** (calculées pour l'ancienne statistique) : seul le contrôle
   positif décide, et `EQUIVALENCE_NON_JUGEABLE` devient plus probable.
+
+**§ 5.2 bis — révision 2 (itération 3 de l'instrument, la dernière ; synthétique seulement, aucune donnée réelle ;
+inscrite le 2026-10-08 avant tout code).** Elle remplace la révision 1 ci-dessus et l'intervalle du § 5.6.
+
+Diagnostic de l'itération 2 (100 simulations N1, non inscrites) : faux positifs 0,10 ; couverture 0,10 / 0,12 ; biais
+de sélection par la règle « bloc utile » (jouet : numérateur +2,50 ± 0,54 sur les blocs utiles, −0,08 ± 0,55 sur tous
+les blocs). Selon le relecteur, faux positifs et couverture viennent d'un placebo non étalonné (il ne fait jamais
+varier le bruit de `y`) et d'un tirage par fenêtres de 4 semaines qui sous-estime l'erreur type d'environ 15 %
+(3,25 fenêtres par bloc). Le bon niveau d'inférence est le **bloc** : les scores de bloc forment une suite de
+différences de martingale.
+
+- **Inclusion** : tous les blocs du calendrier de la période entrent dans les sommes, sans aucune condition sur les
+  couleurs. Seuls les trous (disponibilité des données) sont retirés. Non identifiable si Σ_t r_t·r̃_t ≤ 0 :
+  `INSUFFISANT`.
+- **Estimation** : Δ̂ = −Σ r_t·ỹ_t / Σ r_t·r̃_t (inchangée).
+- **Score de bloc** : N_b(Δ0) = Σ_{t∈b} r_t·(ỹ_t + Δ0·r̃_t). Sous H(Δ0), E[N_b | passé avant le bloc] = 0.
+- **Test (décision)** : S = −Σ_b N_b(0). On tire 9 999 suites de signes ε_b ∈ {−1, +1}, un signe par bloc, graine
+  20261008. `p_haut` = (1 + #{−Σ ε_b·N_b ≥ S}) / 10 000 ; `p_bas` de même avec ≤. Seuils inchangés : 0,025 de chaque
+  côté, 0,0125 pour la confirmation C.
+- **Intervalle à 90 %** de Δ : ensemble des Δ0 que le même test, appliqué à N_b(Δ0), ne rejette pas au niveau
+  bilatéral 0,10 (Anderson-Rubin). Grille de pas 0,005 σ sur [−1 ; +1] σ, mêmes tirages de signes pour tous les Δ0.
+  S'il est non borné ou non connexe : pas d'`EQUIVALENT_NUL`, et la borne haute est rapportée telle quelle (« > 1 σ »
+  au besoin). Confirmation C : intervalle à 95 %.
+- **Rapporté à côté** : T = S / √(Σ_b N_b(0)²), comparé à une loi de Student à B_R − 1 degrés de liberté. **C'est la
+  version utilisée par F17** (quantiles de Student aux niveaux de Lan-DeMets, B_k − 1 degrés de liberté).
+- **Placebo `P_T`** : descriptif seulement. Le tirage par fenêtres de 4 semaines est supprimé.
+- **G1** : porte globale (60 jours rouges, 8 épisodes, au moins 6 blocs ayant un terme rouge et un terme non rouge),
+  pas une sélection de blocs. **G2** : score et intervalle recalculés sans l'épisode. **G3 / G4** : Δ̂ et score sur
+  tous les blocs de l'année ; une année sans terme rouge n'est pas comptée.
+- Le contrôle positif, l'injection, N3c+ et les règles d'inutilité sont inchangés. Les puissances sont mesurées avec ce
+  test et cet intervalle.
 
 ### 5.3 Séries descriptives (aucune décision)
 
@@ -486,8 +520,8 @@ chaque jour rouge sauté fait gagner ou perdre. Elle ne dépend pas de la part d
   jour pour l'altcoin médiane réelle du panier, en % brut non normalisé et en R. Formulation : « **les jours rouges ne
   sont pas pires de plus de X % par jour** ». La borne basse est rapportée aussi (« pas meilleurs de plus de Y »).
 
-**Intervalle de Δ_exc** (remplacé le 2026-10-08 par le tirage sans rotation du § 5.2 bis ; texte gardé pour la
-trace) :
+**Intervalle de Δ_exc** (remplacé le 2026-10-08 par l'intervalle d'Anderson-Rubin du § 5.2 bis, révision 2 ; texte
+gardé pour la trace) :
 - tirage **stratifié** : dans chaque bloc de 13 semaines, on tire des fenêtres circulaires de **4 semaines** (28 jours
   consécutifs, circulaires dans le bloc). **Elles commencent un lundi** : 13 départs possibles dans un bloc de
   13 semaines (8 et 4 dans les derniers blocs courts), tirés uniformément. La composition par jour de semaine est
@@ -735,6 +769,8 @@ prévisions). Le résultat doit être identique.
   4. **couverture de l'intervalle à 90 %** de Δ_exc, **de chaque côté séparément (m2)** : la part des simulations où
      la vraie valeur est au-dessus de la borne haute est ≤ **0,075**, et de même sous la borne basse. Elle juge aussi la
      règle des répliques qui perdent une couleur (§ 5.6, B1b) ; leur nombre est inscrit.
+- **Critères supplémentaires (2026-10-08, révision 2)** : la version Student (T, § 5.2 bis) doit avoir des faux
+  positifs ≤ 0,07 sous N1, N2 et N2t ; la part d'`INSUFFISANT` (Σ r·r̃ ≤ 0) est rapportée pour chaque cas.
 - **Échec d'un critère** : la question n'est **ni exécutée ni comptée**. L'instrument est corrigé (point technique,
   daté dans l'historique), puis le contrôle est refait et inscrit.
 - **Contrôle positif et règle d'arrêt pour inutilité** (faits **après** le choix de Δ_min, soit 0,15 σ) :
@@ -818,11 +854,26 @@ donnée réelle n'est lue à ces étapes.
 
 | # | Date | Instrument (commit) | Contrôle | Chiffres | Issue |
 |---|---|---|---|---|---|
-| 0 | 2026-10-08 | rotation circulaire, intervalle circulaire, générateur log (`9fa6e7a`) | N1, 500 simulations | z moyen −1,51 ; faux positifs 0,306 ; KS p ≈ 5e-156 ; couverture 0,674 au-dessus / 0,000 au-dessous | ÉCHEC |
-| 0 | 2026-10-08 | idem | N2, 500 simulations | z moyen −1,61 ; faux positifs 0,378 ; KS p ≈ 0 ; couverture 0,686 / 0,000 | ÉCHEC (contrôles arrêtés ensuite) |
-| 0 | 2026-10-08 | idem | mutations du § 7.1, causalité | causalité propre ; 11 mutations testables détectées | sans objet (le feu n'est pas en cause) |
-| 1 | 2026-10-08 | déviations orthogonales avant, placebo causal, intervalle sans rotation, prix martingales (`bf038c3`) | **diagnostic** N1, 100 simulations (pas les contrôles inscrits) | z moyen +0,12 ; faux positifs 0,10 ; KS p 0,27 / 0,27 ; couverture 0,10 au-dessus / 0,12 au-dessous | z et KS passent ; faux positifs et couverture ne passent pas (100 simulations seulement) |
-| 1 | 2026-10-08 | idem | jouet : `y` i.i.d., feu de tendance sur le passé de `y` (EMA50), 3 000 répliques | z moyen −0,205 (± 0,030) ; numérateur moyen +2,50 (± 0,54) sur les blocs utiles, −0,08 (± 0,55) sur tous les blocs ; z moyen −0,056 avec tous les blocs ; faux positifs ≈ 0,094 dans les deux cas | biais de sélection des blocs utiles (la règle dépend des couleurs, donc des `y` du bloc) ; rapporté au relecteur, **non corrigé** |
+| 1 | 2026-10-08 | rotation circulaire, intervalle circulaire, générateur log (`9fa6e7a`) | N1, 500 simulations | z moyen −1,51 ; faux positifs 0,306 ; KS p ≈ 5e-156 ; couverture 0,674 au-dessus / 0,000 au-dessous | ÉCHEC |
+| 1 | 2026-10-08 | idem | N2, 500 simulations | z moyen −1,61 ; faux positifs 0,378 ; KS p ≈ 0 ; couverture 0,686 / 0,000 | ÉCHEC (contrôles arrêtés ensuite) |
+| 1 | 2026-10-08 | idem | mutations du § 7.1, causalité | causalité propre ; 11 mutations testables détectées | sans objet (le feu n'est pas en cause) |
+| 2 | 2026-10-08 | déviations orthogonales avant, placebo causal, intervalle sans rotation, prix martingales (`bf038c3`) | **diagnostic** N1, 100 simulations (pas les contrôles inscrits) | z moyen +0,12 ; faux positifs 0,10 ; KS p 0,27 / 0,27 ; couverture 0,10 au-dessus / 0,12 au-dessous | z et KS passent ; faux positifs et couverture ne passent pas (100 simulations seulement) |
+| 2 | 2026-10-08 | idem | jouet : `y` i.i.d., feu de tendance sur le passé de `y` (EMA50), 3 000 répliques | z moyen −0,205 (± 0,030) ; numérateur moyen +2,50 (± 0,54) sur les blocs utiles, −0,08 (± 0,55) sur tous les blocs ; z moyen −0,056 avec tous les blocs ; faux positifs ≈ 0,094 dans les deux cas | biais de sélection des blocs utiles (la règle dépend des couleurs, donc des `y` du bloc) ; rapporté au relecteur, **non corrigé** |
+| 3 | (à venir) | révision 2 du § 5.2 bis : tous les blocs, score de bloc, inversion de signes, intervalle d'Anderson-Rubin | jouet inscrit, puis contrôles inscrits une seule fois après relecture (§ 7.6) | — | — |
+
+### 7.6 Règle d'arrêt de l'instrument (fixée le 2026-10-08, avant l'itération 3)
+
+L'itération 3 (§ 5.2 bis, révision 2) est la **dernière**.
+- Ses contrôles inscrits (jouet, puis N1, N2, N2t, N3, N3c, N3c+ et contrôle positif, 500 simulations par cas) sont
+  lancés **une seule fois**, sur un code relu par `leak-auditor`.
+- **Un seul critère en échec suffit : `INSTRUMENT_NON_VALIDE`.** L'étude historique est alors abandonnée, avec 0 essai :
+  ni principale, ni variante, ni confirmation, ni modèle.
+- Si la version Student échoue, F17 ne tourne qu'en journal descriptif.
+- Le feu de protection reste une précaution non démontrée. **Il n'y a pas de 4e itération.**
+- Seule exception, une fois au plus : un écart prouvé entre le code et ce texte (un bug, pas un changement de méthode).
+  Il doit être démontré par un test unitaire écrit avant la relance et confirmé par `leak-auditor`.
+- Les diagnostics à petit nombre de simulations ne décident de rien. Un échec de N3 dû au biais μ/σ̂ compte comme un
+  échec ordinaire.
 
 ## 8. Confirmation
 
@@ -1255,3 +1306,11 @@ cette bougie. Seul l'ensemble « tous les déclencheurs » sert (chaque achat es
   - Diagnostic N1 sur 100 simulations avec l'instrument corrigé (commit `bf038c3`) et jouet du feu de tendance :
     chiffres au § 7.5 ; biais de sélection des blocs utiles signalé, non corrigé. Les contrôles inscrits (500
     simulations) attendent la relecture du nouveau code.
+- 2026-10-08 : **révision 2 de l'instrument (itération 3, la dernière), inscrite avant tout code ; synthétique
+  seulement, aucune donnée réelle.** Diagnostic du relecteur sur l'itération 2 : biais de sélection réel (règle « bloc
+  utile »), placebo non étalonné et tirage par fenêtres de 4 semaines qui sous-estime l'erreur type d'environ 15 %.
+  Nouvelle inférence au niveau du bloc (§ 5.2 bis, révision 2) : tous les blocs, score de bloc, inversion de signes
+  (9 999 tirages), intervalle d'Anderson-Rubin, version Student rapportée (celle de F17), placebo `P_T` descriptif.
+  Critères ajoutés au § 7.2 (Student : faux positifs ≤ 0,07 sous N1, N2, N2t ; part d'`INSUFFISANT` rapportée). Règle
+  d'arrêt au § 7.6 : un seul échec des contrôles inscrits → `INSTRUMENT_NON_VALIDE`, étude historique abandonnée,
+  0 essai, pas de 4e itération.
