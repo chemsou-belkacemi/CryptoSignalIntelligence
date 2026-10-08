@@ -51,13 +51,34 @@ def test_rule_all_cases_and_boundaries(rank, below, breadth, color):
 
 
 @pytest.mark.parametrize("missing", ["volatility", "btc_structure", "breadth"])
-def test_any_missing_component_gives_unknown_and_says_which(missing):
-    values = {"volatility": 0.95, "btc_structure": True, "breadth": 0.1}     # serait ROUGE si complet
+def test_missing_component_gives_unknown_unless_red_is_already_certain(missing):
+    # Valeurs qui ne donneraient pas ROUGE : toute donnée manquante → INCONNU, en disant laquelle.
+    values = {"volatility": 0.5, "btc_structure": True, "breadth": 0.4}
     values[missing] = None
     out = ml.decide(values["volatility"], values["btc_structure"], values["breadth"])
     assert out["color"] == ml.UNKNOWN and out["missing"] == [missing]
     text = ml.explanation(out, {missing: "raison précise"})
     assert ml.COMPONENT_NAMES[missing] in text and "raison précise" in text
+    # Valeurs ROUGE par deux voies (rang ≥ 90 %, BTC sous EMA50 et largeur < 1/3) : une seule donnée manquante laisse
+    # toujours une voie entière, le feu reste ROUGE avec la mention de la donnée manquante.
+    red = {"volatility": 0.95, "btc_structure": True, "breadth": 0.1}
+    red[missing] = None
+    out = ml.decide(red["volatility"], red["btc_structure"], red["breadth"])
+    assert out["color"] == ml.RED and out["missing"] == [missing] and out["reasons"]
+    text = ml.explanation(out, {missing: "raison précise"})
+    assert text.startswith("Feu ROUGE") and "Données manquantes" in text and "raison précise" in text
+
+
+@pytest.mark.parametrize(("rank", "below", "breadth", "color"), [
+    (0.95, None, None, ml.RED),             # rang seul suffit
+    (None, True, 0.2, ml.RED),              # BTC sous EMA50 et largeur < 1/3 suffisent
+    (0.89, None, 0.9, ml.UNKNOWN),          # sous 90 % : la donnée manquante pourrait tout changer
+    (None, True, None, ml.UNKNOWN),         # BTC sous EMA50 sans la largeur : pas de rouge certain
+    (None, False, 0.1, ml.UNKNOWN),         # largeur faible sans BTC sous : jamais rouge par cette voie
+    (None, None, None, ml.UNKNOWN),
+])
+def test_partial_red_only_when_present_data_already_give_red(rank, below, breadth, color):
+    assert ml.decide(rank, below, breadth)["color"] == color
 
 
 def test_rank_is_the_share_strictly_below_and_needs_300_values():
@@ -181,9 +202,14 @@ def test_missing_data_gives_unknown_with_the_reason(light_settings):
     # Moins de 10 paires éligibles (les autres ont une journée de retard) : largeur inconnue.
     lagging = {s: (f if s == "BTCUSDT" or s in SYMBOLS[:5] else f[f["open_time"] < pd.Timestamp("2026-10-07", tz="UTC")])
                for s, f in frames.items()}
-    write_vol(light_settings, today=0.0005, history=[0.0004] * 365)
+    write_vol(light_settings, today=0.0005, history=[0.0006] * 365)           # rang 0 : pas de rouge sans la largeur
     out = ml.current(light_settings, now=NOW, loader=lagging.__getitem__)
     assert out["color"] == ml.UNKNOWN and [m["component"] for m in out["missing"]] == ["breadth"]
+    # Même largeur absente, mais rang ≥ 90 % : ROUGE quand même, avec la mention de la largeur manquante.
+    write_vol(light_settings, today=0.0005, history=[0.0004] * 365)
+    out = ml.current(light_settings, now=NOW, loader=lagging.__getitem__)
+    assert out["color"] == ml.RED and [m["component"] for m in out["missing"]] == ["breadth"]
+    assert "Données manquantes" in out["explanation"] and out["components"]["breadth"] is None
     # BTC sans bougies : structure et largeur inconnues.
     empty = dict(frames, BTCUSDT=frames["BTCUSDT"].iloc[0:0])
     out = ml.current(light_settings, now=NOW, loader=empty.__getitem__)
@@ -221,13 +247,69 @@ def test_history_is_computed_once_and_only_when_needed(light_settings, monkeypat
     stored = json.loads(ml.history_path(light_settings).read_text(encoding="utf-8"))
     assert stored["model"] == "H1_HAR_PROFILE" and stored["pool"][0] == "BTCUSDT" and len(stored["code"]) == 64
     assert ml.ensure_vol_history(light_settings, now=NOW + timedelta(hours=1)) is None and len(calls) == 1   # complet
-    # Historique encore incomplet : au plus un recalcul par jour.
-    monkeypatch.setattr(ml, "compute_vol_history", lambda settings, *, now, days=365: calls.append(now) or {})
-    ml.history_path(light_settings).unlink()
-    ml.ensure_vol_history(light_settings, now=NOW)
-    assert ml.ensure_vol_history(light_settings, now=NOW + timedelta(hours=5)) is None and len(calls) == 2
-    ml.ensure_vol_history(light_settings, now=NOW + timedelta(hours=21))
-    assert len(calls) == 3
+    assert ml.ensure_vol_history(light_settings, now=NOW + timedelta(hours=1), force=True) is not None       # --force
+    assert len(calls) == 2
+
+
+def test_a_crashed_history_attempt_is_not_retried_for_20_hours(light_settings, monkeypatch):
+    """Un calcul qui lève (ou est tué faute de mémoire) laisse son marqueur de tentative écrit AVANT : pas de nouvel
+    essai 1 h plus tard, un nouvel essai 21 h plus tard."""
+    calls = []
+
+    def crash(settings, *, now, days=365):
+        calls.append(now)
+        raise MemoryError("tué")
+
+    monkeypatch.setattr(ml, "compute_vol_history", crash)
+    with pytest.raises(MemoryError):
+        ml.ensure_vol_history(light_settings, now=NOW)
+    marker = json.loads(ml.attempt_path(light_settings).read_text(encoding="utf-8"))
+    assert marker["attempted_at"] == pd.Timestamp(NOW).isoformat() and not ml.history_path(light_settings).exists()
+    assert ml.ensure_vol_history(light_settings, now=NOW + timedelta(hours=1)) is None and len(calls) == 1
+    with pytest.raises(MemoryError):
+        ml.ensure_vol_history(light_settings, now=NOW + timedelta(hours=21))
+    assert len(calls) == 2
+
+
+def test_the_monitor_never_runs_the_heavy_history(settings, monkeypatch):
+    from crypto_signal_intelligence.forward import runner
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("calcul lourd lancé par la surveillance")
+
+    monkeypatch.setattr(ml, "ensure_vol_history", forbidden)
+    monkeypatch.setattr(ml, "compute_vol_history", forbidden)
+    for thread in threading.enumerate():                             # passage en fond lancé par un autre test
+        if thread.name == "csi-forward":
+            thread.join(timeout=120)
+    out = runner.daily(settings, now=datetime(2026, 10, 8, 7, tzinfo=UTC), force=True)
+    assert out is not None and "market_light" in out and "error" not in (out["market_light"] or {})
+
+
+def test_the_cli_runs_the_history_once(light_settings, monkeypatch):
+    from typer.testing import CliRunner
+
+    from crypto_signal_intelligence.cli import app
+    monkeypatch.setattr(ml, "compute_vol_history", lambda settings, *, now, days=365: {"2026-10-01": 0.0004})
+    monkeypatch.setattr("crypto_signal_intelligence.cli._heavy_job", lambda settings: None)
+    result = CliRunner().invoke(app, ["meteo-historique"])
+    assert result.exit_code == 0 and "1 jours calculés" in result.output
+    again = CliRunner().invoke(app, ["meteo-historique"])
+    assert again.exit_code == 0 and "Rien à faire" in again.output
+
+
+def test_f12_forecast_is_not_seen_before_it_is_written(light_settings):
+    """Maintenant = 00:05 : la prévision d'origine 00:00, inscrite par F12 à 00:10, n'existe pas encore."""
+    history = [0.0004 + 0.000001 * i for i in range(365)]
+    write_vol(light_settings, today=0.0005, history=history, origin=ORIGIN - timedelta(days=1))   # hier, à 00:10
+    Journal(ml.f12_journal_path(light_settings)).append(
+        "PREVISION", {"day": "2026-10-08", "origin": ORIGIN.isoformat(),
+                      "pairs": {"BTCUSDT": {"24h": {"H1_HAR_PROFILE": 0.01}}}},
+        now=ORIGIN + timedelta(minutes=10))
+    early, _ = ml.volatility_component(light_settings, now=ORIGIN + timedelta(minutes=5))
+    assert early is not None and early["origin"] == (ORIGIN - timedelta(days=1)).isoformat()      # celle d'hier
+    later, _ = ml.volatility_component(light_settings, now=ORIGIN + timedelta(minutes=15))
+    assert later is not None and later["origin"] == ORIGIN.isoformat() and later["rank"] == 1.0
 
 
 def test_history_matches_what_f12_journals(settings, monkeypatch):

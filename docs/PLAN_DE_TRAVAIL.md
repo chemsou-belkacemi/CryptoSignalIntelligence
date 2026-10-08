@@ -73,9 +73,11 @@ pré-inscrire quand il y aura quelques semaines et quelques centaines de signaux
 **Feu de protection du marché** (demande du propriétaire du 2026-10-08, `METEO_PROTECTION.md`) : VERT / ORANGE /
 ROUGE / INCONNU d'après la volatilité prévue de BTC (rang sur 365 jours), BTC contre son EMA50 et la largeur ;
 `GET /meteo`, carte de l'onglet Marché, journal quotidien ; garde-fou « Feu de protection CSI » dans BSM, **désactivé
-par défaut**. Outil de gestion du risque, pas une stratégie, **aucun gain démontré** (l'étude `METEO_MARCHE.md`
-mesurera). **Testé, non déployé** (branches `feat/feu-protection` de CSI et de BSM). Reste **[propriétaire]** :
-fusionner, reconstruire l'image de CSI et redémarrer `monitor` et `api` ; BSM : `git pull` et `make up` sur le VPS
+par défaut**. Outil de gestion du risque, pas une stratégie, **aucun gain démontré** ; ce n'est pas la règle de
+l'étude en préparation (branche `recherche/meteo`, règle voisine à 6 dangers) : il ne sera mesuré que par son propre
+journal (un essai de plus). **Testé, non déployé** (branches `feat/feu-protection` de CSI et de BSM). Reste **[propriétaire]** :
+fusionner, reconstruire l'image de CSI, redémarrer `monitor` et `api`, puis lancer UNE fois
+`docker compose run --rm tools meteo-historique` (historique du rang, ≈ 1 min, ≈ 0,9 Go) ; BSM : `git pull` et `make up` sur le VPS
 (qui ne joint pas forcément le CSI du PC).
 
 Aucun calcul de recherche en cours.

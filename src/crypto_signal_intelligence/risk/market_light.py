@@ -1,29 +1,37 @@
 """Feu de protection du marché (« météo du marché », docs/METEO_PROTECTION.md) : VERT, ORANGE, ROUGE ou INCONNU.
 
 C'est un OUTIL DE GESTION DU RISQUE, comme la perte maximale du jour : il dit « prudence » quand le marché est
-agité ou baisse partout. Ce n'est PAS une stratégie et AUCUN GAIN n'est démontré. L'étude séparée
-`docs/METEO_MARCHE.md` (branche `recherche/meteo`) mesurera plus tard ce qu'il vaut ; rien ici n'en dépend.
+agité ou baisse partout. Ce n'est PAS une stratégie et AUCUN GAIN n'est démontré.
 
-Règle DÉCLARÉE, sans aucun réglage optimisé (seuils repris de F5 et de METEO_MARCHE.md, fixés a priori) :
+Ce feu n'est PAS la règle que mesure l'étude en préparation (« météo du marché », branche `recherche/meteo`) : l'étude
+compte 6 dangers, ce feu en garde 3 et passe au rouge sur le seul rang ≥ 90 %. L'étude teste une règle voisine, pas
+celui-ci. Ce feu ne sera mesuré que par son propre journal (`state/market_light.jsonl`), et cette mesure future
+comptera comme un essai du programme.
+
+Règle DÉCLARÉE, sans aucun réglage optimisé :
 - Volatilité prévue : rang de la prévision à 24 h de BTC (H1_HAR_PROFILE, seule prévision de volatilité confirmée
   hors échantillon ; calculée chaque jour à 00:00 UTC par le test en direct F12, lu ici sans écriture) parmi ses
   valeurs des 365 jours précédents (part des valeurs STRICTEMENT inférieures, au moins 300 valeurs).
 - Structure BTC : clôture journalière de BTCUSDT ≤ son EMA50 journalière.
 - Largeur : part des paires de la configuration dont la clôture journalière est > leur EMA50 journalière.
 - ROUGE si rang ≥ 90 %, ou si BTC est sous son EMA50 ET la largeur < 1/3 ;
-  sinon ORANGE si rang ≥ 75 %, ou BTC sous son EMA50, ou largeur < 1/2 ; sinon VERT ;
-  INCONNU si une composante manque (la liste dit laquelle).
+  sinon ORANGE si rang ≥ 75 %, ou BTC sous son EMA50, ou largeur < 1/2 ; sinon VERT.
+- Donnée manquante : ROUGE si les composantes présentes suffisent déjà à donner ROUGE (avec la mention des données
+  manquantes : un garde-fou ne perd pas sa protection parce qu'une composante manque), sinon INCONNU.
+- Origine des seuils : 90 %, 1/3, EMA50 et 365 jours / 300 valeurs viennent de F5 et de l'étude ; 75 %, 1/2 et la
+  combinaison des trois composantes sont des choix NOUVEAUX, faits a priori (sans regarder aucun résultat).
 
 Causalité : seules les bougies dont `available_at` ≤ maintenant entrent ; la clôture journalière est celle de la
 bougie 1 h de 23:00 d'une journée UTC complète (24 bougies) ; le rang compare la prévision du jour aux seules
 prévisions des jours d'avant. Les entrées de F12 sont lues si leur horodatage est ≤ maintenant.
 
-Historique du rang : les jours où F12 tournait viennent de son journal ; les jours d'avant sont recalculés une fois
-par la surveillance (`ensure_vol_history`) avec les MÊMES fonctions gelées que F12 (`volatility_hourly.hourly_frame`,
-`fit_at`, `quarter_forecasts`, réajustement trimestriel sur le seul passé, mêmes paires), comme F5 l'a fait pour sa
-prévision à 7 jours. F12 n'est pas modifié.
+Historique du rang : les jours où F12 tournait viennent de son journal ; les jours d'avant sont recalculés UNE fois
+par la commande `csi meteo-historique` (conteneur tools, jamais la surveillance) avec les MÊMES fonctions gelées que
+F12 (`volatility_hourly.hourly_frame`, `fit_at`, `quarter_forecasts`, réajustement trimestriel sur le seul passé,
+mêmes paires), comme F5 l'a fait pour sa prévision à 7 jours. F12 n'est pas modifié. Le rang compare donc des
+prévisions issues de plusieurs ajustements trimestriels du modèle (un saut d'ajustement peut déplacer le rang).
 
-Journal quotidien en ajout seul : `state/market_light.jsonl` (un feu par jour UTC), pour comparer plus tard.
+Journal quotidien en ajout seul : `state/market_light.jsonl` (un feu par jour UTC), pour mesurer plus tard.
 """
 from __future__ import annotations
 
@@ -60,13 +68,16 @@ MAX_FORECAST_AGE = pd.Timedelta(hours=36)   # même limite que risk/advice.py
 MAX_CLOSE_AGE = pd.Timedelta(days=2)        # dernière journée complète au plus tard avant-hier
 RECORD_AFTER = pd.Timedelta(hours=6)        # journal : feu inscrit dès la prévision du jour, au plus tard à 06:00
 HISTORY_RETRY = pd.Timedelta(hours=20)      # historique du rang : au plus un recalcul par jour s'il reste incomplet
-NOTE = ("Outil de prudence, aucun gain démontré ; étude en cours (docs/METEO_MARCHE.md). Ce feu est un garde-fou de "
-        "gestion du risque, comme la perte maximale du jour : ce n'est pas une stratégie, il ne prévoit pas le sens "
-        "du marché. CSI ne passe aucun ordre.")
+NOTE = ("Outil de prudence, aucun gain démontré. Ce feu est un garde-fou de gestion du risque, comme la perte "
+        "maximale du jour : ce n'est pas une stratégie, il ne prévoit pas le sens du marché. Ce n'est pas la règle de "
+        "l'étude en préparation (branche recherche/meteo, règle voisine à 6 dangers) : il ne sera mesuré que par son "
+        "propre journal, et cette mesure comptera comme un essai. CSI ne passe aucun ordre.")
 RULE = ("ROUGE si le rang de la volatilité prévue de BTC à 24 h est ≥ 90 % de ses 365 jours précédents, ou si BTC "
         "clôture sous son EMA50 journalière ET que moins d'1/3 des paires sont au-dessus de la leur ; sinon ORANGE si "
         "le rang est ≥ 75 %, ou si BTC est sous son EMA50, ou si moins de la moitié des paires sont au-dessus de leur "
-        "EMA50 ; sinon VERT. INCONNU si une donnée manque. Seuils déclarés, jamais optimisés.")
+        "EMA50 ; sinon VERT. Donnée manquante : ROUGE si les données présentes suffisent à donner ROUGE, sinon "
+        "INCONNU. 90 %, 1/3, EMA50 et 365 jours viennent de F5 et de l'étude ; 75 %, 1/2 et la combinaison sont des "
+        "choix nouveaux, faits a priori ; rien n'est optimisé.")
 COMPONENT_NAMES = {"volatility": "volatilité prévue de BTC (rang sur 365 jours)",
                    "btc_structure": "structure BTC (clôture journalière contre EMA50)",
                    "breadth": "largeur (paires au-dessus de leur EMA50)"}
@@ -75,19 +86,20 @@ COMPONENT_NAMES = {"volatility": "volatilité prévue de BTC (rang sur 365 jours
 # --- Règle pure ---------------------------------------------------------------------------------------------------
 
 def decide(vol_rank: float | None, btc_below_ema: bool | None, breadth: float | None) -> dict:
-    """Couleur du feu et raisons, à partir des trois composantes (None = absente → INCONNU)."""
+    """Couleur du feu et raisons, à partir des trois composantes (None = absente). Donnée manquante : ROUGE si les
+    composantes présentes suffisent déjà à donner ROUGE (raisons et données manquantes listées), sinon INCONNU."""
     missing = [name for name, value in (("volatility", vol_rank), ("btc_structure", btc_below_ema),
                                         ("breadth", breadth)) if value is None]
+    red, orange = [], []
+    if vol_rank is not None and vol_rank >= RANK_RED:
+        red.append(f"volatilité prévue de BTC très haute (rang {vol_rank:.0%} ≥ 90 %)")
+    if btc_below_ema and breadth is not None and breadth < BREADTH_RED:
+        red.append(f"BTC sous son EMA50 et seulement {breadth:.0%} des paires au-dessus de la leur (< 1/3)")
+    if red:
+        return {"color": RED, "reasons": red, "missing": missing}
     if missing:
         return {"color": UNKNOWN, "reasons": [], "missing": missing}
     assert vol_rank is not None and btc_below_ema is not None and breadth is not None
-    red, orange = [], []
-    if vol_rank >= RANK_RED:
-        red.append(f"volatilité prévue de BTC très haute (rang {vol_rank:.0%} ≥ 90 %)")
-    if btc_below_ema and breadth < BREADTH_RED:
-        red.append(f"BTC sous son EMA50 et seulement {breadth:.0%} des paires au-dessus de la leur (< 1/3)")
-    if red:
-        return {"color": RED, "reasons": red, "missing": []}
     if vol_rank >= RANK_ORANGE:
         orange.append(f"volatilité prévue de BTC haute (rang {vol_rank:.0%} ≥ 75 %)")
     if btc_below_ema:
@@ -100,14 +112,17 @@ def decide(vol_rank: float | None, btc_below_ema: bool | None, breadth: float | 
 def explanation(decision: dict, missing_detail: dict[str, str] | None = None) -> str:
     """Une phrase en français, pour la carte, l'API et BinanceSpotManager."""
     color = decision["color"]
+    detail = missing_detail or {}
+    parts = [f"{COMPONENT_NAMES[m]} : {detail.get(m) or 'absente'}" for m in decision["missing"]]
     if color == UNKNOWN:
-        detail = missing_detail or {}
-        parts = [f"{COMPONENT_NAMES[m]} : {detail.get(m, 'absente')}" for m in decision["missing"]]
         return "Feu INCONNU : donnée manquante — " + " ; ".join(parts) + "."
     if color == GREEN:
         return ("Feu VERT : volatilité prévue de BTC sous son 75e rang, BTC au-dessus de son EMA50 et au moins la moitié "
                 "des paires au-dessus de la leur.")
-    return f"Feu {color} : " + " ; ".join(decision["reasons"]) + "."
+    text = f"Feu {color} : " + " ; ".join(decision["reasons"]) + "."
+    if parts:
+        text += " Données manquantes (le rouge tient déjà sans elles) : " + " ; ".join(parts) + "."
+    return text
 
 
 def volatility_rank(history: list[float], today: float | None) -> float | None:
@@ -257,7 +272,8 @@ def volatility_component(settings: Settings, *, now: datetime) -> tuple[dict | N
     rank = volatility_rank(history, latest["value"])
     if rank is None:
         return None, (f"{len(history)} prévision(s) dans les 365 jours précédents (au moins {RANK_MIN_VALUES}) : "
-                      "historique du rang pas encore calculé par la surveillance")
+                      "historique du rang à calculer une fois : `csi meteo-historique` (Docker : "
+                      "`docker compose run --rm tools meteo-historique`)")
     return {"rank": round(rank, 4), "_rank": rank, "move_24h_pct": round(math.sqrt(latest["value"]) * 100, 2),
             "history_values": len(history), "origin": origin.isoformat(), "known_at": latest["known_at"].isoformat(),
             "model": MODEL, "source": SOURCE_TEST}, None
@@ -354,37 +370,58 @@ def compute_vol_history(settings: Settings, *, now: datetime, days: int = RANK_D
 
 
 def _recent(elapsed: pd.Timedelta) -> bool:
-    """Vrai si le dernier calcul est assez récent pour ne pas recommencer (horloge qui recule : on recalcule)."""
+    """Vrai si la dernière tentative est assez récente pour ne pas recommencer (horloge qui recule : on recalcule)."""
     return pd.Timedelta(0) <= elapsed < HISTORY_RETRY
 
 
-def ensure_vol_history(settings: Settings, *, now: datetime) -> dict | None:
-    """Recalcule l'historique du rang quand la fenêtre du jour a moins de RANK_MIN_VALUES valeurs (premier passage,
-    ou trou), au plus une fois toutes les HISTORY_RETRY. Écriture atomique ; None si rien à faire. Travail lourd
-    (≈ 20 s, ≈ 1 Go sur 16 paires) : appelé par la surveillance seulement, jamais par l'API."""
+def attempt_path(settings: Settings) -> Path:
+    return settings.root / "state" / "market_light_vol_history.attempt.json"
+
+
+def _write_atomic(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("w", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, ensure_ascii=False))
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(tmp, path)
+
+
+def _last_attempt(settings: Settings) -> pd.Timestamp | None:
+    """La plus récente de la dernière tentative (marqueur écrit AVANT le calcul) et du dernier calcul réussi."""
+    stamps = []
+    for path, key in ((history_path(settings), "computed_at"), (attempt_path(settings), "attempted_at")):
+        try:
+            stamps.append(pd.Timestamp(json.loads(path.read_text(encoding="utf-8"))[key]))
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    return max(stamps) if stamps else None
+
+
+def ensure_vol_history(settings: Settings, *, now: datetime, force: bool = False) -> dict | None:
+    """Recalcule l'historique du rang quand la fenêtre du jour a moins de RANK_MIN_VALUES valeurs. Travail lourd
+    (≈ 1 min, ≈ 0,9 Go sur 16 paires) : fait par la commande `csi meteo-historique` (conteneur `tools`), JAMAIS par
+    la surveillance ni par l'API, pour qu'un manque de mémoire ne puisse pas arrêter les tests en direct.
+
+    Un marqueur de tentative est écrit (atomiquement) AVANT le calcul : un calcul qui plante ou qui est tué n'est pas
+    relancé avant HISTORY_RETRY (`force` passe outre, sur demande explicite). None si rien à faire."""
     values, latest = vol_series(settings, now)
     origin = (latest or {}).get("origin") or pd.Timestamp(now).floor("D")
     first = origin - pd.Timedelta(days=RANK_DAYS)
     present = sum(1 for k in values if first <= pd.Timestamp(k, tz="UTC") < origin.floor("D"))
-    if present >= RANK_MIN_VALUES:
+    if present >= RANK_MIN_VALUES and not force:
         return None
-    path = history_path(settings)
-    if path.exists():
-        try:
-            computed_at = pd.Timestamp(json.loads(path.read_text(encoding="utf-8"))["computed_at"])
-            if _recent(pd.Timestamp(now) - computed_at):
-                return None
-        except (OSError, ValueError, KeyError, TypeError):
-            pass
+    last = _last_attempt(settings)
+    if not force and last is not None and _recent(pd.Timestamp(now) - last):
+        return None
+    _write_atomic(attempt_path(settings), {"attempted_at": pd.Timestamp(now).isoformat()})
     from ..forward.registry import code_fingerprint
     from ..research import volatility_hourly as vh
     computed = compute_vol_history(settings, now=now)
-    path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"computed_at": pd.Timestamp(now).isoformat(), "model": MODEL, "horizon": HORIZON, "symbol": MARKET,
                "pool": [MARKET, *[s for s in _f12_symbols(settings) if s != MARKET]], "seed": settings.protocol.seed,
                "code": code_fingerprint((vh.hourly_frame, vh.complete_rows, vh.fit_at, vh.quarter_forecasts)),
                "values": dict(sorted(computed.items()))}
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    os.replace(tmp, path)
+    _write_atomic(history_path(settings), payload)
     return {"values": len(computed), "before": present}

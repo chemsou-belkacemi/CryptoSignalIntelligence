@@ -424,8 +424,8 @@ async function loadMeteo() {
     target.replaceChildren(card("Météo du marché (protection)",
       banner(kind, `Feu ${label}`, d.explanation || ""),
       kv(rows),
-      el("p", { class: "small", text: "Outil de prudence, aucun gain démontré ; étude en cours (docs/METEO_MARCHE.md). Ce n'est pas une stratégie : c'est un garde-fou de gestion du risque, comme la perte maximale du jour." }),
-      el("p", { class: "muted small", text: `Règle déclarée, jamais optimisée : ${d.rule || ""}` })));
+      el("p", { class: "small", text: "Outil de prudence, aucun gain démontré ; étude en cours de préparation (branche recherche/meteo), qui teste une règle voisine à 6 dangers, pas ce feu : celui-ci ne sera mesuré que par son propre journal (un essai de plus). Ce n'est pas une stratégie : c'est un garde-fou de gestion du risque, comme la perte maximale du jour." }),
+      el("p", { class: "muted small", text: `Règle déclarée a priori, jamais optimisée : ${d.rule || ""}` })));
   } catch (error) {
     showError(target, error);
   }

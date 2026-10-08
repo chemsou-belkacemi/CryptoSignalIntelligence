@@ -4,9 +4,13 @@ Demande du propriétaire du 2026-10-08 : ne pas prendre de risque quand « le ma
 perd ».
 
 > **Ce feu est un outil de gestion du risque, comme la perte maximale du jour. Ce n'est PAS une stratégie et aucun
-> gain n'est annoncé ni démontré.** Une étude séparée, [`METEO_MARCHE.md`](METEO_MARCHE.md) (branche
-> `recherche/meteo`, pré-enregistrée, pas encore exécutée), mesurera plus tard ce qu'il vaut. Le résultat de cette
-> étude peut très bien être « rien » ; le feu ne change pas d'ici là.
+> gain n'est annoncé ni démontré.**
+>
+> **Ce feu n'est pas la règle que mesure l'étude en préparation** (« météo du marché », branche `recherche/meteo`,
+> pré-enregistrée, pas encore exécutée). L'étude compte 6 dangers (structure, largeur, volatilité, peur, financement,
+> pertes récentes) et ne passe au rouge qu'à partir de 3 ; ce feu en garde 3 et passe au rouge sur le seul critère
+> « rang ≥ 90 % ». L'étude teste donc une règle **voisine**, pas celle-ci. Ce feu ne sera mesuré que par son propre
+> journal (`state/market_light.jsonl`), et cette mesure future comptera comme **un essai** du programme.
 
 ## 1. La règle (déclarée, sans aucun réglage optimisé)
 
@@ -23,11 +27,18 @@ Couleur :
 - **ROUGE** si le rang de volatilité est **≥ 90 %**, OU si BTC est sous son EMA50 **ET** la largeur est **< 1/3** ;
 - sinon **ORANGE** si le rang est **≥ 75 %**, OU si BTC est sous son EMA50, OU si la largeur est **< 1/2** ;
 - sinon **VERT** ;
-- **INCONNU** si une composante manque ; la réponse dit laquelle et pourquoi.
+- **donnée manquante** : si les composantes présentes suffisent déjà à donner ROUGE (par exemple rang ≥ 90 % alors
+  que la largeur manque), le feu est **ROUGE**, avec la mention des données manquantes : un garde-fou ne perd pas
+  sa protection parce qu'une composante manque. Dans tous les autres cas, **INCONNU** ; la réponse dit quelle
+  donnée manque et pourquoi.
 
-Les seuils (90 %, 75 %, 1/3, 1/2, 365 jours, EMA50) sont des choix **a priori**, repris de F5 et de
-`METEO_MARCHE.md`. Aucun n'a été choisi en regardant des résultats. La décision se fait sur les valeurs exactes (4
-paires sur 12 = 1/3 exactement, donc pas « < 1/3 ») ; les arrondis ne servent qu'à l'affichage.
+Origine des seuils, tous fixés **a priori** (aucun n'a été choisi en regardant des résultats) :
+- **repris de F5 et de l'étude** : 90 % (rang de volatilité), 1/3 (largeur), EMA50, 365 jours et 300 valeurs au
+  moins pour le rang ;
+- **choix nouveaux** de ce feu : 75 % et 1/2 (seuils de l'orange) et la combinaison des trois composantes en un feu.
+
+La décision se fait sur les valeurs exactes (4 paires sur 12 = 1/3 exactement, donc pas « < 1/3 ») ; les arrondis
+ne servent qu'à l'affichage.
 
 ## 2. Causalité
 
@@ -41,14 +52,23 @@ paires sur 12 = 1/3 exactement, donc pas « < 1/3 ») ; les arrondis ne servent 
 ## 3. Historique du rang
 
 F12 ne tourne que depuis le 2026-10-03 : il n'a pas 365 jours de prévisions. Les jours manquants sont recalculés
-**une fois** par la surveillance (`ensure_vol_history`, fil des tests en direct, ≈ 20 s et ≈ 1 Go sur 16 paires)
-avec les **mêmes fonctions gelées** que F12 (`volatility_hourly.hourly_frame`, `complete_rows`, `fit_at`,
+**une fois** par la commande `csi meteo-historique` (Docker : `docker compose run --rm tools meteo-historique`), avec
+les **mêmes fonctions gelées** que F12 (`volatility_hourly.hourly_frame`, `complete_rows`, `fit_at`,
 `quarter_forecasts`), les mêmes paires (configuration ∩ liste halal figée au démarrage de F12), la même graine et le
 même réajustement trimestriel sur le seul passé purgé, comme F5 l'a fait pour sa prévision à 7 jours. Un test vérifie
-que la valeur recalculée d'un jour est celle que F12 inscrit ce jour-là. Résultat :
-`state/market_light_vol_history.json` (avec l'empreinte du code). Pour un même jour, la valeur du journal de F12
-l'emporte. Si la fenêtre reste incomplète, au plus un nouveau calcul par jour. L'API ne fait jamais ce calcul : tant
-qu'il manque, le feu est INCONNU (« historique du rang pas encore calculé »).
+que la valeur recalculée d'un jour est celle que F12 inscrit ce jour-là (sur les données réelles, 6 jours relus :
+écart 1,7·10⁻¹⁵). Résultat : `state/market_light_vol_history.json` (avec l'empreinte du code). Pour un même jour, la
+valeur du journal de F12 l'emporte.
+
+- **Coût mesuré** : environ 1 min et environ 0,9 Go sur 16 paires. C'est pourquoi le calcul se fait dans le
+  conteneur `tools`, **jamais dans la surveillance** : un manque de mémoire dans `monitor` (plafond 2 Go) arrêterait
+  les tests en direct F1 à F16. Ni la surveillance ni l'API ne le lancent ; tant qu'il manque, le feu est INCONNU
+  (sauf ROUGE déjà acquis par la structure et la largeur) et la raison donne la commande.
+- **Tentatives** : un marqueur `state/market_light_vol_history.attempt.json` est écrit (atomiquement) **avant** le
+  calcul ; un calcul qui plante ou qui est tué n'est pas relancé avant 20 h (`--force` passe outre).
+- **Le rang mélange plusieurs ajustements** : les 365 prévisions de référence viennent de 4 à 5 ajustements
+  trimestriels différents du modèle (et ensuite des ajustements de F12). Un changement d'ajustement peut déplacer le
+  niveau des prévisions, donc le rang, sans que le marché ait changé. C'est déclaré ici et non corrigé.
 
 ## 4. Où le voir
 
@@ -56,9 +76,10 @@ qu'il manque, le feu est INCONNU (« historique du rang pas encore calculé »).
   Réponse : `color`, `explanation` (phrase en français), `reasons`, `missing` (composante, raison), `components`
   (valeur et heure de connaissance de chacune), `thresholds`, `rule`, `note`, `computed_at`, `places_orders: false`.
 - **Tableau de bord** (port 8503) : carte « Météo du marché (protection) » en tête de l'onglet Marché, avec le texte
-  « outil de prudence, aucun gain démontré ; étude en cours ».
+  « outil de prudence, aucun gain démontré ; étude en cours de préparation (branche recherche/meteo) », qui précise
+  que l'étude teste une règle voisine, pas ce feu.
 - **Journal quotidien** en ajout seul : `state/market_light.jsonl`, un feu par jour UTC, inscrit dès que la
-  prévision du jour de F12 est là, au plus tard après 06:00 UTC (même INCONNU). Il sert à comparer plus tard.
+  prévision du jour de F12 est là, au plus tard après 06:00 UTC (même INCONNU). C'est la seule base sur laquelle ce feu sera mesuré ; cette mesure comptera comme un essai.
 - **BinanceSpotManager** lit `GET /meteo` dans son garde-fou « Feu de protection CSI », **désactivé par défaut** (voir
   le README de BSM). CSI, lui, ne passe aucun ordre et ne change rien à ses propres signaux.
 
@@ -67,9 +88,12 @@ qu'il manque, le feu est INCONNU (« historique du rang pas encore calculé »).
 - **Pas une preuve de gain.** Rien ne dit aujourd'hui que sauter les jours rouges améliore le résultat. Les
   composantes « BTC sous sa moyenne » et « largeur faible » suivent la tendance : elles seront surtout rouges dans
   les marchés baissiers déjà installés, et peuvent faire rater les rebonds (les meilleurs jours suivent souvent les
-  pires). C'est exactement ce que `METEO_MARCHE.md` mesurera, contre des placebos.
+  pires). L'étude en préparation (branche `recherche/meteo`) mesurera une règle voisine contre des placebos ; ce feu
+  lui-même ne sera jugé que sur son propre journal.
 - **Dépend de F12.** Quand F12 s'arrête ou se termine (verdict prévu le 2026-12-25), la prévision du jour n'est plus
   inscrite et le feu devient INCONNU ; il faudra alors une autre source de la même prévision.
+- **Déploiement** : sans `meteo-historique` lancé une fois, le rang manque et le feu reste INCONNU (sauf ROUGE
+  donné par BTC sous son EMA50 et largeur < 1/3).
 - **Largeur sur 16 paires** (celles de la configuration), pas sur le marché entier.
 - **BSM sur le VPS** ne joint pas forcément le CSI du PC : son réglage par défaut est « aucune action » quand CSI
   est injoignable ou INCONNU.

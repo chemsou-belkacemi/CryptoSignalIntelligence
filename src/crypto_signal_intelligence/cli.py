@@ -768,6 +768,24 @@ def volatility_v5_command(allow_dirty: bool = typer.Option(False, "--allow-dirty
     console.print(f"Verdict : {result.verdict} ; retenu : {result.selected} ; rapport : {settings.reports_dir / result.run_id / 'summary.json'}")
 
 
+@app.command("meteo-historique")
+def meteo_history_command(force: bool = typer.Option(False, "--force", help="Recalculer même si l'historique est "
+                                                     "complet ou si une tentative a eu lieu il y a moins de 20 h"),
+                          verbose: bool = False):
+    """Feu de protection du marché (docs/METEO_PROTECTION.md) : calcule UNE fois l'historique du rang de volatilité
+    (365 jours de prévisions H24 de BTC, mêmes fonctions gelées que F12). Travail lourd (≈ 1 min, ≈ 0,9 Go) : à lancer
+    dans le conteneur tools, jamais dans la surveillance. Lecture des bougies locales seulement, aucun ordre."""
+    from .risk.market_light import ensure_vol_history
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    with console.status("historique du rang de volatilité…"):
+        out = ensure_vol_history(settings, now=_now(), force=force)
+    if out is None:
+        console.print("Rien à faire : historique déjà complet, ou tentative de moins de 20 h (--force pour recalculer).")
+        return
+    console.print(f"Historique du rang : {out['values']} jours calculés ({out['before']} présents avant).")
+
+
 @app.command("volatility-confirm")
 def volatility_confirm_command(
         rehearsal: bool = typer.Option(False, "--rehearsal", help="Répétition sur la fin de DEVELOPMENT (aucune donnée finale lue, rien compté)"),
