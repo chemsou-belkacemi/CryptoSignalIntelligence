@@ -2272,3 +2272,87 @@ def forward_report():
     settings = _settings()
     path = write(settings, now=_now())
     console.print(path.read_text(encoding="utf-8"))
+
+
+meteo_app = typer.Typer(no_args_is_help=True,
+                        help="Météo du marché (docs/METEO_MARCHE.md) : contrôles synthétiques, puis exécutions réelles "
+                             "uniques (principale, variante, confirmation), chacune derrière --executer.")
+app.add_typer(meteo_app, name="meteo")
+
+
+@meteo_app.command("controles")
+def meteo_controls(question: str = typer.Option("toutes", "--question", help="principale, variante ou toutes"),
+                   cas: list[str] = typer.Option(None, "--cas", help="Cas synthétiques (défaut : tous, l'un après l'autre)"),
+                   simulations: int = typer.Option(500, "--simulations", help="Simulations par cas (500 au moins)"),
+                   tirages: int = typer.Option(10_000, "--tirages", help="Tirages du placebo et de l'intervalle"),
+                   workers: int = typer.Option(4, "--workers", help="Processus (4 au plus)"),
+                   sans_mutations: bool = typer.Option(False, "--sans-mutations"),
+                   dossier: Path = typer.Option(None, "--dossier", help="Dossier des résultats"),
+                   verbose: bool = False):
+    """Contrôles du § 7.1 et du § 7.2 sur données SYNTHÉTIQUES : causalité et mutations, cas N1 à N4, contrôle positif.
+    Aucune donnée réelle, rien d'inscrit au registre."""
+    from .research import meteo_controls as mc
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    directory = dossier or settings.reports_dir / f"METEO-CONTROLES-{_now():%Y%m%dT%H%M%SZ}"
+    directory.mkdir(parents=True, exist_ok=True)
+    questions = ["principale", "variante"] if question == "toutes" else [question]
+    with console.status("contrôles de la météo…") as status:
+        if not sans_mutations:
+            report = mc.mutation_checks(progress=lambda text: status.update(f"mutations : {text}"))
+            (directory / "mutations.json").write_text(json.dumps(report, indent=2, ensure_ascii=False, default=str),
+                                                      encoding="utf-8")
+            console.print(f"Causalité sans mutation : {'propre' if report['baseline_clean'] else 'DIFFÉRENCES'} ; "
+                          f"mutations détectées : {'toutes' if report['all_detected'] else 'NON'}")
+        for q in questions:
+            result = mc.run_controls(directory, question=q, cases=tuple(cas or mc.CASES), sims=simulations,
+                                     workers=workers, samples=tirages,
+                                     progress=lambda text: status.update(f"contrôles : {text}"))
+            for line in mc.describe(result):
+                console.print(f"{q} — {line}")
+            if result.get("rule"):
+                console.print(f"{q} — règle d'inutilité : {result['rule']}")
+    console.print(f"Détail : {directory}")
+
+
+@meteo_app.command("fng-historique")
+def meteo_fng_history(executer: bool = typer.Option(False, "--executer", help="Téléchargement (accord du propriétaire)"),
+                      verbose: bool = False):
+    """Historique quotidien du Fear & Greed (alternative.me `/fng/`, `limit=0`, un seul appel), rangé comme série
+    HISTORIQUE du magasin de contexte. Attend l'accord du propriétaire (§ 15, étape 1)."""
+    from .research import meteo_execution as me
+    if not executer:
+        console.print("[red]Téléchargement non lancé : ajouter --executer (accord du propriétaire exigé).[/red]")
+        raise typer.Exit(2)
+    console.print(me.download_fng(_settings(verbose), now=_now()))
+
+
+@meteo_app.command("executer")
+def meteo_execute(etape: str = typer.Argument(..., help="principale, variante ou confirmation"),
+                  executer: bool = typer.Option(False, "--executer", help="Exécution réelle UNIQUE"),
+                  workers: int = typer.Option(4, "--workers"), verbose: bool = False):
+    """Exécution réelle unique d'une étape (§ 15, étapes 4 et 5), en passage unique scellé pour la principale et la
+    variante. Refusée sans --executer, sans code commité et relu (CODE_REVIEW), sans contrôles inscrits."""
+    from .research import meteo_execution as me
+    from .research.factors import DirtyCode
+    if etape not in me.STEPS:
+        console.print(f"[red]Étape inconnue : {etape} ({', '.join(me.STEPS)}).[/red]")
+        raise typer.Exit(2)
+    if not executer:
+        console.print("[red]Exécution réelle unique : ajouter --executer (après la relecture leak-auditor inscrite).[/red]")
+        raise typer.Exit(2)
+    settings = _settings(verbose)
+    try:
+        me.require_ready(settings)
+    except (DirtyCode, me.NotReady, me.AlreadyRun) as exc:
+        console.print(f"[red]Aucun calcul :[/red] {exc}")
+        raise typer.Exit(3) from None
+    _heavy_job(settings)
+    try:
+        with console.status(f"météo, {etape}…") as status:
+            payload = me.run_step(settings, etape, now=_now(), workers=workers,
+                                  progress=lambda text: status.update(f"météo, {etape} : {text}"))
+    except (DirtyCode, me.NotReady, me.AlreadyRun, FileNotFoundError) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    console.print_json(json.dumps(me.public_summary(payload), ensure_ascii=False, default=str))
