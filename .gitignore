@@ -36,3 +36,8 @@ imports/
 # Exports de Telegram Desktop copiés par le propriétaire (messages et photos de ses groupes) : jamais versionnés
 /exports/*
 !/exports/README.md
+
+# Bougies de la période réservée pour la voie A des combinaisons (709 Mo, re-téléchargeables) : jamais versionnées
+/combinaisons_telegram/
+# Copies de travail (git worktree) de Claude Code : jamais versionnées
+/.claude/worktrees/
