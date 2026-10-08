@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Données → recherche → analyse → validation → signaux TXT. Aucune exécution d'ordre."
 readme = "README.md"
 requires-python = ">=3.12"
+license = {text = "AGPL-3.0-or-later"}
 # Versions minimales vérifiées par installation réelle sous Python 3.14.7 (Windows, 2026-09-30).
 # Les versions exactes installées sont figées dans pylock.toml.
 dependencies = [

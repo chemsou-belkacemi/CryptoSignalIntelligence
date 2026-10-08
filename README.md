@@ -412,3 +412,16 @@ Lot 4 : calcul incrémental des indicateurs, plafond de RAM des travaux lourds, 
 un vrai VPS/NAS, observation prolongée (écarts théorie/Demo mesurés). Lot 3 : fusion de la branche BinanceSpotManager
 (relecture du propriétaire), deux entrées simulées (Binance Demo uniquement). ML (lot 5) ; agents
 (lot 6). Détail et preuves : [docs/DELIVERY_STATUS.md](docs/DELIVERY_STATUS.md).
+
+## Licence
+
+Copyright (C) 2026 Chemseddine Belkacemi.
+
+CryptoSignalIntelligence est un logiciel libre, publié sous la **GNU Affero General Public License, version 3 ou ultérieure**
+(AGPL-3.0-or-later) : texte complet dans [LICENSE](LICENSE). Vous pouvez l'utiliser, l'étudier, le modifier et le
+redistribuer ; toute version modifiée, y compris proposée comme service en ligne, doit être publiée sous la même
+licence, avec son code source.
+
+Le logiciel est fourni **sans aucune garantie**. Ce n'est pas un conseil en investissement : aucun résultat de
+recherche du projet ne démontre de gain, et le trading de cryptomonnaies peut faire perdre tout le capital engagé.
+CSI ne passe aucun ordre et n'utilise aucune clé API.
