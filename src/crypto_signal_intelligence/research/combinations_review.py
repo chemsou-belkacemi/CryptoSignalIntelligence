@@ -10,5 +10,5 @@ aucun fichier relu. Les deux valeurs s'inscrivent ensemble, par un commit qui ne
 """
 from __future__ import annotations
 
-CODE_REVIEW: str | None = None
-CONFIG_FINGERPRINT: str | None = None
+CODE_REVIEW: str | None = "05bfe86d633a69cac5bf22a4fcdc6bc99d034d1b"
+CONFIG_FINGERPRINT: str | None = "1c7622cf73ef97a40907ae409a25debae14342ebf6abdb8e1120eaad50b28105"
