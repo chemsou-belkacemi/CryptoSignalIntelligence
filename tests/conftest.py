@@ -59,6 +59,10 @@ def no_spreads_network(monkeypatch):
     # (tests/test_context.py).
     from crypto_signal_intelligence.context import collect
     monkeypatch.setattr(collect, "record_day", lambda settings, *, now, clients=None: None)
+    # Relevé de liquidité (forward/liquidity_log.py) : fil qui interroge Binance, lancé par la surveillance ; testé
+    # à part avec des clients factices (tests/test_liquidity_log.py).
+    from crypto_signal_intelligence.forward import liquidity_log
+    monkeypatch.setattr(liquidity_log, "start_background", lambda settings, *, clock: False)
 
 
 @pytest.fixture

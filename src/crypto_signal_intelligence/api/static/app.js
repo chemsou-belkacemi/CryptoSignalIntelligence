@@ -1133,10 +1133,10 @@ async function loadFollow(force = false) {
   if (state.followLoaded && !force) return;
   busy(target, "Chargement…");
   try {
-    const [health, models, recent, sources, generated, universe, admissions, history, plans, forward, relay] = await Promise.all([
+    const [health, models, recent, sources, generated, universe, admissions, history, plans, forward, relay, liquidity] = await Promise.all([
       api("/health"), api("/models"), api("/signals/recent?limit=15"), api("/sources"), api(`/signals/generated?limit=${GENERATED_PAGE}`), api("/universe"),
       refreshAdmissions(), api("/sources/history"), api("/plans/live"), api("/forward").catch(() => null),
-      api("/telegram/relay").catch(() => null),
+      api("/telegram/relay").catch(() => null), api(`/liquidity?size=${LIQUIDITY_SIZE}&limit=15`).catch(() => null),
     ]);
     state.followLoaded = true;
     state.models = models;
@@ -1167,6 +1167,7 @@ async function loadFollow(force = false) {
             { node: el("span", { class: g.proven ? "ok" : "muted", text: g.proven ? "prouvé en direct" : g.progress }) }]),
           "aucun plan encore enregistré : le premier passage a lieu chaque jour après 00:10 UTC")),
       relayCard(relay),
+      liquidityCard(liquidity),
       forwardCard(forward),
       card("Signaux évalués récemment", table(["Reçu", "Source", "Paire", "Entrée · stop · TP1", "Avis", "Issue", "R"],
         (recent.signals || []).map((x) => [when(x.received_at), x.source, pair(x.symbol), `${price(x.entry)} · ${price(x.stop)} · ${price(x.tp1)}`,
@@ -1208,6 +1209,38 @@ function relayCard(relay) {
   return card("Relais Telegram", el("p", { class: "muted small", text: relay.note }), status,
     table(["Groupe ou conversation", { label: "24 h", num: true }, { label: "7 jours", num: true }, "Dernier message"],
       (relay.groups || []).map((g) => [g.group, g.day, g.week, when(g.last)]), "aucun message"));
+}
+
+// Relevé de liquidité en shadow (docs/LIQUIDITE.md) : carnet et flux au moment de chaque signal, information seulement.
+const LIQUIDITY_SIZE = 500;
+const LIQUIDITY_CHECK = { SUFFISANTE: ["ok", "suffisante"], INSUFFISANTE: ["bad", "insuffisante"], INCONNUE: ["muted", "inconnue"] };
+
+function liquidityRow(r, first) {
+  const d1 = (r.depth || {})["1"] || {};
+  const imbalance = ["0.5", "1", "2"].map((k) => fmt(((r.depth || {})[k] || {}).imbalance, 2, true)).join(" / ");
+  const check = r.check || {};
+  const [cls, label] = LIQUIDITY_CHECK[check.status] || ["muted", "–"];
+  return [...first, isNum(r.spread_pct) ? fmt(r.spread_pct, 3) + " %" : "–",
+    `${fmt(d1.bid_usdt, 0)} / ${fmt(d1.ask_usdt, 0)}${d1.truncated ? " (min.)" : ""}`, imbalance,
+    `${pctFrac((r.taker_buy_share || {})["15m"], 0)} / ${pctFrac((r.taker_buy_share || {})["60m"], 0)}`,
+    `${fmt((r.rel_volume || {})["60m"], 1)}×`,
+    { node: el("span", { class: cls, text: label, title: (check.reasons || []).join(" ; ") || check.rule || "" }) }];
+}
+
+function liquidityCard(liq) {
+  if (!liq) return card("Liquidité au moment des signaux", el("p", { class: "muted", text: "relevé indisponible" }));
+  const cols = ["Écart", { label: "USDT à ±1 % (achat / vente)", num: true }, "Déséquilibre ±0,5 / 1 / 2 %",
+    "Achats au marché 15 / 60 min", { label: "Volume 1 h", num: true }, `Profondeur pour ${fmt(liq.size_usdt, 0)} USDT`];
+  const counts = liq.counts || {};
+  return card("Liquidité au moment des signaux (shadow)",
+    el("p", { class: "muted small", text: `${liq.note} Règle : ${liq.rule}. Déséquilibre : +1 = que des achats, −1 = que des ventes ; volume 1 h comparé aux ~15 h précédentes.` }),
+    el("p", { class: liq.enabled ? "muted small" : "warn", text: (liq.enabled ? "" : "Relevé arrêté (configuration). ")
+      + `${counts.signals || 0} signal(aux) relevé(s), ${counts.missed || 0} manqué(s), ${counts.errors || 0} erreur(s) ; dernier cycle périodique ${when(liq.last_cycle)}.` }),
+    table(["Reçu", "Groupe", "Paire", { label: "Délai", num: true }, ...cols],
+      (liq.signals || []).map((r) => liquidityRow(r, [when(r.received_at), r.provider || "–", pair(r.symbol), isNum(r.delay_s) ? `${fmt(r.delay_s, 0)} s` : "–"])),
+      "aucun signal relevé pour l'instant"),
+    (liq.pairs || []).length ? folded(`Dernier relevé de ${liq.pairs.length} paire(s) suivie(s) — afficher`,
+      table(["Relevé", "Paire", ...cols], liq.pairs.map((r) => liquidityRow(r, [when(r.time), pair(r.symbol)])), "")) : null);
 }
 
 function groupsCard(history) {

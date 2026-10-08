@@ -155,9 +155,11 @@ class ExternalSection(BaseModel):
 class ForwardSection(BaseModel):
     """Tests en direct (docs/FORWARD_TESTS.md). Sources des signaux Telegram reçus en direct (F4_TELEGRAM) :
     la boîte de réception de BinanceSpotManager (chemin de `signals.sqlite3`, lecture seule ; vide = non lue) et
-    le dossier de dépôt des listes du robot du propriétaire, relatif à la racine."""
+    le dossier de dépôt des listes du robot du propriétaire, relatif à la racine. `liquidity_log` : relevé de
+    liquidité en shadow par la surveillance (forward/liquidity_log.py, docs/LIQUIDITE.md ; faux = arrêté)."""
     bsm_inbox: str = ""
     telegram_live_dir: str = "imports/telegram/live"
+    liquidity_log: bool = True
 
 
 class CostScenario(BaseModel):
