@@ -58,6 +58,9 @@ définitions techniques ont été corrigées, à la demande de la relecture.
   du § 5.6 : **Δ_min = 0,15 σ**, environ 0,6 % par jour rouge sauté pour une altcoin typique (environ 0,23 R). Si le
   résultat est nul, la conclusion sera « les jours rouges ne sont pas pires de plus de X % par jour ». Ce chiffre X
   sera donné **dans tous les cas**. Un écart plus petit, par exemple 0,4 % par jour, ne pourra pas être exclu.
+- **Si l'équivalence n'est pas jugeable** (instrument trop peu précis pour elle, § 7.2), un résultat nul ne donnera
+  que la borne haute (« pas pires de plus de X % par jour »), **sans pouvoir dire que le feu est inutile**. Tu as validé
+  cette règle le 2026-10-08 (« On lance quand même ») ; elle vaut pour l'historique et pour F17.
 - **Attention** : avec 5 ans d'historique, on ne peut pas certifier qu'un écart de 0,2 % par jour (le prix d'un
   aller-retour) est absent. L'instrument est trop peu précis pour ça. Une marge aussi petite ferait arrêter l'étude
   avant de la lancer (§ 7.2), sans rien compter.
@@ -72,9 +75,10 @@ définitions techniques ont été corrigées, à la demande de la relecture.
   marché à terme, sentiment, MVRV, filtres de tendance, combinaisons : rien ne bat le hasard. La seule chose démontrée,
   c'est l'**ampleur** des mouvements à 24 h, pas leur sens. Ajuster la taille selon cette ampleur (`RISK_SHADOW.md`)
   reste le seul outil de risque démontré.
-- **Ce qu'on peut espérer, honnêtement.** Le résultat le plus probable est « le feu vaut au plus X », ou « ni démontré
-  ni exclu ». La vraie preuve viendra du **temps** : le test en direct F17 tourne plusieurs années, avec des points
-  d'arrêt fixés d'avance.
+- **Ce qu'on peut espérer, honnêtement.** Le résultat le plus probable est « les jours rouges ne sont pas pires de
+  plus de X », ou « ni démontré ni exclu ». Le test en direct F17 tourne plusieurs années, avec des points d'arrêt
+  fixés d'avance. Il pourra peut-être confirmer un effet net, mais **il ne décidera probablement pas l'équivalence**
+  (§ 11) : le temps seul ne suffira sans doute pas à prouver que le feu est inutile.
 - **Coût en essais.** 3 essais sur DEVELOPMENT (la question principale, sa variante 2018 et sa confirmation sur les
   autres paires du top 40), 5 au plus. La période réservée reste fermée. 1 essai au registre des tests en direct pour
   F17.
@@ -435,13 +439,17 @@ chaque jour rouge sauté fait gagner ou perdre. Elle ne dépend pas de la part d
 
 **Intervalle de Δ_exc** :
 - tirage **stratifié** : dans chaque bloc de 13 semaines, on tire des fenêtres circulaires de **4 semaines** (28 jours
-  consécutifs, début tiré uniformément parmi les jours du bloc, circulaire dans le bloc) ;
+  consécutifs, circulaires dans le bloc). **Elles commencent un lundi** : 13 départs possibles dans un bloc de
+  13 semaines (8 et 4 dans les derniers blocs courts), tirés uniformément. La composition par jour de semaine est
+  ainsi gardée ;
 - on les met bout à bout jusqu'à 91 jours (le dernier bloc, plus court, à sa longueur), avec les couples (couleur,
   résultat) des jours tirés ;
 - `c_b` est recalculé, puis Δ̂ avec les mêmes poids, sur les blocs utiles seulement ;
 - **une réplique qui fait perdre une couleur à un bloc (B1b)** : ce bloc est **retiré de cette réplique**, et Δ̂ est
-  **renormalisé sur les blocs encore définis** (les poids des autres blocs ne changent pas). Le nombre de fois où cela
-  arrive (par bloc et en tout) est inscrit au rapport. La couverture du § 7.2 juge cette règle ;
+  **renormalisé sur les blocs encore définis** (les poids des autres blocs ne changent pas). La même règle s'applique
+  **aux rotations de la réplique** : un bloc qui perd une couleur dans l'une des rotations énumérées sur les jours
+  tirés est retiré de la réplique (B1a appliqué à la réplique). Le nombre de fois où cela arrive (par bloc et en tout)
+  est inscrit au rapport. La couverture du § 7.2 juge cette règle ;
 - **la moyenne du placebo est recalculée dans chaque réplique (m2)**, par énumération des rotations sur les jours
   tirés, puis retranchée : Δ_exc de la réplique = Δ̂ − moyenne du placebo de la réplique ;
 - 10 000 tirages, graine 20261008.
@@ -462,8 +470,8 @@ chaque jour rouge sauté fait gagner ou perdre. Elle ne dépend pas de la part d
   fausses équivalences > 0,07). La question est exécutée et comptée pour la supériorité et l'infériorité seulement.
   La borne haute reste rapportée, sans verdict d'équivalence.
 - **Garde-fous** (exigés pour `PERSISTANCE_INFRA_TRIMESTRIELLE`) :
-  1. **G1 — minimums** : au moins 60 jours rouges, 8 épisodes rouges et 6 blocs utiles (au moins un jour rouge et un
-     jour non rouge). Sinon `INSUFFISANT`.
+  1. **G1 — minimums** : au moins 60 jours rouges, 8 épisodes rouges et 6 blocs utiles (définition B1a du § 5.2 :
+     les deux couleurs dans chacune des rotations permises). Sinon `INSUFFISANT`.
   2. **G2 — sans le meilleur épisode rouge** (B1c). Retirer un épisode crée un **nouveau feu** : ses jours deviennent
      des **trous** (dans le feu et dans les placebos). On recalcule alors les blocs utiles, les poids `ω_b` et la
      moyenne du placebo.
@@ -497,8 +505,22 @@ feu tient-elle aussi en ajoutant la baisse de 2018 ? ».
 | `INVERSE` | infériorité, même sens (`p_bas` ≤ 0,025) | atteinte | **Nuisible** ; la version réduite aussi avec 2018 |
 | `INVERSE` | idem | non atteinte | **Nuisible** sur 2020-2025 ; pas retrouvé pour la version réduite avec 2018 |
 | `NON_CONCLUANT`, `INSUFFISANT`, `PERSISTANCE_FRAGILE` | aucune (décrite seulement) | — | **Ni démontré ni exclu** |
+| `EQUIVALENCE_NON_JUGEABLE` et résultat nul (ni supériorité ni infériorité) | aucune (décrite seulement) | — | **Ni démontré ni exclu**, avec la borne haute (« pas pires de plus de X % par jour ») ; on ne peut pas dire « inutile » |
 | `INSTRUMENT_TROP_FAIBLE` | aucune | — | Rien n'est exécuté ni compté (ni la variante, ni la confirmation C) |
 | toute issue jugée | variante `INSTRUMENT_TROP_FAIBLE` (règle du § 7.2 appliquée à la variante seule) | — | Verdict de la principale seul ; la variante n'est ni exécutée ni comptée (m3) |
+
+**Effet de la confirmation C (§ 8) sur le verdict global.** Elle est toujours exécutée (sauf
+`INSTRUMENT_TROP_FAIBLE`) et elle s'ajoute au verdict, sans jamais le retourner :
+
+| Issue de la principale | Issue de la confirmation C | Mention ajoutée au verdict global |
+|---|---|---|
+| `PERSISTANCE_INFRA_TRIMESTRIELLE` | `PERSISTANCE` aussi | « **Piste** », retrouvée hors des 40 survivantes |
+| `PERSISTANCE_INFRA_TRIMESTRIELLE` | autre | « Piste **non retrouvée hors des 40 survivantes** (puissance plus faible) » |
+| `EQUIVALENT_NUL` | `EQUIVALENT_NUL` aussi | « pas pires de plus de Δ_min, aussi hors des 40 survivantes » |
+| `EQUIVALENT_NUL` | autre | « équivalence non retrouvée hors des 40 survivantes (puissance plus faible) » |
+| `INVERSE` | `INVERSE` aussi | « nuisible, aussi hors des 40 survivantes » |
+| `INVERSE` | autre | « nuisible, non retrouvé hors des 40 survivantes (puissance plus faible) » |
+| autre | quelle qu'elle soit | décrite à côté, sans mention |
 
 ### 5.8 Variante déclarée : 2018 → 2025, avec la deuxième grande baisse (1 essai)
 
@@ -560,7 +582,7 @@ feu tient-elle aussi en ajoutant la baisse de 2018 ? ».
   - couleurs et résultats par année ;
   - gains manqués dans les phases de hausse (2020-T4 à 2021-T1, 2023-T4 à 2024-T1, nommées après coup) ;
   - jour de semaine ; bascules de `VOL_HAUTE` aux réajustements ; jours du Fear & Greed entre 23 et 27 ;
-  - accord entre composantes ; épisodes rouges (dates, durée, résultat) ;
+  - accord entre composantes ; épisodes rouges (dates, durée, résultat), donnés **après** l'exécution seulement ;
   - **résultat net moyen** de `SANS_ROUGE` avec son intervalle (la météo ne rend rien rentable).
 - **Chaque composante seule** est décrite comme politique « sauter ses jours de danger ». Un protocole fondé sur une
   composante isolée **ne serait testé qu'en direct**, jamais sur ces données.
@@ -669,14 +691,26 @@ prévisions). Le résultat doit être identique.
     sont pires d'exactement Δ_min. Elle est mesurée dans deux cas :
     - `N3` avec l'injection de Δ_min en σ̂ ci-dessus ;
     - **`N3c+`** : le cas `N3c` (effet de levier), où les jours rouges sont pires d'un effet **en %** égal à
-      **Δ_min × σ̂ médian** (même pourcentage pour toutes les paires). C'est le cas où le biais μ / σ̂ du § 5.5 peut
+      **Δ_min × σ̂ médian** (même pourcentage pour toutes les paires). Le **σ̂ médian** est la médiane des `σ̂_{i,d}`
+      sur les paires et les jours mesurés **de chaque simulation**. C'est le cas où le biais μ / σ̂ du § 5.5 peut
       faire paraître l'écart plus petit qu'il n'est.
 
     Cette proportion est inscrite avec les contrôles ;
-  - **puissance avec la vraie suite des couleurs (m5)** : on refait les deux puissances en gardant la **vraie suite des
-    couleurs** de 2020-2025 (celle des comptages du § 7.4, sans aucun résultat), appliquée à des rendements
-    synthétiques (`N2` pour l'équivalence ; `N2` avec l'injection pour la supériorité). Les deux mesures (feu
-    synthétique, feu réel) sont inscrites. **La règle ci-dessous prend la plus faible des deux.**
+  - **puissance avec la vraie suite des couleurs (m5), en passage unique** :
+    - **Pourquoi sceller.** `BTC_STRUCTURE` et `LARGEUR` du jour `d + 1` couvrent 23 h sur 24 de `y_d`, et
+      `PERTES_RECENTES` lit des R corrélés à `y_d`. Une suite jour par jour regardée avant la question laisserait donc
+      deviner le résultat.
+    - **Le passage unique.** Dans **un seul passage**, sans regard intermédiaire :
+      1. on calcule les couleurs ;
+      2. on mesure les deux puissances sur la **vraie suite** avec des rendements synthétiques (`N2` pour
+         l'équivalence ; `N2` avec l'injection pour la supériorité) ;
+      3. si la puissance de supériorité (la plus faible des deux mesures, feu synthétique et feu réel) est < 0,50,
+         on **s'arrête avant de calculer `y`** : `INSTRUMENT_TROP_FAIBLE`, 0 essai ;
+      4. sinon, on pose la question décisive dans le même passage.
+    - **Fichier scellé.** La suite des couleurs, les états des composantes et les `m_d` sont écrits dans un fichier
+      **scellé** (empreinte au registre), **jamais affichés** avant la fin du passage.
+    - Les deux mesures (feu synthétique, feu réel) sont inscrites au rapport. **La règle ci-dessous prend la plus
+      faible des deux.**
   - **règle, en deux parties** :
     1. **Supériorité** : si sa puissance est < 0,50, **`INSTRUMENT_TROP_FAIBLE`** : rien n'est exécuté ni compté
        (ni la variante, ni la confirmation C).
@@ -686,7 +720,8 @@ prévisions). Le résultat doit être identique.
 
     C'est un raffinement de la règle de la deuxième relecture, qui exigeait les deux puissances pour toute exécution.
     Il est nécessaire pour appliquer **la même règle** à F17 (§ 11), dont l'équivalence est probablement hors de
-    portée (m8). Il est fait avant toute donnée réelle.
+    portée (m8). Il est fait avant toute donnée réelle. **Validé par le propriétaire le 2026-10-08** (« On lance
+    quand même »), pour l'historique et pour F17.
   - même règle, à part, pour la variante 2018, avec son feu réduit et sa normalisation. Si la principale est
     `INSTRUMENT_TROP_FAIBLE`, la variante n'est pas exécutée non plus (procédure séquentielle). Si seule la variante
     l'est, elle n'est ni exécutée ni comptée (m3).
@@ -701,10 +736,12 @@ commité.
 ### 7.4 Comptages d'avant exécution (aucun résultat)
 
 À inscrire ici, sans aucun calcul de rendement ni de R :
-- couleurs par année et par bloc. La suite des couleurs est inscrite (fichier et empreinte) : elle sert au contrôle
-  m5. Pour la calculer, il faut `PERTES_RECENTES`, donc les R bruts des achats `S1` des jours `d − 10` à `d − 4`. Ce
-  sont des **entrées** du feu : ils ne sont ni affichés, ni agrégés en mesure, ni comparés à rien (déclaré) ;
-- épisodes (nombre, longueur) ;
+- couleurs par année et par bloc, **agrégées seulement**. La suite jour par jour n'est ni affichée ni inscrite ici :
+  elle est scellée dans le passage unique (§ 7.2, m5). Pour la calculer, il faut `PERTES_RECENTES`, donc les R bruts
+  des achats `S1` des jours `d − 10` à `d − 4`. Ce sont des **entrées** du feu : ils ne sont ni affichés, ni agrégés
+  en mesure, ni comparés à rien (déclaré) ;
+- épisodes (nombre, longueur), **sans leurs dates** : les dates des épisodes ne sont données qu'**après**
+  l'exécution ;
 - trous `SANS_FEU` ;
 - part du temps en danger par composante et par année ;
 - activations simultanées ;
@@ -720,7 +757,7 @@ commité.
 
 ## 8. Confirmation
 
-- **Paires C** (nécessaire, pas suffisant) :
+- **Paires C** (contrôle de robustesse : une même issue renforce, une issue différente n'est pas une réfutation) :
   - c'est un **sous-ensemble du panier principal, un contrôle de robustesse, non indépendant**. La confirmation
     rejoue **la même question, avec la même règle de décision (§ 5.6), sans changement**, sur le **sous-panier des
     membres du top 40 à date qui ne sont pas parmi les 40 paires de recherche** (paires C de
@@ -733,6 +770,8 @@ commité.
   - son issue est rapportée à côté de celle de la question rejouée : même issue = « tient sans les 40 survivantes »,
     autre issue = « ne tient pas sans elles ». Sa puissance est plus faible (moins de paires) : une issue différente
     n'est pas une réfutation ;
+  - **son équivalence se lit avec l'intervalle à 95 %** (deux tests unilatéraux au niveau 0,025), et non 90 %. Sa
+    **puissance est faible**, déclarée : moins de paires, et un intervalle plus large ;
   - au plus **2 confirmations** (principale, modèle), exécution unique, niveau fixe **0,05 / 2 = 0,025** pour
     chacune, 1 essai par question rejouée ;
   - les jours sont les mêmes pour toutes les paires : cette étape vérifie seulement que l'effet, ou son absence, ne
@@ -886,7 +925,8 @@ F16 restent intacts.**
   rapport à sauter un jour tiré au hasard dans le même trimestre.
   - Le feu de protection garde alors son rôle de précaution, sans gain à attendre de ce côté.
   - L'outil démontré reste la taille selon la volatilité.
-- **« Ni démontré ni exclu »** : on ne sait pas, et F17 décidera.
+- **« Ni démontré ni exclu »** : on ne sait pas. F17 pourra peut-être montrer un effet net (supériorité ≈ 0,6 à
+  4 ans), mais il ne décidera probablement pas l'équivalence (m8). La borne haute dira jusqu'où l'écart reste possible.
 - **Piste (persistance)** : à l'intérieur d'une même période, les jours rouges sont pires. Elle doit être confirmée sur
   les paires C puis en direct. Même alors, le résultat net (descriptif) dira si les achats restent perdants après
   frais.
@@ -915,10 +955,11 @@ F16 restent intacts.**
    Commandes : `csi meteo fng-historique | comptages | controles | principale | variante | modele | confirmation`.
    Chaque exécution réelle exige `--executer`, un code commité et relu (`CODE_REVIEW`), les contrôles inscrits, et
    n'a lieu qu'une fois par type.
-3. Relecture `leak-auditor` du code → contrôles synthétiques et comptages inscrits ici. La règle d'arrêt pour inutilité
-   est appliquée à ce moment.
-4. Question principale (`METEO_PRINCIPALE`), puis variante (`METEO_VARIANTE_2018`) : exécutions uniques.
-5. Confirmation C (`METEO_CONFIRMATION`) si persistance, et si nécessaire si équivalence ou inverse (≤ 2).
+3. Relecture `leak-auditor` du code → contrôles synthétiques (feu synthétique) et comptages **agrégés** inscrits ici.
+4. Question principale (`METEO_PRINCIPALE`), puis variante (`METEO_VARIANTE_2018`) : exécutions uniques, chacune en
+   **passage unique** (§ 7.2, m5) : couleurs scellées, puissance sur la vraie suite, arrêt avant `y` si elle est
+   < 0,50, sinon question décisive.
+5. Confirmation C (`METEO_CONFIRMATION`) : toujours, sauf `INSTRUMENT_TROP_FAIBLE` (≤ 2 en tout, avec le modèle).
 6. Modèle (`METEO_MODELE`) sur décision du propriétaire.
 7. F17 : pré-inscription et module à part, relus. Il démarre dès sa relecture, en parallèle.
 
@@ -940,8 +981,9 @@ F16 restent intacts.**
 2. Heure de connaissance et révisions du Fear & Greed ; règle `d − 2` en direct.
 3. Rotations par multiples de 7 sur l'index calendaire avec trous. Statistique Δ bloc par bloc à poids fixes. Blocs
    de 13 semaines à la place des trimestres civils.
-4. Intervalle de Δ_exc (tirage stratifié par fenêtres de 4 semaines dans chaque bloc, moyenne du placebo retranchée
-   comme une constante) et sa couverture dans les contrôles.
+4. Intervalle de Δ_exc : tirage stratifié par fenêtres de 4 semaines commençant un lundi dans chaque bloc ; moyenne
+   du placebo **recalculée dans chaque réplique** (m2) ; règle B1b appliquée aussi aux rotations des répliques ;
+   couverture de chaque côté dans les contrôles.
 5. Marge Δ_min (0,15 σ, choisie par le propriétaire le 2026-10-08) et normalisation par `σ̂` : biais μ / σ̂ (`N3c`), facteur de Duan,
    inégalité de Jensen, blocs à deux instances ; `σ24_168` dans la variante.
 6. Approximations des contrôles synthétiques (HAR journalier simple, achats sur bougies 1 h, pas de profil horaire),
@@ -1112,3 +1154,22 @@ cette bougie. Seul l'ensemble « tous les déclencheurs » sert (chaque achat es
   - **Nouveau compte** sur DEVELOPMENT : 0 (principale `INSTRUMENT_TROP_FAIBLE`), 2 (variante seule arrêtée), **3**
     dans le cas normal, 5 au plus avec le modèle. Soit 873 → 876, au plus 878, recompté à l'exécution. 0 sur
     FINAL_TEST ; 1 au registre FORWARD.
+- 2026-10-08 : **relecture rapide de `e14d2ac` (« à corriger, léger ») et décision du propriétaire, aucun résultat
+  vu.**
+  - **Confirmation C** :
+    - en-tête rendu cohérent (une issue différente n'est pas une réfutation) ;
+    - son effet sur le verdict global est ajouté au § 5.7 ;
+    - équivalence lue avec l'intervalle à 95 % (niveau 0,025), faible puissance déclarée.
+  - **Suite des couleurs scellée (m5), en passage unique** : couleurs, puis puissance sur la vraie suite avec des
+    rendements synthétiques, puis arrêt avant de calculer `y` si la supériorité est < 0,50 (0 essai), sinon question
+    décisive. La suite, les états et les `m_d` sont écrits dans un fichier scellé, jamais affichés avant la fin. Les
+    comptages restent agrégés, et les dates des épisodes ne viennent qu'après l'exécution.
+  - **Règle d'inutilité en deux parties validée par le propriétaire** (« On lance quand même »), pour l'historique et
+    pour F17. Elle est écrite au § 0, et la ligne « `EQUIVALENCE_NON_JUGEABLE` + nul » est ajoutée au § 5.7.
+  - **Mineurs** :
+    - G1 renvoie à B1a ;
+    - les fenêtres du tirage commencent un lundi (13 départs) ;
+    - B1b s'applique aussi aux rotations des répliques ;
+    - textes périmés corrigés (§ 0, § 14, § 16 point 4) ;
+    - σ̂ médian de `N3c+` défini.
+  - Compte d'essais inchangé : 3 dans le cas normal, 5 au plus.
