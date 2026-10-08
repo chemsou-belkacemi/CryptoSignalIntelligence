@@ -1,5 +1,7 @@
-"""Question décisive de la météo du marché : statistique bloc par bloc, placebos par rotations de semaines entières,
-intervalle par tirage stratifié, garde-fous et décisions (docs/METEO_MARCHE.md, § 4, 5.1 à 5.8).
+"""Question décisive de la météo du marché : contraste par déviations orthogonales avant à jour de semaine égal,
+placebo `P_T` causal (décalages de 7 à 84 jours, sans rotation circulaire), intervalle par tirage de fenêtres de
+4 semaines, garde-fous et décisions (docs/METEO_MARCHE.md, § 4, 5.1 à 5.8, instrument corrigé le 2026-10-08 après
+l'échec de N1 sur synthétique ; l'ancien instrument circulaire n'est gardé que pour sa mutation).
 
 Données d'entrée d'une analyse : la couleur du feu de chaque jour de l'index calendaire (ROUGE / non rouge / trou) et le
 résultat `y_d` du jour (NaN : trou). Un trou est un jour `SANS_FEU` ou sans résultat (B1d), ou un jour retiré par G2.
@@ -25,7 +27,7 @@ BLOCK_DAYS = 91                      # blocs de 13 semaines commençant un lundi
 MIN_LAST_DAYS = 28                   # un dernier bloc de moins de 4 semaines est fusionné avec le précédent
 WINDOW_DAYS = 28                     # fenêtres du tirage stratifié (§ 5.6)
 G1_RED_DAYS, G1_EPISODES, G1_BLOCKS = 60, 8, 6
-G3_YEARS, G3_MIN_POSITIVE = 6, 4
+G3_YEARS = 6
 TIE = 1e-12                          # égalité numérique dans les p-valeurs (comptée du côté prudent)
 
 PERSISTANCE = "PERSISTANCE_INFRA_TRIMESTRIELLE"
@@ -36,6 +38,7 @@ NON_CONCLUANT = "NON_CONCLUANT"
 INSUFFISANT = "INSUFFISANT"
 INSTRUMENT_TROP_FAIBLE = "INSTRUMENT_TROP_FAIBLE"
 EQUIVALENCE_NON_JUGEABLE = "EQUIVALENCE_NON_JUGEABLE"
+NON_IDENTIFIABLE = "NON_IDENTIFIABLE"
 CONCLUSIVE = (PERSISTANCE, EQUIVALENT_NUL, INVERSE)
 
 
@@ -121,8 +124,12 @@ def block_matrix(red: np.ndarray, hole: np.ndarray, y: np.ndarray, *, mutation: 
     return _block_kernel(red, hole, y0, step)
 
 
+# --- Ancien instrument (rotation circulaire), gardé pour la mutation « placebo_circulaire » ------------------------
+# Il lit le futur : un jour du début du bloc reçoit la couleur d'un jour plus tardif, qui dépend de son propre y
+# (échec de N1 le 2026-10-08, synthétique seulement). Ne sert plus à aucune décision.
+
 @dataclass
-class Prepared:
+class CircularPrepared:
     """Contrastes de chaque bloc (rotation 0 = feu observé), blocs utiles (B1a) et poids fixes `ω_b`."""
     blocks: list[tuple[int, int]]
     contrasts: list[np.ndarray]
@@ -145,8 +152,8 @@ class Prepared:
         return np.array([c[1:].var() if u else np.nan for c, u in zip(self.contrasts, self.useful, strict=True)])
 
 
-def prepare(red: np.ndarray, hole: np.ndarray, y: np.ndarray, blocks: list[tuple[int, int]], *,
-            mutation: str | None = None) -> Prepared:
+def circular_prepare(red: np.ndarray, hole: np.ndarray, y: np.ndarray, blocks: list[tuple[int, int]], *,
+            mutation: str | None = None) -> CircularPrepared:
     contrasts, useful, weights, n_red, n_nonred = [], [], [], [], []
     for start, length in blocks:
         sl = slice(start, start + length)
@@ -158,11 +165,11 @@ def prepare(red: np.ndarray, hole: np.ndarray, y: np.ndarray, blocks: list[tuple
         n_red.append(r0)
         n_nonred.append(nr0)
         weights.append(r0 * nr0 / (r0 + nr0) if ok else 0.0)
-    return Prepared(blocks, contrasts, np.array(useful, bool), np.array(weights, float), np.array(n_red),
+    return CircularPrepared(blocks, contrasts, np.array(useful, bool), np.array(weights, float), np.array(n_red),
                     np.array(n_nonred))
 
 
-def excess_of(prep: Prepared, chosen: np.ndarray | None = None) -> tuple[float, float, float]:
+def circular_excess(prep: CircularPrepared, chosen: np.ndarray | None = None) -> tuple[float, float, float]:
     """(Δ̂, moyenne exacte du placebo, Δ_exc) sur les blocs utiles (ou sur `chosen`, sous-ensemble des utiles)."""
     keep = prep.useful if chosen is None else prep.useful & chosen
     w = np.where(keep, prep.weights, 0.0)
@@ -173,14 +180,14 @@ def excess_of(prep: Prepared, chosen: np.ndarray | None = None) -> tuple[float, 
     return float(observed), float(placebo), float(observed - placebo)
 
 
-def placebo_sd(prep: Prepared) -> float:
+def circular_sd(prep: CircularPrepared) -> float:
     w = np.where(prep.useful, prep.weights, 0.0)
     if w.sum() <= 0:
         return np.nan
     return float(np.sqrt(np.nansum(w ** 2 * np.nan_to_num(prep.rotation_var()))) / w.sum())
 
 
-def placebo_draws(prep: Prepared, rng: np.random.Generator, samples: int = SAMPLES) -> np.ndarray:
+def circular_draws(prep: CircularPrepared, rng: np.random.Generator, samples: int = SAMPLES) -> np.ndarray:
     """Δ̂ des tirages `P_T` : une rotation non nulle par bloc utile, tirée uniformément et indépendamment."""
     w = np.where(prep.useful, prep.weights, 0.0)
     total = np.zeros(samples)
@@ -190,7 +197,7 @@ def placebo_draws(prep: Prepared, rng: np.random.Generator, samples: int = SAMPL
     return total / w.sum() if w.sum() > 0 else np.full(samples, np.nan)
 
 
-def replica_positions(n: int, rng: np.random.Generator, samples: int) -> np.ndarray:
+def circular_positions(n: int, rng: np.random.Generator, samples: int) -> np.ndarray:
     """Positions des jours d'une réplique d'un bloc : fenêtres de 28 jours consécutifs (circulaires dans le bloc)
     commençant un lundi, mises bout à bout jusqu'à la longueur du bloc."""
     k = -(-n // WINDOW_DAYS)
@@ -200,14 +207,14 @@ def replica_positions(n: int, rng: np.random.Generator, samples: int) -> np.ndar
 
 
 @dataclass
-class Bootstrap:
+class CircularBootstrap:
     excess: np.ndarray               # Δ_exc de chaque réplique (NaN : aucun bloc défini)
     dropped: np.ndarray              # par bloc : répliques où il perd une couleur (retiré de la réplique)
     undefined: int
 
 
-def bootstrap(red: np.ndarray, hole: np.ndarray, y: np.ndarray, prep: Prepared, rng: np.random.Generator,
-              samples: int = SAMPLES, *, chunk: int = 2500) -> Bootstrap:
+def circular_bootstrap(red: np.ndarray, hole: np.ndarray, y: np.ndarray, prep: CircularPrepared, rng: np.random.Generator,
+              samples: int = SAMPLES, *, chunk: int = 2500) -> CircularBootstrap:
     """Intervalle de Δ_exc (§ 5.6) : tirage stratifié dans chaque bloc utile, mêmes poids ; un bloc qui perd une
     couleur dans la réplique ou dans l'une de ses rotations est retiré de la réplique (B1b) ; la moyenne du placebo
     est recalculée dans chaque réplique (m2)."""
@@ -221,7 +228,7 @@ def bootstrap(red: np.ndarray, hole: np.ndarray, y: np.ndarray, prep: Prepared, 
         r_b, h_b, y_b = red[sl], hole[sl], y[sl]
         for lo in range(0, samples, chunk):
             hi = min(samples, lo + chunk)
-            pos = replica_positions(length, rng, hi - lo)
+            pos = circular_positions(length, rng, hi - lo)
             c, n_r, n_nr = block_matrix(r_b[pos], h_b[pos], y_b[pos])
             defined = (n_r > 0).all(axis=1) & (n_nr > 0).all(axis=1)
             dropped[b] += int((~defined).sum())
@@ -229,7 +236,7 @@ def bootstrap(red: np.ndarray, hole: np.ndarray, y: np.ndarray, prep: Prepared, 
             num[lo:hi] += weight * value
             den[lo:hi] += np.where(defined, weight, 0.0)
     excess = np.where(den > 0, num / np.where(den > 0, den, 1.0), np.nan)
-    return Bootstrap(excess, dropped, int((den <= 0).sum()))
+    return CircularBootstrap(excess, dropped, int((den <= 0).sum()))
 
 
 def holes_of(color: np.ndarray, y: np.ndarray) -> np.ndarray:
@@ -264,10 +271,138 @@ class Analysis:
     note: str = ""
 
 
+# --- Instrument corrigé (2026-10-08) : déviations orthogonales avant, placebo causal ---------------------------------
+
+LAGS = tuple(range(WEEK, 85, WEEK))          # u ∈ {7, 14, …, 84} : décalages du placebo causal
+
+
+def placebo_lags(*, mutation: str | None = None) -> tuple[int, ...]:
+    """Décalages du placebo `P_T` causal ; mutation `rotation_non_multiple_7` : pas d'un jour."""
+    return tuple(range(1, 85)) if mutation == "rotation_non_multiple_7" else LAGS
+
+
+@njit(cache=True)
+def _forward_dev(values, valid, starts, lengths):
+    """Déviation orthogonale avant (Arellano-Bover) de chaque jour valide `t` d'un bloc : √(k/(k+1)) · (v_t − moyenne
+    de v sur F_t), F_t = jours s > t du même bloc et du même jour de semaine, valides ; k = |F_t|. Un jour sans F_t
+    n'est pas un terme."""
+    n = len(values)
+    dev = np.zeros(n)
+    term = np.zeros(n, np.bool_)
+    for b in range(len(starts)):
+        s0, length = starts[b], lengths[b]
+        sums = np.zeros(7)
+        counts = np.zeros(7)
+        for t in range(s0 + length - 1, s0 - 1, -1):
+            if not valid[t]:
+                continue
+            wd = (t - s0) % 7
+            k = counts[wd]
+            if k > 0:
+                dev[t] = np.sqrt(k / (k + 1.0)) * (values[t] - sums[wd] / k)
+                term[t] = True
+            sums[wd] += values[t]
+            counts[wd] += 1.0
+    return dev, term
+
+
+@dataclass
+class Prepared:
+    """Termes du contraste par bloc : numérateur Σ r·ỹ et dénominateur Σ r·r̃ du feu observé (`num0`, `den0`) et de
+    chaque décalage du placebo causal (`num`, `den` : blocs × décalages), blocs utiles, termes pour l'intervalle."""
+    blocks: list[tuple[int, int]]
+    num0: np.ndarray
+    den0: np.ndarray
+    num: np.ndarray
+    den: np.ndarray
+    useful: np.ndarray
+    n_red: np.ndarray
+    a_terms: np.ndarray                       # r_t · ỹ_t (0 hors terme)
+    b_terms: np.ndarray                       # r_t · r̃_t
+
+
+def prepare(red: np.ndarray, hole: np.ndarray, y: np.ndarray, blocks: list[tuple[int, int]], *,
+            mutation: str | None = None) -> Prepared:
+    red = np.asarray(red, bool)
+    hole = np.asarray(hole, bool)
+    y0 = np.where(hole, 0.0, np.asarray(y, float))
+    starts = np.array([s for s, _ in blocks], np.int64)
+    lengths = np.array([n for _, n in blocks], np.int64)
+    valid = ~hole
+    y_dev, term = _forward_dev(y0, valid, starts, lengths)
+    r = red.astype(float)
+    r_dev, _ = _forward_dev(r, valid, starts, lengths)
+    a_terms = np.where(term, r * y_dev, 0.0)
+    b_terms = np.where(term, r * r_dev, 0.0)
+    lags = placebo_lags(mutation=mutation)
+    n = len(red)
+    num = np.zeros((len(blocks), len(lags)))
+    den = np.zeros_like(num)
+    idx = np.arange(n)
+    for j, u in enumerate(lags):
+        src = idx - u
+        ok = (src >= 0) & ~hole[np.maximum(src, 0)]          # source avant la période ou sur un trou : cible = trou
+        rp = np.where(ok, red[np.maximum(src, 0)], False).astype(float)
+        valid_p = valid & ok
+        rp_dev, term_p = _forward_dev(rp, valid_p, starts, lengths)
+        use = term & term_p
+        for b, (s0, length) in enumerate(blocks):
+            sl = slice(s0, s0 + length)
+            num[b, j] = float((rp[sl] * y_dev[sl])[use[sl]].sum())
+            den[b, j] = float((rp[sl] * rp_dev[sl])[use[sl]].sum())
+    num0 = np.array([a_terms[s:s + n_].sum() for s, n_ in blocks])
+    den0 = np.array([b_terms[s:s + n_].sum() for s, n_ in blocks])
+    useful = np.array([bool((term[s:s + n_] & red[s:s + n_]).any() and (term[s:s + n_] & ~red[s:s + n_]).any())
+                       for s, n_ in blocks])
+    n_red = np.array([int((term[s:s + n_] & red[s:s + n_]).sum()) for s, n_ in blocks])
+    return Prepared(blocks, num0, den0, num, den, useful, n_red, a_terms, b_terms)
+
+
+def estimate(prep: Prepared, chosen: np.ndarray | None = None) -> float:
+    """Δ̂ = −Σ r·ỹ / Σ r·r̃ sur les blocs utiles (ou sur `chosen` parmi eux) ; NaN si Σ r·r̃ = 0 (non identifiable)."""
+    keep = prep.useful if chosen is None else prep.useful & chosen
+    den = float(prep.den0[keep].sum())
+    return -float(prep.num0[keep].sum()) / den if den > 0 else float("nan")
+
+
+def placebo_draws(prep: Prepared, rng: np.random.Generator, samples: int = SAMPLES) -> np.ndarray:
+    """Δ̂ des tirages `P_T` causaux : un décalage par bloc utile, tiré uniformément et indépendamment, mêmes ỹ."""
+    num = np.zeros(samples)
+    den = np.zeros(samples)
+    for b in np.flatnonzero(prep.useful):
+        pick = rng.integers(0, prep.num.shape[1], samples)
+        num += prep.num[b, pick]
+        den += prep.den[b, pick]
+    return np.where(den > 0, -num / np.where(den > 0, den, 1.0), np.nan)
+
+
+def replica_positions(n: int, rng: np.random.Generator, samples: int) -> np.ndarray:
+    """Jours d'une réplique d'un bloc : fenêtres de 28 jours consécutifs commençant un lundi, SANS rotation
+    circulaire (départs 0, 7, …, n − 28), mises bout à bout jusqu'à la longueur du bloc."""
+    k = -(-n // WINDOW_DAYS)
+    starts = rng.integers(0, (n - WINDOW_DAYS) // WEEK + 1, size=(samples, k)) * WEEK
+    pos = starts[:, :, None] + np.arange(WINDOW_DAYS)[None, None, :]
+    return pos.reshape(samples, k * WINDOW_DAYS)[:, :n]
+
+
+def bootstrap(prep: Prepared, rng: np.random.Generator, samples: int = SAMPLES) -> np.ndarray:
+    """Δ̂ de chaque réplique : termes (r, r̃, ỹ) calculés une fois sur la série d'origine, tirés par fenêtres de
+    4 semaines dans chaque bloc utile, rapport recalculé."""
+    num = np.zeros(samples)
+    den = np.zeros(samples)
+    for b in np.flatnonzero(prep.useful):
+        start, length = prep.blocks[b]
+        pos = start + replica_positions(length, rng, samples)
+        num += prep.a_terms[pos].sum(axis=1)
+        den += prep.b_terms[pos].sum(axis=1)
+    return np.where(den > 0, -num / np.where(den > 0, den, 1.0), np.nan)
+
+
 def guards(color: np.ndarray, y: np.ndarray, period: Period, prep: Prepared, *, excess: float, with_g2: bool = True,
            mutation: str | None = None) -> tuple[dict, dict]:
-    """G1 (minimums), G2 (sans le meilleur épisode rouge, en trous), G3 (régularité), G4 (années baissières). G2 n'est
-    calculé que si la supériorité est atteinte (`with_g2`) : il ne sert qu'à elle."""
+    """G1 (minimums : toute issue), G2 (sans le meilleur épisode rouge, ses jours en trous, F_t recalculés), G3
+    (régularité : au moins 4 années sur 6, ou ⌈2/3⌉ des années utiles quand il y en a plus de 6), G4 (années
+    baissières). G2 à G4 ne servent qu'à la persistance ; G2 n'est calculé que si la supériorité est atteinte."""
     blocks = prep.blocks
     eps = mt.episodes(color)
     red_days = int(prep.n_red[prep.useful].sum())
@@ -277,7 +412,7 @@ def guards(color: np.ndarray, y: np.ndarray, period: Period, prep: Prepared, *, 
     for start, end in (eps if with_g2 else []):
         hole = holes_of(color, y)
         hole[start:end + 1] = True
-        _, _, value = excess_of(prepare(red, hole, y, blocks, mutation=mutation))
+        value = estimate(prepare(red, hole, y, blocks, mutation=mutation))
         value = -np.inf if not np.isfinite(value) else value
         if value < worst:
             worst, worst_episode = value, (start, end)
@@ -285,11 +420,11 @@ def guards(color: np.ndarray, y: np.ndarray, period: Period, prep: Prepared, *, 
     years = block_years(period, blocks)
     by_year = {}
     for year in sorted(set(years.tolist())):
-        chosen = (years == year) & prep.useful
-        if chosen.any():
-            by_year[int(year)] = excess_of(prep, years == year)[2]
+        if ((years == year) & prep.useful).any():
+            by_year[int(year)] = estimate(prep, years == year)
     positive = sum(1 for v in by_year.values() if v > 0)
-    needed = G3_MIN_POSITIVE if len(by_year) >= G3_YEARS else len(by_year) // 2 + 1
+    count = len(by_year)
+    needed = -(-2 * count // 3) if count >= G3_YEARS else count // 2 + 1      # 4 sur 6, 6 sur 8
     g3 = positive >= needed
     g4 = all(by_year.get(year, np.nan) > 0 for year in period.g4_years)
     return ({"G1": bool(g1), "G2": g2, "G3": bool(g3), "G4": bool(g4), "red_days": red_days,
@@ -299,38 +434,58 @@ def guards(color: np.ndarray, y: np.ndarray, period: Period, prep: Prepared, *, 
              "excess": excess}, by_year)
 
 
+def _circular_analyse(color: np.ndarray, y: np.ndarray, *, seed: int, samples: int) -> Analysis:
+    """Ancien instrument (mutation « placebo_circulaire ») : Δ_exc contre la rotation circulaire, z et p-valeurs."""
+    red = color == mt.ROUGE
+    hole = holes_of(color, y)
+    prep = circular_prepare(red, hole, y, blocks_of(len(color)))
+    observed, placebo, excess = circular_excess(prep)
+    sd = circular_sd(prep)
+    draws = circular_draws(prep, np.random.default_rng([seed, 0]), samples)
+    p_high = (1 + int((draws >= observed - TIE).sum())) / (samples + 1)
+    p_low = (1 + int((draws <= observed + TIE).sum())) / (samples + 1)
+    return Analysis(observed, placebo, excess, sd, excess / sd if sd > 0 else np.nan, p_high, p_low,
+                    (np.nan, np.nan), (np.nan, np.nan), CI_LEVEL, int(prep.useful.sum()),
+                    int(prep.n_red[prep.useful].sum()), len(mt.episodes(color)), [], 0)
+
+
 def analyse(color: np.ndarray, y: np.ndarray, period: Period, *, seed: int = mt.SEED, samples: int = SAMPLES,
             boot_samples: int | None = None, ci_level: float = CI_LEVEL, with_guards: bool = True,
             mutation: str | None = None) -> Analysis:
-    """Δ̂, moyenne exacte du placebo, Δ_exc, p-valeurs par `P_T`, bruit du hasard, intervalle de Δ_exc."""
+    """Δ̂ par déviations orthogonales avant (Δ_exc := Δ̂), placebo causal `P_T` (rangs, moyenne rapportée comme
+    contrôle), intervalle par tirage de fenêtres de 4 semaines dans chaque bloc."""
     color = np.asarray(color)
     y = np.asarray(y, float)
+    if mutation == "placebo_circulaire":
+        return _circular_analyse(color, y, seed=seed, samples=samples)
     blocks = blocks_of(len(color))
     red = color == mt.ROUGE
     hole = holes_of(color, y)
     prep = prepare(red, hole, y, blocks, mutation=mutation)
-    observed, placebo, excess = excess_of(prep)
-    sd = placebo_sd(prep)
+    observed = estimate(prep)
     rng_draw, rng_boot = (np.random.default_rng([seed, k]) for k in (0, 1))
     draws = placebo_draws(prep, rng_draw, samples)
-    if np.isfinite(observed):
-        p_high = (1 + int((draws >= observed - TIE).sum())) / (samples + 1)
-        p_low = (1 + int((draws <= observed + TIE).sum())) / (samples + 1)
-        centered = draws - placebo
+    finite_draws = draws[np.isfinite(draws)]
+    placebo = float(finite_draws.mean()) if len(finite_draws) else np.nan
+    sd = float(finite_draws.std()) if len(finite_draws) > 1 else np.nan
+    if np.isfinite(observed) and len(finite_draws):
+        p_high = (1 + int((finite_draws >= observed - TIE).sum())) / (len(finite_draws) + 1)
+        p_low = (1 + int((finite_draws <= observed + TIE).sum())) / (len(finite_draws) + 1)
+        centered = finite_draws - placebo
         noise = (float(np.percentile(centered, 2.5)), float(np.percentile(centered, 97.5)))
     else:
         p_high = p_low = np.nan
         noise = (np.nan, np.nan)
-    boot = bootstrap(red, hole, y, prep, rng_boot, boot_samples or samples)
+    replicas = bootstrap(prep, rng_boot, boot_samples or samples)
     tail = (1 - ci_level) / 2
-    finite = boot.excess[np.isfinite(boot.excess)]
-    ci = ((float(np.quantile(finite, tail)), float(np.quantile(finite, 1 - tail))) if len(finite)
+    finite = replicas[np.isfinite(replicas)]
+    ci = ((float(np.quantile(finite, tail)), float(np.quantile(finite, 1 - tail))) if len(finite) and np.isfinite(observed)
           else (np.nan, np.nan))
-    out = Analysis(observed, placebo, excess, sd, excess / sd if sd and np.isfinite(sd) and sd > 0 else np.nan,
+    out = Analysis(observed, placebo, observed, sd, observed / sd if np.isfinite(sd) and sd > 0 else np.nan,
                    p_high, p_low, noise, ci, ci_level, int(prep.useful.sum()), int(prep.n_red[prep.useful].sum()),
-                   len(mt.episodes(color)), boot.dropped.tolist(), boot.undefined)
+                   len(mt.episodes(color)), [], int((~np.isfinite(replicas)).sum()))
     if with_guards:
-        out.guards, out.by_year = guards(color, y, period, prep, excess=excess, mutation=mutation,
+        out.guards, out.by_year = guards(color, y, period, prep, excess=observed, mutation=mutation,
                                          with_g2=bool(np.isfinite(p_high) and p_high <= ALPHA_SIDE))
     return out
 
@@ -342,6 +497,9 @@ def decide(a: Analysis, *, delta_min: float = DELTA_MIN, alpha_side: float = ALP
     dans [−Δ_min ; +Δ_min] (si l'équivalence est jugeable) : `EQUIVALENT_NUL` ; sinon `NON_CONCLUANT`."""
     g = a.guards
     lo, hi = a.ci
+    if not np.isfinite(a.delta_hat):
+        a.verdict, a.equivalence = NON_IDENTIFIABLE, False          # Σ r·r̃ = 0 : aucun verdict
+        return a
     a.equivalence = bool(equivalence_judgeable and np.isfinite(lo) and np.isfinite(hi)
                          and lo >= -delta_min and hi <= delta_min)
     if not g.get("G1", False):

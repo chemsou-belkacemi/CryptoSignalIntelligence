@@ -1,6 +1,7 @@
 """Contrôles synthétiques de la météo du marché (docs/METEO_MARCHE.md, § 7.1 et § 7.2). Aucune donnée réelle.
 
-Chaque simulation fabrique un marché de 20 paires (paire = β × BTC + bruit propre, β dans [0,5 ; 1,5]), en bougies 1 h,
+Chaque simulation fabrique un marché de 20 paires (rendement simple de la paire = β × celui de BTC + bruit propre, β dans
+[0,5 ; 1,5] ; prix martingales P_t = P_{t−1} · (1 + σ_h · ε_t), correction du 2026-10-08), en bougies 1 h,
 avec 2 ans de rodage non mesurés puis la période de la question (principale : 281 semaines ; variante : 381 semaines),
 un Fear & Greed et un financement synthétiques (formules du § 7.2). Le feu, `S2N` et les décisions sont calculés par le
 même code que sur le réel (`research/meteo.py`, `research/meteo_study.py`), avec les approximations déclarées :
@@ -48,6 +49,7 @@ CRITERIA = {"z_mean": 0.15, "false_positive": 0.07, "ks_p": 0.01, "coverage_side
             "power": 0.50, "false_equivalence": 0.07}
 LATENCY = mt.LATENCY
 CALIBRATION_DAYS = 200_000
+MIN_SIMPLE = -0.99                                # plancher d'un rendement horaire simple (jamais atteint en pratique)
 
 
 @dataclass(frozen=True)
@@ -167,13 +169,15 @@ def make_world(spec: Spec, period: ms.Period | None = None) -> World:
     days = pd.date_range(start, periods=n_days, freq="D")
     if spec.case == "N4":
         drift = drift + np.where(days.dayofweek == 0, MONDAY * np.sqrt(var[:, 0]), 0.0)
-    btc_lr = (shocks[:, :, 0] + drift[:, None] / 24.0).reshape(-1)
+    # Prix martingales : P_t = P_{t−1} · (1 + σ_h · ε_t) ; dérives de N3, N3b et N4 ajoutées en rendement SIMPLE.
+    btc_r = (shocks[:, :, 0] + drift[:, None] / 24.0).reshape(-1)
+    btc_lr = np.log1p(np.maximum(btc_r, MIN_SIMPLE))
     betas = rng.uniform(*BETA, N_PAIRS)
     out_lr = [btc_lr]
     btc = bars(btc_lr, np.repeat(sd_h[:, 0], 24), start, rng, 10_000.0)
     pairs = {}
     for i in range(N_PAIRS):
-        lr = betas[i] * btc_lr + shocks[:, :, i + 1].reshape(-1)
+        lr = np.log1p(np.maximum(betas[i] * btc_r + shocks[:, :, i + 1].reshape(-1), MIN_SIMPLE))
         s = np.sqrt(betas[i] ** 2 * np.repeat(sd_h[:, 0], 24) ** 2 + np.repeat(sd_h[:, i + 1], 24) ** 2)
         pairs[f"P{i:02d}USDT"] = bars(lr, s, start, rng, 100.0)
         out_lr.append(lr)
@@ -391,10 +395,11 @@ def simulate(spec: Spec, *, samples: int = ms.SAMPLES) -> dict:
         plus = y - ms.DELTA_MIN * med * y_table["inv_sigma"].to_numpy(float) * red     # effet en % (N3c+)
         out["plus"] = summary(ms.decide(ms.analyse(color, plus, period, seed=mt.SEED + spec.sim, samples=samples)))
         out["sigma_median"] = med
-    if spec.case == "N4":
+    if spec.case == "N4":                                                   # feu lundi-mardi seul : Σ r·r̃ = 0
         weekday = np.where(days.dayofweek.isin([0, 1]), mt.ROUGE, mt.VERT)
         prep = ms.prepare(weekday == mt.ROUGE, ms.holes_of(weekday, y), y, ms.blocks_of(len(days)))
-        out["weekday_only_excess"] = ms.excess_of(prep)[2]
+        out["weekday_only_denominator"] = float(prep.den0.sum())
+        out["weekday_only_defined"] = bool(np.isfinite(ms.estimate(prep)))
     return out
 
 
@@ -487,9 +492,8 @@ def run_controls(directory: Path, *, question: str, cases: tuple[str, ...] = CAS
         entry = criteria(results)
         entry["judged"] = case in JUDGED
         if case == "N4":
-            values = np.array([r["weekday_only_excess"] for r in results], float)
-            entry["weekday_only_max_abs_excess"] = float(np.nanmax(np.abs(values)))
-            entry["passed"]["weekday_only_zero"] = bool(np.nanmax(np.abs(values)) <= 1e-12)
+            entry["weekday_only_defined_share"] = float(np.mean([r["weekday_only_defined"] for r in results]))
+            entry["passed"]["weekday_only_undefined"] = entry["weekday_only_defined_share"] == 0.0
         report["cases"][case] = entry
         (directory / f"{question}_criteres.json").write_text(json.dumps(report, indent=2, default=float),
                                                              encoding="utf-8")
@@ -547,7 +551,8 @@ _ = asdict
 
 CAUSAL_COLUMNS = (*mt.COMPONENTS, "btc_close", "btc_ema50", "largeur_share", "largeur_eligible", "fng", "funding_mean",
                   "funding_n", "m", "m_rank", "btc_forecast", "vol_rank", "color")
-BY_TRUNCATION = ("ema_open_time", "largeur_jour_d", "fng_jour_d", "vol_cible_filtree", "pertes_d3_d1")
+BY_TRUNCATION = ("ema_open_time", "largeur_jour_d", "fng_jour_d", "vol_cible_filtree", "pertes_d10_d1",
+                 "financement_t_plus_8h")
 
 
 def _changed(world: World, at: pd.Timestamp, how: str, rng: np.random.Generator, *, buy: bool = False
@@ -669,18 +674,18 @@ def rank_reference(world: World, days: pd.DatetimeIndex, *, mutation: str | None
 
 
 def rotation_violations(n_days: int, *, mutation: str | None, seed: int) -> int:
-    """Une rotation permise garde le nombre de jours rouges du bloc et sa composition par jour de semaine."""
+    """Un décalage permis du placebo garde, sur les cibles dont la source existe, la composition des jours rouges par
+    jour de semaine (décalage multiple de 7) ; nombre de décalages qui la changent."""
     rng = np.random.default_rng(seed)
     red = rng.random(n_days) < 0.25
+    weekday = np.arange(n_days) % ms.WEEK
     bad = 0
-    for start, length in ms.blocks_of(n_days):
-        block = red[start:start + length]
-        weekday = np.arange(length) % ms.WEEK
-        ref = np.bincount(weekday[block], minlength=ms.WEEK)
-        for u in ms.shifts(length, mutation=mutation):
-            rotated = np.roll(block, int(u))
-            if np.bincount(weekday[rotated], minlength=ms.WEEK).tolist() != ref.tolist():
-                bad += 1
+    for u in ms.placebo_lags(mutation=mutation):
+        target = np.arange(u, n_days)
+        source = target - u
+        if (np.bincount(weekday[target][red[source]], minlength=7).tolist()
+                != np.bincount(weekday[source][red[source]], minlength=7).tolist()):
+            bad += 1
     return bad
 
 
@@ -713,7 +718,7 @@ def mutation_checks(*, sims: int = 1, picks: int = 4, progress: Callable[[str], 
             elif mutation == "membres_mois_courant":
                 found = membership_differences(world, chosen, mutation=mutation, seed=k)
                 method = "LARGEUR avec top 40 recalculé, données tronquées"
-            elif mutation == "financement_sans_latence":
+            elif mutation == "financement_sans_latence":       # règle de latence testée à part (règlement + 30 s)
                 found = funding_differences(world, mutation=mutation, count=picks, seed=k)
                 method = "moyenne du financement 30 s après un règlement, données tronquées"
             elif mutation in ("rang_inclut_jour", "base_autre_instance"):

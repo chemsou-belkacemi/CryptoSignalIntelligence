@@ -60,8 +60,8 @@ ATR_PERIOD = 14
 HOLD_HOURS = 60
 LATENCY = pd.Timedelta(seconds=2)                       # latence supposée des bougies (config : data)
 ZERO = pd.Timedelta(0)
-MUTATIONS = ("ema_open_time", "largeur_jour_d", "membres_mois_courant", "fng_jour_d", "financement_sans_latence",
-             "vol_cible_filtree", "rang_inclut_jour", "base_autre_instance", "pertes_d3_d1",
+MUTATIONS = ("ema_open_time", "largeur_jour_d", "membres_mois_courant", "fng_jour_d", "financement_sans_latence", "financement_t_plus_8h",
+             "vol_cible_filtree", "rang_inclut_jour", "base_autre_instance", "pertes_d10_d1",
              "panier_sans_ouverture_future", "rotation_non_multiple_7", "lecture_apres_coupure")
 
 
@@ -263,7 +263,8 @@ def funding_mean_at(funding: pd.DataFrame, at, *, mutation: str | None = None) -
 def funding_hot(funding: pd.DataFrame, days: pd.DatetimeIndex, *, mutation: str | None = None) -> pd.DataFrame:
     """`FINANCEMENT_CHAUD` : moyenne des règlements connus dans ]T_d − 7 j ; T_d] (au moins 18) > 0,05 % par 8 h."""
     days = utc(days)
-    mean, n = funding_mean_at(funding, decision_time(days), mutation=mutation)
+    at = decision_time(days) + (pd.Timedelta(hours=8) if mutation == "financement_t_plus_8h" else ZERO)
+    mean, n = funding_mean_at(funding, at, mutation=mutation)
     ok = n >= FUNDING_MIN
     return pd.DataFrame({"FINANCEMENT_CHAUD": np.where(ok, (mean > FUNDING_LEVEL).astype(float), np.nan),
                          "funding_mean": mean, "funding_n": n}, index=days)
@@ -281,7 +282,7 @@ def recent_losses(s1: pd.DataFrame, days: pd.DatetimeIndex, *, mutation: str | N
     calendar = day_index(first, max(utc(s1["day"]).max(), days.max()))
     sums = usable.groupby(utc(usable["day"]))["r_gross"].sum().reindex(calendar, fill_value=0.0).to_numpy(float)
     counts = usable.groupby(utc(usable["day"]))["r_gross"].size().reindex(calendar, fill_value=0).to_numpy(float)
-    lo, hi = (LOSS_FROM, 1) if mutation == "pertes_d3_d1" else (LOSS_FROM, LOSS_TO)    # mutation : + d − 3 à d − 1
+    lo, hi = (LOSS_FROM, 1) if mutation == "pertes_d10_d1" else (LOSS_FROM, LOSS_TO)    # mutation : + d − 3 à d − 1
     cs, cn = np.concatenate([[0.0], np.cumsum(sums)]), np.concatenate([[0.0], np.cumsum(counts)])
     idx = np.arange(len(calendar))
     a, b = np.clip(idx - lo, 0, len(calendar)), np.clip(idx - hi + 1, 0, len(calendar))   # jours [d − lo ; d − hi]
