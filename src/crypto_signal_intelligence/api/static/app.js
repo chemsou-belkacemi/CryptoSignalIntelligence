@@ -396,6 +396,41 @@ async function loadTechnical(force = false) {
   run();
 }
 
+// Feu de protection du marché (GET /meteo) : outil de prudence, aucun gain démontré ; étude en cours.
+const METEO_COLORS = { VERT: ["ok", "VERT"], ORANGE: ["warn", "ORANGE"], ROUGE: ["bad", "ROUGE"], INCONNU: ["neutral", "INCONNU"] };
+
+async function loadMeteo() {
+  const target = document.getElementById("meteo-result");
+  if (!target) return;
+  busy(target, "Météo du marché…");
+  try {
+    const d = await api("/meteo");
+    const [kind, label] = METEO_COLORS[d.color] || METEO_COLORS.INCONNU;
+    const c = d.components || {};
+    const vol = c.volatility, btc = c.btc_structure, breadth = c.breadth;
+    const missing = Object.fromEntries((d.missing || []).map((m) => [m.component, m.reason]));
+    const rows = [
+      ["Volatilité prévue de BTC à 24 h (rang sur 365 j)", vol
+        ? `rang ${pctFrac(vol.rank, 0)} (ampleur typique ±${fmt(vol.move_24h_pct, 2)} %, ${fmt(vol.history_values, 0)} jours de référence) · connue ${when(vol.known_at)}`
+        : `absente : ${missing.volatility || "–"}`],
+      ["Structure BTC (clôture journalière / EMA50)", btc
+        ? `${price(btc.close)} ${btc.below ? "≤" : ">"} EMA50 ${price(btc.ema50)} (${btc.below ? "sous" : "au-dessus"}) · journée du ${btc.day}, connue ${when(btc.known_at)}`
+        : `absente : ${missing.btc_structure || "–"}`],
+      ["Largeur (paires au-dessus de leur EMA50)", breadth
+        ? `${breadth.above} / ${breadth.eligible} paires, soit ${pctFrac(breadth.share, 0)} · journée du ${breadth.day}, connue ${when(breadth.known_at)}`
+        : `absente : ${missing.breadth || "–"}`],
+      ["Calculé", when(d.computed_at)],
+    ];
+    target.replaceChildren(card("Météo du marché (protection)",
+      banner(kind, `Feu ${label}`, d.explanation || ""),
+      kv(rows),
+      el("p", { class: "small", text: "Outil de prudence, aucun gain démontré ; étude en cours (docs/METEO_MARCHE.md). Ce n'est pas une stratégie : c'est un garde-fou de gestion du risque, comme la perte maximale du jour." }),
+      el("p", { class: "muted small", text: `Règle déclarée, jamais optimisée : ${d.rule || ""}` })));
+  } catch (error) {
+    showError(target, error);
+  }
+}
+
 async function loadRisk() {
   const target = document.getElementById("risk-result");
   if (!target || state.riskLoaded) return;
@@ -1418,7 +1453,7 @@ function openTab(name) {
   for (const pane of document.querySelectorAll(".tabpane")) pane.classList.toggle("hidden", pane.id !== `tab-${name}`);
   if (name === "follow") loadFollow();
   if (name === "signal") { loadImages(); loadExports(); }
-  if (name === "market") { loadTechnical(); loadVolatility(); loadRisk(); }
+  if (name === "market") { loadMeteo(); loadTechnical(); loadVolatility(); loadRisk(); }
 }
 
 function start() {

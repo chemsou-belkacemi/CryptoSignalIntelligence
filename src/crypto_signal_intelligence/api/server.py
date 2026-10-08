@@ -36,6 +36,9 @@ demande de clé Binance. Pages : `/` (application : analyser une paire, évaluer
     POST /sources/exports/audit  {"folder": "<dossier>", "weights": "early" | "equal", "ocr": true} → audit en
                                arrière-plan, images lues sur la machine de CSI ; un seul à la fois (jeton requis)
     GET  /sources/exports/audit?folder=X  état et résultat de l'audit de ce dossier
+    GET  /meteo                feu de protection du marché (risk/market_light.py) : VERT, ORANGE, ROUGE ou INCONNU,
+                               composantes (valeur, heure de connaissance) et explication ; outil de prudence, aucun
+                               gain démontré (docs/METEO_PROTECTION.md) ; lu par le garde-fou de BinanceSpotManager
     GET  /liquidity?size=500&limit=20  relevé de liquidité en shadow (docs/LIQUIDITE.md) : derniers relevés des
                                signaux Telegram et dernier relevé de chaque paire (écart, profondeur, déséquilibre,
                                flux) avec le contrôle « avant d'entrer » pour cette taille ; information seulement
@@ -97,6 +100,7 @@ STATIC_FILES = {"/": ("index.html", "text/html; charset=utf-8"), "/app.js": ("ap
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
        "frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
 OUTLOOK_CACHE_SIZE = 32
+METEO_CACHE_SECONDS = 120               # feu recalculé au plus toutes les 2 minutes (16 fichiers de bougies lus)
 RESEARCH_REGISTRY_ENV = "CSI_RESEARCH_REGISTRY"
 # Horizons des programmes ML dans leurs libellés (vérifiés contre les protocoles par tests/test_ml_swing.py).
 ML_HORIZON_LABELS = {"ML_INTRADAY": "30 min à 4 h", "ML_SWING": "1 à 7 jours"}
@@ -231,6 +235,8 @@ class CsiApi:
         self._export_thread: threading.Thread | None = None
         self._exports_cache: dict[str, tuple[tuple[int, ...], dict]] = {}
         self.image_reader: Callable[[], ImageReader] | None = None  # lecteur d'images (tests : factice, aucun OCR)
+        self._meteo_lock = threading.Lock()
+        self._meteo_cache: tuple[datetime, dict] | None = None
 
     # --- lecture ---------------------------------------------------------------------------
     def health(self) -> dict:
@@ -327,6 +333,19 @@ class CsiApi:
         tirées de la seule prévision de volatilité confirmée hors échantillon. Information, aucune décision."""
         from ..risk.advice import current
         return current(self.settings, now=self.now())
+
+    def meteo(self) -> dict:
+        """Feu de protection du marché (risk/market_light.py, docs/METEO_PROTECTION.md) : outil de gestion du risque,
+        pas une stratégie ; aucun gain démontré. Recalculé au plus toutes les METEO_CACHE_SECONDS secondes."""
+        from ..risk.market_light import current
+        now = self.now()
+        with self._meteo_lock:
+            cached = self._meteo_cache
+            if cached is not None and 0 <= (now - cached[0]).total_seconds() < METEO_CACHE_SECONDS:
+                return cached[1]
+            result = _jsonable(current(self.settings, now=now))
+            self._meteo_cache = (now, result)
+            return result
 
     def telegram_relay_status(self) -> dict:
         """État du relais Telegram vu par CSI : messages déposés (dossier lu par F4), le dernier, et le nombre par
@@ -1073,7 +1092,7 @@ class CsiApi:
                 "/derivatives": lambda: self.derivatives(query.get("symbol", [""])[0]),
                 "/admissions": self.admissions, "/sources/history": self.sources_history,
                 "/volatility": lambda: self.volatility(query.get("symbol", [""])[0]),
-                "/plans/live": self.plans_live, "/forward": self.forward, "/risk": self.risk,
+                "/plans/live": self.plans_live, "/forward": self.forward, "/risk": self.risk, "/meteo": self.meteo,
                 "/telegram/relay": self.telegram_relay_status,
                 "/liquidity": lambda: self.liquidity(query.get("size", ["500"])[0], query.get("limit", ["20"])[0]),
                 "/images/pending": self.images_pending, "/sources/exports": self.sources_exports,

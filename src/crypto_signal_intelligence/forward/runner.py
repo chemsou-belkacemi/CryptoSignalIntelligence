@@ -166,6 +166,15 @@ def daily(settings: Settings, *, now: datetime, force: bool = False) -> dict | N
             except Exception as exc:  # noqa: BLE001 - jamais bloquant pour les tests en direct
                 log.exception("conseil de risque en shadow")
                 out["risk_shadow"] = {"error": f"{type(exc).__name__}: {exc}"[:300]}
+            try:                                   # feu de protection du marché : historique du rang (une fois), feu du jour
+                from ..risk import market_light
+                history = market_light.ensure_vol_history(settings, now=now)
+                if history is not None:
+                    out["market_light_history"] = history
+                out["market_light"] = market_light.record_day(settings, now=now)
+            except Exception as exc:  # noqa: BLE001 - jamais bloquant pour les tests en direct
+                log.exception("feu de protection du marché")
+                out["market_light"] = {"error": f"{type(exc).__name__}: {exc}"[:300]}
             if moment - moment.floor("D") >= REPORT_AFTER:
                 out["report"] = str(report.write(settings, now=now))   # rapport du jour, mis à jour à chaque passage
             return out
