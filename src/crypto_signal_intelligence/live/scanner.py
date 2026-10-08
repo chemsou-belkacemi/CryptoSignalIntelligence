@@ -214,6 +214,11 @@ class UserPairWorker:
             start_background(self.settings, now=self.clock())
         except Exception:  # noqa: BLE001
             log.exception("tests en direct")
+        try:                                         # relevé de liquidité en shadow (son propre fil, débit borné)
+            from ..forward import liquidity_log
+            liquidity_log.start_background(self.settings, clock=self.clock)
+        except Exception:  # noqa: BLE001
+            log.exception("relevé de liquidité")
         return result
 
     def _loop(self) -> None:

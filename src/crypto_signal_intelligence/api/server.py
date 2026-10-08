@@ -36,6 +36,9 @@ demande de clé Binance. Pages : `/` (application : analyser une paire, évaluer
     POST /sources/exports/audit  {"folder": "<dossier>", "weights": "early" | "equal", "ocr": true} → audit en
                                arrière-plan, images lues sur la machine de CSI ; un seul à la fois (jeton requis)
     GET  /sources/exports/audit?folder=X  état et résultat de l'audit de ce dossier
+    GET  /liquidity?size=500&limit=20  relevé de liquidité en shadow (docs/LIQUIDITE.md) : derniers relevés des
+                               signaux Telegram et dernier relevé de chaque paire (écart, profondeur, déséquilibre,
+                               flux) avec le contrôle « avant d'entrer » pour cette taille ; information seulement
 
 Sécurité :
 - écoute sur 127.0.0.1 par défaut ; dans Docker, le port n'est publié que sur 127.0.0.1 de l'hôte ;
@@ -353,6 +356,21 @@ class CsiApi:
                 "week": len(rows), "groups": sorted(groups.values(), key=lambda g: -g["week"]),
                 "note": "Messages transférés par ton relais (compte Telegram → bot CSI) et déposés pour le test F4. "
                         "Rien ici n'est un avis sur un signal."}
+
+    def liquidity(self, size: str, limit: str) -> dict:
+        """Relevé de liquidité en shadow (forward/liquidity_log.py) : lecture des journaux, aucun appel à Binance.
+        Le contrôle « avant d'entrer » est une information : aucune décision, aucun avis, aucun test n'en dépend."""
+        from ..forward import liquidity_log
+        try:
+            size_usdt = float(size)
+        except ValueError:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "size : montant en USDT attendu") from None
+        if not (0 < size_usdt <= 1_000_000):
+            raise ApiError(HTTPStatus.BAD_REQUEST, "size : entre 0 et 1 000 000 USDT")
+        count = _int(limit)
+        if not 1 <= count <= 200:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "limit : entre 1 et 200")
+        return liquidity_log.summary(self.settings, now=self.now(), size_usdt=size_usdt, limit=count)
 
     def plans_live(self) -> dict:
         """Suivi EN DIRECT des plans indicatifs : bilan par horizon et état au moment de l'enregistrement."""
@@ -1057,6 +1075,7 @@ class CsiApi:
                 "/volatility": lambda: self.volatility(query.get("symbol", [""])[0]),
                 "/plans/live": self.plans_live, "/forward": self.forward, "/risk": self.risk,
                 "/telegram/relay": self.telegram_relay_status,
+                "/liquidity": lambda: self.liquidity(query.get("size", ["500"])[0], query.get("limit", ["20"])[0]),
                 "/images/pending": self.images_pending, "/sources/exports": self.sources_exports,
                 "/sources/exports/audit": lambda: self.sources_exports_result(query.get("folder", [""])[0]),
             }

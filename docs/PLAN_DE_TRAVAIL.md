@@ -64,6 +64,12 @@ par la volatilité · F16 signaux Telegram en image (démarré le 2026-10-03) ·
 2026-10-03 ; verdict vers mi-mars 2027, figures 1 jour tenues 60 jours). Relevés : F0_ECARTS (écarts entre bourses),
 news de risque (étude évaluée si 30 événements), données de contexte (`CONTEXTE.md`).
 
+**Relevé de liquidité en shadow** (demande du propriétaire du 2026-10-08, `LIQUIDITE.md`) : carnet Binance et flux des
+klines 1 min à chaque signal Telegram et toutes les 15 min sur les paires suivies ; information seulement, aucune
+influence sur les tests, les avis ou BSM. **Testé, non déployé** (branche `feat/releve-liquidite`). Reste
+**[propriétaire]** : fusionner, reconstruire l'image et redémarrer `monitor` et `api`. Protocole de mesure à
+pré-inscrire quand il y aura quelques semaines et quelques centaines de signaux relevés.
+
 Aucun calcul de recherche en cours.
 
 ## 2 bis. Plan d'octobre 2026 à janvier 2027 (validé le 2026-10-03)
