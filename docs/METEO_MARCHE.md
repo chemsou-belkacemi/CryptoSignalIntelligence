@@ -54,10 +54,10 @@ définitions techniques ont été corrigées, à la demande de la relecture.
   composante.
 - **Ce que vaut le feu se mesure par jour sauté.** Si les jours rouges sont pires que les autres jours d'un écart
   **Δ**, chaque jour rouge sauté évite cet écart. Δ ne dépend pas du nombre de jours rouges.
-- **Un « rien » dira quelque chose, si tu fixes la marge.** Il faut décider maintenant à partir de quel écart Δ
-  « ça vaudrait la peine ». **C'est toi qui choisis**, dans le tableau du § 5.6 : environ 0,2 %, 0,4 % ou 0,6 % par
-  jour sauté pour une altcoin typique. Si le résultat est nul, la conclusion sera « les jours rouges ne sont pas pires
-  de plus de X % par jour ». Ce chiffre X sera donné **dans tous les cas**.
+- **Un « rien » dira quelque chose : la marge est fixée.** Le 2026-10-08, tu as choisi le **candidat C** du tableau
+  du § 5.6 : **Δ_min = 0,15 σ**, environ 0,6 % par jour rouge sauté pour une altcoin typique (environ 0,23 R). Si le
+  résultat est nul, la conclusion sera « les jours rouges ne sont pas pires de plus de X % par jour ». Ce chiffre X
+  sera donné **dans tous les cas**. Un écart plus petit, par exemple 0,4 % par jour, ne pourra pas être exclu.
 - **Attention** : avec 5 ans d'historique, on ne peut pas certifier qu'un écart de 0,2 % par jour (le prix d'un
   aller-retour) est absent. L'instrument est trop peu précis pour ça. Une marge aussi petite ferait arrêter l'étude
   avant de la lancer (§ 7.2), sans rien compter.
@@ -79,7 +79,7 @@ définitions techniques ont été corrigées, à la demande de la relecture.
   réservée reste fermée. 1 essai au registre des tests en direct pour F17.
 - **Ce qu'on te demande.**
   1. Valider ce protocole.
-  2. **Choisir la marge Δ** (§ 5.6, tableau) : tant qu'elle n'est pas choisie, rien ne s'exécute.
+  2. ~~Choisir la marge Δ~~ : **fait le 2026-10-08**, candidat C (Δ_min = 0,15 σ, § 5.6).
   3. Valider le téléchargement de l'historique du Fear & Greed : même source et même adresse que le relevé quotidien
      déjà validé le 2026-10-02, en un seul appel.
   4. Plus tard, décider du modèle appris (§ 9) et du démarrage de F17 (§ 11).
@@ -820,7 +820,7 @@ F16 restent intacts.**
 
 ## 15. Ordre d'exécution et mise en œuvre prévue
 
-0. **Choix de Δ_min par le propriétaire** (§ 5.6), inscrit ici avec la date. Rien ne s'exécute avant.
+0. **Choix de Δ_min par le propriétaire** (§ 5.6) : **fait le 2026-10-08**, candidat C, Δ_min = 0,15 σ.
 1. Relecture de ce document (propriétaire, `leak-auditor`). Accord pour l'historique du Fear & Greed : alternative.me
    `/fng/` avec `limit=0`, même adresse que F0, déjà dans la liste blanche de `forward/sources.py` (aussi utilisée par
    `context/`), rangé comme série `HISTORIQUE` du magasin de contexte, avec son empreinte.
