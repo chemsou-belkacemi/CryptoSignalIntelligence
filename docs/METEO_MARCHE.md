@@ -240,6 +240,22 @@ Le feu n'est pas indépendant de ce qu'on a déjà vu :
 Le comportement de ces composantes sur 2019-2025 est donc en partie connu. Le résultat historique de cette étude est
 un **indice**. Seul le temps (F17) peut confirmer.
 
+### 3.5 Points ambigus tranchés par le relecteur (2026-10-08, aucun résultat réel vu)
+
+Relevés à l'écriture du code, tranchés par le relecteur, sans aucune donnée réelle :
+1. **Tout ce qui dérive du feu** (couleurs, épisodes, parts par composante, blocs utiles) se calcule dans le passage
+   unique (§ 7.2, m5), avant `y`, et n'est publié qu'avec le résultat. À l'étape 3 (§ 15), il ne reste que les
+   comptages **sans feu** (§ 7.4 réduit d'autant).
+2. **G1 s'applique à toute issue** (sinon `INSUFFISANT`) ; G2 à G4 seulement à la persistance.
+3. **G3 pour la variante** : au moins ⌈2/3 × années utiles⌉, soit 6 sur 8 (4 sur 6 pour la principale).
+4. La mutation `PERTES_RECENTES` est **élargie à d − 10 … d − 1** (`pertes_d10_d1`) : une fenêtre de 3 jours
+   n'atteint jamais 70 achats et ne serait jamais détectable.
+5. La **latence du financement** se teste à part, à règlement + 30 s (indétectable à 00:10, les règlements tombant à
+   00:00, 08:00 et 16:00). Mutation ajoutée : « financement lu jusqu'à T_d + 8 h ».
+6. Mutation « **membres du mois M calculés sur les journées de M** » (30 premières journées du mois).
+7. **`S2N` en rendement simple** (vente / achat − 1).
+8. **Confirmation C** : `p ≤ 0,0125` de chaque côté ; équivalence lue avec l'intervalle à 95 %.
+
 ## 4. La règle du feu (fixée, non optimisée)
 
 - `D_d` = nombre de composantes présentes en danger, `A_d` = nombre de composantes absentes.
@@ -337,6 +353,36 @@ un achat générique du marché, sans frais, en unités de volatilité prévue ?
   - Le placebo de Δ n'est pas exactement nul : la dépendance entre jours voisins et les rotations par semaines
     entières le décalent. C'est pour ça qu'on le retire.
 
+### 5.2 bis Instrument corrigé (2026-10-08) : il remplace la statistique du § 5.2, le placebo `P_T` du § 5.4 et le tirage du § 5.6
+
+**Échec N1 sur synthétique seulement, aucune donnée réelle.** La rotation circulaire donnait aux premiers jours d'un
+bloc la couleur de jours plus tardifs, qui dépend de leur propre `y` : le placebo lisait le futur (N1 : z moyen −1,51,
+§ 7.5). Les fenêtres circulaires du tirage avaient le même défaut. Les passages « statistique », « placebo `P_T` » et
+« intervalle » des § 5.2, 5.4 et 5.6 sont **remplacés** par ce qui suit ; le reste (G1 à G4, décision, Δ_min = 0,15 σ,
+règles d'inutilité, confirmation C) est inchangé.
+
+- **Statistique décisive : contraste par déviations orthogonales avant (Arellano-Bover), à jour de semaine égal.**
+  - Pour chaque jour `t` non trou du bloc `b`, `F_t` = jours `s > t` du même bloc et du même jour de semaine, non trous ;
+    `k_t = |F_t|`. Si `k_t = 0`, le jour n'est pas un terme.
+  - `ỹ_t = √(k_t/(k_t+1))·(y_t − moyenne de y sur F_t)` ; `r̃_t` de même pour l'indicateur rouge `r_t`.
+  - **Δ̂ = −Σ r_t·ỹ_t / Σ r_t·r̃_t**, sommé sur les blocs utiles ; Δ > 0 = jours rouges pires. Sous H0 (dérive constante
+    par bloc et effet propre au jour de semaine dans le bloc), le numérateur est d'espérance nulle exactement, car `r_t`
+    est connu avant tous les `y_s`, `s ≥ t`.
+  - **Bloc utile** : au moins un jour rouge et un jour non rouge parmi ses termes. Si Σ r·r̃ = 0 : non identifiable,
+    aucun verdict (`NON_IDENTIFIABLE`).
+- **Placebo `P_T` causal** : couleur placebo du jour `t` = celle du jour `t − u`, `u ∈ {7, 14, …, 84}`, **sans rotation
+  circulaire** (la source peut être dans le bloc précédent). Source avant le début de la période ou sur un trou : la
+  cible devient un trou. Un `u` indépendant par bloc, numérateur et dénominateur recalculés avec les mêmes `ỹ`
+  (`r̃` du placebo calculé sur les jours valides du placebo). 10 000 tirages ; `p_haut` et `p_bas` par rangs. La moyenne
+  du placebo est rapportée comme contrôle, pas retranchée : **Δ_exc := Δ̂**.
+- **Intervalle** : termes `(r_t, r̃_t, ỹ_t)` calculés une fois sur la série d'origine, tirés par fenêtres de 4 semaines
+  commençant un lundi, **sans rotation circulaire** (départs 0, 7, …, n − 28), dans chaque bloc utile ; rapport
+  recalculé à chaque tirage (10 000).
+- **G2** recalcule les `F_t` après le retrait de l'épisode (ses jours deviennent des trous).
+- **`S2N` en rendement simple** ; générateur synthétique à **prix martingales** (§ 7.2).
+- Les **puissances du § 5.6 et du § 13 ne valent plus** (calculées pour l'ancienne statistique) : seul le contrôle
+  positif décide, et `EQUIVALENCE_NON_JUGEABLE` devient plus probable.
+
 ### 5.3 Séries descriptives (aucune décision)
 
 - **`S1` — `HASARD_40`, en R** : chaque jour `d`, **20 achats** tirés au hasard (graine `METEO:HASARD:<jour>:<k>`,
@@ -352,6 +398,9 @@ un achat générique du marché, sans frais, en unités de volatilité prévue ?
 - **`S2N` avec une autre normalisation** : `σ24_168` (§ 5.8), pour comparer à la variante 2018.
 
 ### 5.4 Placebos : sauter autant de jours, au hasard, par semaines entières
+
+> **Remplacé le 2026-10-08 pour `P_T`** par le placebo causal du § 5.2 bis (échec N1 sur synthétique seulement,
+> aucune donnée réelle). Le texte ci-dessous reste pour la trace ; `P_G` (descriptif) est inchangé.
 
 Les placebos déplacent le **feu** et laissent les résultats en place. Ils gardent la part de jours rouges, la
 structure des épisodes et la **composition par jour de semaine**.
@@ -437,7 +486,8 @@ chaque jour rouge sauté fait gagner ou perdre. Elle ne dépend pas de la part d
   jour pour l'altcoin médiane réelle du panier, en % brut non normalisé et en R. Formulation : « **les jours rouges ne
   sont pas pires de plus de X % par jour** ». La borne basse est rapportée aussi (« pas meilleurs de plus de Y »).
 
-**Intervalle de Δ_exc** :
+**Intervalle de Δ_exc** (remplacé le 2026-10-08 par le tirage sans rotation du § 5.2 bis ; texte gardé pour la
+trace) :
 - tirage **stratifié** : dans chaque bloc de 13 semaines, on tire des fenêtres circulaires de **4 semaines** (28 jours
   consécutifs, circulaires dans le bloc). **Elles commencent un lundi** : 13 départs possibles dans un bloc de
   13 semaines (8 et 4 dans les derniers blocs courts), tirés uniformément. La composition par jour de semaine est
@@ -619,17 +669,18 @@ prévisions). Le résultat doit être identique.
 **Mutations qui doivent être détectées :**
 - EMA de BTC ou des membres jointe sur `open_time` ;
 - clôture de `d` dans `LARGEUR` ;
-- membres du top 40 calculés avec le mois en cours ;
+- membres du top 40 du mois M calculés sur les journées de M (§ 3.5, point 6) ;
 - Fear & Greed horodaté `d` ;
-- financement sans la minute de latence ;
+- financement sans la minute de latence (testée à part, à règlement + 30 s) ; financement lu jusqu'à `T_d + 8 h` ;
 - **bougies postérieures à `T_d` supprimées ou falsifiées : ni la présence ni la valeur de la prévision H24 ne
   changent** (la mutation « filtre sur la cible » doit être détectée) ;
 - rang qui inclut la valeur du jour ;
 - base de `VOL_HAUTE` prise d'une autre instance du modèle ;
-- `PERTES_RECENTES` avec les achats de `d − 3` à `d − 1` ;
+- `PERTES_RECENTES` avec les achats de `d − 10` à `d − 1` (`pertes_d10_d1`, § 3.5, point 4) ;
 - **paire retirée du panier parce que son ouverture de `d + 1` manque** ;
 - rotation qui n'est pas un multiple de 7 ou qui change le nombre de jours rouges d'un bloc ;
-- lecture après le 2025-06-30.
+- lecture après le 2025-06-30 ;
+- **placebo circulaire** (ancien instrument, 2026-10-08) : sous N1 avec un feu de tendance, il donne |z moyen| > 1.
 
 ### 7.2 Contrôles synthétiques (même code de bout en bout, sauf approximations déclarées)
 
@@ -637,7 +688,10 @@ prévisions). Le résultat doit être identique.
   calcul par deux pour presque rien, car le facteur commun domine ; l'erreur type du panier ne change que d'environ 1 %
   entre 20 et 40 paires corrélées à 0,5). 7,4 ans par simulation (2 ans de rodage non mesurés, puis 5,4 ans mesurés),
   bougies **1 h**.
-- **Prix** : paire = β × BTC + bruit propre, β tiré dans [0,5 ; 1,5].
+- **Prix** : paire = β × BTC + bruit propre, β tiré dans [0,5 ; 1,5]. **Depuis le 2026-10-08 : prix martingales**,
+  `P_t = P_{t−1}·(1 + σ_h·ε_t)` (loi de Student comprise), rendements **simples** (rendement de la paire = β × celui de
+  BTC + bruit propre) ; les dérives de N3, N3b et N4 s'ajoutent en rendement simple. L'ancien générateur tirait des
+  rendements log de moyenne nulle, qui ne sont pas une martingale en rendement simple (défaut relevé par le relecteur).
 - **Volatilité à mémoire longue** (type HAR) : log-variance journalière de BTC et du bruit propre =
   `c + 0,35 · (veille) + 0,35 · (moyenne sur 5 jours) + 0,25 · (moyenne sur 22 jours) + bruit N(0 ; 0,3²)`, avec
   `c` réglé pour une volatilité journalière moyenne de 3 % (BTC) et de 4 % (bruit propre). Les rendements horaires d'un
@@ -672,6 +726,8 @@ prévisions). Le résultat doit être identique.
   - **`N4`** : effet du jour de semaine seul (lundi +0,2 σ, sans autre dérive). Le contrôle « **jour de semaine seul :
     excès nul** » applique un feu rouge le lundi et le mardi seulement : Δ_exc contre `P_T` doit être **exactement
     0** (rotations par multiples de 7). Le feu réel y est aussi jugé comme dans `N1`.
+    **Redéfini le 2026-10-08** : avec la statistique du § 5.2 bis, un feu lundi-mardi seul donne Σ r·r̃ = 0, donc
+    « non défini » (critère : aucune simulation définie) ; le feu réel sous N4 est jugé comme sous N1.
 - **Critères, pour la question principale et la variante, dans `N1`, `N2`, `N2t`, `N3`, `N3c` et `N4`** :
   1. **biais** : la moyenne sur les simulations de `z` = Δ_exc / (écart-type du placebo) vérifie **|z moyen| ≤ 0,15** ;
   2. **taux de faux positifs** : part des simulations avec `p_haut` ou `p_bas` ≤ 0,025 ≤ **0,07** (attendu 0,05) ;
@@ -754,6 +810,19 @@ commité.
 - mêmes comptages pour la variante.
 
 **Aucune règle ne change d'après ces comptages.**
+
+### 7.5 Itérations de l'instrument sur synthétique (journal, pour qu'on ne règle pas l'instrument jusqu'à ce qu'il passe)
+
+Chaque essai de l'instrument sur données SYNTHÉTIQUES est noté ici, avec ses chiffres, qu'il passe ou non. Aucune
+donnée réelle n'est lue à ces étapes.
+
+| # | Date | Instrument (commit) | Contrôle | Chiffres | Issue |
+|---|---|---|---|---|---|
+| 0 | 2026-10-08 | rotation circulaire, intervalle circulaire, générateur log (`9fa6e7a`) | N1, 500 simulations | z moyen −1,51 ; faux positifs 0,306 ; KS p ≈ 5e-156 ; couverture 0,674 au-dessus / 0,000 au-dessous | ÉCHEC |
+| 0 | 2026-10-08 | idem | N2, 500 simulations | z moyen −1,61 ; faux positifs 0,378 ; KS p ≈ 0 ; couverture 0,686 / 0,000 | ÉCHEC (contrôles arrêtés ensuite) |
+| 0 | 2026-10-08 | idem | mutations du § 7.1, causalité | causalité propre ; 11 mutations testables détectées | sans objet (le feu n'est pas en cause) |
+| 1 | 2026-10-08 | déviations orthogonales avant, placebo causal, intervalle sans rotation, prix martingales (`bf038c3`) | **diagnostic** N1, 100 simulations (pas les contrôles inscrits) | z moyen +0,12 ; faux positifs 0,10 ; KS p 0,27 / 0,27 ; couverture 0,10 au-dessus / 0,12 au-dessous | z et KS passent ; faux positifs et couverture ne passent pas (100 simulations seulement) |
+| 1 | 2026-10-08 | idem | jouet : `y` i.i.d., feu de tendance sur le passé de `y` (EMA50), 3 000 répliques | z moyen −0,205 (± 0,030) ; numérateur moyen +2,50 (± 0,54) sur les blocs utiles, −0,08 (± 0,55) sur tous les blocs ; z moyen −0,056 avec tous les blocs ; faux positifs ≈ 0,094 dans les deux cas | biais de sélection des blocs utiles (la règle dépend des couleurs, donc des `y` du bloc) ; rapporté au relecteur, **non corrigé** |
 
 ## 8. Confirmation
 
@@ -1173,3 +1242,16 @@ cette bougie. Seul l'ensemble « tous les déclencheurs » sert (chaque achat es
     - textes périmés corrigés (§ 0, § 14, § 16 point 4) ;
     - σ̂ médian de `N3c+` défini.
   - Compte d'essais inchangé : 3 dans le cas normal, 5 au plus.
+- 2026-10-08 : **échec N1 sur synthétique seulement, aucune donnée réelle ; instrument corrigé.**
+  - Contrôles synthétiques de l'instrument d'origine (commit `9fa6e7a`) : N1 et N2 en échec net (z moyen −1,51 et
+    −1,61 ; § 7.5). Diagnostic du relecteur : le placebo par rotation circulaire lisait le futur (un jour du début du
+    bloc recevait la couleur d'un jour plus tardif, qui dépend de son propre `y`) ; même défaut dans le tirage
+    circulaire de l'intervalle. Défaut secondaire : générateur synthétique non martingale en rendement simple.
+  - Contrôles en cours arrêtés ; leurs fichiers ne servent qu'au diagnostic.
+  - Correction (§ 5.2 bis) : contraste par déviations orthogonales avant à jour de semaine égal, placebo `P_T` causal
+    (décalages de 7 à 84 jours, sans rotation), Δ_exc := Δ̂, intervalle par fenêtres de 4 semaines sans rotation,
+    `S2N` en rendement simple, prix synthétiques martingales, N4 redéfini (feu lundi-mardi seul non identifiable).
+  - Points ambigus tranchés par le relecteur (§ 3.5) ; mutations du § 7.1 complétées.
+  - Diagnostic N1 sur 100 simulations avec l'instrument corrigé (commit `bf038c3`) et jouet du feu de tendance :
+    chiffres au § 7.5 ; biais de sélection des blocs utiles signalé, non corrigé. Les contrôles inscrits (500
+    simulations) attendent la relecture du nouveau code.
