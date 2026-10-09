@@ -106,16 +106,22 @@ def _due(moment: pd.Timestamp, key: str, every: pd.Timedelta) -> bool:
     return key not in _LAST or moment - _LAST[key] >= every
 
 
+def _hour_due(moment: pd.Timestamp) -> bool:
+    """Passage complet dès le changement d'heure UTC (et non « 60 min après le précédent », qui dérivait avec les
+    cycles de 15 min) : l'évaluation d'une clôture 4 h, son carnet et son message partent dans les minutes qui suivent."""
+    return "run" not in _LAST or moment.floor("h") > _LAST["run"].floor("h")
+
+
 def _pollable(settings: Settings, *, now: datetime) -> bool:
     """Au moins un test EN_COURS détecte des événements en direct (sinon aucun passage intermédiaire)."""
     return any(hasattr(module, "poll") and status(settings, test, now=now)["state"] == RUNNING for test, module in TESTS)
 
 
 def daily(settings: Settings, *, now: datetime, force: bool = False) -> dict | None:
-    """Un passage complet au plus une fois par heure dans ce processus (sauf `force`), une détection d'événements
+    """Un passage complet à chaque changement d'heure UTC dans ce processus (sauf `force`), une détection d'événements
     au plus toutes les 10 min quand un test en direct l'exige ; un seul passage à la fois entre processus."""
     moment = pd.Timestamp(now)
-    hourly = force or _due(moment, "run", EVERY)
+    hourly = force or _hour_due(moment)
     polling = force or (_due(moment, "poll", POLL_EVERY) and _pollable(settings, now=now))
     if not (hourly or polling):
         return None
@@ -219,7 +225,7 @@ def _record_spreads(settings: Settings, *, now: datetime) -> dict | None:
 
 def start_background(settings: Settings, *, now: datetime) -> bool:
     moment = pd.Timestamp(now)
-    if _LOCK.locked() or not (_due(moment, "run", EVERY) or _due(moment, "poll", POLL_EVERY)):
+    if _LOCK.locked() or not (_hour_due(moment) or _due(moment, "poll", POLL_EVERY)):
         return False
     threading.Thread(target=_logged, args=(settings, now), name="csi-forward", daemon=True).start()
     return True

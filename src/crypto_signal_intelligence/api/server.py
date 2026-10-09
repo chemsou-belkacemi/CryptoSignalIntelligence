@@ -42,6 +42,12 @@ demande de clé Binance. Pages : `/` (application : analyser une paire, évaluer
     GET  /liquidity?size=500&limit=20  relevé de liquidité en shadow (docs/LIQUIDITE.md) : derniers relevés des
                                signaux Telegram et dernier relevé de chaque paire (écart, profondeur, déséquilibre,
                                flux) avec le contrôle « avant d'entrer » pour cette taille ; information seulement
+    GET  /assistant            assistant de marché (docs/ASSISTANT.md, test en direct F18) : contenu de
+                               state/assistant.json (dernière évaluation, feu, BTC, régimes, appels actifs, refus,
+                               prochaine évaluation, `resume` de 5 lignes) ; shadow, aucun ordre, aucun gain démontré
+    GET  /assistant/outbox     {"messages": [{"id", "created_at", "text"}]} : messages Telegram EN_ATTENTE de
+                               l'assistant, du plus ancien au plus récent, 20 au plus (lus par le service relais)
+    POST /assistant/sent       {"ids": [...]} → {"marked": n} : messages passés ENVOYE par le relais (jeton requis)
 
 Sécurité :
 - écoute sur 127.0.0.1 par défaut ; dans Docker, le port n'est publié que sur 127.0.0.1 de l'hôte ;
@@ -346,6 +352,27 @@ class CsiApi:
             result = _jsonable(current(self.settings, now=now))
             self._meteo_cache = (now, result)
             return result
+
+    def assistant(self) -> dict:
+        """Assistant de marché (docs/ASSISTANT.md) : état écrit par la surveillance à chaque évaluation 4 h (F18).
+        Lecture seule ; shadow, aucun ordre, aucun gain démontré."""
+        from ..assistant import state
+        return state.read(self.settings)
+
+    def assistant_outbox(self) -> dict:
+        """Messages Telegram EN_ATTENTE de l'assistant (20 au plus, du plus ancien au plus récent) ; ceux de plus de
+        6 h sont passés EXPIRE. Contrat consommé par le service relais."""
+        from ..assistant import outbox
+        return {"messages": outbox.pending(self.settings, now=self.now())}
+
+    def assistant_sent(self, payload: dict) -> dict:
+        """`{"ids": [...]}` → `{"marked": n}` : le relais confirme l'envoi (jeton requis : la route écrit l'état)."""
+        from ..assistant import outbox
+        self._require_token("confirmation d'envoi de l'assistant")
+        ids = payload.get("ids")
+        if not isinstance(ids, list) or not all(isinstance(i, str) and i for i in ids) or len(ids) > 500:
+            raise ApiError(HTTPStatus.BAD_REQUEST, "champ « ids » : liste de textes (500 au plus)")
+        return {"marked": outbox.mark_sent(self.settings, ids)}
 
     def telegram_relay_status(self) -> dict:
         """État du relais Telegram vu par CSI : messages déposés (dossier lu par F4), le dernier, et le nombre par
@@ -1095,6 +1122,7 @@ class CsiApi:
                 "/plans/live": self.plans_live, "/forward": self.forward, "/risk": self.risk, "/meteo": self.meteo,
                 "/telegram/relay": self.telegram_relay_status,
                 "/liquidity": lambda: self.liquidity(query.get("size", ["500"])[0], query.get("limit", ["20"])[0]),
+                "/assistant": self.assistant, "/assistant/outbox": self.assistant_outbox,
                 "/images/pending": self.images_pending, "/sources/exports": self.sources_exports,
                 "/sources/exports/audit": lambda: self.sources_exports_result(query.get("folder", [""])[0]),
             }
@@ -1124,6 +1152,8 @@ class CsiApi:
             return self.telegram_image(body or {})
         elif method == "POST" and path == "/images/decide":
             return self.images_decide(body or {})
+        elif method == "POST" and path == "/assistant/sent":
+            return self.assistant_sent(body or {})
         raise ApiError(HTTPStatus.NOT_FOUND, f"route inconnue : {method} {path}")
 
     def telegram_live(self, payload: dict) -> dict:

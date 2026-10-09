@@ -2290,3 +2290,76 @@ def forward_report():
     settings = _settings()
     path = write(settings, now=_now())
     console.print(path.read_text(encoding="utf-8"))
+
+
+assistant_app = typer.Typer(no_args_is_help=True,
+                            help="Assistant de marché (docs/ASSISTANT.md) : appels en SHADOW mesurés par le test en direct "
+                                 "F18 ; aucun ordre, aucun gain démontré.")
+app.add_typer(assistant_app, name="assistant")
+
+
+@assistant_app.command("evaluer")
+def assistant_evaluate(now: str = typer.Option(None, "--now", help="Instant de l'évaluation (ISO, UTC) ; défaut : maintenant"),
+                       magasin: Path = typer.Option(None, "--magasin", help="Dossier de bougies à lire à la place du magasin "
+                                                                           "de F15 (vérification à la main hors conteneur)"),
+                       sans_carnet: bool = typer.Option(False, "--sans-carnet", help="Ne pas interroger le carnet Binance "
+                                                                                     "(candidats refusés CARNET_INJOIGNABLE)"),
+                       verbose: bool = False):
+    """Évaluation À BLANC de la dernière clôture 4 h UTC : rien n'est journalisé, aucun message déposé, aucun état
+    écrit. Lecture seule des bougies, du feu, de la prévision et des news ; carnet public pour les seuls survivants."""
+    from .assistant import evaluate as ev
+    from .assistant import rules as R
+    from .data.store import CandleStore
+    settings = _settings(verbose)
+    moment = pd.Timestamp(now, tz="UTC") if now and pd.Timestamp(now).tzinfo is None else (pd.Timestamp(now) if now else pd.Timestamp(_now()))
+    at = ev.closing_time(moment)
+    store = CandleStore(magasin) if magasin else ev.store_for(settings)
+    symbols = ev.universe(settings)
+    if magasin:
+        present = sorted(p.name for p in (Path(magasin) / "candles" / "binance" / "spot").glob("*") if (p / "1h.parquet").exists())
+        symbols = [s for s in symbols if s in present] or present
+    if not symbols:
+        console.print("[red]Aucune paire à évaluer[/red] (ni journal F15, ni liste halal validée, ni magasin).")
+        raise typer.Exit(3)
+    book = (lambda symbol: None) if sans_carnet else None
+    with console.status(f"évaluation à blanc de la clôture {at:%Y-%m-%d %H:%M} UTC sur {len(symbols)} paires…"):
+        out = ev.run(settings, at=at, now=moment, discipline={"active": {}, "rest_until": {}, "calls_today": 0},
+                     store=store, symbols=symbols, book=book)
+    console.print(f"Clôture évaluée : {out['at']} (données connues à {out['evaluated_at']}) ; feu {out['light']['color']} ; "
+                  f"BTC {'au-dessus' if out['btc'].get('above_ema50') else 'sous'} son EMA50 journalière"
+                  + (f" ; SILENCE : {out['silence']}" if out["silence"] else f" ; taille {out['size']}"))
+    console.print(f"Régimes : {out['regimes']} ; candidats : {out['candidates']} ; refus : {out['refusals_by_reason'] or 'aucun'}")
+    table = Table("Paire", "Régime", "Lecture", "Configuration / refus")
+    for symbol, p in sorted(out["pairs"].items()):
+        setup = p.get("setup") or {}
+        table.add_row(symbol, p["regime"], p["reason"][:70], (p.get("refusal") or setup.get("reason") or "")[:60])
+    console.print(table)
+    for r in out["refusals"]:
+        console.print(f"- {r['symbol']} ({r['regime']}, {r['setup']}) : {r['reason']} — {r['detail']}")
+    for c in out["calls"]:
+        console.print(f"[bold]APPEL {c['symbol']}[/bold] {c['regime']} {c['setup']} : entrée {c['entry']:.8g}, stop {c['stop']:.8g} "
+                      f"(secours {c['hard_stop']:.8g}), TP1 {c['tp1']:.8g}, TP2 {c['tp2']:.8g} ({c['r_tp2']:.2f} R), score {c['score']}")
+        for line in c["explanation"]:
+            console.print(f"  {line}")
+    console.print(f"[dim]{ev.NOTE} Évaluation à blanc : rien n'est journalisé. Règles : {R.TEST_ID}, docs/ASSISTANT.md.[/dim]")
+
+
+@assistant_app.command("etat")
+def assistant_state():
+    """Dernier état de l'assistant (state/assistant.json) : résumé, appels actifs, derniers refus, boîte Telegram."""
+    from .assistant import outbox, state
+    settings = _settings()
+    data = state.read(settings)
+    console.print(data.get("resume", ""))
+    if not data.get("available"):
+        console.print(f"[yellow]{data.get('reason', '')}[/yellow]")
+        return
+    table = Table("Paire", "Régime", "Configuration", "Entrée", "Stop", "TP1", "TP2", "R latent", "Score")
+    for c in data.get("active_calls") or []:
+        table.add_row(c["symbol"], c["regime"], c["setup"], f"{c['entry']:.8g}", f"{c['stop']:.8g}", f"{c['tp1']:.8g}",
+                      f"{c['tp2']:.8g}", "—" if c.get("latent_r") is None else f"{c['latent_r']:+.2f}", f"{c['score']:.0f}")
+    console.print(table)
+    for r in (data.get("last_refusals") or [])[-10:]:
+        console.print(f"- {r.get('at', '')[:16]} {r['symbol']} ({r['regime']}) : {r['reason']} — {r.get('detail', '')[:100]}")
+    console.print(f"Boîte Telegram : {outbox.counts(settings)}")
+    console.print(f"[dim]{data.get('note', '')}[/dim]")

@@ -73,6 +73,14 @@ klines 1 min à chaque signal Telegram et toutes les 15 min sur les paires suivi
 influence sur les tests, les avis ou BSM. **En service depuis le 2026-10-08** (commit 5b074b1). Protocole de mesure à
 pré-inscrire quand il y aura quelques semaines et quelques centaines de signaux relevés.
 
+**Assistant de marché** (demande du propriétaire du 2026-10-09, `ASSISTANT.md`) : à chaque clôture 4 h UTC, lecture du
+marché (feu, BTC), du régime journalier de chaque paire halal suivie par F15, d'une configuration (repli puis reprise
+en hausse, rejet du support en range) et de filtres (carnet, volatilité, gain/risque, macro, news, discipline) ; appels
+en SHADOW avec niveaux, score et explication, boîte Telegram pour le relais, carte « Assistant » et `GET /assistant`.
+Mesuré par le test en direct **F18_ASSISTANT** (pré-inscrit dans `FORWARD_TESTS.md`, 20 placebos à ±84 h) ; **aucun
+gain démontré**, verdict attendu `NON_DEMONTRE` ou `INSUFFISANT`. Branche `feat/assistant`, à relire puis à démarrer
+par `csi forward start F18_ASSISTANT` dans le conteneur de surveillance **[propriétaire]**.
+
 **Feu de protection du marché** (demande du propriétaire du 2026-10-08, `METEO_PROTECTION.md`) : VERT / ORANGE /
 ROUGE / INCONNU d'après la volatilité prévue de BTC (rang sur 365 jours), BTC contre son EMA50 et la largeur ;
 `GET /meteo`, carte de l'onglet Marché, journal quotidien. Outil de gestion du risque, pas une stratégie, **aucun gain

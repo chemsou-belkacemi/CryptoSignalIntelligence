@@ -93,6 +93,21 @@ def markdown(report: dict) -> str:
         if "stop" in item:
             lines.append(f"ARRÊTÉ : {item['stop']['reason']}.")
         stats = item["stats"]
+        if stats.get("assistant"):                            # F18 : assistant de marché contre placebos
+            lines += [f"Évaluations 4 h : {stats['evaluations']} (silence : {stats['silent']}) ; candidats : {stats['candidates']} ; "
+                      f"appels : {stats['calls']} ({stats['calls_per_week']} par semaine ; résolus {stats['resolved']}, trous "
+                      f"{stats['gaps']}, en cours {stats['pending']}) ; refus par raison : {stats['refusals_by_reason'] or 'aucun'}.", "",
+                      "| Coûts | Appels résolus | Jours | R moyen | IC95 du R | Gagnants | TP1 | TP2 | Pire série | Excès placebos | IC de l'excès |",
+                      "|---|---|---|---|---|---|---|---|---|---|---|"]
+            for scenario, s in stats["scenarios"].items():
+                lines.append(f"| {scenario} | {s.get('n', 0)} | {s.get('days', 0)} | {_fmt(s.get('r_mean'))} | {s.get('r_ci95') or '—'} | "
+                             f"{_fmt(s.get('win_share'), True)} | {_fmt(s.get('tp1_rate'), True)} | {_fmt(s.get('tp2_rate'), True)} | "
+                             f"{s.get('worst_streak', '—')} | {_fmt(s.get('placebo_excess'))} | {s.get('placebo_excess_ci') or '—'} |")
+            for regime, g in stats["by_regime"].items():
+                lines.append(f"- {regime} : {g['calls']} appel(s), {g['resolved']} résolu(s), R moyen central "
+                             f"{_fmt(g['central'].get('r_mean'))} (descriptif).")
+            lines += ["", "Shadow : aucun ordre ; aucun gain démontré.", f"Verdict : **{stats['verdict']}**.", ""]
+            continue
         if "groups" in stats and "overall" in stats:          # F15 : détecteur de figures contre placebos
             whole = stats["overall"]["scenarios"].get("central", {})
             lines += [f"Figures : {stats['figures']} (haussières {stats['bull']}, baissières {stats['bear']}, géométrie invalide "

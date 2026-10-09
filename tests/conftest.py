@@ -40,6 +40,20 @@ def canonical(n: int, timeframe: str = "15m", symbol: str = "ETHUSDT", **kwargs)
                      now=datetime(2030, 1, 1, tzinfo=UTC), latency_seconds=2)
 
 
+def pytest_addoption(parser):
+    parser.addoption("--lents", action="store_true", default=False,
+                     help="lance aussi les tests marqués « slow » (contrôles longs, par exemple sous l'hypothèse nulle)")
+
+
+def pytest_collection_modifyitems(config, items):
+    if config.getoption("--lents"):
+        return
+    skip = pytest.mark.skip(reason="test lent : lancer avec --lents")
+    for item in items:
+        if "slow" in item.keywords:
+            item.add_marker(skip)
+
+
 @pytest.fixture(autouse=True)
 def fixed_halal_screening(monkeypatch):
     """Le mécanisme d'admission est testé sur un fichier d'avis FIGÉ (tests/data), pas sur le relevé courant."""
