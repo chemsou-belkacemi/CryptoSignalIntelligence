@@ -16,12 +16,19 @@ modules sont **gelés** par F18 à son démarrage : changer une constante ou un 
 
 ## 1. Quand et sur quoi
 
-- **Quand** : à chaque clôture 4 h UTC (00/04/08/12/16/20), au passage horaire de la surveillance qui suit, dès que la
-  bougie 1 h qui clôture le bloc est en magasin (latence comprise dans `available_at`). Une clôture n'est évaluée
-  qu'une fois ; une clôture manquée (machine éteinte, magasin en retard) n'est jamais rejouée après coup.
-- **Univers** : les paires de la liste halal figée au démarrage de F15 (166 paires), lues dans le magasin de F15
-  (`forward_figures/data`, bougies 1 h tenues à jour chaque heure par F15), **en lecture seule**. L'assistant ne
-  télécharge rien. 4 h et 1 jour sont agrégés depuis 00:00 UTC, blocs complets seulement.
+- **Quand** : à chaque clôture 4 h UTC (00/04/08/12/16/20), au passage de la surveillance qui part dès le changement
+  d'heure (`forward/runner.py`), dès que la bougie 1 h qui clôture le bloc est en magasin (latence comprise dans
+  `available_at`). L'appel arrive donc quelques minutes après la clôture, **au plus 30** : au-delà (machine lente,
+  magasin en retard), l'évaluation est inscrite `late: true` avec son retard (`delay_min`) et **aucun appel n'est
+  émis** (le carnet serait trop postérieur à la clôture ; refus `EVALUATION_TARDIVE`). `decided_at`, `book_read_at`
+  et `delay_min` sont inscrits dans chaque EVALUATION et chaque APPEL. Une clôture n'est évaluée qu'une fois ; une
+  clôture manquée n'est jamais rejouée après coup. Arrêt brutal entre l'EVALUATION et l'APPEL : au passage suivant,
+  l'appel listé dans l'EVALUATION est ré-émis depuis ses données (marqué `repaired`).
+- **Univers** : les paires de la liste halal **figée au DEMARRAGE de F15** (166 paires ; lue dans son journal, nombre
+  de paires et empreinte de la liste inscrits dans chaque EVALUATION, `universe.source = F15_FIGURES`), lues dans le
+  magasin de F15 (`forward_figures/data`, bougies 1 h tenues à jour chaque heure par F15), **en lecture seule**.
+  Sans journal F15 (racine de test), repli sur la liste figée au démarrage de F18 (`universe.source = F18_ASSISTANT`).
+  L'assistant ne télécharge rien. 4 h et 1 jour sont agrégés depuis 00:00 UTC, blocs complets seulement.
 - **Causalité** : seules les bougies clôturées à la clôture évaluée `t` et connues à l'instant du passage entrent ;
   la journée de référence est la dernière journée UTC complète (la veille). Falsifier les bougies postérieures à `t`
   ne change ni l'évaluation ni les niveaux (test `test_causality_future_candles_change_nothing`).
@@ -74,8 +81,9 @@ et 4 ATR, 0 lecture RANGE sur 5 760).
 - entrée = clôture ; stop = plus bas de la mèche − 0,1 ATR(4 h) ; TP1 = entrée + 1 R ; TP2 = résistance du couloir.
 
 **Refus communs** : résistance à moins de 1 R au-dessus de l'entrée (`RESISTANCE_PROCHE`) ; stop collé au prix.
-Niveaux arrondis au pas de cotation quand il est connu (stop vers le bas, objectifs vers le haut ; sinon 8 chiffres
-significatifs).
+Niveaux arrondis au pas de cotation quand il est connu : **entrée (un achat) et objectifs vers le haut, stop vers le
+bas** ; sinon 8 chiffres significatifs. La sortie au stop de clôture se fait au prix de clôture 4 h, non arrondi
+(déclaré : identique pour les placebos, écart négligeable).
 
 ### 3. Filtres (tous vrais, sinon refus avec la raison)
 
@@ -120,7 +128,13 @@ bougies ≤ t pour savoir s'il est encore ouvert ou depuis quand il est sorti.
 20 placebos par appel : entrées au marché sur la même paire à des clôtures 1 h tirées sans remise dans [t − 84 h ;
 t + 84 h] hors [t − 4 h ; t + 4 h], graine `sha256("F18_ASSISTANT:" + call_id)`, même géométrie en %, même gestion,
 mêmes frais. Métrique principale : R net moyen (IC95 par blocs de 7 jours) ; secondaire : excès sur les placebos
-(niveau 1 − 0,05/2). Verdict `forward/f4.verdict` : `INSUFFISANT` sous 30 appels résolus ou 10 jours ;
+(niveau 1 − 0,05/2). En **descriptif**, l'excès est aussi donné séparément sur les placebos **arrière** (t − 84 → t − 5 h)
+et **avant** (t + 5 → t + 84 h). Biais déclarés : les placebos arrière partagent le chemin de prix qui a formé la
+configuration (repli ou touche du support : ils entrent plus bas ou plus haut que l'appel sur un chemin déjà connu,
+`FIGURES_HISTORIQUE.md`) ; les placebos avant partagent le contexte des jours qui suivent. L'excès **ne se lit jamais
+seul** : le verdict exige aussi un IC95 du R moyen entièrement > 0, dans les deux scénarios. Les blocs de 7 jours
+laissent une corrélation résiduelle (appels de paires différentes les mêmes jours, positions tenues jusqu'à 10 jours
+à cheval sur deux blocs) : l'intervalle peut être trop étroit, déclaré. Verdict `forward/f4.verdict` : `INSUFFISANT` sous 30 appels résolus ou 10 jours ;
 `SUPERIEUR_AU_HASARD` si les deux intervalles sont > 0 dans les deux scénarios ; `INFERIEUR_AU_HASARD` si l'IC du R
 est < 0 dans les deux ; sinon `NON_DEMONTRE`. Revue intermédiaire à 42 jours, évaluation à 84 jours. Journal :
 EVALUATION (par passage : feu, BTC, régimes, candidats, refus par raison, discipline), APPEL (décision complète,
@@ -141,11 +155,13 @@ explication, placebos), RESOLUTION, VERDICT, CLOTURE.
 | News | 24 h | Discipline | 1 actif par paire, 48 h, 3 par jour UTC |
 | Stop de secours | 1,5 R | TP1 | moitié à +1 R |
 | Durée | 10 jours | Placebos | 20, ±5…84 h |
+| Retard maximal de l'évaluation | 30 min (au-delà : `late`, aucun appel) | Calendrier macro | copie de `forward/light.MACRO_CALENDAR` dans les paramètres gelés |
 | Verdict | 30 résolus, 10 jours, IC95 blocs de 7 jours, 10 000 tirages, graine 20261009 | Trou | 2 jours après la fenêtre |
 
 Aucun de ces nombres n'a été réglé sur un résultat : ils viennent de la demande du propriétaire ou de conventions déjà
-en service (ATR14, ZigZag 2,5 ATR, EMA50, blocs de 7 jours). Trois valeurs (couloir 45 jours / 3 ATR, stop ≥ 0,75 ×
-H24, TP2 ≥ 1,5 R net) ont été ajustés le 2026-10-09 sur les comptages à blanc du 2026-08-01 → 2026-09-30 (60 jours de clôtures 4 h), 16 paires, avant tout résultat de transaction : seuls des comptes de candidats et de refus
+en service (ATR14, ZigZag 2,5 ATR, EMA50, blocs de 7 jours). **Deux jeux de règles ont été comparés avant le gel sur
+de seuls comptages** (régimes, configurations, refus, candidats au carnet ; § 7) : une variante, pas un essai sur
+résultat. Trois valeurs (couloir 45 jours / 3 ATR, stop ≥ 0,75 × H24, TP2 ≥ 1,5 R net) ont été ajustés le 2026-10-09 sur les comptages à blanc du 2026-08-01 → 2026-09-30 (60 jours de clôtures 4 h), 16 paires, avant tout résultat de transaction : seuls des comptes de candidats et de refus
 ont été regardés, jamais un R. Rien ne sera réglé après le démarrage de F18.
 
 ## 4. Choix faits là où la demande était impossible ou ambiguë (option la plus prudente)
@@ -163,8 +179,29 @@ ont été regardés, jamais un R. Rien ne sera réglé après le démarrage de F
   la carte « Météo » calculée à l'instant.
 - **Pas de cotation** : les 16 paires de la configuration l'ont ; les autres sont arrondies à 8 chiffres
   significatifs. `data.tick_size` n'est pas gelé par F18.
-- **Prix d'entrée** : la clôture 4 h, alors que l'appel n'est connu que quelques minutes plus tard ; le glissement
-  taker est compté, mais aucun prix réel d'exécution n'existe (limite déclarée dans la pré-inscription).
+- **Prix d'entrée** : la clôture 4 h, alors que l'appel n'est connu que quelques minutes plus tard (30 au plus, sinon
+  aucun appel) ; le glissement taker est compté, mais aucun prix réel d'exécution n'existe (limite déclarée).
+- **Calendrier macro** : `forward/light.MACRO_CALENDAR` est copié dans les paramètres de F18 ; en changer une date
+  après le démarrage arrête le test (c'est voulu : le filtre de timing fait partie des règles).
+
+## 4 bis. Ce qui arrête F18 si on y touche
+
+Au démarrage, F18 fige l'empreinte du code de ces modules et fonctions ; toute modification, même d'un texte ou d'une
+constante, ARRÊTE le test pour de bon (le refaire = nouveau test, nouvel essai) :
+
+- `assistant/rules.py`, `assistant/evaluate.py`, `assistant/state.py`, `assistant/outbox.py` (modules entiers) ;
+- `forward/f18.py`, `forward/costs.py`, `forward/registry.py`, `forward/journal.py` (modules entiers) ;
+- `risk/market_light.py` : `current`, `decide`, `ema`, `daily_closes` ;
+- `forward/liquidity_log.py` : `book_metrics` et ses aides (`market_buy`, `market_sell`, `_levels`, `band_key`) ;
+- `news/risk.py` : `risk_items` ; `risk/advice.py` : `advice` ; `forward/light.py` : `macro_events` ;
+- `data/store.py` : `CandleStore` ; `forward/f15.py` : `figure_store` ;
+- `patterns/indicators.py` : `ema` ; `patterns/primitives.py` : `atr`, `zigzag` ; `patterns/volume.py` : `volume_profile` ;
+  `technical/analysis.py` : `cluster_levels`, `round_tick` ;
+- le calendrier macro (`MACRO_CALENDAR`, copié dans les paramètres) ; la configuration `data.rest_base_url` et
+  `data.assumed_availability_latency_seconds` ;
+- la section `## F18_ASSISTANT` et le « Cadre commun » de `docs/FORWARD_TESTS.md`.
+
+Non gelés : `forward/runner.py` (orchestration), `forward/report.py`, l'API, la carte, la CLI, `data.tick_size`.
 
 ## 5. Ce qui était déjà réfuté, ce qui est nouveau
 

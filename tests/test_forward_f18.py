@@ -86,6 +86,7 @@ def test_start_on_a_temporary_root_with_committed_code(settings, monkeypatch):
 def test_f18_is_registered_and_freezes_every_assistant_module(settings):
     assert BY_ID["F18_ASSISTANT"][1] is f18 and "F17" not in " ".join(BY_ID)
     names = {getattr(o, "__name__", "") for o in registry.frozen_objects(f18.TEST)}
+    assert f18.TEST.params["macro_calendar"] == [list(x) for x in __import__("crypto_signal_intelligence.forward.light", fromlist=["x"]).MACRO_CALENDAR]
     for name in ("crypto_signal_intelligence.forward.f18", "crypto_signal_intelligence.assistant.rules",
                  "crypto_signal_intelligence.assistant.evaluate", "crypto_signal_intelligence.assistant.state",
                  "crypto_signal_intelligence.assistant.outbox", "crypto_signal_intelligence.forward.costs",
@@ -113,16 +114,19 @@ def test_record_decisions_evaluates_each_close_once_journals_the_call_and_update
     early = f18.record_decisions(settings, journal, start, now=T + pd.Timedelta(seconds=1), store=store, book=book)
     assert early["evaluations"] == 0 and "waiting" in early and journal.first(f18.EVALUATION) is None
     out = f18.record_decisions(settings, journal, start, now=NOW, store=store, book=book)
-    assert out == {"evaluations": 1, "calls": 1}
+    assert out == {"evaluations": 1, "calls": 1, "repaired": 0}
     evaluation = journal.first(f18.EVALUATION)["data"]
     assert evaluation["at"] == T.isoformat() and evaluation["regimes"] == {"HAUSSE": 1, "RANGE": 1, "BAISSE": 0, "INDECIS": 0, "NON_EVALUABLE": 0}
     assert len(evaluation["call_ids"]) == 1 and evaluation["silence"] is None
-    assert evaluation["discipline"] == {"active": {}, "rest_until": {}, "calls_today": 0} and "calls" not in evaluation
+    assert evaluation["discipline"] == {"active": {}, "rest_until": {}, "calls_today": 0} and len(evaluation["calls"]) == 1
+    assert evaluation["universe"] == {"source": "F18_ASSISTANT", "pairs": 2, "sha256": "a" * 64}     # F15 non démarré ici
+    assert evaluation["late"] is False and evaluation["delay_min"] == 5 and evaluation["decided_at"] == pd.Timestamp(NOW).isoformat()
     call = journal.first(f18.CALL)["data"]
     assert call["symbol"] == "RNGUSDT" and call["regime"] == "RANGE" and len(call["placebo_offsets_h"]) == 20
     assert call["placebo_offsets_h"] == R.placebo_offsets(call["call_id"])
     # Même clôture au passage suivant : rien de nouveau ; la boîte et l'état ont été écrits.
-    assert f18.record_decisions(settings, journal, start, now=NOW + timedelta(hours=1), store=store, book=book) == {"evaluations": 0, "calls": 0}
+    assert f18.record_decisions(settings, journal, start, now=NOW + timedelta(hours=1), store=store, book=book) == {"evaluations": 0, "calls": 0, "repaired": 0}
+    assert call["delay_min"] == 5 and call["book_read_at"] == pd.Timestamp(NOW).isoformat()
     waiting = outbox.pending(settings, now=NOW)
     assert [m["id"] for m in waiting] == [f"APPEL:{call['call_id']}"] and "Shadow : aucun ordre" in waiting[0]["text"]
     current = state.read(settings)
@@ -144,9 +148,72 @@ def test_nothing_is_evaluated_before_the_start_nor_after_the_end(settings, monke
     start = started(settings, monkeypatch, now=datetime(2026, 10, 9, 9, tzinfo=UTC))        # démarré après la clôture de 08:00
     journal = registry.journal_for(settings, f18.TEST_ID)
     store = write_store(settings, {"RNGUSDT": range_rejection(), "BTCUSDT": btc()})
-    assert f18.record_decisions(settings, journal, start, now=datetime(2026, 10, 9, 9, 5, tzinfo=UTC), store=store, book=lambda s: GOOD_BOOK) == {"evaluations": 0, "calls": 0}
-    assert f18.record_decisions(settings, journal, start, now=datetime(2027, 1, 2, tzinfo=UTC), store=store, book=lambda s: GOOD_BOOK) == {"evaluations": 0, "calls": 0}
+    none = {"evaluations": 0, "calls": 0, "repaired": 0}
+    assert f18.record_decisions(settings, journal, start, now=datetime(2026, 10, 9, 9, 5, tzinfo=UTC), store=store, book=lambda s: GOOD_BOOK) == none
+    assert f18.record_decisions(settings, journal, start, now=datetime(2027, 1, 2, tzinfo=UTC), store=store, book=lambda s: GOOD_BOOK) == none
     assert journal.first(f18.EVALUATION) is None
+
+
+def test_late_evaluation_is_recorded_without_any_call(settings, monkeypatch, quiet):
+    start = started(settings, monkeypatch)
+    journal = registry.journal_for(settings, f18.TEST_ID)
+    store = write_store(settings, {"RNGUSDT": range_rejection(), "BTCUSDT": btc()})
+    out = f18.record_decisions(settings, journal, start, now=T + timedelta(minutes=50), store=store, book=lambda s: GOOD_BOOK)
+    assert out == {"evaluations": 1, "calls": 0, "repaired": 0}
+    evaluation = journal.first(f18.EVALUATION)["data"]
+    assert evaluation["late"] is True and evaluation["delay_min"] == 50 and evaluation["calls"] == []
+    assert evaluation["refusals_by_reason"] == {R.LATE: 1} and journal.first(f18.CALL) is None
+    assert outbox.pending(settings, now=T + timedelta(minutes=50)) == []
+    # À 3 minutes : normal.
+    store = write_store(settings, {"RNGUSDT": after_t(range_rejection(), hours=4, path=lambda k: 101.6), "BTCUSDT": after_t(btc(), hours=4, path=lambda k: 161.0)})
+    out = f18.record_decisions(settings, journal, start, now=T + timedelta(hours=4, minutes=3), store=store, book=lambda s: GOOD_BOOK)
+    second = list(journal.entries({f18.EVALUATION}))[1]["data"]
+    assert second["late"] is False and second["delay_min"] == 3 and out["evaluations"] == 1
+
+
+def test_universe_is_the_halal_list_frozen_at_f15_start(settings, monkeypatch, quiet):
+    from crypto_signal_intelligence.forward import f15
+    registry.start(settings, f15.TEST, now=START_AT, allow_dirty=True,
+                   halal=HalalList(("BTCUSDT", "RNGUSDT", "ZZZUSDT"), {}, "f" * 64, "b" * 64))
+    start = started(settings, monkeypatch)                                   # F18 figé sur HALAL (2 paires)
+    journal = registry.journal_for(settings, f18.TEST_ID)
+    store = write_store(settings, {"RNGUSDT": range_rejection(), "BTCUSDT": btc()})
+    f18.record_decisions(settings, journal, start, now=NOW, store=store, book=lambda s: GOOD_BOOK)
+    evaluation = journal.first(f18.EVALUATION)["data"]
+    assert evaluation["universe"] == {"source": "F15_FIGURES", "pairs": 3, "sha256": "f" * 64}
+    assert evaluation["regimes"]["NON_EVALUABLE"] == 1 and set(evaluation["pairs"]) == {"BTCUSDT", "RNGUSDT", "ZZZUSDT"}
+
+
+def test_a_call_lost_between_evaluation_and_appel_is_repaired(settings, monkeypatch, quiet):
+    start = started(settings, monkeypatch)
+    journal = registry.journal_for(settings, f18.TEST_ID)
+    store = write_store(settings, {"RNGUSDT": range_rejection(), "BTCUSDT": btc()})
+    real_append = journal.append
+
+    def crash_after_evaluation(kind, data, *, now):
+        if kind == f18.CALL:
+            raise RuntimeError("arrêt brutal entre EVALUATION et APPEL")
+        return real_append(kind, data, now=now)
+    monkeypatch.setattr(journal, "append", crash_after_evaluation)
+    with pytest.raises(RuntimeError):
+        f18.record_decisions(settings, journal, start, now=NOW, store=store, book=lambda s: GOOD_BOOK)
+    monkeypatch.setattr(journal, "append", real_append)
+    assert journal.first(f18.EVALUATION) is not None and journal.first(f18.CALL) is None
+    out = f18.record_decisions(settings, journal, start, now=NOW + timedelta(minutes=30), store=store, book=lambda s: GOOD_BOOK)
+    assert out == {"evaluations": 0, "calls": 0, "repaired": 1}
+    call = journal.first(f18.CALL)["data"]
+    assert call["repaired"] is True and call["call_id"] == journal.first(f18.EVALUATION)["data"]["call_ids"][0]
+    assert [m["id"] for m in outbox.pending(settings, now=NOW + timedelta(hours=1))] == [f"APPEL:{call['call_id']}"]
+    assert f18.record_decisions(settings, journal, start, now=NOW + timedelta(minutes=40), store=store, book=lambda s: GOOD_BOOK)["repaired"] == 0
+
+
+def test_runner_passes_at_the_hour_change_not_sixty_minutes_later(monkeypatch):
+    from crypto_signal_intelligence.forward import runner
+    monkeypatch.setattr(runner, "_LAST", {"run": pd.Timestamp("2026-10-09 12:50", tz="UTC")})
+    assert runner._hour_due(pd.Timestamp("2026-10-09 12:59", tz="UTC")) is False
+    assert runner._hour_due(pd.Timestamp("2026-10-09 13:00:30", tz="UTC")) is True       # dès le changement d'heure
+    monkeypatch.setattr(runner, "_LAST", {})
+    assert runner._hour_due(pd.Timestamp("2026-10-09 13:00:30", tz="UTC")) is True
 
 
 def test_discipline_is_read_from_the_journal(settings, monkeypatch):
@@ -190,6 +257,11 @@ def test_resolve_call_and_placebos_then_verdict_and_closure(settings, monkeypatc
     central = res["results"]["central"]
     assert res["status"] == f18.RESOLVED and central["outcome"] == R.TP2 and central["hits"] == 1 and central["r"] > 0
     assert len(central["placebos"]) == 20 and central["placebos_resolved"] == 20 and central["excess"] == pytest.approx(central["r"] - central["placebo_mean"], abs=1e-6)
+    offsets = call["placebo_offsets_h"]
+    back = [p for p, o in zip(central["placebos"], offsets, strict=True) if o < 0]
+    forward = [p for p, o in zip(central["placebos"], offsets, strict=True) if o > 0]
+    assert central["placebo_mean_back"] == pytest.approx(sum(back) / len(back), abs=1e-6)
+    assert central["excess_forward"] == pytest.approx(central["r"] - sum(forward) / len(forward), abs=1e-6)
     assert res["results"]["defavorable"]["r"] < central["r"]
     assert [m["id"] for m in outbox.pending(settings, now=T + timedelta(days=16))] == [f"RESOLUTION:{call['call_id']}"]
     assert state.read(settings)["active_calls"] == []
@@ -197,6 +269,7 @@ def test_resolve_call_and_placebos_then_verdict_and_closure(settings, monkeypatc
     running = f18.stats(journal, start, now=T + timedelta(days=16))
     assert running["resolved"] == 1 and running["verdict"] == "EN_COURS" and running["by_regime"]["RANGE"]["resolved"] == 1
     assert running["scenarios"]["central"]["tp1_rate"] == 1.0 and running["scenarios"]["central"]["worst_streak"] == 0
+    assert running["scenarios"]["central"]["placebo_excess_back"]["n"] == 1 and running["scenarios"]["central"]["placebo_excess_forward"]["excess"] == pytest.approx(central["excess_forward"], abs=1e-3)
     assert running["refusals_by_reason"] == {} and running["calls_per_week"] > 0
     end = pd.Timestamp(start["final_at"]) + timedelta(days=1)
     assert f18.stats(journal, start, now=end)["verdict"] == "INSUFFISANT"

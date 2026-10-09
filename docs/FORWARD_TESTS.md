@@ -1240,11 +1240,16 @@ moitié à +1 R puis l'autre moitié à TP2, 10 jours au plus), rapporte en moye
 placebo de même géométrie sur la même paire à des clôtures 1 h tirées au hasard dans les 84 heures qui précèdent et
 qui suivent l'appel.
 
-**Univers et données.** Paires de la liste halal figée au démarrage de F15 ; bougies 1 h du magasin de F15
-(`forward_figures/data`, tenu à jour chaque heure par F15, lu sans écriture par F18) ; 4 h et 1 jour agrégés depuis
-00:00 UTC, blocs complets seulement. Évaluation à **chaque clôture 4 h UTC** (00/04/08/12/16/20), au passage horaire
-qui suit, dès que la bougie 1 h de clôture est en magasin ; une clôture n'est évaluée qu'une fois, jamais après coup
-(machine éteinte : trou). Rien n'est écrit dans `SignalRegistry` ni `signals/` (F2 n'est pas touché) : l'assistant a
+**Univers et données.** Paires de la liste halal **figée au DEMARRAGE de F15** (lue dans son journal ; nombre de
+paires et empreinte de la liste inscrits dans chaque EVALUATION ; sans journal F15, repli sur la liste figée de F18,
+source inscrite) ; bougies 1 h du magasin de F15 (`forward_figures/data`, tenu à jour chaque heure par F15, lu sans
+écriture par F18) ; 4 h et 1 jour agrégés depuis 00:00 UTC, blocs complets seulement. Évaluation à **chaque clôture
+4 h UTC** (00/04/08/12/16/20), au passage de la surveillance qui part dès le changement d'heure, dès que la bougie 1 h
+de clôture est en magasin ; l'appel arrive quelques minutes après la clôture, **au plus 30** : au-delà, l'évaluation
+est inscrite `late` avec son retard et **aucun appel n'est émis** (`decided_at`, `book_read_at`, `delay_min` inscrits
+dans chaque EVALUATION et chaque APPEL) ; une clôture n'est évaluée qu'une fois, jamais après coup (machine éteinte :
+trou) ; un appel listé dans une EVALUATION sans entrée APPEL (arrêt brutal) est ré-émis au passage suivant depuis
+les données de l'EVALUATION, marqué `repaired`. Rien n'est écrit dans `SignalRegistry` ni `signals/` (F2 n'est pas touché) : l'assistant a
 son propre journal, son état (`state/assistant.json`) et sa boîte Telegram (`state/assistant_outbox.json`).
 
 **Règles** (`docs/ASSISTANT.md`, résumé) :
@@ -1262,7 +1267,8 @@ son propre journal, son état (`state/assistant.json`) et sa boîte Telegram (`s
   dernières bougies 4 h avec plus bas ≤ support + 0,25 ATR(4 h), clôture au-dessus du support, même volume ; stop =
   plus bas de la mèche − 0,1 ATR(4 h) ; TP2 = résistance du couloir). Entrée = clôture 4 h ; TP1 = entrée + 1 R ;
   jamais de cassure ; résistance à moins de 1 R au-dessus de l'entrée → refus. Niveaux arrondis au pas de cotation
-  quand il est connu (stop vers le bas, objectifs vers le haut).
+  quand il est connu (entrée et objectifs vers le haut, stop vers le bas) ; la sortie au stop de clôture se fait au
+  prix de clôture non arrondi (identique pour les placebos, écart négligeable).
 - **Filtres**, tous vrais sinon refus avec la raison : carnet `/api/v3/depth` (1 000 niveaux, lu seulement pour les
   candidats qui ont passé tout le reste) avec écart < 0,3 %, glissement d'un achat de 500 USDT < 0,2 %, achats ≥
   ventes à ±1 % ; carnet injoignable → `CARNET_INJOIGNABLE` ; distance au stop entre 0,75 et 3 × le mouvement attendu sur
@@ -1287,9 +1293,14 @@ son propre journal, son état (`state/assistant.json`) et sa boîte Telegram (`s
 **Placebos.** Pour chaque appel : 20 entrées au marché sur la même paire à des clôtures 1 h tirées sans remise dans
 [t − 84 h ; t + 84 h] hors [t − 4 h ; t + 4 h] (décalages en heures de ±5 à ±84), graine
 `sha256("F18_ASSISTANT:" + call_id)`, inscrits à l'appel ; même géométrie en pourcentage du prix d'entrée, même
-gestion, mêmes frais. Excès = R de l'appel − moyenne des R des placebos. Résolution sur les bougies 1 h du magasin
-de F15 ; un placebo dont la bougie d'entrée manque est écarté ; appel non résoluble 2 jours après la fin de la fenêtre
-(t + 84 h + 10 jours) : `TROU`, hors mesure.
+gestion, mêmes frais. Excès = R de l'appel − moyenne des R des placebos ; en descriptif, excès séparés sur les placebos
+**arrière** (t − 84 → t − 5 h) et **avant** (t + 5 → t + 84 h). Biais déclarés : les placebos arrière partagent le
+chemin de prix qui a formé la configuration (`FIGURES_HISTORIQUE.md`), les placebos avant le contexte des jours qui
+suivent ; l'excès ne se lit jamais seul (le verdict exige aussi un IC95 du R moyen > 0) ; les blocs de 7 jours
+laissent une corrélation résiduelle (appels simultanés sur plusieurs paires, positions de 10 jours à cheval sur deux
+blocs) : intervalle possiblement trop étroit. Résolution sur les bougies 1 h du magasin de F15 ; un placebo dont la
+bougie d'entrée manque est écarté ; appel non résoluble 2 jours après la fin de la fenêtre (t + 84 h + 10 jours) :
+`TROU`, hors mesure.
 
 **Paramètres** (figés dans le code, `assistant/rules.py`, et énumérés dans `forward/f18.py`) : 200 jours de bougies 1 h
 lus, 60 journées complètes au moins ; EMA 20 et 50, pente sur 3 jours ; couloir et niveaux 4 h sur 45 jours, pivots
@@ -1305,8 +1316,11 @@ Gel : modules `forward/f18`, `assistant/rules`, `assistant/evaluate`, `assistant
 `light.macro_events`, `liquidity_log.book_metrics` (et ses aides), `market_light.decide/ema/daily_closes/current`,
 `advice.advice`, `news.risk.risk_items`, `indicators.ema`, `primitives.atr/zigzag`, `volume.volume_profile`,
 `analysis.cluster_levels/round_tick`, `CandleStore` ; configuration `data.rest_base_url`,
-`data.assumed_availability_latency_seconds`. Le pas de cotation (`data.tick_size`) n'est pas gelé : il ne sert qu'à
-arrondir les niveaux.
+`data.assumed_availability_latency_seconds` ; le calendrier macro `forward/light.MACRO_CALENDAR` est copié dans les
+paramètres (gelé par l'empreinte « params ») ; retard maximal de l'évaluation 30 min. Le pas de cotation
+(`data.tick_size`) n'est pas gelé : il ne sert qu'à arrondir les niveaux. Avant le gel, **deux jeux de règles ont été
+comparés sur de seuls comptages** (régimes, configurations, refus, candidats au carnet ; une variante, pas un essai sur
+résultat) : voir « Nombre d'appels attendu ».
 
 **Métrique.** Principale : **R net moyen** des appels résolus (central et défavorable), IC95 par blocs de 7 jours.
 Secondaire : excès sur les placebos et son intervalle. Descriptif : évaluations, passages silencieux, candidats,

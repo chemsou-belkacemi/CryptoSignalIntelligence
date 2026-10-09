@@ -167,8 +167,9 @@ def test_rejection_setup_positive_and_negative_cases():
 
 def test_targets_round_to_the_tick_and_refuse_a_near_resistance():
     out = R.targets(100.123, 95.321, 120.0, Decimal("0.01"))
-    assert (out["entry"], out["stop"], out["tp1"], out["tp2"]) == (100.12, 95.32, 104.92, 120.0)
-    assert out["hard_stop"] == pytest.approx(100.12 - 1.5 * (100.12 - 95.32), abs=0.011) and out["r_tp2"] == pytest.approx((120 - 100.12) / 4.8, abs=0.01)
+    # Achat : entrée et objectifs arrondis vers le haut, stop vers le bas.
+    assert (out["entry"], out["stop"], out["tp1"], out["tp2"]) == (100.13, 95.32, 104.94, 120.0)
+    assert out["hard_stop"] == 92.91 and out["r_tp2"] == pytest.approx((120 - 100.13) / 4.81, abs=1e-6)
     assert R.targets(100.0, 95.0, None, None)["tp2"] == 110.0 and R.targets(100.0, 95.0, None, None)["tp2_source"] == "entrée + 2 R"
     near = R.targets(100.0, 95.0, 104.9, None)
     assert not near["ok"] and near["reason"] == R.RESISTANCE_NEAR
@@ -293,6 +294,17 @@ def test_score_formula_by_hand():
 
 # --- 5. Causalité ------------------------------------------------------------------------------------------------------------
 
+def _store(frame: pd.DataFrame):
+    import tempfile
+
+    from crypto_signal_intelligence.data.store import CandleStore
+    store = CandleStore(tempfile.mkdtemp())
+    path = store.path("RNGUSDT", "1h")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    frame.to_parquet(path, index=False)
+    return store
+
+
 def test_causality_future_candles_change_nothing():
     base = range_rejection()
     future = base.copy()
@@ -300,11 +312,25 @@ def test_causality_future_candles_change_nothing():
                           "low": [40.0, 45.0, 150.0], "close": [50.0, 55.0, 220.0], "quote_volume": [99.0, 99.0, 99.0]})
     extra["available_at"] = extra["open_time"] + R.HOUR + pd.Timedelta(seconds=2)
     future = pd.concat([future, extra], ignore_index=True)
-    before = run({"RNGUSDT": base})
-    after = run({"RNGUSDT": future}, now=T + pd.Timedelta(hours=5))
     keep = ("entry", "stop", "hard_stop", "tp1", "tp2", "risk", "score", "regime", "setup", "placebo_offsets_h")
-    assert {k: before["calls"][0][k] for k in keep} == {k: after["calls"][0][k] for k in keep}
-    assert before["regimes"] == after["regimes"] and before["refusals"] == after["refusals"]
+    for forecast in ({"available": False}, None):                 # chemin « volatilité réalisée » et chemin « prévision »
+        kw = {} if forecast is None else {"forecast": forecast}
+        before = run({"RNGUSDT": base}, **kw)
+        after = run({"RNGUSDT": future}, now=T + pd.Timedelta(minutes=20), **kw)
+        # Sans prévision, la volatilité réalisée peut refuser le stop : refus (et leur détail chiffré) identiques aussi.
+        assert [{k: c[k] for k in keep} for c in before["calls"]] == [{k: c[k] for k in keep} for c in after["calls"]]
+        assert before["regimes"] == after["regimes"] and before["refusals"] == after["refusals"]
+        assert [c["volatility"] for c in before["calls"]] == [c["volatility"] for c in after["calls"]]
+        assert before["calls"] or (forecast is not None and before["refusals"][0]["reason"] in (R.STOP_TIGHT, R.STOP_WIDE))
+    assert run({"RNGUSDT": base})["calls"]
+    # Même mutation à travers un magasin parquet et `load_h1` (bougies futures présentes sur disque, `available_at`
+    # postérieur à `now` : exclues).
+    assert pd.testing.assert_frame_equal(ev.load_h1(_store(future), "RNGUSDT", at=T, now=NOW).reset_index(drop=True),
+                                         ev.load_h1(_store(base), "RNGUSDT", at=T, now=NOW).reset_index(drop=True)) is None
+    # Évaluation plus de 30 min après la clôture : inscrite « late », aucun appel (le carnet serait trop postérieur).
+    late = run({"RNGUSDT": base}, now=T + pd.Timedelta(minutes=50))
+    assert late["late"] is True and late["delay_min"] == 50 and late["calls"] == [] and late["refusals"][0]["reason"] == R.LATE
+    assert run({"RNGUSDT": base}, now=T + pd.Timedelta(minutes=30))["late"] is False
     # Une bougie 1 h dont `available_at` est après `now` n'entre pas (latence) : lecture par le magasin.
     late = base.copy()
     late.loc[late.index[-1], "available_at"] = T + pd.Timedelta(hours=1)

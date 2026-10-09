@@ -21,7 +21,7 @@ from ..assistant import rules as R
 from ..backtest.metrics import day_block_ci, day_block_ci95
 from ..config import Settings
 from ..data.store import CandleStore
-from . import f4
+from . import f4, light
 from .costs import ADVERSE, CENTRAL, SCENARIOS
 from .journal import Journal, utc_iso
 from .registry import ForwardTest
@@ -143,19 +143,21 @@ def record_decisions(settings: Settings, journal: Journal, start: dict, *, now: 
     started, final = pd.Timestamp(start["started_at"]), pd.Timestamp(start["final_at"])
     store = store or ev.store_for(settings)
     at = ev.closing_time(moment)
-    counts = {"evaluations": 0, "calls": 0}
+    counts = {"evaluations": 0, "calls": 0, "repaired": repair_calls(settings, journal, now=moment)}
     if at <= started or moment >= final:
         return counts
     if any(e["data"]["at"] == utc_iso(at) for e in journal.entries({EVALUATION})):
         return counts
-    symbols = list(start["halal"]["symbols"])
+    universe = ev.frozen_universe(settings) or {"symbols": list(start["halal"]["symbols"]), "sha256": start["halal"].get("sha256"),
+                                                "source": TEST_ID}
+    symbols = universe["symbols"]
     probe = ev.MARKET if ev.MARKET in symbols else (symbols[0] if symbols else ev.MARKET)
     if not ev.available(store, probe, at=at, now=moment):
         return counts | {"waiting": f"bougie 1 h de {probe} clôturée à {utc_iso(at)} pas encore en magasin"}
     discipline = discipline_at(journal, store, at=at, now=moment)
     result = ev.run(settings, at=at, now=moment, discipline=discipline, store=store, symbols=symbols, client=client, book=book)
-    record = {k: v for k, v in result.items() if k != "calls"} | {"call_ids": [c["call_id"] for c in result["calls"]],
-                                                                  "discipline": discipline}
+    record = result | {"call_ids": [c["call_id"] for c in result["calls"]], "discipline": discipline,
+                       "universe": {"source": universe["source"], "pairs": len(symbols), "sha256": universe["sha256"]}}
     journal.append(EVALUATION, record, now=moment)
     counts["evaluations"] = 1
     for decision in result["calls"]:
@@ -164,6 +166,22 @@ def record_decisions(settings: Settings, journal: Journal, start: dict, *, now: 
         counts["calls"] += 1
     write_state(settings, journal, store, now=moment)
     return counts
+
+
+def repair_calls(settings: Settings, journal: Journal, *, now: pd.Timestamp) -> int:
+    """Arrêt brutal entre EVALUATION et APPEL : un appel listé dans une EVALUATION sans entrée APPEL est ré-émis depuis
+    les données de l'EVALUATION (marqué `repaired`), avec son message ; compte les réparations."""
+    known = set(calls(journal))
+    repaired = 0
+    for entry in list(journal.entries({EVALUATION})):
+        for decision in entry["data"].get("calls") or []:
+            if decision["call_id"] in known:
+                continue
+            journal.append(CALL, decision | {"repaired": True, "repaired_at": utc_iso(now)}, now=now)
+            outbox.queue(settings, message_id=f"APPEL:{decision['call_id']}", text=outbox.call_message(decision), now=now)
+            known.add(decision["call_id"])
+            repaired += 1
+    return repaired
 
 
 # --- Résolution ----------------------------------------------------------------------------------------------------------------
@@ -181,7 +199,8 @@ def resolve_one(call: dict, bars: pd.DataFrame, *, late: bool) -> dict | None:
             results[scenario] = None
             continue
         placebos: list[float | None] = []
-        for offset in call["placebo_offsets_h"]:
+        offsets = [int(o) for o in call["placebo_offsets_h"]]
+        for offset in offsets:
             p = R.placebo(bars, at=at, offset_h=int(offset), entry=call["entry"], stop=call["stop"], tp1=call["tp1"],
                           tp2=call["tp2"], symbol=call["symbol"], scenario=scenario)
             if p["status"] == R.RUNNING:
@@ -189,9 +208,16 @@ def resolve_one(call: dict, bars: pd.DataFrame, *, late: bool) -> dict | None:
             placebos.append(p.get("r") if p["status"] == RESOLVED else None)
         usable = [x for x in placebos if x is not None]
         mean = round(float(np.mean(usable)), 6) if usable else None
+        back = [x for x, o in zip(placebos, offsets, strict=True) if x is not None and o < 0]
+        forward = [x for x, o in zip(placebos, offsets, strict=True) if x is not None and o > 0]
+        mean_back = round(float(np.mean(back)), 6) if back else None
+        mean_forward = round(float(np.mean(forward)), 6) if forward else None
         results[scenario] = {"outcome": trade["outcome"], "hits": trade["hits"], "r": trade["r"], "exit_at": utc_iso(trade["exit_at"]),
                              "placebos": placebos, "placebos_resolved": len(usable), "placebo_mean": mean,
-                             "excess": round(trade["r"] - mean, 6) if mean is not None else None}
+                             "excess": round(trade["r"] - mean, 6) if mean is not None else None,
+                             "placebo_mean_back": mean_back, "placebo_mean_forward": mean_forward,
+                             "excess_back": round(trade["r"] - mean_back, 6) if mean_back is not None else None,
+                             "excess_forward": round(trade["r"] - mean_forward, 6) if mean_forward is not None else None}
     if pending and not late:
         return None
     base = {"call_id": call["call_id"], "symbol": call["symbol"], "at": call["at"], "regime": call["regime"], "setup": call["setup"]}
@@ -242,6 +268,14 @@ def _measure(rows: list[dict], scenario: str, level: float, *, samples: int = SA
                if ok.any() else (None, 0))
     hits = np.array([x["results"][scenario]["hits"] for x in rows])
     tp2 = np.array([x["results"][scenario]["outcome"] == R.TP2 for x in rows])
+    sides = {}
+    for side in ("back", "forward"):                       # descriptif : placebos arrière (t − 84…5 h) et avant (t + 5…84 h)
+        values = np.array([x["results"][scenario].get(f"excess_{side}") if x["results"][scenario].get(f"excess_{side}") is not None
+                           else np.nan for x in rows], float)
+        fine = np.isfinite(values)
+        ci_side, _ = (day_block_ci(values[fine], times[fine], block_days=BLOCK_DAYS, samples=samples, seed=seed, level=level,
+                                   min_blocks=8) if fine.any() else (None, 0))
+        sides[side] = {"excess": round(float(values[fine].mean()), 4) if fine.any() else None, "ci": ci_side, "n": int(fine.sum())}
     streak = worst = 0
     for value in r:
         streak = streak + 1 if value < 0 else 0
@@ -249,7 +283,8 @@ def _measure(rows: list[dict], scenario: str, level: float, *, samples: int = SA
     return {"n": int(len(r)), "days": int(pd.DatetimeIndex(times).floor("D").nunique()), "r_mean": round(float(r.mean()), 4),
             "r_ci95": ci_r, "win_share": round(float((r > 0).mean()), 4), "tp1_rate": round(float((hits >= 1).mean()), 4),
             "tp2_rate": round(float(tp2.mean()), 4), "worst_streak": int(worst),
-            "placebo_excess": round(float(excess[ok].mean()), 4) if ok.any() else None, "placebo_excess_ci": ci_x}
+            "placebo_excess": round(float(excess[ok].mean()), 4) if ok.any() else None, "placebo_excess_ci": ci_x,
+            "placebo_excess_back": sides["back"], "placebo_excess_forward": sides["forward"]}
 
 
 def stats(journal: Journal, start: dict, *, now: datetime) -> dict:
@@ -315,6 +350,7 @@ TEST = ForwardTest(
             "placebos": R.PLACEBOS, "placebo_hours": [R.PLACEBO_MIN_H, R.PLACEBO_MAX_H], "min_resolved": MIN_RESOLVED,
             "min_days_resolved": MIN_DAYS, "alpha": ALPHA, "samples": SAMPLES, "seed": SEED, "block_days": BLOCK_DAYS,
             "gap_after_days": GAP_AFTER.days, "exits": "taker partout ; bougie 1 h touchant objectif et stop de secours : stop",
+            "max_delay_minutes": 30, "macro_calendar": [list(x) for x in light.MACRO_CALENDAR],
             "universe": "liste halal figée de F15, magasin forward_figures/data en lecture seule"},
     rule_objects=(), config_keys=("data.rest_base_url", "data.assumed_availability_latency_seconds"),
     frozen_modules=("crypto_signal_intelligence.forward.f18", "crypto_signal_intelligence.assistant.rules",

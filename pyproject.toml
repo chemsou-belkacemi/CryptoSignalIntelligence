@@ -56,7 +56,8 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-p no:cacheprovider"
-markers = ["network: nécessite un accès Internet (exclus par défaut : -m 'not network')"]
+markers = ["network: nécessite un accès Internet (exclus par défaut : -m 'not network')",
+           "slow: test lent, lancé seulement avec --lents (contrôles longs)"]
 
 [tool.ruff]
 line-length = 110

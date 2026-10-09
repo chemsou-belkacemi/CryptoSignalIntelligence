@@ -43,14 +43,23 @@ def store_for(settings: Settings) -> CandleStore:
     return figure_store(settings)
 
 
+def frozen_universe(settings: Settings) -> dict | None:
+    """Liste halal figée au DEMARRAGE de F15 : {symbols, sha256, source} ; None si F15 n'a pas démarré sur cette racine."""
+    from ..forward.registry import START, journal_for
+    start = journal_for(settings, F15_ID).first(START)
+    if start is None:
+        return None
+    halal = start["data"]["halal"]
+    return {"symbols": list(halal["symbols"]), "sha256": halal.get("sha256"), "source": F15_ID}
+
+
 def universe(settings: Settings) -> list[str]:
     """Paires de la liste halal figée au démarrage de F15 ; sans journal F15 (vérification à la main hors
     conteneur), la liste halal admise du jour ; sinon aucune."""
     from ..forward.halal import HalalNotValidated, admitted
-    from ..forward.registry import START, journal_for
-    start = journal_for(settings, F15_ID).first(START)
-    if start is not None:
-        return list(start["data"]["halal"]["symbols"])
+    frozen = frozen_universe(settings)
+    if frozen is not None:
+        return frozen["symbols"]
     try:
         return list(admitted(settings).symbols)
     except HalalNotValidated:
@@ -156,7 +165,7 @@ def read_pair(h1: pd.DataFrame, at: pd.Timestamp) -> dict:
     else:
         corridor = R.corridor(levels, regime["atr_d"])
         if corridor is None:
-            out["reason"] = "ni hausse ni baisse, pas de couloir clair sur 30 jours"
+            out["reason"] = "ni hausse ni baisse, pas de couloir clair sur 45 jours"
             return out
         out["regime"], out["reason"] = R.RANGE, (f"couloir {corridor['support']['price']:.8g} – "
                                                    f"{corridor['resistance']['price']:.8g} ({corridor['height_atr_d']:.1f} ATR journaliers)")
@@ -187,10 +196,13 @@ def evaluate(*, at: pd.Timestamp, now: pd.Timestamp, frames: dict[str, pd.DataFr
     from ..risk.market_light import ORANGE, RED, UNKNOWN
     at, now = pd.Timestamp(at), pd.Timestamp(now)
     events = macro_events or default_macro
+    delay_min = round((now - at) / pd.Timedelta(minutes=1), 2)
+    late = now - at > R.MAX_DELAY
     btc = btc_state(btc_frame if btc_frame is not None else frames.get(MARKET, pd.DataFrame()), at)
     out: dict = {"at": utc_iso(at), "evaluated_at": utc_iso(now), "light": light, "btc": btc,
                  "regimes": dict.fromkeys(R.REGIMES, 0), "pairs": {}, "candidates": 0, "refusals": [],
-                 "refusals_by_reason": {}, "calls": [], "note": NOTE}
+                 "refusals_by_reason": {}, "calls": [], "note": NOTE, "decided_at": utc_iso(now), "delay_min": delay_min,
+                 "late": late}
     size = SIZE_REDUCED if light["color"] == ORANGE else SIZE_NORMAL
     silence = None
     if light["color"] == RED:
@@ -207,6 +219,8 @@ def evaluate(*, at: pd.Timestamp, now: pd.Timestamp, frames: dict[str, pd.DataFr
     day_calls = int(discipline.get("calls_today", 0))
     candidates = []
     for symbol, h1 in frames.items():
+        if not h1.empty:                                        # causalité : rien de clôturé après `at`, quoi qu'on reçoive
+            h1 = h1[pd.to_datetime(h1["open_time"], utc=True) + R.HOUR <= at]
         read = read_pair(h1, at)
         out["regimes"][read["regime"]] += 1
         summary = {"regime": read["regime"], "reason": read["reason"]}
@@ -241,6 +255,9 @@ def evaluate(*, at: pd.Timestamp, now: pd.Timestamp, frames: dict[str, pd.DataFr
         net = R.tp2_net_r(levels["entry"], levels["stop"], levels["tp2"], symbol)
         if net < R.MIN_TP2_R_NET:
             _refuse(out, refusal, R.GAIN_RISK, f"TP2 net {net:.2f} R (< {R.MIN_TP2_R_NET} R ; TP2 brut à {levels['r_tp2']:.2f} R)")
+            continue
+        if late:                                            # carnet trop postérieur à la clôture : aucun appel
+            _refuse(out, refusal, R.LATE, f"évaluation {delay_min:.0f} min après la clôture (> 30) : aucun appel")
             continue
         if symbol in discipline.get("active", {}):
             _refuse(out, refusal, R.ACTIVE, f"appel {discipline['active'][symbol]} encore en cours")
@@ -299,7 +316,7 @@ def _decision(cand: dict, *, at: pd.Timestamp, now: pd.Timestamp, size: str, lig
                  f"avec un volume de {setup['volume_multiple']:.1f} × la moyenne."]
     else:
         lines = [f"Range journalier : {read['reason']}. Support touché par une mèche à {setup['wick_low']:.8g} "
-                 f"({setup['support_touches']} touches sur 30 jours), clôture 4 h au-dessus avec un volume de "
+                 f"({setup['support_touches']} touches sur 45 jours), clôture 4 h au-dessus avec un volume de "
                  f"{setup['volume_multiple']:.1f} × la moyenne."]
     lines.append(f"Stop à {cand['vol']['stop_pct']:.2f} % de l'entrée, soit {cand['vol']['ratio']:.1f} × le mouvement attendu "
                  f"sur 24 h ({cand['move']:.2f} %, {cand['move_source']}) ; TP2 = {lv['tp2_source']} à {lv['r_tp2']:.2f} R ; "
@@ -307,7 +324,8 @@ def _decision(cand: dict, *, at: pd.Timestamp, now: pd.Timestamp, size: str, lig
                  f"{cand['book']['slippage_pct']:.3f} %, déséquilibre à ±1 % {cand['book']['imbalance']:+.2f}.")
     lines.append(f"Feu {light['color']}" + (", taille réduite" if size == SIZE_REDUCED else "")
                  + f" ; BTC {'au-dessus' if btc.get('above_ema20') else 'sous'} son EMA20 journalière.")
-    return {"call_id": ident, "symbol": symbol, "at": utc_iso(at), "decided_at": utc_iso(now), "regime": regime,
+    return {"call_id": ident, "symbol": symbol, "at": utc_iso(at), "decided_at": utc_iso(now), "book_read_at": utc_iso(now),
+            "delay_min": round((now - at) / pd.Timedelta(minutes=1), 2), "regime": regime,
             "setup": setup["setup"], "entry": lv["entry"], "stop": lv["stop"], "hard_stop": lv["hard_stop"],
             "tp1": lv["tp1"], "tp2": lv["tp2"], "risk": lv["risk"], "r_tp2": round(lv["r_tp2"], 4),
             "tp2_net_r": round(cand["net"], 4), "size": size, "light": light["color"], "score": cand["score"]["total"],

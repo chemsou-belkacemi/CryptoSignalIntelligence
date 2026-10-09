@@ -63,6 +63,7 @@ REST_HOURS = 48
 HARD_STOP_FACTOR = 1.5             # stop de secours dur = entrée − 1,5 × (entrée − stop)
 TP1_SHARE = 0.5
 MAX_HOLD = pd.Timedelta(days=10)
+MAX_DELAY = pd.Timedelta(minutes=30)   # évaluation plus de 30 min après la clôture : inscrite « late », aucun appel
 PLACEBOS = 20
 PLACEBO_MIN_H, PLACEBO_MAX_H = 5, 84    # clôtures 1 h dans [t − 84 h ; t + 84 h] hors [t − 4 h ; t + 4 h]
 
@@ -78,6 +79,7 @@ NEWS_UNREACHABLE = "NEWS_INJOIGNABLES"
 STOP_TIGHT, STOP_WIDE, VOL_UNKNOWN = "STOP_TROP_SERRE", "STOP_TROP_LARGE", "VOLATILITE_INCONNUE"
 GAIN_RISK = "GAIN_RISQUE"
 ACTIVE, REST, QUOTA = "APPEL_ACTIF", "REPOS_48H", "QUOTA_JOUR"
+LATE = "EVALUATION_TARDIVE"
 BOOK_UNREACHABLE, BOOK_SPREAD, BOOK_SLIPPAGE, BOOK_IMBALANCE = ("CARNET_INJOIGNABLE", "CARNET_ECART",
                                                                  "CARNET_GLISSEMENT", "CARNET_DESEQUILIBRE")
 # Issues de la gestion
@@ -240,9 +242,9 @@ def _clean(value: float) -> float:
 
 
 def targets(entry: float, stop: float, resistance: float | None, tick: Decimal | None) -> dict:
-    """Niveaux arrondis au pas de cotation : stop vers le bas, objectifs vers le haut ; TP1 = +1 R ; TP2 =
-    résistance, ou +2 R sans résistance. Refus si une résistance est à moins de 1 R au-dessus de l'entrée."""
-    entry = round_tick(entry, tick, ROUND_FLOOR)
+    """Niveaux arrondis au pas de cotation : entrée (achat) et objectifs vers le haut, stop vers le bas ; TP1 = +1 R ;
+    TP2 = résistance, ou +2 R sans résistance. Refus si une résistance est à moins de 1 R au-dessus de l'entrée."""
+    entry = round_tick(_clean(entry), tick, ROUND_CEILING)
     stop = round_tick(stop, tick, ROUND_FLOOR)
     if not stop < entry:
         return {"ok": False, "reason": NO_SETUP, "detail": "stop collé au prix"}
