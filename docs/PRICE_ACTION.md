@@ -1,0 +1,382 @@
+# Étude « price action » : cinq configurations, mesurées sur l'historique et en direct (F19)
+
+Demande du propriétaire du 2026-10-10. Protocole **déclaré le 2026-10-10, avant tout calcul sur des données réelles** :
+aucun R, aucun excès sur des données de marché n'a été regardé pour écrire ce texte. Seuls ont été regardés des
+**comptes de candidats** (synthétiques au § 5.4, sur le magasin local au § 9), jamais un résultat de transaction.
+
+> **Shadow : aucun ordre.** CSI ne passe, ne modifie ni n'annule aucun ordre. L'étude n'écrit ni dans
+> `SignalRegistry` ni dans `signals/`. **Aucun gain n'est annoncé ni démontré** : au vu de tout le programme (plus de 840
+> essais sur DEVELOPMENT sans avantage directionnel démontré, cassures de pivots K2 qui ne tiennent pas hors biais de
+> survivance, figures et méthodes d'analystes rejouées sans avantage), le résultat attendu est `RIEN`, `PERTE` ou
+> `INSUFFISANT` pour chaque configuration. Rien ici n'est une probabilité ni une promesse.
+
+Code : `price_action/detect.py` (détecteur pur, partagé), `price_action/manage.py` (gestion et placebos, partagés),
+`research/price_action_study.py` (étude historique, exécution unique gardée), `research/price_action_h0.py` (contrôle
+sous H0), `research/price_action_review.py` (inscriptions), `price_action/evaluate.py`, `state.py`, `outbox.py` et
+`forward/f19.py` (test en direct). Tests : `tests/test_price_action.py`, `tests/test_price_action_h0.py` (lent),
+`tests/test_forward_f19.py`.
+
+## 0. En bref
+
+- **Cinq configurations long seulement** : base puis cassure puis retest (4 h), sortie de compression (4 h), force
+  relative après une chute de BTC (4 h), cassure d'une journée intérieure (1 jour), sortie d'une base longue (1 jour).
+- **Un seul code de détection** pour l'historique et le direct : des fonctions pures sur des bougies closes.
+- **Deux mesures** : l'historique (DEVELOPMENT 2019-01 → 2025-06-30, top 40 à date, paires retirées comprises,
+  exécution unique après relecture) et le direct (F19_PRICE_ACTION, 84 jours).
+- **Même gestion et mêmes placebos** dans les deux : stop à la clôture de l'unité, stop de secours à −1,5 R, moitié à
+  +1 R, reste à l'objectif ; 20 placebos de même géométrie à des moments voisins (±84 h ou ±15 jours).
+- **Avant toute donnée réelle** : un contrôle sous l'hypothèse nulle (marché synthétique sans information) ; une
+  configuration qui y échoue est retirée de l'étude, avec 0 essai.
+
+## 1. Hypothèses
+
+Pour chaque configuration k (cinq tests, corrigés ensemble) : un signal de k, géré avec les règles communes (§ 3),
+rapporte en moyenne un **R net > 0** après frais, et **plus** que 20 entrées placebo de même géométrie sur la même paire
+à des moments voisins (§ 4.3). L'hypothèse nulle de chaque test : le signal ne vaut pas mieux qu'une entrée de même
+géométrie prise au hasard autour de lui.
+
+Ce qui est déjà réfuté et n'est pas repris tel quel : les cassures de pivots seules (K2 : `UNIVERSE_PIT.md`), les
+niveaux seuls, les figures classiques (`FIGURES_HISTORIQUE.md`). Ce qui est nouveau : la base serrée confirmée par le
+volume puis un retest tenu (`BASE_RETEST`), la compression de volatilité (`SQUEEZE`), la force relative pendant une
+chute du marché (`FORCE_RELATIVE`), la journée intérieure en tendance (`INSIDE_DAY`), la base longue (`SORTIE_BASE_LONGUE`).
+`BASE_RETEST` et `SORTIE_BASE_LONGUE` restent des **cassures** : la réfutation de K2 à date rend un résultat positif peu
+probable.
+
+## 2. Les cinq configurations (règles exactes, long seulement)
+
+Bougies 1 h closes ; 4 h et 1 jour agrégés depuis 00:00 UTC, **blocs complets seulement** (une heure manquante retire le
+bloc). ATR = ATR14 de Wilder (`patterns/primitives.atr`) ; EMA partant de la moyenne simple (`patterns/indicators.ema`).
+« Volume » = volume quote ; « moyenne des 20 précédentes » exclut la bougie courante. **Tendance haussière
+journalière** : sur la dernière journée complète, clôture > EMA50 et EMA20 > EMA50, avec au moins 60 journées
+complètes. La décision est prise à une **clôture** ; l'entrée se fait à ce prix de clôture (frais et glissement taker).
+Les fenêtres « N bougies » comptent les bougies présentes (pas le calendrier).
+
+### 2.1 `BASE_RETEST` (unité 4 h)
+
+1. **Base** : à la bougie 4 h `i`, les 10 bougies précédentes tiennent dans une hauteur (plus haut − plus bas) ≤ 1,5 ×
+   l'ATR14 journalier de la dernière journée complète à la clôture de `i` ; la base est ensuite **étendue en arrière**
+   bougie par bougie tant que la hauteur y tient, jusqu'à 180 bougies (30 jours, garde technique).
+2. **Cassure** : clôture de `i` > haut de la base (étendue) **et** volume de `i` > 1,5 × la moyenne des 20 précédentes.
+3. **Retest** : dans les 10 bougies 4 h qui suivent `i`, une bougie dont le plus bas ≤ haut de base + 0,25 × ATR 4 h
+   (ATR de la bougie de cassure), **sans aucune clôture sous le haut de base** depuis la cassure (une clôture dessous
+   annule la configuration).
+4. **Entrée** : la première bougie, à partir de celle du retest et toujours dans ces 10 bougies, qui « repart » :
+   clôture > ouverture **et** clôture > clôture précédente. Entrée à sa clôture.
+5. **Stop de clôture** = haut de base − 0,25 × ATR 4 h. **Objectif** = haut de base + hauteur de la base ; **refus** si
+   l'objectif est à moins de +1,5 R de l'entrée (`OBJECTIF_INSUFFISANT`).
+
+### 2.2 `SQUEEZE` (unité 4 h)
+
+1. Tendance haussière journalière (lue à la clôture de la bougie de sortie).
+2. **Compression** : Bollinger (moyenne simple 20, ± 2 écarts-types de population des 20 clôtures) entièrement à
+   l'intérieur de Keltner (EMA20 ± 1,5 × ATR20 de Wilder) pendant au moins 6 bougies 4 h consécutives.
+3. **Sortie** : la **première** clôture 4 h au-dessus de la Bollinger haute depuis que la compression a atteint 6
+   bougies (dans la compression ou sur la bougie qui la suit immédiatement), avec un volume > 1,5 × la moyenne des 20
+   précédentes. Une première sortie sans ce volume ne donne rien pour cette compression.
+4. **Entrée** = cette clôture ; **stop de clôture** = plus bas des 6 bougies qui la précèdent ; **objectif** = +2 R.
+
+### 2.3 `FORCE_RELATIVE` (unité 4 h, marché entier)
+
+1. **Événement BTC** : première clôture 1 h `E` où BTCUSDT a perdu ≥ 5 % sur 24 h glissantes
+   (clôture(E) / clôture(E − 24 h) − 1 ≤ −5 %), la clôture 1 h précédente ne l'ayant pas fait. **Début de la chute**
+   `F = E − 24 h`. Un nouveau début pendant une chute en cours en fait partie.
+2. **Stabilisation** `S` : en suivant les bougies 4 h de BTC clôturées après `F`, on tient la bougie qui a fait le plus
+   bas de la chute ; `S` est la première clôture 4 h (au plus tôt la première ≥ `E`) au-dessus du plus haut de cette
+   bougie, sans nouveau plus bas (une bougie qui fait un nouveau plus bas devient la référence). Sans stabilisation
+   dans les 30 jours qui suivent `E`, l'événement est abandonné (garde technique).
+3. **« A tenu »** : aucune clôture 4 h de la paire, entre `F` et `S`, sous son plus bas des 10 jours précédant `F`.
+   Données exigées : la bougie 1 h qui clôture à `F`, au moins 200 bougies 1 h sur les 10 jours, et **toutes** les
+   bougies 4 h de la chute (sinon la paire n'est pas lue).
+4. **Entrée** = clôture 4 h de la paire à `S` ; **stop de clôture** = plus bas de la paire pendant la chute (bougies 1 h
+   de `F` à `S`) − 0,25 × ATR 4 h (de la bougie à `S`) ; **objectif** = +2 R.
+5. **Au plus 3 paires par événement** : parmi celles qui ont tenu (BTCUSDT exclue : c'est la référence), celles dont la
+   **baisse pendant la chute** (plus bas de la chute / clôture à `F` − 1) est la plus faible ; égalité : ordre
+   alphabétique. Une paire en position ou en repos `FORCE_RELATIVE` (§ 3) est écartée **avant** ce choix.
+
+### 2.4 `INSIDE_DAY` (unité 1 jour)
+
+1. Tendance haussière journalière lue sur la journée intérieure.
+2. **Journée intérieure** `J` : plus haut(J) ≤ plus haut(J − 1) et plus bas(J) ≥ plus bas(J − 1), deux journées UTC
+   consécutives ; `J − 1` est la **mère**.
+3. **Entrée** : la première **clôture 4 h** au-dessus du plus haut de la mère dans les 48 h qui suivent la clôture de
+   `J` (12 clôtures 4 h). Voir le § 8, choix 1 (la demande disait « clôture 1 h »).
+4. **Stop de clôture journalière** = plus bas de la mère ; **refus** si entrée − stop > 3 × ATR14 journalier (de `J`)
+   (`STOP_TROP_LARGE`) ; **objectif** = +2 R.
+
+### 2.5 `SORTIE_BASE_LONGUE` (unité 1 jour)
+
+1. **Entrée** à la clôture journalière `B` si : clôture(B) > plus haut des 90 journées précédentes **et** volume(B) >
+   1,5 × la moyenne des 20 journées précédentes.
+2. **Base** : les 30 journées qui précèdent `B` ont une hauteur (plus haut − plus bas) ≤ 25 % de la clôture de la
+   journée `B − 1` ; la base est étendue en arrière tant qu'elle y tient (180 jours au plus) ; clôture(B) > haut de la
+   base (étendue).
+3. **Stop de clôture journalière** = milieu de la base ; **objectif** = max(haut de base + hauteur, entrée + 2 R)
+   (§ 8, choix 2).
+
+### 2.6 Tableau des paramètres (figés, déclarés a priori)
+
+| Paramètre | Valeur | Paramètre | Valeur |
+|---|---|---|---|
+| ATR | 14, Wilder (4 h et journalier) | Tendance journalière | clôture > EMA50, EMA20 > EMA50, ≥ 60 journées |
+| Volume de confirmation | > 1,5 × moyenne des 20 précédentes | Bougies | closes, blocs complets, 00:00 UTC |
+| Base (BR) | ≥ 10 bougies 4 h, ≤ 1,5 ATR journalier, extension ≤ 180 | Retest (BR) | 10 bougies, ≤ haut + 0,25 ATR 4 h |
+| Stop (BR) | haut de base − 0,25 ATR 4 h | Objectif (BR) | haut + hauteur, refus < 1,5 R |
+| Bollinger (SQ) | 20, 2 écarts-types (population) | Keltner (SQ) | EMA20 ± 1,5 × ATR20 |
+| Compression (SQ) | ≥ 6 bougies 4 h | Stop / objectif (SQ) | plus bas des 6 / +2 R |
+| Chute BTC (FR) | ≤ −5 % sur 24 h (clôtures 1 h) | « A tenu » (FR) | plus bas des 10 jours d'avant ; ≥ 200 bougies 1 h |
+| Stop / objectif (FR) | plus bas de la chute − 0,25 ATR 4 h / +2 R | Paires par événement (FR) | 3 (plus faibles baisses) |
+| Garde de chute (FR) | 30 jours | Entrée (ID) | 1re clôture 4 h > mère dans les 48 h |
+| Stop (ID) | bas de la mère, refus > 3 ATR journalier | Objectif (ID) | +2 R |
+| Base longue (LB) | ≥ 30 jours, ≤ 25 % de la clôture, extension ≤ 180 | Plus haut (LB) | 90 journées, plus haut des plus hauts |
+| Stop (LB) | clôture sous le milieu de la base | Objectif (LB) | max(haut + hauteur, +2 R) |
+| Stop de secours | entrée − 1,5 R, intrabar 1 h | TP1 | moitié à +1 R, puis stop de clôture à l'entrée |
+| Durée maximale | 10 jours (4 h), 30 jours (1 jour) | Discipline | 1 position par paire et configuration, 48 h de repos |
+| Placebos (4 h) | 20, clôtures 1 h à t ± 5…84 h | Placebos (1 jour) | 20, t ± 2…15 jours (même heure) |
+| Graine des placebos | sha256("PRICE_ACTION:" + id) | Identifiant | sha256("PRICE_ACTION:config:paire:instant")[:16] |
+| IC du R | 95 %, blocs de 7 jours, 10 000 tirages, graine 20261010, ≥ 8 blocs | IC de l'excès | 1 − 0,05/5 = 99 % |
+| Signaux minimum | 100 (historique), 30 résolus (direct) | Garde-fous | sans la meilleure année ; ≥ 4 années positives |
+
+Aucun de ces nombres n'a été réglé sur un résultat. Ils viennent de la demande du propriétaire, ou de conventions déjà
+en service (ATR14, EMA20/50, blocs de 7 jours, 20 placebos), ou ce sont des gardes techniques (180, 30 jours).
+Un ajustement a priori par configuration reste permis **une seule fois**, sur les seuls comptages à blanc du § 9.
+
+## 3. Gestion commune (historique, contrôle H0 et direct, signal et placebos)
+
+- **Entrée** au prix de clôture de la décision, frais et glissement taker du modèle commun `forward/costs.py`
+  (scénarios central et défavorable).
+- **Stop à la clôture** de l'unité de la configuration : à chaque clôture 4 h UTC (configurations 4 h) ou à 00:00 UTC
+  (configurations journalières), si la clôture ≤ stop de clôture, sortie à cette clôture.
+- **Stop de secours dur** à entrée − 1,5 R, touché si un plus bas 1 h ≤ niveau : sortie au niveau (ou à l'ouverture si
+  elle est déjà dessous).
+- **TP1** : moitié à +1 R (plus haut 1 h ≥ TP1), puis le stop de clôture remonte à l'entrée (le stop de secours ne
+  bouge pas) ; **objectif** : l'autre moitié.
+- **Durée maximale** : 10 jours (4 h) ou 30 jours (1 jour) ; sortie à la clôture de la dernière bougie 1 h.
+- **Prudence** : une bougie 1 h qui touche à la fois un objectif et le stop de secours compte le stop ; dans une même
+  bougie, l'ordre est secours, TP1, objectif, stop de clôture. Toutes les sorties sont comptées au marché (taker).
+- **R** = résultat net (ventes nettes − achat net) / (entrée − stop).
+- **Discipline** : une seule position active par paire **et par configuration** ; 48 h de repos après la sortie
+  (scénario central) ; dans l'historique, un signal qui tombe pendant une position ou un repos est écarté (compté).
+- Même règle que `assistant/rules.simulate` (F18), mais écrite à part (`price_action/manage.py`) parce que celle-ci fixe
+  le stop de clôture à 4 h et la durée à 10 jours ; un test vérifie que les deux donnent le même R en 4 h.
+
+## 4. Étude historique (DEVELOPMENT seulement)
+
+### 4.1 Univers et données
+
+- **Principal : top 40 à date** (`research/pit_universe.py`, `UNIVERSE_PIT.md`) : un signal d'instant `t` ne compte que
+  si sa paire appartient au top 40 du **mois du jour `t − 1 jour`** (la veille de la décision ; le top d'un mois est
+  calculé sur les 30 journées qui finissent la veille du 1er). **Paires retirées ou renommées comprises.**
+- **Bougies 1 h du magasin long** (`long_history`), **coupées** : seules les bougies closes au plus tard le
+  2025-07-01 00:00 UTC (fin de DEVELOPMENT) sont lues. 8 paires passées par le top n'ont pas d'historique 1 h (AION,
+  ANT, GAL, JST, LEVER, SC, SKL, SUN) : absentes, déclaré.
+- BTCUSDT (même magasin) fournit les événements de `FORCE_RELATIVE`.
+- **Contrôle descriptif** : les mêmes règles sur les **40 paires de recherche** (survivantes, `RESEARCH_UNIVERSE`), sans
+  condition d'appartenance ; descriptif seulement, aucun verdict.
+
+### 4.2 Période et fenêtres
+
+- Signaux à partir du **2019-01-01** ; un signal n'entre que si **toute sa fenêtre** (placebo le plus tardif + durée
+  maximale : 84 h + 10 jours, ou 15 + 30 jours) est close au plus tard le 2025-07-01 00:00 UTC. Rien d'après le
+  2025-06-30 n'est lu. Les données d'avant 2019 servent à amorcer les indicateurs.
+- **Heures absentes** (pannes de Binance) : sautées dans l'historique (données définitives). **Paire retirée de la
+  cote** pendant une position : sortie à la dernière clôture connue (`FIN_DE_COTATION`), pour le signal comme pour un
+  placebo ; on garde ainsi la fin d'une paire morte, souvent la pire, au lieu de la perdre.
+
+### 4.3 Placebos
+
+Pour chaque signal, **20 entrées au marché** sur la même paire, tirées sans remise, graine
+`sha256("PRICE_ACTION:" + id)` :
+- configurations 4 h : clôtures 1 h à `t + k` heures, k ∈ [−84 ; −5] ∪ [5 ; 84] ;
+- configurations journalières : `t + k` jours (même heure que `t`), k ∈ [−15 ; −2] ∪ [2 ; 15].
+
+Même géométrie en pourcentage du prix d'entrée (stop, TP1, stop de secours, objectif), même gestion, mêmes frais. Un
+placebo dont la bougie d'entrée manque est écarté. Excès = R du signal − moyenne des R des placebos utilisables. En
+descriptif, l'excès est donné séparément sur les placebos **arrière** et **avant** (biais déclarés : les placebos
+arrière partagent le chemin qui a formé la configuration, `FIGURES_HISTORIQUE.md` ; les placebos avant, le contexte
+des jours suivants ; la fenêtre symétrique est faite pour équilibrer les deux, et le contrôle H0 le mesure).
+
+### 4.4 Métriques, par configuration
+
+R net moyen, central et défavorable, avec un **IC95 par blocs de 7 jours** (`backtest/metrics.day_block_ci95`, 10 000
+tirages, graine 20261010, au moins 8 blocs) ; **excès** moyen sur les placebos avec un intervalle au niveau
+**1 − 0,05/5 = 99 %** (`day_block_ci`). Descriptifs : part gagnante, taux de TP1, issues, excès arrière et avant,
+nombre et R moyen par année, signaux écartés par la discipline, refus de géométrie.
+
+### 4.5 Décision, par configuration (correction pour 5 tests)
+
+- `INSUFFISANT` : moins de **100 signaux** (central), ou un intervalle non calculable ;
+- `PISTE` : borne basse de l'IC de l'excès (99 %) **et** borne basse de l'IC95 du R moyen > 0, **en central et en
+  défavorable**, **et** les garde-fous du § 4.6 tiennent ;
+- `PERTE` : borne haute de l'IC95 du R moyen < 0 dans les deux scénarios ;
+- sinon `RIEN` (y compris une piste qui échoue aux garde-fous).
+
+### 4.6 Garde-fous d'une piste
+
+- **Sans sa meilleure année** : l'année civile dont la somme des R (central) est la plus forte est retirée ; les deux
+  conditions de `PISTE` doivent encore tenir, dans les deux scénarios.
+- **Au moins 4 années positives** parmi les années civiles 2019 à 2025 qui ont des signaux (2025 : premier semestre
+  seulement) ; une année est positive si son R moyen central > 0 **et** son excès moyen central > 0.
+
+### 4.7 Essais
+
+**5 essais** au registre (`research/experiments.py`, période DEVELOPMENT, `n_trials` = configurations retenues par le
+contrôle H0), comptés à l'exécution, une seule fois. Une configuration retirée par le contrôle H0 compte 0 essai. Le
+contrôle descriptif des survivantes est dans la même exécution, sans verdict, et n'est pas compté à part (déclaré).
+
+### 4.8 Ce que voudront dire les résultats
+
+- `PISTE` : une piste à confirmer, pas un résultat : il faudrait la période réservée (déjà consultée deux fois, donc
+  plus vierge) et le direct (F19). Aucun usage en trading sans décision du propriétaire.
+- `RIEN` : pas d'avantage visible avec cette puissance. `PERTE` : la configuration perd de façon démontrée après frais.
+- `INSUFFISANT` : trop peu de signaux pour conclure.
+
+## 5. Contrôle sous l'hypothèse nulle (avant toute donnée réelle)
+
+### 5.1 Marché synthétique
+
+`research/price_action_h0.py`, modèle de `tests/test_assistant_h0.py` :
+- **100 paires × 6 ans de signaux** (bougies 1 h du 2018-07-01 au 2024-12-31 ; les six premiers mois amorcent les
+  indicateurs ; signaux de 2019-01-01 à fin 2024, même règle de fenêtre qu'au § 4.2) et **un BTC synthétique** pour
+  `FORCE_RELATIVE` ;
+- **rendements simples martingales** : r_t = σ_t z_t, E[r_t | passé] = 0 ; volatilité variable GARCH(1,1)
+  (α = 0,05, β = 0,94 ; σ moyen horaire tiré log-uniforme entre 0,4 % et 1,2 % par paire, 0,6 % pour BTC) ; z gaussien
+  pour les paires 0 à 49 et BTC, Student à 4 degrés (variance 1) pour les paires 50 à 99 (queues épaisses, leçon de N2t
+  dans `METEO_MARCHE.md` § 7.5) ; mèches proportionnelles à σ_t ;
+- **volume** lognormal × (0,5 + |z|) × un facteur journalier lognormal (σ = 0,5) : lié à l'ampleur, jamais au sens ;
+- graine 20261010 (`SeedSequence`, une sous-graine par paire) ; tout est déterministe ;
+- **détecteur, discipline, gestion et placebos EXACTS** de l'étude (`pair_rows`, `force_items`, `force_rows`), frais
+  du scénario central, toutes les paires « membres » tout le temps.
+
+Sur ce marché, rien n'est prévisible : l'espérance du R net est celle des frais, et l'excès doit rester proche de 0.
+
+### 5.2 Critères, par configuration
+
+- au moins **100 signaux** synthétiques (sinon non jugeable : échec) ;
+- **|excès moyen| ≤ 0,05 R** ;
+- **couverture ≥ 0,90** : les 100 paires forment 20 groupes de 5 (paire i → groupe i mod 20) ; dans chaque groupe,
+  l'intervalle de l'excès au niveau de l'étude (99 %, blocs de 7 jours, 10 000 tirages) doit contenir 0 ; couverture =
+  part des groupes calculables qui le contiennent ; il faut au moins 10 groupes calculables.
+
+### 5.3 Conséquence
+
+Une configuration qui échoue à un seul critère est **retirée de l'étude**, avec **0 essai**, et écrite comme telle au
+§ 5.5. Le contrôle est lancé **une seule fois** (`csi price-action controle-h0`), ses critères sont écrits dans
+`reports/PRICE_ACTION-H0-<commit>/criteres.json`, et ce fichier est inscrit avec son empreinte
+(`price_action_review.CONTROLE_H0`) : l'exécution réelle le relit et refuse s'il a changé. Il n'y a pas de seconde
+itération pour « faire passer » une configuration. Seule exception, une fois au plus (comme `METEO_MARCHE.md` § 7.6) :
+un **écart prouvé entre le code et ce texte** relevé par la relecture, démontré par un test unitaire écrit avant la
+relance ; le contrôle est alors relancé une fois et les deux passages sont publiés.
+
+**Puissance du critère d'excès, déclarée avant le passage.** L'erreur type de l'excès moyen est d'environ
+1,3 R / √n (écart-type du R d'une transaction supposé ≈ 1,3 R, hypothèse non mesurée). D'après les seuls comptages de
+candidats synthétiques (§ 5.4), n vaudra quelques milliers pour `BASE_RETEST` et `INSIDE_DAY` (erreur type ≈ 0,02 à
+0,03 R : un biais nul passe presque toujours) mais quelques centaines pour `SQUEEZE`, `FORCE_RELATIVE` et
+`SORTIE_BASE_LONGUE` (erreur type ≈ 0,05 à 0,08 R) : pour celles-ci, **même sans aucun biais**, le critère
+|excès| ≤ 0,05 R échoue par le seul hasard une fois sur trois à une fois sur deux. Le critère est celui du propriétaire ;
+il est appliqué tel quel (option prudente : une configuration que l'instrument ne peut pas valider n'est pas testée).
+
+### 5.4 Journal du générateur synthétique (comptages seulement, aucun R ni excès regardé)
+
+| # | Date | Générateur | Ce qui a été regardé | Constat | Décision |
+|---|---|---|---|---|---|
+| 1 | 2026-10-10 | σ constant (0,8 %), volume lognormal i.i.d. | comptes de candidats sur 1 paire × 3 ans | `SQUEEZE` 0 et `SORTIE_BASE_LONGUE` 0 : une marche à σ constant ne se comprime presque jamais | volatilité GARCH (martingale conservée) |
+| 2 | 2026-10-10 | GARCH, Student sur la moitié des paires, volume × (0,5 + \|z\|) | comptes sur 10 paires × 6,5 ans | `BASE_RETEST` 323, `INSIDE_DAY` 353, `SQUEEZE` 55, `SORTIE_BASE_LONGUE` 0 ; BTC : 266 événements | facteur de volume journalier (sans lui, un volume journalier, somme de 24 heures i.i.d., ne dépasse jamais 1,5 × sa moyenne) |
+| 3 | 2026-10-10 | idem + facteur journalier lognormal σ = 0,5 (essais à 0,4 et 0,6 : 39 et 60 candidats `SORTIE_BASE_LONGUE` sur 10 paires) | comptes sur 10 paires | toutes les configurations ont des candidats | **générateur figé** (valeur ronde 0,5 entre les deux) |
+
+Aucun R, aucun excès, aucune couverture n'a été calculé avant le passage inscrit du § 5.5.
+
+### 5.5 Résultats du contrôle sous H0
+
+À remplir après le passage unique (chiffres par configuration, retraits éventuels).
+
+## 6. Ordre et garde d'exécution
+
+1. Protocole (ce texte), commité avant le code de mesure.
+2. Code et tests unitaires (sans réseau).
+3. Comptages à blanc (§ 9) ; ajustement a priori éventuel, une fois.
+4. Contrôle sous H0 lancé une fois, inscrit (§ 5).
+5. **Relecture `leak-auditor` obligatoire** (lancée par le propriétaire), puis inscription par un commit qui ne touche
+   que `research/price_action_review.py` : `CODE_REVIEW` (commit relu), `CONFIG_FINGERPRINT` (empreinte des sections
+   `data` et `protocol` de la configuration effective), `CONTROLE_H0` (chemin du fichier de critères + « # » + SHA-256).
+6. **Exécution unique** : `csi price-action executer --executer` (4 processus au plus). Refus sans `--executer`, avec un
+   code non commité, différent du commit relu sur les chemins surveillés (`REVIEWED_PATHS` : `price_action/`, l'étude,
+   le contrôle, l'univers à date, le magasin long, le protocole, le registre, les frais, les intervalles, les
+   indicateurs, la configuration, la CLI), avec une autre configuration, sans contrôle H0 inscrit, ou si l'étude a déjà
+   été exécutée (registre). Les configurations retirées par le contrôle H0 ne sont ni calculées ni comptées.
+
+## 7. Test en direct `F19_PRICE_ACTION` (résumé ; pré-inscription complète dans `FORWARD_TESTS.md`)
+
+- Le **même détecteur** est appelé à **chaque clôture 4 h UTC** (dont la clôture journalière de 00:00), sur la liste
+  halal figée au démarrage de F15, bougies 1 h du magasin de F15 en lecture seule, 300 jours d'historique ; passage
+  horaire aligné comme F18 ; au-delà de **30 min** de retard, l'évaluation est inscrite `late` et aucun appel n'est
+  émis.
+- **5 appels par jour UTC au plus**, toutes configurations, les plus récents d'abord (puis l'ordre des configurations
+  du § 2, puis la paire). Mêmes placebos, même gestion, mêmes frais ; niveaux arrondis au pas de cotation quand il est
+  connu (entrée, TP1 et objectif vers le haut ; stop et secours vers le bas).
+- Verdict **par configuration** avec `forward/f4.verdict` (lecture) ; `INSUFFISANT` sous 30 résolus. Revue à 42 jours,
+  évaluation à 84 jours, 1 essai FORWARD.
+- Messages Telegram dans une boîte séparée `state/price_action_outbox.json` (identifiants `pa:`), servis par
+  `GET /assistant/outbox` (fusion chronologique avec ceux de l'assistant, 20 au plus) et marqués par
+  `POST /assistant/sent`. État `state/price_action.json`, route `GET /price-action`, carte « Price action » dans
+  l'onglet Marché.
+
+## 8. Choix faits là où la demande était ambiguë (option la plus prudente)
+
+1. **`INSIDE_DAY` entre à une clôture 4 h, pas 1 h.** Le direct n'évalue qu'aux clôtures 4 h ; pour que l'historique et
+   le direct appliquent exactement la même règle, l'entrée est la première **clôture 4 h** au-dessus de la mère dans
+   les 48 h. Placebos à `t ± k` jours, à la même heure que l'entrée.
+2. **`SORTIE_BASE_LONGUE`, « objectif = hauteur reportée, au moins 2 R »** : objectif = max(haut + hauteur, entrée + 2 R).
+   Le lire comme un refus sous 2 R rendrait la configuration impossible : avec le stop au milieu de la base, R ≥ la
+   moitié de la hauteur, donc la hauteur reportée vaut au plus 2 R.
+3. **« 25 % du prix »** = 25 % de la clôture de la dernière journée de la base ; **« nouveau plus haut de 90 jours »** =
+   clôture au-dessus du plus **haut** des 90 journées précédentes (lecture la plus stricte).
+4. **Bases étendues au maximum** en arrière tant qu'elles tiennent (lecture du trader : le haut de la base est le haut
+   de toute la consolidation), avec une garde de 180 bougies ou 180 jours.
+5. **`BASE_RETEST`** : ATR 4 h de la bougie de cassure ; la bougie du retest peut être celle de l'entrée si elle
+   repart ; retest **et** entrée dans les 10 bougies qui suivent la cassure ; une clôture sous le haut de base annule.
+6. **Keltner** = EMA20 ± 1,5 × ATR20 de Wilder ; **Bollinger** avec l'écart-type de population.
+7. **`FORCE_RELATIVE`** : la chute commence 24 h avant le déclenchement ; les 10 jours de référence précèdent ce
+   début ; « baisse sur la chute » = plus bas de la chute rapporté à la clôture au début ; BTC exclue des candidates ;
+   données complètes exigées ; discipline appliquée **avant** le choix des 3 (dans l'historique comme en direct) ; garde
+   de 30 jours sans stabilisation.
+8. **Appartenance** au top 40 du mois de la veille de la décision (`t − 1 jour`).
+9. **Paires retirées** : sortie à la dernière clôture connue plutôt qu'un signal perdu (la fin d'une paire morte est
+   gardée).
+10. **Trous** : sautés dans l'historique (données définitives) ; en direct, `EN_COURS` puis `TROU` 2 jours après la
+    fenêtre (comme F18).
+11. **Garde-fous** : « meilleure année » = plus forte somme des R centraux ; « année positive » = R moyen ET excès moyen
+    centraux > 0 ; 4 années positives au moins parmi celles qui ont des signaux.
+12. **Contrôle H0** : volatilité GARCH et queues de Student (toujours des martingales) pour que les compressions et les
+    bases existent ; au moins 100 signaux exigés pour juger ; couverture sur 20 groupes de 5 paires.
+13. **Pas d'arrondi au pas de cotation dans l'historique** (pas inconnus à l'époque) ; arrondi en direct.
+14. **Amorçage des moyennes** : le direct lit 300 jours, l'historique toute la série ; l'EMA50 et l'ATR de Wilder
+    oublient leur départ (poids < 0,3 % après 200 jours) : écart négligeable, déclaré.
+15. **Intervalle de l'excès en direct** au niveau 1 − 0,05/5 (cinq configurations), comme l'historique (F18 : 1 − 0,05/2).
+16. **Contrôle H0 lancé avant la relecture** (ordre demandé par le propriétaire) ; s'il faut corriger le code relu, voir
+    l'exception du § 5.3.
+17. **Comptages à blanc du § 9** : ils lisent les 60 derniers jours du magasin local (2026), donc la période réservée,
+    **pour des comptes de candidats seulement** (aucun prix de sortie, aucun R), comme F18 ; c'est hors de l'étude
+    historique, qui ne lit rien après le 2025-06-30.
+
+## 9. Comptages à blanc (aucun résultat de transaction)
+
+À remplir : 16 paires du magasin local, 60 jours, nombre de candidats par configuration, par le chemin du direct
+(`csi price-action comptages`). Si une configuration a 0 candidat ou plus de 20 par jour, un seul ajustement a priori
+est permis, déclaré « ajusté sur comptages, avant tout résultat ».
+
+## 10. Limites déclarées
+
+- Bougies 1 h : l'ordre des événements dans une heure est inconnu (règle de prudence : le stop d'abord).
+- Écart et glissement sont des hypothèses du modèle commun ; aucune exécution réelle n'existe.
+- Les blocs de 7 jours laissent une corrélation résiduelle (signaux de plusieurs paires les mêmes jours, positions de
+  10 à 30 jours à cheval sur deux blocs) : intervalles possiblement trop étroits.
+- Placebos voisins : ils partagent le régime de marché du signal ; l'excès ne se lit jamais seul (la décision exige
+  aussi un R moyen > 0).
+- Top 40 à date : 8 paires sans historique 1 h ; le top est défini par le volume, pas par le cadre halal du direct.
+- Le direct (F19) porte sur la liste halal figée de F15 (choisie en 2026) : biais de sélection des survivantes.
+- 12 semaines de direct ne valident rien.
+
+## Historique
+
+- 2026-10-10 : protocole déclaré avant tout calcul sur données réelles (seuls des comptes de candidats synthétiques ont
+  été regardés, § 5.4).
