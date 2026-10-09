@@ -1,10 +1,11 @@
-# Plan de travail — état au 2026-10-06 (plan d'octobre 2026 à janvier 2027, validé)
+# Plan de travail — état au 2026-10-09 (plan d'octobre 2026 à janvier 2027, validé)
 
 Document vivant : ce qui est fait, ce qui tourne, ce qui reste. Chaque ligne « à faire » se fait comme d'habitude :
 déclarée avant, mesurée avec intervalle (et placebos en direct), comptée au programme. Les décisions du
-propriétaire sont marquées **[propriétaire]**. Programme au 2026-10-04 : **853 essais** sur DEVELOPMENT ; période
-finale réservée consultée **trois fois** (décisions du propriétaire) : le 2026-10-03 pour la volatilité, le
-2026-10-05 pour les lignes de tendance 1 h puis pour l'IA locale qui lit les graphiques.
+propriétaire sont marquées **[propriétaire]**. Programme au 2026-10-09 : **873 essais** sur DEVELOPMENT ; période
+finale réservée consultée **quatre fois** (décisions du propriétaire) : le 2026-10-03 pour la volatilité, le
+2026-10-05 pour les lignes de tendance 1 h puis pour l'IA locale qui lit les graphiques, le 2026-10-09 pour le filtre
+des signaux Telegram par combinaisons (voie A).
 
 **Plan validé par le propriétaire le 2026-10-03 (« oui pour tout à part le VPS »)** : plus de nouvelle recherche
 directionnelle sur les bougies ; rendre utile ce qui marche (volatilité, filtrage des signaux Telegram, boucle Demo).
@@ -53,6 +54,9 @@ refusé (aucune donnée payante) ; points 6 à 10 en attente (voir § 5).
 | **Cassures de ligne de tendance en 1 h, confirmation sur 214 paires jamais utilisées** (2 essais) | **PISTE_CONFIRMEE** : +0,12 R sur le hasard [+0,04 ; +0,19] ; GAIN_NON_DEMONTRE de justesse (R +0,09 [+0,02 ; +0,16] en central, [−0,01 ; +0,14] en défavorable) ; 7 années positives ; premier résultat directionnel confirmé hors échantillon | `LIGNES_DE_TENDANCE.md` |
 | Lignes de tendance 1 h sur la période réservée (2025-07 → 2026-09, lecture unique, 1 essai) | **NON_CONFIRMEE** : excès +0,04 [−0,06 ; +0,15], R −0,03 après frais ; dépend d'un seul trimestre ; aucun usage, suivi par F15 | `LIGNES_DE_TENDANCE.md` |
 | IA locale qui lit les graphiques (Qwen2.5-VL 7b, Gemma 3 12B ; 400 moments de 2025-2026 ; 2 essais) | PAS_MIEUX pour les deux : bon sens 51 % et 47 % (50,5 % de hausses), aucune information démontrée, pas même avant les plus forts mouvements ; pas de test en direct | `IA_GRAPHES.md` |
+| **Combinaisons du 2026-10-08** — profil de volume, flux, absorption et votes de 2 à 5 briques (étapes 1 et 2, 20 essais DEV) | RIEN partout ; toutes perdent de −0,06 à −0,16 R après frais | `COMBINAISONS.md` (branche `recherche/combinaisons`) |
+| Filtre des signaux Telegram de 2026 par ces briques (voie A, période réservée, lecture unique, 2 essais) | RIEN : FILTRE_3 p = 0,21 puis 0,52 ; FILTRE_4 p = 0,19 puis 0,50 ; les signaux eux-mêmes ≈ 0 R après frais (−0,06 en étude, +0,03 à l'écart) ; voie B (en direct) non lancée **[propriétaire]** | `COMBINAISONS.md` § 11-12 |
+| Étude « météo du marché » (feu à 6 dangers, jours rouges contre les autres) | **INSTRUMENT_NON_VALIDE** le 2026-10-09 : la 3e et dernière version de l'outil échoue à deux contrôles synthétiques (queues épaisses, effet de levier) ; étude historique abandonnée, 0 essai, aucune donnée réelle lue ; F17 possible (version Student valide), non démarré **[propriétaire]** | `METEO_MARCHE.md` (branche `recherche/meteo`) |
 
 ## 2. En cours
 
@@ -66,19 +70,19 @@ news de risque (étude évaluée si 30 événements), données de contexte (`CON
 
 **Relevé de liquidité en shadow** (demande du propriétaire du 2026-10-08, `LIQUIDITE.md`) : carnet Binance et flux des
 klines 1 min à chaque signal Telegram et toutes les 15 min sur les paires suivies ; information seulement, aucune
-influence sur les tests, les avis ou BSM. **Testé, non déployé** (branche `feat/releve-liquidite`). Reste
-**[propriétaire]** : fusionner, reconstruire l'image et redémarrer `monitor` et `api`. Protocole de mesure à
+influence sur les tests, les avis ou BSM. **En service depuis le 2026-10-08** (commit 5b074b1). Protocole de mesure à
 pré-inscrire quand il y aura quelques semaines et quelques centaines de signaux relevés.
 
 **Feu de protection du marché** (demande du propriétaire du 2026-10-08, `METEO_PROTECTION.md`) : VERT / ORANGE /
 ROUGE / INCONNU d'après la volatilité prévue de BTC (rang sur 365 jours), BTC contre son EMA50 et la largeur ;
-`GET /meteo`, carte de l'onglet Marché, journal quotidien ; garde-fou « Feu de protection CSI » dans BSM, **désactivé
-par défaut**. Outil de gestion du risque, pas une stratégie, **aucun gain démontré** ; ce n'est pas la règle de
-l'étude en préparation (branche `recherche/meteo`, règle voisine à 6 dangers) : il ne sera mesuré que par son propre
-journal (un essai de plus). **Testé, non déployé** (branches `feat/feu-protection` de CSI et de BSM). Reste **[propriétaire]** :
-fusionner, reconstruire l'image de CSI, redémarrer `monitor` et `api`, puis lancer UNE fois
-`docker compose run --rm tools meteo-historique` (historique du rang, ≈ 1 min, ≈ 0,9 Go) ; BSM : `git pull` et `make up` sur le VPS
-(qui ne joint pas forcément le CSI du PC).
+`GET /meteo`, carte de l'onglet Marché, journal quotidien. Outil de gestion du risque, pas une stratégie, **aucun gain
+démontré** ; l'étude d'une règle voisine a été abandonnée (instrument non validé), il ne sera mesuré que par son propre
+journal (un essai de plus). **En service dans CSI depuis le 2026-10-08** (commit 1e39f6d, historique du rang calculé).
+Dépend du journal de F12, qui s'arrête le 2026-12-25 : une autre source sera nécessaire avant.
+
+**BSM** (main 038add5) : garde-fou « Feu de protection CSI » et **tous les liens avec CSI désactivés par défaut** (avis,
+conseil de taille, volatilité haute, retour d'exécution), décision du propriétaire du 2026-10-08. Reste
+**[propriétaire]** : `git pull` et `make up` sur le VPS.
 
 Aucun calcul de recherche en cours.
 
