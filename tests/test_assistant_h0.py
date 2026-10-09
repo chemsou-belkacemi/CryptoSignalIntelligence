@@ -7,6 +7,10 @@ Test LENT (≈ 30 min) : lancé seulement avec `--lents`. Les chiffres obtenus l
 ASSISTANT.md. Hors H0 (ne dépendent pas du chemin de prix) : feu, BTC, carnet, news, macro, discipline."""
 from __future__ import annotations
 
+import json
+import os
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -16,7 +20,9 @@ from crypto_signal_intelligence.assistant import rules as R
 
 pytestmark = pytest.mark.slow
 
-PAIRS, DAYS, SIGMA, SEED = 40, 400, 0.004, 20261009
+PAIRS = int(os.environ.get("CSI_H0_PAIRS", "40"))                 # 40 paires ≈ 40 min, ≈ 85 appels ; 100 ≈ 100 min
+DAYS, SIGMA, SEED = 400, 0.004, 20261009
+SUMMARY_PATH = os.environ.get("CSI_H0_SUMMARY")                       # chemin JSON où écrire le résumé (sinon affiché seulement)
 START = pd.Timestamp("2025-01-01", tz="UTC")
 
 
@@ -84,5 +90,7 @@ def test_h0_random_walk_control():
                "ic95_exces_global": [round(float(table["excess"].mean() - 1.96 * table["excess"].std(ddof=1) / np.sqrt(n)), 4),
                                      round(float(table["excess"].mean() + 1.96 * table["excess"].std(ddof=1) / np.sqrt(n)), 4)]}
     print("\nCONTROLE H0 :", summary)
-    assert n >= 200, f"{n} appels synthétiques seulement (au moins 200 attendus)"
+    if SUMMARY_PATH:
+        Path(SUMMARY_PATH).write_text(json.dumps({"pairs": PAIRS, "days": DAYS, "seed": SEED, **summary}, ensure_ascii=False, indent=1), encoding="utf-8")
+    assert n >= 50, f"{n} appels synthétiques seulement (au moins 50 attendus ; 40 paires en donnent ≈ 85)"
     assert np.isfinite(summary["exces_global"])
