@@ -10,6 +10,11 @@ Secret : le jeton du bot est lu dans `CSI_TELEGRAM_RELAY_TOKEN` et n'existe que 
 écrit, ni journalisé (les erreurs sont masquées). Seule adresse appelée hors CSI : https://api.telegram.org, sans
 redirection. Le décalage `offset` n'avance qu'après un dépôt réussi ou une mise en attente locale : aucun message
 n'est perdu si l'API CSI est arrêtée.
+
+Sens retour (2026-10-09) : le même bot ENVOIE au propriétaire les appels de l'assistant de marché que l'API CSI met
+en attente (`GET /assistant/outbox`, puis `POST /assistant/sent` pour les marquer). Le propriétaire est la première
+conversation privée qui envoie `/start` (gardée dans `proprietaire.json`), ou `CSI_TELEGRAM_OWNER_CHAT_ID` s'il est
+défini. Rien d'autre ne part : aucun ordre, aucune clé, aucun chiffre inventé ; l'envoi ne bloque jamais le relais.
 """
 from __future__ import annotations
 
@@ -31,6 +36,13 @@ MAX_PHOTO_BYTES = 4 * 1024 * 1024     # plus grande taille de photo Telegram acc
 #: Réponses de CSI qui refusent le CONTENU (image invalide, trop lourde, mauvais format) : la photo est écartée et
 #: notée ; toute autre erreur (accès 401/403, débit 429, panne) la garde en attente.
 DEFINITIVE_REFUSALS = ("HTTP 400", "HTTP 413", "HTTP 415")
+MAX_ASSISTANT = 20                   # envois au propriétaire par passage, jamais plus (contrat de l'API CSI)
+MAX_TEXT = 4096                      # longueur maximale d'un message Telegram
+MAX_RETRY_AFTER = 60.0               # attente maximale sur un 429 Telegram (une seule fois par passage)
+OWNER_REMINDER_SECONDS = 3600.0      # « aucun propriétaire connu » : une ligne de journal par heure au plus
+COMMANDS = ("start", "etat")         # commandes privées du propriétaire : jamais déposées dans F4
+PRIVATE_BOT = "Ce bot est privé."
+WELCOME = "C'est bien toi : les appels de l'assistant de marché arriveront ici. Aucun ordre ne part d'ici."
 
 
 class RelayError(RuntimeError):
@@ -44,6 +56,7 @@ class RelayConfig:
     api_token: str = field(default="", repr=False)
     chats: frozenset[str] = frozenset()          # vide : toutes les conversations où le bot reçoit des messages
     state_dir: Path = Path("/srv/relay")
+    owner_chat_id: str = ""                      # CSI_TELEGRAM_OWNER_CHAT_ID : fixé sur le VPS, prioritaire sur /start
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> RelayConfig:
@@ -54,7 +67,8 @@ class RelayConfig:
         chats = frozenset(c.strip() for c in env.get("CSI_TELEGRAM_RELAY_CHATS", "").split(",") if c.strip())
         return cls(token=token, api_url=env.get("CSI_TELEGRAM_RELAY_API", "http://csi-api:8503").rstrip("/"),
                    api_token=env.get("CSI_API_TOKEN", ""), chats=chats,
-                   state_dir=Path(env.get("CSI_TELEGRAM_RELAY_STATE", "/srv/relay")))
+                   state_dir=Path(env.get("CSI_TELEGRAM_RELAY_STATE", "/srv/relay")),
+                   owner_chat_id=env.get("CSI_TELEGRAM_OWNER_CHAT_ID", "").strip())
 
 
 def masked(text: str, config: RelayConfig) -> str:
@@ -62,8 +76,27 @@ def masked(text: str, config: RelayConfig) -> str:
     return text.replace(config.token, "<jeton>") if config.token else text
 
 
+def masked_chat(chat_id: str | int | None) -> str:
+    """Identifiant de conversation jamais en clair dans le journal : les 4 derniers chiffres sont masqués."""
+    text = str(chat_id or "")
+    return text[:-4] + "****" if len(text) > 4 else "****"
+
+
 def _utc(seconds: int | None) -> str | None:
     return datetime.fromtimestamp(int(seconds), UTC).isoformat() if seconds else None
+
+
+def command_of(update: dict) -> tuple[str, dict] | None:
+    """(commande, message) si la mise à jour est une commande du bot (`/start`, `/start@MonBot`, `/etat`) envoyée en
+    conversation PRIVÉE, sinon None. Une commande n'est jamais un signal."""
+    message = update.get("message")
+    if not isinstance(message, dict) or (message.get("chat") or {}).get("type") != "private":
+        return None
+    text = str(message.get("text") or "").strip()
+    if not text.startswith("/"):
+        return None
+    word = text.split(maxsplit=1)[0][1:].split("@", 1)[0].lower()
+    return (word, message) if word in COMMANDS else None
 
 
 def to_row(update: dict, *, chats: frozenset[str] = frozenset()) -> dict | None:
@@ -71,7 +104,7 @@ def to_row(update: dict, *, chats: frozenset[str] = frozenset()) -> dict | None:
     (pas de texte, conversation non autorisée). L'heure est celle de l'arrivée du message chez le bot (`date`, ou
     `edit_date` pour une modification) ; un message transféré garde la conversation d'origine comme source."""
     kind = next((k for k in UPDATES if isinstance(update.get(k), dict)), None)
-    if kind is None:
+    if kind is None or command_of(update) is not None:
         return None
     message = update[kind]
     chat = str((message.get("chat") or {}).get("id", ""))
@@ -115,6 +148,24 @@ def photo_job(update: dict, *, chats: frozenset[str] = frozenset()) -> dict | No
             "caption": str(message.get("caption") or ""), "origin_chat": str(source or "")}
 
 
+def _retry_after(error: str) -> int:
+    """Délai demandé par un 429 Telegram (`"retry_after": 5` ou « retry after 5 » dans le texte), 1 s à défaut."""
+    import re
+    found = re.search(r"retry[_ ]after\"?\s*:?\s*(\d+)", error)
+    return max(1, int(found.group(1))) if found else 1
+
+
+def summarize_state(payload: dict) -> str:
+    """Cinq lignes au plus pour `/etat` : un résumé fourni par l'API (`resume` ou `summary`), sinon les premières
+    valeurs simples de la réponse. Aucun chiffre n'est inventé : ce sont les champs tels que l'API les donne."""
+    for key in ("resume", "summary"):
+        if isinstance(payload.get(key), str) and payload[key].strip():
+            return "\n".join(payload[key].strip().splitlines()[:5])
+    lines = [f"{key} : {value}" for key, value in payload.items()
+             if isinstance(value, (str, int, float, bool)) or value is None]
+    return "\n".join(lines[:5]) or "assistant : réponse vide"
+
+
 def _download(url: str, timeout: float) -> bytes:
     import httpx
     with httpx.Client(timeout=timeout, follow_redirects=False) as client:
@@ -137,9 +188,17 @@ def _http(method: str, url: str, body: dict | None, headers: dict, timeout: floa
 
 class Relay:
     def __init__(self, config: RelayConfig, *, http: Http | None = None, clock: Callable[[], float] = time.time,
-                 download: Download | None = None):
+                 download: Download | None = None, sleep: Callable[[float], None] = time.sleep):
         self.config, self.http, self.clock, self.download = config, http or _http, clock, download or _download
+        self.sleep = sleep
+        self._owner_reminded_at: float | None = None
         self.config.state_dir.mkdir(parents=True, exist_ok=True)
+
+    def _csi_headers(self) -> dict:
+        headers = {"Content-Type": "application/json"}
+        if self.config.api_token:
+            headers["Authorization"] = f"Bearer {self.config.api_token}"
+        return headers
 
     # --- état local ------------------------------------------------------------------------------------------
     @property
@@ -244,8 +303,146 @@ class Relay:
             out["sent"] += 1
         return out
 
+    # --- propriétaire (sens retour) ---------------------------------------------------------------------------
+    @property
+    def _owner_path(self) -> Path:
+        return self.config.state_dir / "proprietaire.json"
+
+    @property
+    def _refused_path(self) -> Path:
+        return self.config.state_dir / "prives_refuses.json"
+
+    @property
+    def _to_mark_path(self) -> Path:
+        return self.config.state_dir / "a_marquer.json"
+
+    def owner(self) -> str | None:
+        """Conversation privée du propriétaire : `CSI_TELEGRAM_OWNER_CHAT_ID` d'abord, sinon le `/start` enregistré."""
+        if self.config.owner_chat_id:
+            return self.config.owner_chat_id
+        try:
+            chat = str(json.loads(self._owner_path.read_text(encoding="utf-8")).get("chat_id") or "")
+        except (OSError, ValueError, AttributeError):
+            return None
+        return chat or None
+
+    def _read_json_list(self, path: Path) -> list[str]:
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return []
+        return [str(v) for v in value] if isinstance(value, list) else []
+
+    def _write_json(self, path: Path, value: object) -> None:
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(path)
+
+    def send_text(self, chat_id: str, text: str) -> float | None:
+        """Un message Telegram en texte brut (aucun `parse_mode` : les textes contiennent « < » et « > »). Renvoie None
+        si l'envoi a réussi, sinon le délai `retry_after` demandé par Telegram (0 pour une autre erreur)."""
+        body = {"chat_id": chat_id, "text": text[:MAX_TEXT], "disable_web_page_preview": True}
+        try:
+            reply = self.http("POST", f"{TELEGRAM}/bot{self.config.token}/sendMessage", body, {}, 30)
+        except Exception as exc:  # noqa: BLE001 - le message peut contenir l'URL, donc le jeton
+            error = masked(f"{type(exc).__name__}: {exc}", self.config)
+            log.warning("envoi vers %s refusé : %s", masked_chat(chat_id), error)
+            return float(_retry_after(error)) if "429" in error else 0.0
+        if not reply.get("ok"):
+            log.warning("envoi vers %s refusé : %s", masked_chat(chat_id), masked(str(reply.get("description", "")), self.config))
+            return 0.0
+        return None
+
+    def handle_commands(self, updates: list[dict]) -> dict:
+        """`/start` en privé : la PREMIÈRE conversation devient le propriétaire (sauf si l'environnement l'a fixé) ;
+        toute autre conversation privée reçoit « Ce bot est privé. » une seule fois et n'est jamais enregistrée.
+        `/etat` du propriétaire : cinq lignes de `GET /assistant`. Aucune commande n'est déposée dans F4."""
+        out = {"registered": 0, "refused": 0, "replied": 0}
+        for update in updates:
+            found = command_of(update)
+            if found is None:
+                continue
+            word, message = found
+            chat = str((message.get("chat") or {}).get("id", ""))
+            owner = self.owner()
+            if word == "start":
+                if owner is None:
+                    user = str((message.get("from") or {}).get("username") or "")
+                    self._write_json(self._owner_path, {"chat_id": chat, "first_seen": datetime.now(UTC).isoformat(),
+                                                        "username_masked": (user[:2] + "…") if user else ""})
+                    log.info("propriétaire enregistré après /start : conversation %s", masked_chat(chat))
+                    out["registered"] += 1
+                    self.send_text(chat, WELCOME)
+                elif chat == owner:
+                    self.send_text(chat, WELCOME)
+                else:
+                    refused = self._read_json_list(self._refused_path)
+                    if chat not in refused:
+                        self._write_json(self._refused_path, [*refused, chat])
+                        log.info("/start d'une conversation privée inconnue (%s) : refusée", masked_chat(chat))
+                        out["refused"] += 1
+                        self.send_text(chat, PRIVATE_BOT)
+            elif word == "etat" and owner is not None and chat == owner:
+                self.send_text(chat, self._state_summary())
+                out["replied"] += 1
+        return out
+
+    def _state_summary(self) -> str:
+        try:
+            payload = self.http("GET", f"{self.config.api_url}/assistant", None, self._csi_headers(), 30)
+        except Exception:  # noqa: BLE001 - route absente ou API arrêtée : réponse sobre
+            return "assistant indisponible"
+        return summarize_state(payload) if isinstance(payload, dict) else "assistant indisponible"
+
+    def send_assistant(self) -> dict:
+        """Les appels de l'assistant en attente dans l'API CSI (`GET /assistant/outbox`, 20 au plus) partent vers le
+        propriétaire, puis sont marqués (`POST /assistant/sent`). Sans propriétaire connu : rien n'est envoyé ni
+        marqué, une ligne de journal par heure. API CSI injoignable : silence, passage suivant. Un 429 Telegram est
+        respecté une seule fois par passage ; le reste attend le passage suivant."""
+        out = {"sent": 0, "failed": 0, "owner": self.owner() is not None}
+        to_mark = self._read_json_list(self._to_mark_path)       # envoyés au passage précédent, pas encore marqués
+        owner = self.owner()
+        if owner is None:
+            now = self.clock()
+            if self._owner_reminded_at is None or now - self._owner_reminded_at >= OWNER_REMINDER_SECONDS:
+                self._owner_reminded_at = now
+                log.info("aucun propriétaire connu : envoyer /start au bot en privé, ou fixer CSI_TELEGRAM_OWNER_CHAT_ID ; "
+                         "les appels de l'assistant attendent")
+        else:
+            try:
+                reply = self.http("GET", f"{self.config.api_url}/assistant/outbox", None, self._csi_headers(), 30)
+            except Exception:  # noqa: BLE001 - API CSI arrêtée ou route absente : passage suivant
+                reply = {}
+            messages = [m for m in (reply.get("messages") or []) if isinstance(m, dict) and m.get("id")]
+            waited = False
+            for message in messages[:MAX_ASSISTANT]:
+                ident = str(message["id"])
+                if ident in to_mark:
+                    continue
+                delay = self.send_text(owner, str(message.get("text") or ""))
+                if delay and not waited:                           # 429 : on attend une fois, puis on réessaie
+                    waited = True
+                    self.sleep(min(delay, MAX_RETRY_AFTER))
+                    delay = self.send_text(owner, str(message.get("text") or ""))
+                if delay is None:
+                    to_mark.append(ident)
+                    out["sent"] += 1
+                else:
+                    out["failed"] += 1
+                    if delay:                                      # encore 429 : le reste attend le passage suivant
+                        break
+        if to_mark:
+            try:
+                self.http("POST", f"{self.config.api_url}/assistant/sent", {"ids": to_mark}, self._csi_headers(), 30)
+            except Exception:  # noqa: BLE001 - on marquera au passage suivant, sans renvoyer ces messages
+                self._write_json(self._to_mark_path, to_mark)
+            else:
+                self._to_mark_path.unlink(missing_ok=True)
+        return out
+
     def cycle(self) -> dict:
-        """Un passage : renvoie d'abord ce qui attend, puis lit les nouveaux messages, les dépose, avance le décalage."""
+        """Un passage : renvoie d'abord ce qui attend, puis lit les nouveaux messages, les dépose, avance le décalage,
+        puis traite les commandes privées et envoie les appels de l'assistant (jamais bloquant pour F4)."""
         pending = self._read_spool()
         if pending and self.deliver(pending):
             self._spool.unlink(missing_ok=True)
@@ -258,12 +455,22 @@ class Relay:
                 for row in rows:
                     handle.write(json.dumps(row, ensure_ascii=False) + "\n")
         photos = self._queue_photos(updates)
+        try:
+            self.handle_commands(updates)
+        except Exception as exc:  # noqa: BLE001 - une commande ne doit jamais empêcher le décalage d'avancer
+            log.warning("commande privée ignorée : %s", masked(f"{type(exc).__name__}: {exc}", self.config))
         if updates:
             self._save_offset(max(int(u["update_id"]) for u in updates) + 1)
         sent = self.send_photos() if photos or self._photo_spool.exists() else {"sent": 0, "waiting": 0}
+        try:
+            assistant = self.send_assistant()
+        except Exception as exc:  # noqa: BLE001 - le sens retour ne casse jamais le relais F4
+            log.warning("envoi des appels de l'assistant interrompu : %s", masked(f"{type(exc).__name__}: {exc}", self.config))
+            assistant = {"sent": 0, "failed": 1, "owner": self.owner() is not None}
         return {"updates": len(updates), "relayed": len(rows) if delivered else 0,
                 "waiting": len(pending) + (len(rows) if rows and not delivered else 0),
-                "photos_sent": sent["sent"], "photos_waiting": sent["waiting"]}
+                "photos_sent": sent["sent"], "photos_waiting": sent["waiting"],
+                "assistant_sent": assistant["sent"], "assistant_failed": assistant["failed"], "owner": assistant["owner"]}
 
     def _read_spool(self) -> list[dict]:
         if not self._spool.exists():
@@ -282,15 +489,19 @@ def main() -> None:
     quiet_http_logs()
     config = RelayConfig.from_env()
     relay = Relay(config)
-    log.info("relais Telegram démarré (conversations autorisées : %s) → %s",
-             ", ".join(sorted(config.chats)) or "toutes", config.api_url)
+    owner = relay.owner()
+    log.info("relais Telegram démarré (conversations autorisées : %s) → %s ; propriétaire : %s",
+             ", ".join(sorted(config.chats)) or "toutes", config.api_url,
+             f"conversation {masked_chat(owner)}" if owner else "inconnu (envoyer /start au bot en privé)")
     pause = 5.0
     while True:
         try:
             out = relay.cycle()
-            if out["updates"] or out["photos_sent"]:
-                log.info("%d mise(s) à jour, %d relayée(s), %d en attente ; photos : %d transmise(s), %d en attente",
-                         out["updates"], out["relayed"], out["waiting"], out["photos_sent"], out["photos_waiting"])
+            if out["updates"] or out["photos_sent"] or out["assistant_sent"] or out["assistant_failed"]:
+                log.info("%d mise(s) à jour, %d relayée(s), %d en attente ; photos : %d transmise(s), %d en attente ; "
+                         "assistant : %d envoi(s), %d échec(s), propriétaire %s",
+                         out["updates"], out["relayed"], out["waiting"], out["photos_sent"], out["photos_waiting"],
+                         out["assistant_sent"], out["assistant_failed"], "connu" if out["owner"] else "inconnu")
             pause = 5.0
         except RelayError as exc:
             log.warning("%s ; nouvel essai dans %.0f s", exc, pause)

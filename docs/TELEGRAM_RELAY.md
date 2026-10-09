@@ -57,6 +57,46 @@ lecteurs se voleraient les messages et BSM raterait des signaux.
 
 Code : `src/crypto_signal_intelligence/relay/telegram.py`. Tests : `tests/test_telegram_relay.py`.
 
+### Envoi des appels de l'assistant (sens retour, 2026-10-09)
+
+Le même bot sert aussi dans l'autre sens : quand l'assistant de marché de CSI a quelque chose à te dire (un appel à
+la prudence, un changement de feu, un rappel), l'API CSI le met en attente et le relais te l'envoie **en message
+privé**. Pour ça, le relais doit savoir **qui tu es** : un bot Telegram ne peut écrire qu'à une conversation qui lui
+a parlé en premier.
+
+**Ce que tu fais (une fois)** : ouvre une conversation privée avec ton deuxième bot et envoie-lui `/start`. Le relais
+répond « C'est bien toi : les appels de l'assistant de marché arriveront ici. » et garde ta conversation dans
+`proprietaire.json` (volume `csi-relay`, à côté du décalage Telegram ; survit aux redémarrages). Le **premier** chat
+privé qui envoie `/start` devient le propriétaire ; toute autre personne qui écrit `/start` au bot reçoit « Ce bot
+est privé. » une seule fois et n'est jamais enregistrée.
+
+**Sur le VPS, ou pour le fixer sans `/start`** : pose `CSI_TELEGRAM_OWNER_CHAT_ID=<identifiant de ta conversation>`
+dans le `.env` (l'identifiant apparaît masqué dans le journal du relais après un `/start` : `propriétaire enregistré …
+conversation 424200****` ; l'identifiant complet est dans `proprietaire.json` du volume, ou donné par `@userinfobot`).
+Cette variable a **priorité** sur `proprietaire.json` ; aucun `/start` n'est alors nécessaire, et un `/start` venu
+d'une autre conversation est refusé. Elle doit être passée au service `telegram-relay` dans `docker-compose.yml`
+(ligne prête, en commentaire, sous `CSI_API_TOKEN`).
+
+**Ce qui est envoyé** : à chaque passage du relais (après le dépôt des signaux, jamais avant), il lit
+`GET /assistant/outbox` de l'API CSI (20 messages au plus, du plus ancien au plus récent), envoie chaque texte **tel
+quel** (texte brut, aucune mise en forme Telegram, aperçu de liens coupé), puis marque les messages partis avec
+`POST /assistant/sent`. Un message dont l'envoi a échoué reste en attente et repart au passage suivant ; si Telegram
+demande d'attendre (429), le relais attend le délai demandé **une fois** par passage et remet le reste au passage
+suivant. Si l'API CSI est injoignable, le relais se tait et réessaie au passage suivant ; **le dépôt des signaux vers
+F4 n'en dépend jamais**. Sans propriétaire connu, rien n'est envoyé ni marqué, et le journal le rappelle une fois par
+heure au plus.
+
+**Ce qui n'est jamais envoyé** : aucun ordre, aucune clé, aucun jeton, aucun chiffre de rentabilité. Le relais ne
+décide rien et n'exécute rien ; il recopie des textes de l'API CSI vers toi, et tes messages vers F4. Le journal
+ne contient ni le jeton du bot, ni ton identifiant en clair (les 4 derniers chiffres sont masqués).
+
+**Commande `/etat`** (facultative) : envoyée au bot par le propriétaire, elle répond avec cinq lignes tirées de
+`GET /assistant` de l'API CSI (ou « assistant indisponible » si cette route ne répond pas). Les commandes `/start`
+et `/etat` ne sont jamais déposées dans F4 : ce ne sont pas des signaux.
+
+**Journal** : la ligne de résumé de chaque passage se termine par `assistant : N envoi(s), N échec(s), propriétaire
+connu/inconnu`. Tests : `tests/test_telegram_relay_envoi.py`.
+
 ## 2. Exports avec photos : audit de tes groupes
 
 Les signaux publiés **en image** ne sont lus que si l'export contient les photos.
