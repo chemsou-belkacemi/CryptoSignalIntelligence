@@ -38,7 +38,8 @@ ENV CSI_CODE_COMMIT=${CSI_CODE_COMMIT}
 # libgl1, libglib2.0-0 : OpenCV, tiré par RapidOCR (signaux Telegram en image, docs/OCR.md).
 RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
-RUN pip install -c constraints.txt ".[forecast,ocr]" \
+# collect : websockets (flux publics du collecteur, docs/COLLECTE.md) ; absent de pylock.toml, donc non épinglé ici.
+RUN pip install -c constraints.txt ".[forecast,ocr,collect]" \
     && python -c "from rapidocr import RapidOCR; RapidOCR()" \
     && mkdir -p /srv/csi /srv/relay \
     && chown -R csi:csi /srv/csi /srv/relay

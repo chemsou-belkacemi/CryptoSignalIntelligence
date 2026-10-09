@@ -42,6 +42,10 @@ ocr = ["opencv-python==5.0.0.93", "rapidocr==3.9.2", "onnxruntime==1.30.0", "ome
 # CNN sur images de graphiques (docs/CNN.md) : recherche seulement, hors de l'image Docker et du CI (tests sautés sans
 # torch). Sur PC, la version CPU : pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu
 cnn = ["torch==2.14.1"]
+# Collecteur en shadow (docs/COLLECTE.md, service Docker `collecteur`) : flux WebSocket publics de Binance (liquidations,
+# carnet, transactions). Lecture seule, aucune clé ; la liste fermée d'adresses est dans collect/net.py. Google Trends
+# (pytrends) n'est PAS ajouté : API non officielle instable, source déclarée NON_DISPONIBLE sans la bibliothèque.
+collect = ["websockets==15.0.1"]
 # Groupes des lots suivants, ajoutés à leur étape : agents, streaming, reports.
 
 [project.scripts]
