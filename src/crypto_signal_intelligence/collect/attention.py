@@ -3,7 +3,7 @@
 - **Wikipédia** (API REST publique de Wikimedia, pages vues par les lecteurs humains), une fois par **jour** après
   06:00 UTC pour la veille : une page par base de la configuration quand elle existe (table figée `PAGES`, une page
   inconnue de Wikipédia est ignorée et listée dans `missing`), plus `Cryptocurrency`. User-Agent descriptif
-  (exigé par Wikimedia), une demande par page, espacées de `REQUEST_GAP_SECONDS`.
+  (exigé par Wikimedia), une demande par page, espacées de `REQUEST_GAP_SECONDS` (5 s), une reprise après 90 s sur « HTTP 429 ».
   Entrée `ATTENTION_WIKI_J` : `{day, views: {base: n}, total, missing: [...], errors: {...}}`.
 - **CoinGecko « trending »** (`/api/v3/search/trending`, public, sans clé, ≈ 10-30 demandes/min autorisées : une
   par **heure** ici ; rien d'autre de CoinGecko). Entrée `ATTENTION_TRENDING_H` : `{hour, coins: [symbole, …]
@@ -33,7 +33,8 @@ log = logging.getLogger("csi.collect.attention")
 WIKI, TRENDING = "ATTENTION_WIKI_J", "ATTENTION_TRENDING_H"
 WIKI_BASE = "https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia/all-access/user/"
 TRENDING_URL = "https://api.coingecko.com/api/v3/search/trending"
-REQUEST_GAP_SECONDS = 0.5
+REQUEST_GAP_SECONDS = 5.0                # Wikimedia limite les clients anonymes : 17 pages en ≈ 1,5 min
+RETRY_429_SECONDS = 90.0                 # une seule reprise par page après « HTTP 429 »
 WIKI_AFTER = pd.Timedelta(hours=6)                   # relevé de la veille après 06:00 UTC (données du jour complètes)
 OFFSET = pd.Timedelta(minutes=2)                     # passage horaire à hh:02
 MAX_TRENDING = 15
@@ -74,7 +75,13 @@ def wiki_day(http: CollectHttp, settings: Settings, *, day: pd.Timestamp,
         if i:
             sleep(REQUEST_GAP_SECONDS)
         try:
-            views = parse_views(http.get_json(f"{WIKI_BASE}{page}/daily/{stamp}/{stamp}"))
+            try:
+                views = parse_views(http.get_json(f"{WIKI_BASE}{page}/daily/{stamp}/{stamp}"))
+            except Exception as first:  # noqa: BLE001 - limite de débit : une seule reprise après une attente
+                if "HTTP 429" not in str(first):
+                    raise
+                sleep(RETRY_429_SECONDS)
+                views = parse_views(http.get_json(f"{WIKI_BASE}{page}/daily/{stamp}/{stamp}"))
         except Exception as exc:  # noqa: BLE001 - une page en panne n'arrête pas les autres
             text = f"{type(exc).__name__}: {exc}"[:200]
             if "HTTP 404" in text:
