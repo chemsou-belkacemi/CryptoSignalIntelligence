@@ -48,6 +48,9 @@ demande de clé Binance. Pages : `/` (application : analyser une paire, évaluer
     GET  /assistant/outbox     {"messages": [{"id", "created_at", "text"}]} : messages Telegram EN_ATTENTE de
                                l'assistant, du plus ancien au plus récent, 20 au plus (lus par le service relais)
     POST /assistant/sent       {"ids": [...]} → {"marked": n} : messages passés ENVOYE par le relais (jeton requis)
+    GET  /collecte             état du collecteur en shadow (docs/COLLECTE.md) : `state/C_ETAT.json` (dernier message
+                               et dernière entrée par source, compteurs, erreurs) et taille des journaux du mois ;
+                               information seulement, aucune influence sur les tests, les avis ou BSM
 
 Sécurité :
 - écoute sur 127.0.0.1 par défaut ; dans Docker, le port n'est publié que sur 127.0.0.1 de l'hôte ;
@@ -417,6 +420,15 @@ class CsiApi:
         if not 1 <= count <= 200:
             raise ApiError(HTTPStatus.BAD_REQUEST, "limit : entre 1 et 200")
         return liquidity_log.summary(self.settings, now=self.now(), size_usdt=size_usdt, limit=count)
+
+    def collecte(self) -> dict:
+        """État du collecteur en shadow (docs/COLLECTE.md) : contenu de `state/C_ETAT.json` et taille des journaux
+        du mois ; lecture seule, aucun appel réseau, aucune influence sur quoi que ce soit."""
+        from ..collect.base import SOURCES, month_bytes, read_state
+        state = read_state(self.settings)
+        now = self.now()
+        state["journal_bytes_month"] = {s: month_bytes(self.settings, s, now) for s in SOURCES}
+        return state
 
     def plans_live(self) -> dict:
         """Suivi EN DIRECT des plans indicatifs : bilan par horizon et état au moment de l'enregistrement."""
@@ -1123,6 +1135,7 @@ class CsiApi:
                 "/telegram/relay": self.telegram_relay_status,
                 "/liquidity": lambda: self.liquidity(query.get("size", ["500"])[0], query.get("limit", ["20"])[0]),
                 "/assistant": self.assistant, "/assistant/outbox": self.assistant_outbox,
+                "/collecte": self.collecte,
                 "/images/pending": self.images_pending, "/sources/exports": self.sources_exports,
                 "/sources/exports/audit": lambda: self.sources_exports_result(query.get("folder", [""])[0]),
             }

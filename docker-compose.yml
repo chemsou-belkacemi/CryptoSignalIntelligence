@@ -104,6 +104,24 @@ services:
     mem_limit: 2g
     cpus: 1.0
 
+  # Collecteur en shadow (docs/COLLECTE.md) : liquidations du marché à terme, carnet d'ordres, flux des transactions,
+  # options Deribit, attention publique → journaux C_*.jsonl en ajout seul dans le même volume d'état. Service SÉPARÉ
+  # de la surveillance (une coupure de flux ne touche pas `monitor`), sans profil : il part avec `docker compose up -d`.
+  # Aucune clé, aucun ordre ; liste fermée d'adresses (collect/net.py), `data/http.py` inchangé. Basse priorité CPU
+  # (nice +10, live/priority.py). Santé : C_ETAT.json réécrit depuis moins de 5 min.
+  collecteur:
+    <<: *app
+    command: ["python", "-m", "crypto_signal_intelligence", "collecteur"]
+    mem_limit: 768m
+    cpus: 1.0
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "python", "-m", "crypto_signal_intelligence", "collecteur-health", "--max-age", "300"]
+      interval: 60s
+      timeout: 20s
+      start_period: 3m
+      retries: 3
+
   # Outils ponctuels (même volume) : téléchargement initial, sauvegarde, walk-forward…
   #   docker compose run --rm tools download
   #   docker compose run --rm tools backup

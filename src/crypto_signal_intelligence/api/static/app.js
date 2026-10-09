@@ -1220,10 +1220,11 @@ async function loadFollow(force = false) {
   if (state.followLoaded && !force) return;
   busy(target, "Chargement…");
   try {
-    const [health, models, recent, sources, generated, universe, admissions, history, plans, forward, relay, liquidity] = await Promise.all([
+    const [health, models, recent, sources, generated, universe, admissions, history, plans, forward, relay, liquidity, collecte] = await Promise.all([
       api("/health"), api("/models"), api("/signals/recent?limit=15"), api("/sources"), api(`/signals/generated?limit=${GENERATED_PAGE}`), api("/universe"),
       refreshAdmissions(), api("/sources/history"), api("/plans/live"), api("/forward").catch(() => null),
       api("/telegram/relay").catch(() => null), api(`/liquidity?size=${LIQUIDITY_SIZE}&limit=15`).catch(() => null),
+      api("/collecte").catch(() => null),
     ]);
     state.followLoaded = true;
     state.models = models;
@@ -1255,6 +1256,7 @@ async function loadFollow(force = false) {
           "aucun plan encore enregistré : le premier passage a lieu chaque jour après 00:10 UTC")),
       relayCard(relay),
       liquidityCard(liquidity),
+      collecteCard(collecte),
       forwardCard(forward),
       card("Signaux évalués récemment", table(["Reçu", "Source", "Paire", "Entrée · stop · TP1", "Avis", "Issue", "R"],
         (recent.signals || []).map((x) => [when(x.received_at), x.source, pair(x.symbol), `${price(x.entry)} · ${price(x.stop)} · ${price(x.tp1)}`,
@@ -1328,6 +1330,29 @@ function liquidityCard(liq) {
       "aucun signal relevé pour l'instant"),
     (liq.pairs || []).length ? folded(`Dernier relevé de ${liq.pairs.length} paire(s) suivie(s) — afficher`,
       table(["Relevé", "Paire", ...cols], liq.pairs.map((r) => liquidityRow(r, [when(r.time), pair(r.symbol)])), "")) : null);
+}
+
+// Collecteur en shadow (docs/COLLECTE.md) : état des cinq sources (liquidations, carnet, flux, options, attention).
+const COLLECTE_STATUS = { EN_SERVICE: ["ok", "en service"], RECONNEXION: ["warn", "reconnexion"], NON_DISPONIBLE: ["bad", "non disponible"],
+  ARRETE: ["bad", "arrêté"], DEMARRAGE: ["muted", "démarrage"] };
+const COLLECTE_LABELS = { LIQUIDATIONS: "Liquidations (marché à terme)", CARNET: "Carnet d'ordres (depth20)", FLUX: "Flux des transactions",
+  OPTIONS: "Options Deribit (BTC, ETH)", ATTENTION: "Attention (Reddit, Trends)" };
+const mb = (bytes) => (isNum(bytes) ? `${fmt(bytes / 1048576, 2)} Mo` : "–");
+
+function collecteCard(c) {
+  if (!c || !c.available) return card("Collecte en shadow", el("p", { class: "muted", text: "collecteur jamais démarré ou état indisponible (service Docker « collecteur », docs/COLLECTE.md)" }));
+  const ageMin = c.written_at ? (Date.now() - new Date(c.written_at).getTime()) / 60000 : null;
+  const stale = isNum(ageMin) && ageMin > 5;
+  const rows = Object.entries(c.sources || {}).map(([name, s]) => {
+    const [cls, label] = COLLECTE_STATUS[s.status] || ["muted", s.status || "–"];
+    return [COLLECTE_LABELS[name] || name, { node: el("span", { class: cls, text: label, title: s.detail || "" }) }, when(s.last_message_at), when(s.last_entry_at),
+      s.entries, mb((c.journal_bytes_month || {})[name]), { node: el("span", { class: s.errors ? "warn" : "muted", text: `${s.errors || 0}`, title: s.last_error || "" }) }];
+  });
+  return card("Collecte en shadow",
+    el("p", { class: "muted small", text: `${c.note} Journaux C_<SOURCE>-${c.month || "AAAA-MM"}.jsonl en ajout seul.` }),
+    el("p", { class: stale ? "warn" : "muted small", text: (stale ? "État figé : " : "") + `état écrit ${when(c.written_at)} ; démarré ${when(c.started_at)}.` }),
+    table(["Source", "État", "Dernier message", "Dernière entrée", { label: "Entrées", num: true }, { label: "Journal du mois", num: true }, { label: "Erreurs", num: true }],
+      rows, "aucune source"));
 }
 
 function groupsCard(history) {
