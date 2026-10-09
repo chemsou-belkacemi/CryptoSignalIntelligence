@@ -2038,9 +2038,10 @@ def collecteur(source: list[str] = typer.Option(None, "--source", help="Sources 
 
 @app.command("collecteur-health")
 def collecteur_health(max_age: int = typer.Option(300, help="Âge maximal de C_ETAT.json en secondes")):
-    """Santé du collecteur : code 0 si C_ETAT.json a été réécrit depuis moins de `max_age` s et qu'au moins une source
-    vit encore (EN_SERVICE, RECONNEXION ou DEMARRAGE), 1 sinon."""
-    from .collect.base import IN_SERVICE, RECONNECTING, STARTING, read_state
+    """Santé du collecteur : code 0 si C_ETAT.json a été réécrit depuis moins de `max_age` s et qu'aucune source n'est
+    tombée (NON_DISPONIBLE, ARRETE) sans qu'une autre vive (EN_SERVICE, RECONNEXION, RECHARGEMENT, DEMARRAGE) ; une
+    source MUET (connectée sans donnée : flux bloqué depuis ce réseau) n'est ni vivante ni une panne."""
+    from .collect.base import IN_SERVICE, MUTE, RECONNECTING, RELOADING, STARTING, read_state
     settings = _settings()
     state = read_state(settings)
     written = state.get("written_at")
@@ -2048,10 +2049,14 @@ def collecteur_health(max_age: int = typer.Option(300, help="Âge maximal de C_E
         console.print("[red]aucun état du collecteur[/red]")
         raise typer.Exit(1)
     age = (_now() - datetime.fromisoformat(str(written))).total_seconds()
-    alive = [k for k, v in state.get("sources", {}).items() if v.get("status") in (IN_SERVICE, RECONNECTING, STARTING)]
-    fresh = 0 <= age <= max_age and bool(alive)
-    detail = f"état écrit il y a {age:.0f} s, {len(alive)} source(s) vivante(s)"
-    console.print(("[green]" if fresh else "[red]") + detail + ("" if fresh else f" (limite {max_age} s, au moins une source)"))
+    statuses = {k: v.get("status") for k, v in state.get("sources", {}).items()}
+    alive = [k for k, st in statuses.items() if st in (IN_SERVICE, RECONNECTING, RELOADING, STARTING)]
+    mute = [k for k, st in statuses.items() if st == MUTE]
+    dead = [k for k, st in statuses.items() if st not in (IN_SERVICE, RECONNECTING, RELOADING, STARTING, MUTE)]
+    fresh = 0 <= age <= max_age and (bool(alive) or not dead)
+    detail = (f"état écrit il y a {age:.0f} s, {len(alive)} source(s) vivante(s)"
+              + (f", muette(s) depuis ce réseau : {', '.join(mute)}" if mute else ""))
+    console.print(("[green]" if fresh else "[red]") + detail + ("" if fresh else f" (limite {max_age} s ; tombées : {', '.join(dead)})"))
     raise typer.Exit(0 if fresh else 1)
 
 

@@ -1333,10 +1333,10 @@ function liquidityCard(liq) {
 }
 
 // Collecteur en shadow (docs/COLLECTE.md) : état des cinq sources (liquidations, carnet, flux, options, attention).
-const COLLECTE_STATUS = { EN_SERVICE: ["ok", "en service"], RECONNEXION: ["warn", "reconnexion"], NON_DISPONIBLE: ["bad", "non disponible"],
-  ARRETE: ["bad", "arrêté"], DEMARRAGE: ["muted", "démarrage"] };
+const COLLECTE_STATUS = { EN_SERVICE: ["ok", "en service"], RECONNEXION: ["warn", "reconnexion"], RECHARGEMENT: ["muted", "rechargement"],
+  MUET: ["warn", "muet depuis ce réseau"], NON_DISPONIBLE: ["bad", "non disponible"], ARRETE: ["bad", "arrêté"], DEMARRAGE: ["muted", "démarrage"] };
 const COLLECTE_LABELS = { LIQUIDATIONS: "Liquidations (marché à terme)", CARNET: "Carnet d'ordres (depth20)", FLUX: "Flux des transactions",
-  OPTIONS: "Options Deribit (BTC, ETH)", ATTENTION: "Attention (Reddit, Trends)" };
+  OPTIONS: "Options Deribit (BTC, ETH)", ATTENTION: "Attention (Wikipédia, CoinGecko trending)" };
 const mb = (bytes) => (isNum(bytes) ? `${fmt(bytes / 1048576, 2)} Mo` : "–");
 
 function collecteCard(c) {
@@ -1351,6 +1351,9 @@ function collecteCard(c) {
   return card("Collecte en shadow",
     el("p", { class: "muted small", text: `${c.note} Journaux C_<SOURCE>-${c.month || "AAAA-MM"}.jsonl en ajout seul.` }),
     el("p", { class: stale ? "warn" : "muted small", text: (stale ? "État figé : " : "") + `état écrit ${when(c.written_at)} ; démarré ${when(c.started_at)}.` }),
+    Object.values(c.sources || {}).some((s) => s.status === "MUET")
+      ? el("p", { class: "warn", text: "Une source est MUETTE : connectée mais aucune donnée en 5 min. Les flux de produits dérivés de Binance sont bloqués depuis ce réseau (constaté le 2026-10-09) ; réessai toutes les heures, à vérifier sur le VPS. Ni panne ni donnée : le journal reste vide." })
+      : null,
     table(["Source", "État", "Dernier message", "Dernière entrée", { label: "Entrées", num: true }, { label: "Journal du mois", num: true }, { label: "Erreurs", num: true }],
       rows, "aucune source"));
 }

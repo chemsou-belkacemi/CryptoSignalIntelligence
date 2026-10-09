@@ -76,10 +76,12 @@ pré-inscrire quand il y aura quelques semaines et quelques centaines de signaux
 **Collecteur en shadow** (demande du propriétaire du 2026-10-09, `COLLECTE.md`) : service Docker `collecteur`, séparé
 de la surveillance, qui enregistre en continu ce que les bougies ne contiennent pas : liquidations du marché à terme,
 carnet depth20 (16 paires + appels actifs de l'assistant), flux des transactions, options Deribit (DVOL, IV ATM,
-asymétrie, max pain), attention Reddit (comptes seulement). Journaux `C_*.jsonl` en ajout seul, liste fermée
+asymétrie, max pain), attention (pages vues Wikipédia par jour, CoinGecko trending par heure ; Reddit exige une
+connexion depuis 2026 : NON_DISPONIBLE). Journaux `C_*.jsonl` en ajout seul, liste fermée
 d'adresses (`data/http.py` inchangé), `GET /collecte`, carte « Collecte en shadow ». **Aucun test, aucun seuil,
 aucune prédiction** : après 14 jours de journaux, pré-inscription de tests en direct (événement → placebo) sur les
-comptages seulement. Google Trends NON_DISPONIBLE. **Codé et testé le 2026-10-09 (branche `feat/collecteur`), à
+comptages seulement. Google Trends NON_DISPONIBLE. **Liquidations MUET depuis le réseau du PC** (flux dérivés de Binance bloqués, constaté
+le 2026-10-09 ; réessai horaire, à vérifier sur le VPS). **Codé et testé le 2026-10-09 (branche `feat/collecteur`), à
 déployer** : `docker compose up -d --build` (le service part sans profil) ; champs Deribit à vérifier au déploiement.
 
 **Assistant de marché** (demande du propriétaire du 2026-10-09, `ASSISTANT.md`) : à chaque clôture 4 h UTC, lecture du

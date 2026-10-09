@@ -24,9 +24,11 @@ Binance passent par `collect/net.py`, qui refuse toute adresse hors de cette lis
 | `wss://stream.binance.com:9443/` | flux publics Spot : `<sym>@depth20@1000ms`, `<sym>@aggTrade` |
 | `wss://fstream.binance.com/` | flux public du marché à terme : `!forceOrder@arr` |
 | `https://www.deribit.com/api/v2/public/` | API publique de Deribit (indice, DVOL, résumé des options) |
-| `https://www.reddit.com/r/<sub>/new.json` | derniers messages publics d'un sous-forum |
+| `https://wikimedia.org/api/rest_v1/metrics/pageviews/` | pages vues de Wikipédia (API REST publique de Wikimedia) |
+| `https://api.coingecko.com/api/v3/search/trending` | pièces « trending » de CoinGecko (sans clé ; rien d'autre de CoinGecko) |
 
-Google Trends n'y figure pas : NON_DISPONIBLE (voir la source 5), aucune adresse ouverte pour rien.
+Reddit (`www`, `api`, `old` : 403 ou page de connexion, constaté le 2026-10-09) et Google Trends n'y figurent pas :
+NON_DISPONIBLE (voir la source 5), aucune adresse ouverte pour rien ; une adresse Reddit est refusée par test.
 
 Pas de `http://`, pas de `ws://`, pas d'identifiants dans l'adresse, et les mots `private`, `account`, `signature`,
 `apikey`, `listenkey`… sont refusés partout (sécurité en profondeur : la liste fermée les exclut déjà). Aucun
@@ -50,6 +52,16 @@ position **longue** est liquidée, `BUY` = une position **courte**. Notionnel = 
   `quantity`, `notional_usdt` (2 décimales), `time`.
 - `LIQ_RESUME` (par heure) : `hour`, `n`, `notional_usdt`, `long_liq_usdt`, `short_liq_usdt`, `long_share`,
   `minutes_with_liquidations`, `pairs`, `top` (5 paires : `symbol`, `n`, `notional_usdt`).
+
+**MUET depuis ce réseau (constaté le 2026-10-09, à vérifier sur le VPS).** Depuis le PC du propriétaire, le flux se
+connecte mais ne livre jamais rien (`!forceOrder@arr`, `btcusdt@forceOrder`, même `btcusdt@markPrice@1s` sur
+`fstream.binance.com` restent muets, comme Bybit et OKX, alors que le REST `fapi` et les flux Spot répondent) : les
+flux de produits dérivés sont bloqués depuis ce réseau. Le collecteur le détecte : connecté sans **aucun** message en
+**5 min** → statut `MUET` (ni `EN_SERVICE` ni `DEMARRAGE`), `detail` = « connecté, aucune donnée en 5 min : flux dérivés
+probablement bloqués depuis ce réseau ; réessai toutes les heures », puis **réessai une fois par heure** (pas la
+boucle 1 → 60 s) ; `silences` et `last_silence_at` dans l'état, rien dans `errors`, journal vide. Le contrôle de santé
+ne compte pas une source `MUET` comme vivante, ni comme une panne. Ça pourra marcher depuis le VPS ; aucune autre
+source de liquidations n'est cherchée.
 
 **Limite** : Binance ne publie dans ce flux qu'**un ordre par seconde et par paire** (le plus gros de la seconde) : les
 comptes et notionnels sont des **minimums**. Une minute n'est écrite que 3 s après sa fin, à l'arrivée du message
@@ -120,23 +132,26 @@ réponses fictives. Si Deribit change, l'entrée garde les données brutes qui m
 
 ### 5. ATTENTION — `C_ATTENTION-AAAA-MM.jsonl`
 
-**Reddit**, une fois par heure (hh:02, pour l'heure close) : r/CryptoCurrency, r/Bitcoin, r/CryptoMarkets,
-`new.json?limit=100`, User-Agent explicite, **2 s entre deux demandes**.
+Comptes et symboles seulement, jamais de contenu.
 
-- `ATTENTION_REDDIT_H` : `hour`, `posts_in_hour`, `mentions` = `{base: messages de l'heure qui la citent}` (mots
-  entiers, ticker ou nom usuel — `bitcoin`, `ethereum`, `solana`… — dans le titre et le texte, sans casse),
-  `subreddits` = `{sub: {posts_in_hour, posts_scanned, oldest_in_page, hour_fully_covered, mentions}}`, `errors`,
-  `content_stored: false`.
-  **Aucun contenu n'est stocké** : ni titre, ni texte, ni pseudo, ni lien (test : aucune de ces chaînes n'apparaît
-  dans l'entrée). Seule l'empreinte SHA-256 tronquée de l'identifiant des messages déjà comptés reste **en mémoire**
-  pour ne pas compter deux fois un message vu à deux heures de suite. `hour_fully_covered` faux = plus de 100
-  messages dans l'heure, le compte est un minimum.
-
-**Google Trends : NON_DISPONIBLE** (état : `trends: NON_DISPONIBLE`, raison dans `detail`). La seule bibliothèque
-connue, `pytrends`, repose sur une API non officielle qui casse régulièrement **et** fait ses propres appels réseau,
-hors du client à liste fermée : aucun chemin de code, aucune dépendance, `trends.google.com` n'est pas dans la
-liste. L'entrée `ATTENTION_TRENDS_J` prévue (une fois par jour : « bitcoin », « crypto », « ethereum », « altcoin »)
-n'existera que si une source publique lisible par `collect/net.py` apparaît.
+- **Wikipédia** (pages vues par les lecteurs humains, API REST publique de Wikimedia, User-Agent descriptif exigé) :
+  une fois par **jour**, au passage de 06:02 UTC, pour la **veille** (données du jour complètes). Une page par base de
+  la configuration quand elle existe, d'après la **table figée** `attention.PAGES` (`BTC` → `Bitcoin`, `ETH` →
+  `Ethereum`, `SOL` → `Solana_(blockchain_platform)`, `XRP` → `XRP_Ledger`, `DOGE` → `Dogecoin`, … 16 bases + `CRYPTO`
+  → `Cryptocurrency`) ; une page que Wikipédia ne connaît pas (404) est **ignorée** et listée dans `missing` (à
+  corriger dans la table, pas inventée). Une demande par page, espacées de 0,5 s (17 demandes par jour).
+  `ATTENTION_WIKI_J` : `day`, `views` = `{base: n}`, `total`, `missing`, `errors`, `source`. Un redémarrage ne refait
+  pas une veille déjà relevée (dernier `day` lu dans le journal).
+- **CoinGecko « trending »** (`/api/v3/search/trending`, public, sans clé ; limite ≈ 10-30 demandes/min, une par
+  **heure** ici ; **rien d'autre** de CoinGecko n'est dans la liste). `ATTENTION_TRENDING_H` : `hour`, `coins` =
+  symboles en majuscules, **15 au plus**, dans l'ordre de CoinGecko ; `in_universe` = ceux qui sont des bases de la
+  configuration. Ni nom, ni rang, ni image, ni NFT, ni catégorie.
+- **Reddit : NON_DISPONIBLE (connexion exigée depuis 2026)** : `www.reddit.com` et `api.reddit.com` répondent 403,
+  `old.reddit.com` renvoie vers la page de connexion (constaté depuis cette machine le 2026-10-09) ; la lecture
+  publique sans compte n'existe plus. Retiré de la liste fermée ; l'état porte `reddit: NON_DISPONIBLE`.
+- **Google Trends : NON_DISPONIBLE** (état : `trends: NON_DISPONIBLE`). La seule bibliothèque connue, `pytrends`,
+  repose sur une API non officielle qui casse régulièrement **et** fait ses propres appels réseau, hors du client à
+  liste fermée : aucun chemin de code, aucune dépendance.
 
 ## Service
 
@@ -147,15 +162,17 @@ n'existera que si une source publique lisible par `collect/net.py` apparaît.
   relancée après une attente exponentielle **1 s → 2 → 4 → … → 60 s**, remise à 1 s après 5 min de fonctionnement
   stable. Ping WebSocket toutes les 20 s. Une adresse refusée ou une bibliothèque absente met la source en
   `NON_DISPONIBLE` sans la relancer ; les autres continuent. Le carnet qui se reconnecte parce que la liste de paires
-  a changé passe `RECHARGEMENT` : ni erreur ni attente.
+  a changé passe `RECHARGEMENT` : ni erreur ni attente. Un flux connecté sans aucun message en 5 min (liquidations,
+  voir la source 1) passe `MUET` et n'est réessayé qu'une fois par heure.
 - **Horloge en recul** (NTP, machine réveillée) : le journal refuse une entrée antérieure à la précédente ; elle est
   ré-horodatée à `précédente + 1 ms` avec `clock_adjusted: true` et `clock_at` (l'heure lue), la source continue.
 - **État** `state/C_ETAT.json`, réécrit au plus toutes les 10 s et au moins toutes les 30 s : par source `status`
-  (`DEMARRAGE`, `EN_SERVICE`, `RECONNEXION`, `RECHARGEMENT`, `NON_DISPONIBLE`, `ARRETE`), `last_message_at`, `last_entry_at`,
+  (`DEMARRAGE`, `EN_SERVICE`, `RECONNEXION`, `RECHARGEMENT`, `MUET`, `NON_DISPONIBLE`, `ARRETE`), `last_message_at`, `last_entry_at`,
   `messages`, `entries`, `errors`, `last_error` (sans secret : il n'y en a aucun), `reconnections`, `next_retry_s`,
   `bytes_month`, `detail` ; plus `written_at`, `started_at`, `priority_lowered`, `places_orders: false`.
-- **Santé** : `csi collecteur-health --max-age 300` (code 0 si `C_ETAT.json` a été réécrit depuis moins de 5 min) ;
-  c'est le `healthcheck` du service Docker.
+- **Santé** : `csi collecteur-health --max-age 300` (code 0 si `C_ETAT.json` a été réécrit depuis moins de 5 min et
+  qu'aucune source n'est tombée — `NON_DISPONIBLE`, `ARRETE` — sans qu'une autre vive ; `MUET` n'est ni vivante ni une
+  panne) ; c'est le `healthcheck` du service Docker.
 - **Arrêt** : SIGTERM/SIGINT → `stop` posé, toutes les tâches annulées (l'annulation interrompt les `async for` des
   flux et les attentes des sources REST), état écrit (`ARRETE` pour chaque source), verrou libéré ; testé : retour en
   moins d'une seconde sur des flux muets (`stop_grace_period: 30s`).
@@ -171,7 +188,7 @@ Enveloppe d'une entrée (numéro, heure, nature, empreintes chaînées) ≈ 230 
 | LIQUIDATIONS | ≤ 1 440 `LIQ_MINUTE`/jour (≈ 1 Ko, 10 paires + reste) + `LIQ_GROS` (rares) + 24 résumés | ≤ 1,5 Mo/jour → **20 à 45 Mo/mois** selon la part des minutes avec liquidation |
 | CARNET | ≤ 6 `CARNET_5S`/paire/heure, espacées de 10 min (≈ 420 o) + 24 résumés/paire (≈ 550 o, la référence) | 19 paires (16 + appels actifs) : ≤ 1,4 Mo/jour → **≤ 42 Mo/mois** ; 40 paires : ≤ 85 Mo/mois |
 | OPTIONS | 192 entrées/jour (≈ 0,9 Ko) | **≈ 5 Mo/mois** |
-| ATTENTION | 24 entrées/jour (≈ 0,7 Ko) | **< 1 Mo/mois** |
+| ATTENTION | 24 `ATTENTION_TRENDING_H` (≈ 0,4 Ko) + 1 `ATTENTION_WIKI_J` (≈ 0,6 Ko) par jour | **< 1 Mo/mois** |
 
 Total attendu **≈ 130 à 165 Mo/mois** avec 19 paires au carnet ; la cible est < 150 Mo/mois, le carnet étant
 désormais borné (10 min entre deux `CARNET_5S`). Si une source dépasse, on agrège davantage, dans cet ordre :
@@ -185,7 +202,8 @@ désormais borné (10 min entre deux `CARNET_5S`). Si une source dépasse, on ag
 - Aucune lecture par la surveillance, l'assistant, les avis, le feu de protection ou BSM : les journaux `C_*` ne sont
   lus que par `GET /collecte` (taille) et, plus tard, par l'analyse pré-inscrite.
 - Pas d'historique : la collecte commence au premier démarrage, rien n'est reconstitué.
-- Pas de Google Trends (voir plus haut), pas d'autre bourse que Binance et Deribit.
+- Pas de Reddit ni de Google Trends (voir plus haut), pas d'autre bourse que Binance et Deribit ; les liquidations
+  restent vides tant que les flux dérivés sont bloqués depuis le réseau du collecteur (`MUET`).
 
 ## Plan : après 14 jours, pré-inscription de tests en direct
 

@@ -17,6 +17,7 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 
 from ..config import Settings
+from ..forward.journal import utc_iso
 from ..live.lock import InstanceLock
 from ..live.priority import lower_priority
 from . import attention, carnet, flux, liquidations, options
@@ -26,6 +27,7 @@ from .base import (
     FLUX,
     LIQUIDATIONS,
     LOCK_FILE,
+    MUTE,
     OPTIONS,
     RECONNECTING,
     RELOADING,
@@ -34,6 +36,7 @@ from .base import (
     Context,
     Recorder,
     Reload,
+    Silent,
     State,
 )
 from .net import CollectHttp, NetError, RefusedUrl, ws_messages
@@ -43,6 +46,7 @@ log = logging.getLogger("csi.collect.service")
 BACKOFF_FIRST, BACKOFF_MAX = 1.0, 60.0
 STABLE_SECONDS = 300.0
 STATE_WRITE_SECONDS = 30.0
+SILENCE_RETRY_SECONDS = 3600.0
 RUNNERS: Mapping[str, Callable] = {LIQUIDATIONS: liquidations.run, CARNET: carnet.run, FLUX: flux.run,
                                    OPTIONS: options.run, ATTENTION: attention.run}
 
@@ -78,6 +82,15 @@ async def supervise(name: str, ctx: Context, runner: Callable, *, max_runs: int 
         except Reload as exc:                               # pas une erreur : relance immédiate
             ctx.state.touch(name, status=RELOADING, detail=str(exc))
             ctx.state.write()
+            continue
+        except Silent as exc:                               # pas une panne : MUET, réessai une fois par heure
+            source = ctx.state.sources[name]
+            source["silences"] = source.get("silences", 0) + 1
+            ctx.state.touch(name, status=MUTE, last_silence_at=utc_iso(ctx.clock()), next_retry_s=SILENCE_RETRY_SECONDS,
+                            detail=f"{exc} : flux dérivés probablement bloqués depuis ce réseau (à vérifier sur le VPS) ; "
+                                   f"réessai toutes les heures")
+            ctx.state.write(force=True)
+            await ctx.pause(SILENCE_RETRY_SECONDS)
             continue
         except (RefusedUrl, ImportError) as exc:            # ne se répare pas tout seul : on n'insiste pas
             ctx.state.error(name, exc, status=UNAVAILABLE)

@@ -35,7 +35,7 @@ PREFIX = "C_"
 STATE_FILE = "state/C_ETAT.json"
 LOCK_FILE = "state/collecteur.lock"
 IN_SERVICE, RECONNECTING, UNAVAILABLE, STOPPED, STARTING = "EN_SERVICE", "RECONNEXION", "NON_DISPONIBLE", "ARRETE", "DEMARRAGE"
-RELOADING = "RECHARGEMENT"
+RELOADING, MUTE = "RECHARGEMENT", "MUET"
 NOTE = ("Relevé en shadow (docs/COLLECTE.md) : aucune influence sur les tests en direct, les avis ou "
         "BinanceSpotManager ; aucun pouvoir prédictif revendiqué.")
 VERSION = 1
@@ -190,6 +190,32 @@ class Context:
             return
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(self.stop.wait(), timeout=seconds)
+
+
+class Silent(Exception):
+    """Levée par une source connectée qui n'a rien reçu depuis `timeout` s : flux probablement bloqué depuis ce
+    réseau (constaté sur les flux dérivés de Binance le 2026-10-09). Pas une panne : réessai une fois par heure."""
+
+
+async def first_or_silence(ctx: Context, messages, *, timeout: float):
+    """Premier message d'un flux, ou `Silent` si rien n'arrive en `timeout` s (attente annulable : `ctx.pause`, donc
+    pilotable par l'horloge fictive des tests) ; None si l'arrêt a été demandé entre-temps."""
+    first = asyncio.ensure_future(anext(messages))
+    pause = asyncio.ensure_future(ctx.pause(timeout))
+    done, _ = await asyncio.wait({first, pause}, return_when=asyncio.FIRST_COMPLETED)
+    if first in done:
+        pause.cancel()
+        await asyncio.gather(pause, return_exceptions=True)
+        try:
+            return first.result()
+        except StopAsyncIteration:
+            return None
+    first.cancel()
+    await asyncio.gather(first, return_exceptions=True)
+    if ctx.stop.is_set():
+        return None
+    raise Silent(f"connecté, aucune donnée en {timeout / 60:.0f} min")
+
 
 
 def minute_floor(stamp_ms: int) -> int:
