@@ -292,7 +292,13 @@ def test_the_log_has_no_influence_on_tests_advice_or_bsm():
     src = Path(liq.__file__).resolve().parents[1]
     readers = sorted(p.relative_to(src).as_posix() for p in src.rglob("*.py")
                      if "import liquidity_log" in (text := p.read_text(encoding="utf-8")) or "liquidity_log import" in text)
-    assert readers == ["api/server.py", "live/scanner.py"]
+    # L'assistant (docs/ASSISTANT.md) n'utilise que le CALCUL pur `book_metrics` sur un carnet qu'il lit lui-même à
+    # l'instant : jamais les journaux du relevé (summary, tail_entries, periodic_journal, signals_journal).
+    assert readers == ["api/server.py", "assistant/evaluate.py", "live/scanner.py"]
+    assistant = (src / "assistant" / "evaluate.py").read_text(encoding="utf-8")
+    assert "liquidity_log.book_metrics" in assistant
+    for journal_reader in ("summary", "tail_entries", "periodic_journal", "signals_journal", "periodic_path"):
+        assert f"liquidity_log.{journal_reader}" not in assistant
 
 
 # --- fil et surveillance ------------------------------------------------------------------------------------
