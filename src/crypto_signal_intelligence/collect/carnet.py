@@ -9,19 +9,20 @@ une paire liquide, ±0,5 % dépasse souvent ces 20 niveaux, la profondeur relev�
 Entrées (journal `C_CARNET-AAAA-MM.jsonl`) :
 - `CARNET_5S` : seulement si un champ (écart, profondeur achat/vente à ±0,5 % ou ±1 %) change de plus de 10 % par
   rapport à la dernière entrée ÉCRITE de la paire, ou si le déséquilibre à ±1 % bouge de plus de 0,10 (absolu) ; au
-  plus `MAX_WRITES_PER_HOUR` par paire et par heure (sinon le journal explose : une paire liquide voit ses 20 niveaux
-  changer de plus de 10 % en permanence) ;
+  moins `MIN_WRITE_GAP_SECONDS` (10 min) entre deux entrées d'une même paire et au plus `MAX_WRITES_PER_HOUR` par
+  heure CALENDAIRE (sinon le journal explose : sur BTC ou ETH, depth20 est tronqué et ses 20 niveaux changent de
+  plus de 10 % en permanence, les écritures partiraient en rafale) ; c'est un échantillon, pas la mesure ;
 - `CARNET_RESUME` : par heure et par paire : min / max / moyenne de l'écart, des profondeurs et du déséquilibre sur
-  TOUS les échantillons de 5 s (pas seulement ceux écrits), nombre d'échantillons et d'entrées écrites.
+  TOUS les échantillons de 5 s (pas seulement ceux écrits), nombre d'échantillons et d'entrées écrites. C'est la
+  MESURE DE RÉFÉRENCE du carnet.
 """
 from __future__ import annotations
 
 import json
 import logging
-from collections import deque
 
 from ..config import Settings
-from .base import CARNET, Context, iso_ms
+from .base import CARNET, Context, Reload, iso_ms
 
 log = logging.getLogger("csi.collect.carnet")
 
@@ -33,6 +34,7 @@ STALE_SECONDS = 15.0            # carnet plus vieux : pas d'échantillon (flux f
 PAIRS_REFRESH_SECONDS = 300.0
 MAX_PAIRS = 40
 MAX_WRITES_PER_HOUR = 6
+MIN_WRITE_GAP_SECONDS = 600.0
 CHANGE_RATIO = 0.10
 IMBALANCE_DELTA = 0.10
 TRACKED = ("spread_pct", "bid_0.5", "ask_0.5", "bid_1", "ask_1")
@@ -93,7 +95,7 @@ class PairTracker:
     def __init__(self, symbol: str):
         self.symbol = symbol
         self.last_written: dict | None = None
-        self.writes: deque[float] = deque()
+        self.last_write_ms: int | None = None
         self.hour: int | None = None
         self.samples = 0
         self.written = 0
@@ -125,10 +127,9 @@ class PairTracker:
             self.acc, self.samples, self.written = {}, 0, 0
         self.hour = hour
         self._accumulate(sample)
-        while self.writes and mono - self.writes[0] > 3600:
-            self.writes.popleft()
-        if changed(self.last_written, sample) and len(self.writes) < MAX_WRITES_PER_HOUR:
-            self.writes.append(mono)
+        spaced = self.last_write_ms is None or now_ms - self.last_write_ms >= MIN_WRITE_GAP_SECONDS * 1000
+        if spaced and self.written < MAX_WRITES_PER_HOUR and changed(self.last_written, sample):
+            self.last_write_ms = now_ms
             self.last_written = sample
             self.written += 1
             out.append((SAMPLE, {"time": iso_ms(now_ms), "symbol": self.symbol, **sample}))
@@ -216,9 +217,10 @@ class BookCollector:
                 ctx.state.write()
                 if ctx.monotonic() - refreshed >= PAIRS_REFRESH_SECONDS:
                     refreshed = ctx.monotonic()
-                    if tracked_pairs(ctx.settings) != pairs:
+                    fresh = tracked_pairs(ctx.settings)
+                    if fresh != pairs:
                         log.info("carnet : liste de paires changée, reconnexion")
-                        return
+                        raise Reload(f"liste de paires changée ({len(pairs)} → {len(fresh)})")
 
 
 async def run(ctx: Context) -> None:

@@ -90,7 +90,6 @@ def context(settings, clock: FakeClock, *, stream=None, http=None, sleep=None) -
     "wss://stream.binance.com:9443/stream?streams=btcusdt@depth20@1000ms/ethusdt@aggTrade",
     "https://www.deribit.com/api/v2/public/get_index_price",
     "https://www.reddit.com/r/CryptoCurrency/new.json",
-    "https://trends.google.com/trends/explore",
 ])
 def test_closed_list_accepts_the_declared_public_addresses(url):
     assert net.check_url(url) == url
@@ -110,6 +109,7 @@ def test_closed_list_accepts_the_declared_public_addresses(url):
     "https://evil.invalid/https://www.deribit.com/api/v2/public/",
     "https://www.deribit.com.evil.invalid/api/v2/public/x",
     "https://user:pw@www.deribit.com/api/v2/public/x",
+    "https://trends.google.com/trends/explore",                   # Google Trends : NON_DISPONIBLE, hors liste
 ])
 def test_closed_list_refuses_everything_else_before_any_call(url):
     with pytest.raises(net.RefusedUrl):
@@ -190,20 +190,40 @@ def trade(symbol, price, qty, t, *, maker_is_buyer):
 
 
 def test_flux_minute_entry_covers_all_pairs_with_imbalances_and_large_trades():
-    messages = [trade("BTCUSDT", 100_000, 0.6, T0 + 100, maker_is_buyer=False),     # taker ACHÈTE 60 000 : GROS
+    messages = [trade("BTCUSDT", 100_000, 1.2, T0 + 100, maker_is_buyer=False),     # taker ACHÈTE 120 000 : GROS
                 trade("BTCUSDT", 100_000, 0.2, T0 + 200, maker_is_buyer=True),      # taker vend 20 000
                 trade("ETHUSDT", 4_000, 1, T0 + 300, maker_is_buyer=True),          # vend 4 000
                 {"stream": "x@kline", "data": {"e": "kline"}}]
     out = flux.aggregate(messages, now_ms=T0 + 2 * 60_000)
     assert [k for k, _ in out] == [flux.LARGE, flux.MINUTE]
     large = out[0][1]
-    assert large == {"symbol": "BTCUSDT", "taker_side": "BUY", "price": 100_000.0, "quantity": 0.6, "notional_usdt": 60_000,
+    assert large == {"symbol": "BTCUSDT", "taker_side": "BUY", "price": 100_000.0, "quantity": 1.2, "notional_usdt": 120_000,
                      "time": base.iso_ms(T0 + 100)}
     minute = out[1][1]
     assert "fields" not in minute and minute["minute"] == base.iso_ms(T0)
-    assert minute["pairs"]["BTCUSDT"] == [60_000, 20_000, 2, 0.5, None, 1, 60_000]
+    assert minute["pairs"]["BTCUSDT"] == [120_000, 20_000, 2, round(100_000 / 140_000, 3), None, 1, 120_000]
     assert minute["pairs"]["ETHUSDT"] == [0, 4_000, 1, -1.0, None, 0, 0]
-    assert minute["taker_buy_usdt"] == 60_000 and minute["taker_sell_usdt"] == 24_000
+    assert minute["taker_buy_usdt"] == 120_000 and minute["taker_sell_usdt"] == 24_000
+
+
+def test_flux_large_threshold_is_higher_for_btc_and_eth():
+    assert flux.large_usdt("BTCUSDT") == flux.large_usdt("ETHUSDT") == 100_000 and flux.large_usdt("SOLUSDT") == 50_000
+    messages = [trade("BTCUSDT", 100_000, 0.6, T0 + 100, maker_is_buyer=False),     # 60 000 : pas gros pour BTC
+                trade("SOLUSDT", 200, 300, T0 + 200, maker_is_buyer=False)]         # 60 000 : gros pour SOL
+    out = flux.aggregate(messages, now_ms=T0 + 2 * 60_000)
+    assert [(k, d.get("symbol")) for k, d in out][:1] == [(flux.LARGE, "SOLUSDT")]
+    assert out[-1][1]["pairs"]["BTCUSDT"][5:] == [0, 0] and out[-1][1]["pairs"]["SOLUSDT"][5:] == [1, 60_000]
+
+
+def test_flux_empty_minutes_count_as_zero_in_the_five_minute_window():
+    agg = flux.MinuteAggregator(pairs=["BTCUSDT", "ETHUSDT"])
+    agg.add(flux.parse(trade("BTCUSDT", 100, 10, T0 + 10, maker_is_buyer=False)))          # minute 0 : achat 1 000
+    agg.add(flux.parse(trade("BTCUSDT", 100, 10, T0 + 4 * 60_000 + 10, maker_is_buyer=True)))   # minute 4 : vente 1 000
+    entries = agg.flush(T0 + 6 * 60_000)
+    assert [d["minute"] for _, d in entries] == [base.iso_ms(T0 + i * 60_000) for i in range(5)]   # minutes 1-3 vides écrites
+    assert entries[2][1]["pairs"] == {"BTCUSDT": [0, 0, 0, None, None, 0, 0], "ETHUSDT": [0, 0, 0, None, None, 0, 0]}
+    assert entries[4][1]["pairs"]["BTCUSDT"][4] == 0.0                     # 5 minutes closes : (1000 − 1000) / 2000
+    assert entries[4][1]["pairs"]["ETHUSDT"][4] is None                    # total nul sur 5 min
 
 
 def test_flux_five_minute_imbalance_needs_five_closed_minutes():
@@ -264,20 +284,25 @@ def test_pair_tracker_writes_only_on_change_caps_per_hour_and_resumes_each_hour(
     out = tracker.observe(base_sample, now_ms=hour + 5_000, mono=0.0)
     assert [k for k, _ in out] == [carnet.SAMPLE] and out[0][1]["symbol"] == "BTCUSDT"
     assert tracker.observe(base_sample, now_ms=hour + 10_000, mono=5.0) == []       # inchangé : rien
-    kinds = []
-    for i in range(1, 12):
+    # Changements > 10 % toutes les 5 s : au plus une écriture par 10 min (espacement), 6 par heure calendaire.
+    written_at = []
+    for i in range(1, 700):
         sample = dict(base_sample, bid_1=round(base_sample["bid_1"] * (1 + 0.3 * i)))
-        kinds += [k for k, _ in tracker.observe(sample, now_ms=hour + 10_000 + 5_000 * i, mono=5.0 * (i + 1))]
-    assert kinds.count(carnet.SAMPLE) == carnet.MAX_WRITES_PER_HOUR - 1      # plafond horaire atteint
-    assert tracker.samples == 13
+        now_ms = hour + 10_000 + 5_000 * i
+        written_at += [now_ms for k, _ in tracker.observe(sample, now_ms=now_ms, mono=5.0 * (i + 1)) if k == carnet.SAMPLE]
+    assert len(written_at) == carnet.MAX_WRITES_PER_HOUR - 1
+    assert min(b - a for a, b in zip(written_at, written_at[1:], strict=False)) >= carnet.MIN_WRITE_GAP_SECONDS * 1000
+    assert tracker.samples == 701 and tracker.written == carnet.MAX_WRITES_PER_HOUR
+    # Heure suivante : résumé de l'heure close (sur TOUS les échantillons), compteur calendaire remis à zéro, puis une
+    # écriture possible dès que l'espacement est respecté.
     out = tracker.observe(base_sample, now_ms=hour + 3_600_000 + 5_000, mono=4000.0)
     assert [k for k, _ in out] == [carnet.RESUME, carnet.SAMPLE]
     resume = out[0][1]
-    assert resume["hour"] == base.iso_ms(hour) and resume["samples"] == 13 and resume["written"] == carnet.MAX_WRITES_PER_HOUR
+    assert resume["hour"] == base.iso_ms(hour) and resume["samples"] == 701 and resume["written"] == carnet.MAX_WRITES_PER_HOUR
     assert resume["stats"]["spread_pct"] == {"min": base_sample["spread_pct"], "max": base_sample["spread_pct"],
                                              "mean": base_sample["spread_pct"]}
-    assert resume["stats"]["bid_1"]["max"] == round(base_sample["bid_1"] * 4.3)
-    assert tracker.samples == 1
+    assert resume["stats"]["bid_1"]["max"] == round(base_sample["bid_1"] * (1 + 0.3 * 699))
+    assert tracker.samples == 1 and tracker.written == 1
 
 
 def test_tracked_pairs_add_the_assistant_active_calls_read_only(settings):
@@ -308,10 +333,9 @@ def test_book_collector_samples_every_five_seconds_and_writes_the_journal(settin
     asyncio.run(carnet.run(ctx))
     entries = list(Journal(base.journal_path(settings, base.CARNET, NOW)).entries())
     kinds = [(e["kind"], e["data"]["symbol"]) for e in entries]
-    # échantillons à t=3 (BTC seul), t=9 (BTC+ETH, BTC inchangé), t=15 (BTC ×3 : > 10 %)
-    assert kinds == [("CARNET_5S", "BTCUSDT"), ("CARNET_5S", "ETHUSDT"), ("CARNET_5S", "BTCUSDT")]
-    assert entries[-1]["data"]["bid_1"] == 3 * entries[0]["data"]["bid_1"]
-    assert ctx.state.sources[base.CARNET]["messages"] == 5 and ctx.state.sources[base.CARNET]["entries"] == 3
+    # échantillons à t=3 (BTC seul), t=9 (BTC+ETH, BTC inchangé), t=15 (BTC ×3 : > 10 % mais à moins de 10 min : rien)
+    assert kinds == [("CARNET_5S", "BTCUSDT"), ("CARNET_5S", "ETHUSDT")]
+    assert ctx.state.sources[base.CARNET]["messages"] == 5 and ctx.state.sources[base.CARNET]["entries"] == 2
     assert "16 paires" in ctx.state.sources[base.CARNET]["detail"]
 
 
@@ -364,6 +388,7 @@ def deribit_transport(fail: set[str] = frozenset()):
         if path == "get_index_price":
             return httpx.Response(200, json={"result": {"index_price": 100_000.0, "estimated_delivery_price": 100_000.0}})
         if path == "get_volatility_index_data":
+            assert request.url.params["resolution"] == "3600" and request.url.params["currency"] in ("BTC", "ETH")
             return httpx.Response(200, json={"result": {"data": [[MS - 7_200_000, 50, 51, 49, 50.5], [MS - 3_600_000, 50.5, 52, 50, 51.2]],
                                                         "continuation": None}})
         if path == "get_book_summary_by_currency":
@@ -452,18 +477,28 @@ def test_reddit_hour_spaces_requests_and_records_errors_per_subreddit(settings):
     assert attention.next_hour_slot(NOW) == pd.Timestamp("2026-10-10 12:02", tz="UTC")
 
 
-def test_google_trends_is_declared_unavailable_without_pytrends(monkeypatch):
-    import builtins
-    real_import = builtins.__import__
+def test_google_trends_is_unavailable_and_reddit_source_runs_hourly(settings, monkeypatch):
+    monkeypatch.setattr(attention, "REQUEST_GAP_SECONDS", 0.0)      # l'espacement réel de 2 s est testé plus haut
+    clock = FakeClock()
+    hits = []
 
-    def fake_import(name, *args, **kwargs):
-        if name.startswith("pytrends"):
-            raise ImportError("absent")
-        return real_import(name, *args, **kwargs)
+    def handler(request):
+        hits.append(request.url.path)
+        return httpx.Response(200, json={"data": {"children": []}})
 
-    monkeypatch.setattr(builtins, "__import__", fake_import)
-    available, reason = attention.trends_available()
-    assert available is False and "NON_DISPONIBLE" in reason
+    async def sleep(seconds):
+        clock.advance(seconds)
+        if clock.at >= NOW + timedelta(minutes=65):
+            ctx.stop.set()
+
+    ctx = context(settings, clock, http=net.CollectHttp(transport=httpx.MockTransport(handler)), sleep=sleep)
+    asyncio.run(attention.run(ctx))
+    status = ctx.state.sources[base.ATTENTION]
+    assert status["trends"] == base.UNAVAILABLE and "NON_DISPONIBLE" in status["detail"] and "pytrends" in status["detail"]
+    assert not hasattr(attention, "trends_day")                        # aucun chemin de code pytrends
+    entries = list(Journal(base.journal_path(settings, base.ATTENTION, NOW)).entries())
+    assert [e["kind"] for e in entries] == [attention.REDDIT, attention.REDDIT] and len(hits) == 6
+    assert entries[0]["data"]["hour"] == "2026-10-10T11:00:00+00:00"
 
 
 # --- reconnexion, état, service ----------------------------------------------------------------------------------
@@ -488,6 +523,75 @@ def test_supervisor_reconnects_a_cut_stream_with_growing_waits(settings, monkeyp
     assert status["entries"] == 6                      # par connexion : un LIQ_GROS (≥ 100 000 USDT) et la LIQ_MINUTE close
     state = json.loads(base.state_path(settings).read_text(encoding="utf-8"))
     assert state["sources"]["LIQUIDATIONS"]["messages"] == 3 and state["places_orders"] is False
+
+
+def test_stop_cancels_blocked_streams_and_waits_quickly(settings):
+    """Flux fictif qui ne rend jamais rien + sources qui dorment : `stop` posé après 0,1 s → retour en < 1 s, ARRETE."""
+    import time as real_time
+
+    @asynccontextmanager
+    async def frozen_stream(url):
+        net.check_url(url)
+
+        async def messages():
+            await asyncio.Future()          # jamais de message
+            yield {}
+        yield messages()
+
+    clock = FakeClock()
+    ctx = context(settings, clock, stream=frozen_stream, http=net.CollectHttp(transport=deribit_transport()))
+
+    async def scenario():
+        asyncio.get_running_loop().call_later(0.1, ctx.stop.set)
+        await service.run_all(ctx)
+
+    started = real_time.monotonic()
+    asyncio.run(scenario())
+    assert real_time.monotonic() - started < 1.0
+    state = base.read_state(settings)
+    assert all(v["status"] == base.STOPPED for v in state["sources"].values())
+    assert all(v["errors"] == 0 for v in state["sources"].values())
+
+
+def test_pair_list_change_reloads_the_book_stream_without_counting_an_error(settings, monkeypatch):
+    monkeypatch.setattr(carnet, "PAIRS_REFRESH_SECONDS", 0.0)
+    monkeypatch.setattr(service, "BACKOFF_FIRST", 0.001)
+    path = settings.root / "state" / "assistant.json"
+    path.parent.mkdir(parents=True)
+    path.write_text("{}", encoding="utf-8")
+    clock = FakeClock()
+    calls = []
+
+    @asynccontextmanager
+    async def stream(url):
+        calls.append(url)
+        if len(calls) == 1:
+            path.write_text(json.dumps({"active_calls": [{"symbol": "DOGEUSDT"}]}), encoding="utf-8")
+
+        async def messages():
+            for _ in range(3):
+                clock.advance(1.0)
+                yield depth("BTCUSDT")
+        yield messages()
+
+    ctx = context(settings, clock, stream=stream)
+    asyncio.run(service.supervise(base.CARNET, ctx, carnet.run, max_runs=2))
+    assert len(calls) == 2 and "dogeusdt@depth20" in calls[1] and "dogeusdt" not in calls[0]
+    status = ctx.state.sources[base.CARNET]
+    # 1re connexion : rechargement (pas une erreur, pas d'attente) ; 2e : flux fini normalement → une reconnexion comptée.
+    assert status["errors"] == 1 and "flux terminé" in status["last_error"] and status["reconnections"] == 1
+
+
+def test_recorder_survives_a_clock_going_backwards(settings):
+    clock = FakeClock()
+    ctx = context(settings, clock)
+    first = ctx.recorder.append(base.FLUX, "X", {"a": 1}, now=clock())
+    clock.advance(-30)
+    second = ctx.recorder.append(base.FLUX, "X", {"a": 2}, now=clock())
+    assert second["at"] == "2026-10-10T12:00:30.001000+00:00" and second["data"]["clock_adjusted"] is True
+    assert second["data"]["clock_at"] == "2026-10-10T12:00:00+00:00" and second["prev"] == first["hash"]
+    assert Journal(base.journal_path(settings, base.FLUX, NOW)).verify()["ok"]
+    assert ctx.state.sources[base.FLUX]["entries"] == 2 and ctx.state.sources[base.FLUX]["errors"] == 0
 
 
 def test_supervisor_marks_a_refused_address_unavailable_without_retrying(settings):

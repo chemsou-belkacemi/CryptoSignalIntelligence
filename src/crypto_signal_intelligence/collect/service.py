@@ -28,10 +28,12 @@ from .base import (
     LOCK_FILE,
     OPTIONS,
     RECONNECTING,
+    RELOADING,
     STOPPED,
     UNAVAILABLE,
     Context,
     Recorder,
+    Reload,
     State,
 )
 from .net import CollectHttp, NetError, RefusedUrl, ws_messages
@@ -70,8 +72,13 @@ async def supervise(name: str, ctx: Context, runner: Callable, *, max_runs: int 
             if ctx.stop.is_set():
                 break
             ctx.state.error(name, "flux terminé, reconnexion", status=RECONNECTING)
-        except asyncio.CancelledError:
+        except asyncio.CancelledError:                      # arrêt demandé : l'annulation interrompt `async for`
+            ctx.state.touch(name, status=STOPPED)
             raise
+        except Reload as exc:                               # pas une erreur : relance immédiate
+            ctx.state.touch(name, status=RELOADING, detail=str(exc))
+            ctx.state.write()
+            continue
         except (RefusedUrl, ImportError) as exc:            # ne se répare pas tout seul : on n'insiste pas
             ctx.state.error(name, exc, status=UNAVAILABLE)
             ctx.state.write(force=True)
@@ -114,16 +121,20 @@ def build_context(settings: Settings, *, clock: Callable[[], datetime] | None = 
 
 
 async def run_all(ctx: Context, *, sources: tuple[str, ...] | None = None, max_runs: int | None = None) -> None:
+    """Toutes les sources jusqu'à `stop` (ou jusqu'à leur fin avec `max_runs`) ; l'arrêt annule les tâches, qui
+    interrompent leurs flux et leurs attentes, puis l'état est écrit `ARRETE`."""
     names = sources or tuple(RUNNERS)
     tasks = [asyncio.create_task(supervise(n, ctx, RUNNERS[n], max_runs=max_runs), name=f"collect-{n}") for n in names]
     tasks.append(asyncio.create_task(state_writer(ctx), name="collect-etat"))
+    work: asyncio.Future = asyncio.ensure_future(asyncio.gather(*tasks[:-1]))
+    stopper: asyncio.Future = asyncio.create_task(ctx.stop.wait(), name="collect-stop")
     try:
-        await asyncio.gather(*tasks[:-1])
+        await asyncio.wait({work, stopper}, return_when=asyncio.FIRST_COMPLETED)
     finally:
         ctx.stop.set()
-        for task in tasks:
+        for task in [*tasks, stopper]:
             task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        await asyncio.gather(*tasks, stopper, work, return_exceptions=True)
         for name in names:
             ctx.state.touch(name, status=STOPPED)
         ctx.state.write(force=True)

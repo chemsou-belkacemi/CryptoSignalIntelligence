@@ -1,4 +1,4 @@
-# Collecteur en shadow : données publiques de marché hors bougies (2026-10-10)
+# Collecteur en shadow : données publiques de marché hors bougies (2026-10-09)
 
 Code : `src/crypto_signal_intelligence/collect/` (`net.py`, `base.py`, `liquidations.py`, `carnet.py`, `flux.py`,
 `options.py`, `attention.py`, `service.py`). Tests : `tests/test_collect.py`. Commande : `csi collecteur` (service
@@ -25,7 +25,8 @@ Binance passent par `collect/net.py`, qui refuse toute adresse hors de cette lis
 | `wss://fstream.binance.com/` | flux public du marché à terme : `!forceOrder@arr` |
 | `https://www.deribit.com/api/v2/public/` | API publique de Deribit (indice, DVOL, résumé des options) |
 | `https://www.reddit.com/r/<sub>/new.json` | derniers messages publics d'un sous-forum |
-| `https://trends.google.com/` | Google Trends via `pytrends` (NON_DISPONIBLE sans la bibliothèque, voir plus bas) |
+
+Google Trends n'y figure pas : NON_DISPONIBLE (voir la source 5), aucune adresse ouverte pour rien.
 
 Pas de `http://`, pas de `ws://`, pas d'identifiants dans l'adresse, et les mots `private`, `account`, `signature`,
 `apikey`, `listenkey`… sont refusés partout (sécurité en profondeur : la liste fermée les exclut déjà). Aucun
@@ -68,11 +69,14 @@ sur le dernier carnet reçu (rien si le dernier message a plus de 15 s).
   la bande : la profondeur est un **minimum**).
   Écrite **seulement** si, par rapport à la dernière entrée écrite de la paire, l'écart ou une profondeur
   (`bid_0.5`, `ask_0.5`, `bid_1`, `ask_1`) change de plus de **10 %**, ou si `imb_1` bouge de plus de 0,10 (absolu :
-  un rapport n'a pas de sens près de zéro). Plafond : **6 entrées par paire et par heure** (sinon le journal
-  explose : les 20 niveaux d'une paire liquide changent de plus de 10 % en permanence). Les échantillons non écrits
-  comptent dans le résumé horaire.
-- `CARNET_RESUME` (par heure et par paire) : `hour`, `symbol`, `samples`, `written`, `max_writes_per_hour`, `stats`
-  = `{spread_pct, bid_0.5, ask_0.5, bid_1, ask_1, imb_1: {min, max, mean}}` sur **tous** les échantillons de 5 s.
+  un rapport n'a pas de sens près de zéro) ; **au moins 10 min entre deux entrées d'une même paire** et **6 au plus
+  par paire et par heure calendaire**. Sans ces deux bornes le journal explose : sur BTC et ETH, depth20 est tronqué,
+  ses 20 niveaux changent de plus de 10 % en permanence et les écritures partiraient en rafale au début de chaque
+  heure. `CARNET_5S` est donc un **échantillon** espacé, pas la mesure.
+- `CARNET_RESUME` (par heure et par paire) : `hour`, `symbol`, `samples`, `written` (entrées `CARNET_5S` de cette
+  heure calendaire), `max_writes_per_hour`, `stats` = `{spread_pct, bid_0.5, ask_0.5, bid_1, ask_1, imb_1: {min, max,
+  mean}}` sur **tous** les échantillons de 5 s. **C'est la mesure de référence du carnet** ; une étude future part
+  de là.
 
 **Limite** : depth20 suffit pour des bornes, pas pour une profondeur exacte : pour BTC ou ETH, ±0,5 % dépasse presque
 toujours les 20 niveaux (`truncated` vrai). Le relevé REST à 1 000 niveaux reste celui de `forward/liquidity_log.py`
@@ -87,14 +91,17 @@ Flux `<sym>@aggTrade` pour les 16 paires. `m` vrai = l'acheteur est le teneur de
   gros ordres, USDT des gros ordres]}` (ordre `flux.FIELDS`, non répété dans l'entrée). Déséquilibre = (achats −
   ventes) / (achats + ventes), 3 décimales ; celui à 5 min sur les 5 dernières minutes closes (`null` tant qu'il n'y
   en a pas 5 depuis le démarrage).
-- `FLUX_GROS` : transaction agrégée d'un notionnel **≥ 50 000 USDT** : `symbol`, `taker_side`, `price`, `quantity`,
-  `notional_usdt`, `time` ; au plus **3 par paire et par minute** (les suivantes sont comptées dans `FLUX_MINUTE`).
+- `FLUX_GROS` : transaction agrégée d'un notionnel **≥ 100 000 USDT pour BTCUSDT et ETHUSDT, ≥ 50 000 USDT pour les
+  autres paires** (table `flux.LARGE_USDT_BY_PAIR`, déclarée ici : à 50 000 USDT, BTC et ETH tapaient le plafond en
+  continu) : `symbol`, `taker_side`, `price`, `quantity`, `notional_usdt`, `time` ; au plus **3 par paire et par
+  minute** (les suivantes sont comptées dans `FLUX_MINUTE`). Une minute sans transaction compte (0, 0) dans le
+  déséquilibre à 5 min et produit quand même sa `FLUX_MINUTE` (zéros).
 
 ### 4. OPTIONS — `C_OPTIONS-AAAA-MM.jsonl`
 
 Deribit REST public, toutes les **15 min** (hh:00:20, :15:20, :30:20, :45:20), BTC puis ETH, trois lectures :
-`get_index_price` (`btc_usd`), `get_volatility_index_data` (DVOL, résolution 60 s = bougies horaires, 3 dernières
-heures → dernière clôture), `get_book_summary_by_currency` (`kind=option`).
+`get_index_price` (`btc_usd`), `get_volatility_index_data` (DVOL, `resolution=3600` — en secondes, donc des bougies
+horaires — sur les 3 dernières heures → dernière clôture), `get_book_summary_by_currency` (`kind=option`).
 
 - `OPTIONS_15M` (une entrée par devise) : `currency`, `time`, `index_price`, `dvol` = `{value, at}`, `instruments`,
   `put_call_oi`, `oi_calls`, `oi_puts`, `oi_unit` (« monnaie de base »), `atm_iv_30d` = `{expiry, days, strike,
@@ -107,8 +114,8 @@ heures → dernière clôture), `get_book_summary_by_currency` (`kind=option`).
 **Limites.** Le résumé ne donne pas les grecs : le **delta est approché** par Black-Scholes avec `mark_iv` et un taux
 nul (dit dans `delta_method`), les strikes retenus sont écrits pour que ce soit vérifiable ; `skew_25d` est `null` si
 aucune option n'approche le delta 0,25 à 0,10 près. **À VÉRIFIER AU DÉPLOIEMENT** : les noms de champs et de
-paramètres viennent de la documentation publique de Deribit (lue le 2026-10-10 : `mark_iv`, `underlying_price`,
-`open_interest`, `resolution` ∈ {1, 60, 3600, 43200, 1D}, `index_name=btc_usd`) ; les tests n'ont vu que des
+paramètres viennent de la documentation publique de Deribit (lue le 2026-10-09 : `mark_iv`, `underlying_price`,
+`open_interest`, `resolution` ∈ {1, 60, 3600, 43200, 1D} en secondes, `index_name=btc_usd`) ; les tests n'ont vu que des
 réponses fictives. Si Deribit change, l'entrée garde les données brutes qui marchent et note l'erreur.
 
 ### 5. ATTENTION — `C_ATTENTION-AAAA-MM.jsonl`
@@ -125,10 +132,11 @@ réponses fictives. Si Deribit change, l'entrée garde les données brutes qui m
   pour ne pas compter deux fois un message vu à deux heures de suite. `hour_fully_covered` faux = plus de 100
   messages dans l'heure, le compte est un minimum.
 
-**Google Trends : NON_DISPONIBLE.** `pytrends` n'est pas ajouté aux dépendances (API non officielle qui casse
-régulièrement) ; sans la bibliothèque, l'état porte `trends: NON_DISPONIBLE` et rien n'est écrit. Si elle est
-installée un jour, `ATTENTION_TRENDS_J` (une fois par jour, après 00:10 UTC) écrirait `day`, `terms` =
-`{bitcoin, crypto, ethereum, altcoin: {last, mean_7d}}` (intérêt relatif 0-100 sur 7 jours), à VÉRIFIER AU DÉPLOIEMENT.
+**Google Trends : NON_DISPONIBLE** (état : `trends: NON_DISPONIBLE`, raison dans `detail`). La seule bibliothèque
+connue, `pytrends`, repose sur une API non officielle qui casse régulièrement **et** fait ses propres appels réseau,
+hors du client à liste fermée : aucun chemin de code, aucune dépendance, `trends.google.com` n'est pas dans la
+liste. L'entrée `ATTENTION_TRENDS_J` prévue (une fois par jour : « bitcoin », « crypto », « ethereum », « altcoin »)
+n'existera que si une source publique lisible par `collect/net.py` apparaît.
 
 ## Service
 
@@ -138,14 +146,19 @@ installée un jour, `ATTENTION_TRENDS_J` (une fois par jour, après 00:10 UTC) �
 - **Reconnexion** : une coupure (flux fermé, panne réseau, exception) est inscrite dans l'état, puis la source est
   relancée après une attente exponentielle **1 s → 2 → 4 → … → 60 s**, remise à 1 s après 5 min de fonctionnement
   stable. Ping WebSocket toutes les 20 s. Une adresse refusée ou une bibliothèque absente met la source en
-  `NON_DISPONIBLE` sans la relancer ; les autres continuent.
+  `NON_DISPONIBLE` sans la relancer ; les autres continuent. Le carnet qui se reconnecte parce que la liste de paires
+  a changé passe `RECHARGEMENT` : ni erreur ni attente.
+- **Horloge en recul** (NTP, machine réveillée) : le journal refuse une entrée antérieure à la précédente ; elle est
+  ré-horodatée à `précédente + 1 ms` avec `clock_adjusted: true` et `clock_at` (l'heure lue), la source continue.
 - **État** `state/C_ETAT.json`, réécrit au plus toutes les 10 s et au moins toutes les 30 s : par source `status`
-  (`DEMARRAGE`, `EN_SERVICE`, `RECONNEXION`, `NON_DISPONIBLE`, `ARRETE`), `last_message_at`, `last_entry_at`,
+  (`DEMARRAGE`, `EN_SERVICE`, `RECONNEXION`, `RECHARGEMENT`, `NON_DISPONIBLE`, `ARRETE`), `last_message_at`, `last_entry_at`,
   `messages`, `entries`, `errors`, `last_error` (sans secret : il n'y en a aucun), `reconnections`, `next_retry_s`,
   `bytes_month`, `detail` ; plus `written_at`, `started_at`, `priority_lowered`, `places_orders: false`.
 - **Santé** : `csi collecteur-health --max-age 300` (code 0 si `C_ETAT.json` a été réécrit depuis moins de 5 min) ;
   c'est le `healthcheck` du service Docker.
-- **Arrêt** : SIGTERM/SIGINT → tâches annulées, état écrit (`ARRETE`), verrou libéré (`stop_grace_period: 30s`).
+- **Arrêt** : SIGTERM/SIGINT → `stop` posé, toutes les tâches annulées (l'annulation interrompt les `async for` des
+  flux et les attentes des sources REST), état écrit (`ARRETE` pour chaque source), verrou libéré ; testé : retour en
+  moins d'une seconde sur des flux muets (`stop_grace_period: 30s`).
 - **Rotation** : mensuelle, par le nom du fichier (le mois de l'horodatage de l'entrée). Rien n'est supprimé.
 
 ## Débit estimé (à vérifier sur `bytes_month` dans l'état après quelques jours)
@@ -154,15 +167,16 @@ Enveloppe d'une entrée (numéro, heure, nature, empreintes chaînées) ≈ 230 
 
 | Source | Entrées | Estimation |
 |---|---|---|
-| FLUX | 1 440 `FLUX_MINUTE`/jour (16 paires, ≈ 0,9 Ko) + `FLUX_GROS` (plafonné 3/paire/min ; surtout BTC et ETH) | ≈ 1,3 Mo/jour + 0,3 à 1 Mo/jour → **40 à 70 Mo/mois** |
+| FLUX | 1 440 `FLUX_MINUTE`/jour (16 paires, ≈ 1,3 Ko avec l'enveloppe) + `FLUX_GROS` (≥ 100 000 USDT sur BTC/ETH, ≥ 50 000 ailleurs, plafonné 3/paire/min) | ≈ 1,9 Mo/jour (**56 Mo/mois**) + gros ordres : BTC/ETH à 100 000 USDT ≈ quelques centaines/jour, altcoins rares → ≈ 5 à 15 Mo/mois → **60 à 70 Mo/mois** |
 | LIQUIDATIONS | ≤ 1 440 `LIQ_MINUTE`/jour (≈ 1 Ko, 10 paires + reste) + `LIQ_GROS` (rares) + 24 résumés | ≤ 1,5 Mo/jour → **20 à 45 Mo/mois** selon la part des minutes avec liquidation |
-| CARNET | ≤ 6 `CARNET_5S`/paire/heure (≈ 420 o) + 24 résumés/paire (≈ 550 o) | 19 paires (16 + appels actifs) : ≤ 1,4 Mo/jour → **≤ 42 Mo/mois** ; 40 paires : ≤ 85 Mo/mois |
+| CARNET | ≤ 6 `CARNET_5S`/paire/heure, espacées de 10 min (≈ 420 o) + 24 résumés/paire (≈ 550 o, la référence) | 19 paires (16 + appels actifs) : ≤ 1,4 Mo/jour → **≤ 42 Mo/mois** ; 40 paires : ≤ 85 Mo/mois |
 | OPTIONS | 192 entrées/jour (≈ 0,9 Ko) | **≈ 5 Mo/mois** |
 | ATTENTION | 24 entrées/jour (≈ 0,7 Ko) | **< 1 Mo/mois** |
 
-Total attendu **≈ 110 à 160 Mo/mois** avec 19 paires au carnet ; la cible est < 150 Mo/mois. Si une source dépasse,
-on agrège davantage, dans cet ordre : `flux.LARGE_USDT` (50 000 → 100 000 USDT), `carnet.MAX_WRITES_PER_HOUR`
-(6 → 3), `liquidations.TOP_PAIRS` (10 → 5). Aucune de ces constantes n'est un réglage de stratégie.
+Total attendu **≈ 130 à 165 Mo/mois** avec 19 paires au carnet ; la cible est < 150 Mo/mois, le carnet étant
+désormais borné (10 min entre deux `CARNET_5S`). Si une source dépasse, on agrège davantage, dans cet ordre :
+`flux.LARGE_USDT_BY_PAIR` (100 000 USDT pour d'autres paires), `carnet.MAX_WRITES_PER_HOUR` (6 → 3),
+`liquidations.TOP_PAIRS` (10 → 5). Aucune de ces constantes n'est un réglage de stratégie.
 
 ## Ce qui n'est PAS fait
 

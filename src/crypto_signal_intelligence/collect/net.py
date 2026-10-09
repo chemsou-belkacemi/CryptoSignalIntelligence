@@ -8,8 +8,8 @@ Adresses autorisées (préfixes exacts, schéma compris) :
 - wss://stream.binance.com:9443/      flux publics Spot (carnet, transactions agrégées) ;
 - wss://fstream.binance.com/          flux publics du marché à terme (liquidations) ;
 - https://www.deribit.com/api/v2/public/   API publique de Deribit (options, DVOL, indice) ;
-- https://www.reddit.com/r/<sub>/new.json  derniers messages publics d'un sous-forum ;
-- https://trends.google.com/          Google Trends (via pytrends si disponible, sinon écarté).
+- https://www.reddit.com/r/<sub>/new.json  derniers messages publics d'un sous-forum.
+Google Trends n'y est pas : NON_DISPONIBLE (pytrends ferait ses appels hors de ce client), voir collect/attention.py.
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ import httpx
 USER_AGENT = "crypto-signal-intelligence/0.1 (collecteur shadow, lecture seule, sans cle)"
 MAX_BYTES = 4_000_000
 ALLOWED_WS = ("wss://stream.binance.com:9443/", "wss://fstream.binance.com/")
-ALLOWED_HTTPS = ("https://www.deribit.com/api/v2/public/", "https://trends.google.com/")
+ALLOWED_HTTPS = ("https://www.deribit.com/api/v2/public/",)
 REDDIT_NEW = re.compile(r"^https://www\.reddit\.com/r/[A-Za-z0-9_]{1,30}/new\.json$")
 ALLOWED = (*ALLOWED_WS, *ALLOWED_HTTPS, "https://www.reddit.com/r/<sub>/new.json")
 #: Mots interdits dans toute adresse et tout paramètre (sécurité en profondeur : la liste fermée les exclut déjà ;

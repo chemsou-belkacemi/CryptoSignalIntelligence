@@ -2,7 +2,8 @@
 
 Trois lectures par devise (`https://www.deribit.com/api/v2/public/…`, liste fermée de `collect/net.py`) :
 - `get_index_price?index_name=btc_usd` → prix de l'indice ;
-- `get_volatility_index_data` (résolution 60 s = bougies horaires de DVOL, 3 dernières heures) → dernière clôture ;
+- `get_volatility_index_data` (`resolution=3600`, en secondes : bougies horaires de DVOL, 3 dernières heures) → dernière
+  clôture ;
 - `get_book_summary_by_currency?currency=BTC&kind=option` → un résumé par option : `instrument_name`
   (`BTC-27DEC24-100000-C`), `mark_iv` (volatilité implicite du prix de marque, en %), `underlying_price`,
   `open_interest` (en monnaie de base pour les options), `bid_price`, `ask_price`.
@@ -158,7 +159,7 @@ def snapshot(http: CollectHttp, currency: str, *, now: datetime) -> dict:
         end = int(moment.timestamp() * 1000)
         data = _result(http.get_json(f"{BASE}get_volatility_index_data",
                                      {"currency": currency, "start_timestamp": end - 3 * 3_600_000,
-                                      "end_timestamp": end, "resolution": "60"}))
+                                      "end_timestamp": end, "resolution": "3600"}))
         candles = data.get("data") or [] if isinstance(data, dict) else []
         if not candles:
             raise ValueError("DVOL vide")
@@ -190,7 +191,7 @@ async def run(ctx: Context) -> None:
     ctx.state.touch(OPTIONS, detail=f"Deribit public, {', '.join(CURRENCIES)}, toutes les 15 min")
     while not ctx.stop.is_set():
         wait = (next_slot(ctx.clock()) - ctx.now()).total_seconds()
-        await ctx.sleep(max(0.0, wait))
+        await ctx.pause(wait)
         if ctx.stop.is_set():
             break
         for currency in CURRENCIES:

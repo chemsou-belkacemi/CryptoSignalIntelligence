@@ -10,6 +10,7 @@ dernière erreur sans secret, octets écrits ce mois). Lu par `GET /collecte` et
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -23,7 +24,7 @@ from typing import Any
 import pandas as pd
 
 from ..config import Settings
-from ..forward.journal import Journal, canonical, utc_iso
+from ..forward.journal import Journal, _parse, _tail, canonical, utc_iso
 from .net import CollectHttp
 
 log = logging.getLogger("csi.collect")
@@ -34,6 +35,7 @@ PREFIX = "C_"
 STATE_FILE = "state/C_ETAT.json"
 LOCK_FILE = "state/collecteur.lock"
 IN_SERVICE, RECONNECTING, UNAVAILABLE, STOPPED, STARTING = "EN_SERVICE", "RECONNEXION", "NON_DISPONIBLE", "ARRETE", "DEMARRAGE"
+RELOADING = "RECHARGEMENT"
 NOTE = ("Relevé en shadow (docs/COLLECTE.md) : aucune influence sur les tests en direct, les avis ou "
         "BinanceSpotManager ; aucun pouvoir prédictif revendiqué.")
 VERSION = 1
@@ -128,15 +130,33 @@ class State:
         return True
 
 
+class Reload(Exception):
+    """Levée par une source qui veut être relancée tout de suite (liste de paires changée) : pas une erreur."""
+
+
 class Recorder:
-    """Ajoute une entrée au journal mensuel de la source (verrouillé par `Journal`) et met l'état à jour."""
+    """Ajoute une entrée au journal mensuel de la source (verrouillé par `Journal`) et met l'état à jour.
+
+    Horloge en recul (NTP, machine réveillée) : `Journal` refuse un horodatage antérieur à sa dernière entrée ; on
+    ré-horodate alors à `dernière entrée + 1 ms` avec `clock_adjusted: true` dans les données, sans arrêter la source."""
 
     def __init__(self, settings: Settings, state: State):
         self.settings, self.state = settings, state
 
     def append(self, source: str, kind: str, data: dict, *, now: datetime) -> dict:
         at = pd.Timestamp(now)
-        entry = journal(self.settings, source, at).append(kind, data, now=at)
+        log_ = journal(self.settings, source, at)
+        try:
+            entry = log_.append(kind, data, now=at)
+        except ValueError as exc:
+            if "antérieur" not in str(exc):
+                raise
+            previous = next((e for e in (_parse(line) for line in reversed(_tail(log_.path, 2))) if e), None)
+            if previous is None:
+                raise
+            adjusted = pd.Timestamp(previous["at"]) + pd.Timedelta(milliseconds=1)
+            log.warning("collecteur %s : horloge en recul (%s < %s), entrée ré-horodatée", source, utc_iso(at), previous["at"])
+            entry = log_.append(kind, {**data, "clock_adjusted": True, "clock_at": utc_iso(at)}, now=adjusted)
         status = self.state.sources[source]
         status["entries"] += 1
         status["last_entry_at"] = entry["at"]
@@ -153,13 +173,23 @@ class Context:
     state: State
     clock: Callable[[], datetime] = lambda: datetime.now(UTC)
     monotonic: Callable[[], float] = time.monotonic
-    sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep   # coroutine : await ctx.sleep(s)
+    sleep: Callable[[float], Awaitable[Any]] | None = None     # test : coroutine qui avance une horloge fictive
     http: CollectHttp | None = None
     stream: Callable | None = None                         # ws_messages(url) ou flux fictif en test
     stop: asyncio.Event = field(default_factory=asyncio.Event)
 
     def now(self) -> pd.Timestamp:
         return pd.Timestamp(self.clock())
+
+    async def pause(self, seconds: float) -> None:
+        """Attente ANNULABLE : revient dès que `stop` est posé (ou tout de suite si `seconds` ≤ 0)."""
+        if self.sleep is not None:
+            await self.sleep(max(0.0, seconds))
+            return
+        if seconds <= 0 or self.stop.is_set():
+            return
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(self.stop.wait(), timeout=seconds)
 
 
 def minute_floor(stamp_ms: int) -> int:
