@@ -399,6 +399,58 @@ async function loadTechnical(force = false) {
 // Feu de protection du marché (GET /meteo) : outil de prudence, aucun gain démontré ; étude en cours.
 const METEO_COLORS = { VERT: ["ok", "VERT"], ORANGE: ["warn", "ORANGE"], ROUGE: ["bad", "ROUGE"], INCONNU: ["neutral", "INCONNU"] };
 
+// Assistant de marché (GET /assistant, docs/ASSISTANT.md) : appels en SHADOW mesurés par le test en direct F18 ;
+// aucun ordre, aucun gain démontré. État écrit par la surveillance à chaque clôture 4 h.
+const ASSISTANT_SETUPS = { REPLI_REPRISE: "repli puis reprise", REJET_SUPPORT: "rejet du support" };
+const ASSISTANT_HONESTY = "Assistant en shadow : CSI ne passe aucun ordre. Ses appels sont mesurés en direct par le test F18_ASSISTANT contre des placebos ; aucun gain démontré. Le score classe, il ne décide pas.";
+
+async function loadAssistant() {
+  const target = document.getElementById("assistant-result");
+  if (!target) return;
+  busy(target, "Assistant de marché…");
+  try {
+    const d = await api("/assistant");
+    if (!d.available) {
+      target.replaceChildren(card("Assistant de marché (shadow, test F18)",
+        el("p", { class: "muted", text: d.reason || "aucune évaluation" }),
+        el("p", { class: "small", text: ASSISTANT_HONESTY })));
+      return;
+    }
+    const light = d.light || {};
+    const [kind, label] = METEO_COLORS[light.color] || METEO_COLORS.INCONNU;
+    const btc = d.btc || {};
+    const regimes = d.regimes || {};
+    const regimeText = ["HAUSSE", "RANGE", "BAISSE", "INDECIS", "NON_EVALUABLE"].map((k) => `${regimes[k] || 0} ${k}`).join(" · ");
+    const rows = [
+      ["Dernière évaluation", `clôture 4 h du ${when(d.at)} · calculée ${when(d.evaluated_at)}`],
+      ["BTC (clôture journalière / EMA50)", btc.known ? `${price(btc.close)} ${btc.above_ema50 ? ">" : "≤"} EMA50 ${price(btc.ema50)} (journée du ${btc.day})` : `inconnu : ${btc.reason || "–"}`],
+      ["Régimes des paires", regimeText],
+      ["Marché", d.silence ? `silence : ${d.silence}` : `appels permis, taille ${d.size || "normale"} · ${d.candidates || 0} candidat(s), ${d.calls_made || 0} appel(s)`],
+      ["Prochaine évaluation", when(d.next_evaluation_at)],
+    ];
+    const active = (d.active_calls || []).map((c) => [
+      { node: el("strong", { text: pair(c.symbol) }) }, c.regime, ASSISTANT_SETUPS[c.setup] || c.setup, price(c.entry),
+      `${price(c.stop)} (secours ${price(c.hard_stop)})`, price(c.tp1), price(c.tp2),
+      isNum(c.latent_r) ? fmt(c.latent_r, 2, true) : "–", fmt(c.score, 0),
+      (c.explanation || []).join(" "),
+    ]);
+    const refusals = (d.last_refusals || []).slice().reverse().map((r) => [when(r.at), pair(r.symbol), r.regime, r.reason, r.detail || ""]);
+    target.replaceChildren(card("Assistant de marché (shadow, test F18)",
+      banner(kind, `Feu ${label}`, light.explanation || ""),
+      kv(rows),
+      el("h3", { text: `Appels actifs (${active.length})` }),
+      table(["Paire", "Régime", "Configuration", { label: "Entrée", num: true }, { label: "Stop de clôture 4 h", num: true },
+             { label: "TP1", num: true }, { label: "TP2", num: true }, { label: "R latent", num: true }, { label: "Score", num: true },
+             "Explication"], active, "aucun appel actif"),
+      el("h3", { text: "Derniers refus" }),
+      table(["Clôture", "Paire", "Régime", "Raison", "Détail"], refusals, "aucun refus enregistré"),
+      el("pre", { class: "small", text: d.resume || "" }),
+      el("p", { class: "small", text: ASSISTANT_HONESTY })));
+  } catch (error) {
+    showError(target, error);
+  }
+}
+
 async function loadMeteo() {
   const target = document.getElementById("meteo-result");
   if (!target) return;
@@ -1453,7 +1505,7 @@ function openTab(name) {
   for (const pane of document.querySelectorAll(".tabpane")) pane.classList.toggle("hidden", pane.id !== `tab-${name}`);
   if (name === "follow") loadFollow();
   if (name === "signal") { loadImages(); loadExports(); }
-  if (name === "market") { loadMeteo(); loadTechnical(); loadVolatility(); loadRisk(); }
+  if (name === "market") { loadAssistant(); loadMeteo(); loadTechnical(); loadVolatility(); loadRisk(); }
 }
 
 function start() {
