@@ -78,8 +78,11 @@ marché (feu, BTC), du régime journalier de chaque paire halal suivie par F15, 
 en hausse, rejet du support en range) et de filtres (carnet, volatilité, gain/risque, macro, news, discipline) ; appels
 en SHADOW avec niveaux, score et explication, boîte Telegram pour le relais, carte « Assistant » et `GET /assistant`.
 Mesuré par le test en direct **F18_ASSISTANT** (pré-inscrit dans `FORWARD_TESTS.md`, 20 placebos à ±84 h) ; **aucun
-gain démontré**, verdict attendu `NON_DEMONTRE` ou `INSUFFISANT`. Branche `feat/assistant`, à relire puis à démarrer
-par `csi forward start F18_ASSISTANT` dans le conteneur de surveillance **[propriétaire]**.
+gain démontré**, verdict attendu `NON_DEMONTRE` ou `INSUFFISANT`. **En service et démarré le 2026-10-09 à 17:52 UTC**
+(commit 9c1c162, essai FWD-20261009T175235Z-1a1a9a ; revue intermédiaire le 2026-11-20, évaluation le 2027-01-01).
+Les appels et leurs résultats sont envoyés au propriétaire par le bot du relais (`TELEGRAM_RELAY.md`), qui le reconnaît
+par ses transferts. Toute retouche de `assistant/*`, `forward/f18.py`, `risk/market_light.py`, `forward/liquidity_log.py`,
+`news/risk.py`, `risk/advice.py` ou `data/store.py` arrête F18 (liste dans `ASSISTANT.md`).
 
 **Feu de protection du marché** (demande du propriétaire du 2026-10-08, `METEO_PROTECTION.md`) : VERT / ORANGE /
 ROUGE / INCONNU d'après la volatilité prévue de BTC (rang sur 365 jours), BTC contre son EMA50 et la largeur ;
