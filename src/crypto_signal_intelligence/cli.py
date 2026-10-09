@@ -2009,6 +2009,53 @@ def health():
 
 
 @app.command()
+def collecteur(source: list[str] = typer.Option(None, "--source", help="Sources à lancer (défaut : les cinq) : "
+                                                 "LIQUIDATIONS, CARNET, FLUX, OPTIONS, ATTENTION"),
+               verbose: bool = False):
+    """Collecteur en shadow (docs/COLLECTE.md) : liquidations, carnet, flux, options, attention → journaux C_*.jsonl.
+    Service séparé de la surveillance ; aucune clé, aucun ordre ; une seule instance ; arrêt : Ctrl+C ou SIGTERM."""
+    from .collect.base import SOURCES, state_path
+    from .collect.service import serve
+    from .live.lock import InstanceAlreadyRunning
+    settings = _settings(verbose)
+    chosen = tuple(s.upper() for s in source) if source else None
+    unknown = [s for s in (chosen or ()) if s not in SOURCES]
+    if unknown:
+        console.print(f"[red]source(s) inconnue(s) : {', '.join(unknown)}[/red] (choix : {', '.join(SOURCES)})")
+        raise typer.Exit(2)
+    console.print(f"Collecteur shadow : {', '.join(chosen or SOURCES)} ; état : {state_path(settings)} ; arrêt : Ctrl+C")
+    try:
+        payload = serve(settings, sources=chosen)
+    except InstanceAlreadyRunning as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(3) from None
+    except KeyboardInterrupt:
+        console.print("arrêt demandé")
+        return
+    for name, status in payload["sources"].items():
+        console.print(f"{name}: {status['status']}, {status['entries']} entrée(s), {status['errors']} erreur(s)")
+
+
+@app.command("collecteur-health")
+def collecteur_health(max_age: int = typer.Option(300, help="Âge maximal de C_ETAT.json en secondes")):
+    """Santé du collecteur : code 0 si C_ETAT.json a été réécrit depuis moins de `max_age` s et qu'au moins une source
+    vit encore (EN_SERVICE, RECONNEXION ou DEMARRAGE), 1 sinon."""
+    from .collect.base import IN_SERVICE, RECONNECTING, STARTING, read_state
+    settings = _settings()
+    state = read_state(settings)
+    written = state.get("written_at")
+    if not state.get("available") or not written:
+        console.print("[red]aucun état du collecteur[/red]")
+        raise typer.Exit(1)
+    age = (_now() - datetime.fromisoformat(str(written))).total_seconds()
+    alive = [k for k, v in state.get("sources", {}).items() if v.get("status") in (IN_SERVICE, RECONNECTING, STARTING)]
+    fresh = 0 <= age <= max_age and bool(alive)
+    detail = f"état écrit il y a {age:.0f} s, {len(alive)} source(s) vivante(s)"
+    console.print(("[green]" if fresh else "[red]") + detail + ("" if fresh else f" (limite {max_age} s, au moins une source)"))
+    raise typer.Exit(0 if fresh else 1)
+
+
+@app.command()
 def dashboard(open_browser: bool = typer.Option(False, "--open", help="Ouvre le fichier dans le navigateur")):
     """Tableau de bord HTML (santé, analyse, rejets, signaux, news, verdicts) : state/dashboard.html."""
     from .reporting.dashboard import write_dashboard
