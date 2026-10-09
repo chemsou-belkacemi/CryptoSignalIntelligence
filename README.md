@@ -1,5 +1,7 @@
 # CryptoSignalIntelligence
 
+[![Licence : AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-blue.svg)](LICENSE) ![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)
+
 **Données → recherche → analyse → validation → signaux TXT.** Binance Spot, long uniquement
 (BUY ou NO_TRADE). Ce projet **ne crée, ne modifie ni n'annule aucun ordre** : il n'a
 aucune route vers les endpoints privés Binance (vérifié par test) et n'utilise aucune clé.
@@ -10,6 +12,68 @@ Aucune promesse de rendement. Zéro signal est une réponse valable.
 Cahier des charges complet : [docs/PROMPT_MAITRE.md](docs/PROMPT_MAITRE.md) (ajouts du 2026-09-30 en section 26).
 Ce qui est testé, non vérifié, bloqué ou non implémenté : [docs/DELIVERY_STATUS.md](docs/DELIVERY_STATUS.md).
 Plan de travail (fait, en cours, à faire, décisions en attente) : [docs/PLAN_DE_TRAVAIL.md](docs/PLAN_DE_TRAVAIL.md).
+Contribuer : [CONTRIBUTING.md](CONTRIBUTING.md). Signaler une faille : [SECURITY.md](SECURITY.md). Historique :
+[CHANGELOG.md](CHANGELOG.md).
+
+## Démarrage rapide
+
+En trois lignes :
+
+- CSI télécharge les bougies publiques de Binance Spot (sans clé), contrôle leur qualité et la causalité des calculs ;
+- il rejoue des stratégies long-only avec frais, en walk-forward, et écrit au plus des signaux TXT `BUY` / `NO_TRADE`
+  (en shadow par défaut) ; il ne passe aucun ordre ;
+- c'est un **outil de recherche et de mesure** : à ce jour, **aucun avantage directionnel après frais n'est démontré**
+  (plus de 850 essais déclarés à l'avance, tous comptés) ; des tests en direct pré-inscrits tournent, sans verdict.
+
+Exemple complet, **sans clé et sans Docker**, après l'[installation](#installation-ubuntu) (Linux, Python 3.14),
+à lancer depuis la racine du dépôt :
+
+```bash
+# 1. Une sélection de tests hors réseau (secrets, données, niveaux, causalité, simulateur), une dizaine de secondes
+.venv/bin/python -m pytest -m "not network" tests/test_secrets.py tests/test_data.py \
+    tests/test_levels_invariants.py tests/test_features.py tests/test_simulator.py
+
+# 2. Un espace d'essai jetable : une seule paire, historique court, rien n'est écrit dans le dépôt
+export CSI_ROOT="$(mktemp -d)" CSI_CONFIG_FILE="$PWD/config/default.toml"
+export CSI_DATA__SYMBOLS='["BTCUSDT"]' CSI_DATA__HISTORY_START=2025-01-01
+
+# 3. Contrôle de l'environnement (nécessite Internet ; « --offline » pour s'en passer)
+.venv/bin/csi doctor
+
+# 4. Bougies 15m et 1h de BTCUSDT depuis le 2025-01-01 (nécessite Internet : environ 12 Mo, 1 à 2 minutes)
+.venv/bin/csi download
+.venv/bin/csi data-quality --symbol BTCUSDT
+
+# 5. Causalité : les décisions passées ne changent pas si le futur change
+.venv/bin/csi validate-causality --symbol BTCUSDT
+
+# 6. Backtest de la stratégie A sur la part DEVELOPMENT de cet historique (2025-01-01 → 2025-06-30)
+.venv/bin/csi backtest --strategy DONCHIAN_VOLUME_BREAKOUT
+```
+
+Sortie attendue (vérifiée le 2026-10-09) :
+
+| Étape | Résumé |
+|---|---|
+| 1 | `54 passed` |
+| 2 | rien (variables d'environnement seulement) |
+| 3 | un tableau où chaque ligne est `OK` : Python 3.14, dépendances, dossiers inscriptibles, REST public, archives, `tickSize BTCUSDT` ; publication en `shadow`, `INTEGRATION_UNVERIFIED` |
+| 4 | `BTCUSDT 15m : ~62 000 bougies … quarantaine 0 \| trous 0`, puis `1h : ~15 500 bougies` ; `data-quality` affiche un JSON terminé par `"ok": true` |
+| 5 | 5 instants de coupure, 400 lignes comparées chacun, `0` feature et `0` décision divergentes, état `OK` |
+| 6 | un tableau par variante et scénario de coûts : en coûts centraux, 55 trades clos et une espérance **négative** (environ −0,29 R par trade) ; `Verdict : NOT_EVALUATED` et le chemin du rapport `reports/BT-…/report.md` sous `$CSI_ROOT` |
+
+Limites connues :
+
+- six mois d'une seule paire **démontrent le code, pas une stratégie** : un verdict vient seulement du walk-forward
+  sur toute la période DEVELOPMENT (`csi walk-forward`, travail lourd), et les trois stratégies y sont **REJECTED** ;
+- les données après le 2025-06-30 sont téléchargées mais **réservées** : le backtest ne les lit pas sans
+  `--i-understand-final-test` (lecture enregistrée) ; ne l'utilisez pas pour un essai ;
+- les données de marché publiques de Binance Spot ne sont ni les prix ni les remplissages de Binance Demo ;
+- `pylock.toml` ne liste que des roues Windows : sous Linux, installez par contraintes (voir plus bas) ;
+- sans le dépôt BinanceSpotManager à côté (`../BinanceSpotManager` ou `$BSM_PATH`), le test de contrat est sauté ;
+- les fixtures de test sont synthétiques : un test vert ne dit rien d'une performance de marché.
+
+Suite complète sans réseau, comme la CI : `.venv/bin/python -m pytest -m "not network"`.
 
 ## État : lots 0 à 2 livrés, lots 3 et 4 en cours
 
