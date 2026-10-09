@@ -89,7 +89,8 @@ def context(settings, clock: FakeClock, *, stream=None, http=None, sleep=None) -
     "wss://fstream.binance.com/ws/!forceOrder@arr",
     "wss://stream.binance.com:9443/stream?streams=btcusdt@depth20@1000ms/ethusdt@aggTrade",
     "https://www.deribit.com/api/v2/public/get_index_price",
-    "https://www.reddit.com/r/CryptoCurrency/new.json",
+    "https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia/all-access/user/Bitcoin/daily/20261008/20261008",
+    "https://api.coingecko.com/api/v3/search/trending",
 ])
 def test_closed_list_accepts_the_declared_public_addresses(url):
     assert net.check_url(url) == url
@@ -102,9 +103,12 @@ def test_closed_list_accepts_the_declared_public_addresses(url):
     "wss://fstream.binance.com/ws/abc@depth@private",
     "https://www.deribit.com/api/v2/private/get_account_summary",
     "https://www.deribit.com/api/v2/public/../private/x",
-    "https://www.reddit.com/r/CryptoCurrency/hot.json",
-    "https://www.reddit.com/api/v1/me",
-    "http://www.reddit.com/r/Bitcoin/new.json",                   # pas de http en clair
+    "https://www.reddit.com/r/CryptoCurrency/new.json",           # Reddit : connexion exigée depuis 2026, retiré
+    "https://api.reddit.com/r/Bitcoin/new.json",
+    "https://api.coingecko.com/api/v3/coins/markets",             # rien d'autre de CoinGecko que « trending »
+    "https://api.coingecko.com/api/v3/simple/price",
+    "https://wikimedia.org/api/rest_v1/page/summary/Bitcoin",      # rien d'autre de Wikimedia que les pages vues
+    "http://wikimedia.org/api/rest_v1/metrics/pageviews/x",        # pas de http en clair
     "ws://stream.binance.com:9443/ws/btcusdt@aggTrade",
     "https://evil.invalid/https://www.deribit.com/api/v2/public/",
     "https://www.deribit.com.evil.invalid/api/v2/public/x",
@@ -427,78 +431,98 @@ def test_options_source_runs_every_quarter_hour_with_a_fake_clock(settings):
 
 
 # --- attention ---------------------------------------------------------------------------------------------------
-def post(ident, created, title, text="", author="pseudo_secret"):
-    return {"kind": "t3", "data": {"name": f"t3_{ident}", "id": ident, "created_utc": created, "title": title,
-                                   "selftext": text, "author": author, "url": "https://reddit.invalid/x"}}
+def wiki_payload(views):
+    return {"items": [{"project": "en.wikipedia", "article": "Bitcoin", "granularity": "daily", "timestamp": "2026100800",
+                       "access": "all-access", "agent": "user", "views": views}]}
 
 
-def test_reddit_counts_mentions_as_whole_words_and_stores_no_content(settings):
-    hour = pd.Timestamp("2026-10-10 11:00", tz="UTC")
-    t = hour.timestamp()
-    listing = {"data": {"children": [
-        post("a", t + 10, "Bitcoin is pumping", "I bought $ETH too"),
-        post("b", t + 20, "ETHEREUM gas fees", "Solana vs ethereum"),
-        post("c", t + 30, "BTCs and ethers are not tickers", "linkage"),          # pas des mots entiers
-        post("d", t + 3600, "too new: next hour", ""),
-        post("e", t - 5, "too old: previous hour", ""),
-        {"kind": "t3", "data": "pas un dict"},
-    ]}}
-    assets = attention.patterns(["BTC", "ETH", "SOL", "LINK"])
-    seen: set[str] = set()
-    counts = attention.count_posts(listing, hour_start=hour, assets=assets, seen=seen)
-    assert counts["posts_in_hour"] == 3 and counts["posts_scanned"] == 6
-    assert counts["mentions"] == {"BTC": 1, "ETH": 2, "SOL": 1, "LINK": 0}
-    assert counts["hour_fully_covered"] is True and len(seen) == 3
-    again = attention.count_posts(listing, hour_start=hour, assets=assets, seen=seen)
-    assert again["posts_in_hour"] == 0                                              # déjà comptés
-    serialized = json.dumps(counts) + json.dumps(sorted(seen))
-    for secret in ("pumping", "pseudo_secret", "t3_a", "reddit.invalid", "gas fees"):
-        assert secret not in serialized
+TRENDING = {"coins": [{"item": {"id": "pepe", "symbol": "pepe", "name": "Pepe", "market_cap_rank": 30, "thumb": "https://x/y.png"}},
+                      {"item": {"id": "solana", "symbol": "sol", "name": "Solana"}},
+                      {"item": {"id": "bitcoin", "symbol": "btc", "name": "Bitcoin"}},
+                      {"pas": "un item"}] + [{"item": {"symbol": f"c{i}"}} for i in range(20)],
+            "nfts": [{"name": "secret"}], "categories": [{"name": "x"}]}
 
 
-def test_reddit_hour_spaces_requests_and_records_errors_per_subreddit(settings):
-    hour = pd.Timestamp("2026-10-10 11:00", tz="UTC")
+def attention_transport(hits, *, missing=("NEAR",), fail=()):
+    def handler(request):
+        hits.append((request.url.host, request.url.path, request.headers.get("User-Agent")))
+        if request.url.host == "api.coingecko.com":
+            return httpx.Response(200, json=TRENDING)
+        page = request.url.path.split("/user/")[1].split("/")[0]
+        base = next(b for b, p in attention.PAGES.items() if p == page)
+        if base in missing:
+            return httpx.Response(404, json={"title": "Not found."})
+        if base in fail:
+            return httpx.Response(500, text="panne")
+        return httpx.Response(200, json=wiki_payload({"BTC": 2206, "ETH": 900}.get(base, 10)))
+    return httpx.MockTransport(handler)
+
+
+def test_wikipedia_daily_views_per_base_with_missing_pages_and_no_content(settings):
     hits, gaps = [], []
-
-    def handler(request):
-        hits.append((request.url.path, request.headers.get("User-Agent")))
-        assert request.url.params["limit"] == "100"
-        if "CryptoMarkets" in request.url.path:
-            return httpx.Response(429, text="trop vite")
-        return httpx.Response(200, json={"data": {"children": [post("z", hour.timestamp() + 1, "bitcoin")]}})
-
-    http = net.CollectHttp(transport=httpx.MockTransport(handler))
-    out = attention.reddit_hour(http, settings, hour_start=hour, seen=set(), sleep=gaps.append)
-    assert [p for p, _ in hits] == ["/r/CryptoCurrency/new.json", "/r/Bitcoin/new.json", "/r/CryptoMarkets/new.json"]
-    assert all(ua and "crypto-signal-intelligence" in ua for _, ua in hits)
-    assert gaps == [attention.REQUEST_GAP_SECONDS, attention.REQUEST_GAP_SECONDS]
-    assert out["posts_in_hour"] == 1 and out["mentions"]["BTC"] == 1 and out["content_stored"] is False
-    assert "CryptoMarkets" in out["errors"] and "429" in out["errors"]["CryptoMarkets"]
-    assert attention.next_hour_slot(NOW) == pd.Timestamp("2026-10-10 12:02", tz="UTC")
+    http = net.CollectHttp(transport=attention_transport(hits, missing=("NEAR",), fail=("HBAR",)))
+    out = attention.wiki_day(http, settings, day=pd.Timestamp("2026-10-08", tz="UTC"), sleep=gaps.append)
+    pages = attention.wiki_pages(settings)
+    assert list(pages)[:2] == ["BTC", "ETH"] and pages["CRYPTO"] == "Cryptocurrency" and len(pages) == 17
+    assert len(hits) == 17 and all(h[0] == "wikimedia.org" and "crypto-signal-intelligence" in h[2] for h in hits)
+    assert hits[0][1].endswith("/user/Bitcoin/daily/20261008/20261008")
+    assert gaps == [attention.REQUEST_GAP_SECONDS] * 16
+    assert out["day"] == "2026-10-08" and out["views"]["BTC"] == 2206 and out["views"]["ETH"] == 900
+    assert out["missing"] == ["NEAR"] and "HBAR" in out["errors"] and "NEAR" not in out["views"] and "HBAR" not in out["views"]
+    assert out["total"] == 2206 + 900 + 10 * 13
+    assert set(json.dumps(out)) and "Not found" not in json.dumps(out)
 
 
-def test_google_trends_is_unavailable_and_reddit_source_runs_hourly(settings, monkeypatch):
-    monkeypatch.setattr(attention, "REQUEST_GAP_SECONDS", 0.0)      # l'espacement réel de 2 s est testé plus haut
-    clock = FakeClock()
+def test_trending_keeps_symbols_only_and_flags_the_universe(settings):
     hits = []
+    http = net.CollectHttp(transport=attention_transport(hits))
+    out = attention.trending_hour(http, settings, hour=pd.Timestamp("2026-10-10 12:00", tz="UTC"))
+    assert hits == [("api.coingecko.com", "/api/v3/search/trending", hits[0][2])]
+    assert out["hour"] == "2026-10-10T12:00:00+00:00"
+    assert out["coins"][:3] == ["PEPE", "SOL", "BTC"] and len(out["coins"]) == attention.MAX_TRENDING
+    assert out["in_universe"] == ["SOL", "BTC"]
+    text = json.dumps(out)
+    for secret in ("Pepe", "thumb", "https://", "secret", "market_cap_rank"):
+        assert secret not in text
+    with pytest.raises(ValueError):
+        attention.parse_trending({"nope": []}, ["BTC"])
 
-    def handler(request):
-        hits.append(request.url.path)
-        return httpx.Response(200, json={"data": {"children": []}})
+
+def test_attention_source_runs_trending_hourly_and_wikipedia_once_a_day(settings, monkeypatch):
+    monkeypatch.setattr(attention, "REQUEST_GAP_SECONDS", 0.0)
+    clock = FakeClock(datetime(2026, 10, 10, 4, 30, tzinfo=UTC))
+    hits = []
 
     async def sleep(seconds):
         clock.advance(seconds)
-        if clock.at >= NOW + timedelta(minutes=65):
+        if clock.at >= datetime(2026, 10, 10, 8, 30, tzinfo=UTC):
             ctx.stop.set()
 
-    ctx = context(settings, clock, http=net.CollectHttp(transport=httpx.MockTransport(handler)), sleep=sleep)
+    ctx = context(settings, clock, http=net.CollectHttp(transport=attention_transport(hits)), sleep=sleep)
     asyncio.run(attention.run(ctx))
     status = ctx.state.sources[base.ATTENTION]
-    assert status["trends"] == base.UNAVAILABLE and "NON_DISPONIBLE" in status["detail"] and "pytrends" in status["detail"]
-    assert not hasattr(attention, "trends_day")                        # aucun chemin de code pytrends
-    entries = list(Journal(base.journal_path(settings, base.ATTENTION, NOW)).entries())
-    assert [e["kind"] for e in entries] == [attention.REDDIT, attention.REDDIT] and len(hits) == 6
-    assert entries[0]["data"]["hour"] == "2026-10-10T11:00:00+00:00"
+    assert status["reddit"] == base.UNAVAILABLE and status["trends"] == base.UNAVAILABLE
+    assert "Reddit NON_DISPONIBLE (connexion exigée depuis 2026)" in status["detail"]
+    entries = list(Journal(base.journal_path(settings, base.ATTENTION, clock.at)).entries())
+    kinds = [e["kind"] for e in entries]
+    # passages à 05:02, 06:02, 07:02, 08:02 : trending à chaque heure, Wikipédia une seule fois après 06:00 (la veille)
+    assert kinds.count(attention.TRENDING) == 4 and kinds.count(attention.WIKI) == 1
+    wiki = next(e["data"] for e in entries if e["kind"] == attention.WIKI)
+    assert wiki["day"] == "2026-10-09" and kinds.index(attention.WIKI) == 2        # juste après le trending de 06:02
+    assert sum(1 for h in hits if h[0] == "api.coingecko.com") == 4
+    # Redémarrage le même jour : la veille déjà relevée n'est pas refaite.
+    assert attention.last_wiki_day(settings, clock.at) == "2026-10-09"
+    clock2 = FakeClock(datetime(2026, 10, 10, 9, 30, tzinfo=UTC))
+
+    async def sleep2(seconds):
+        clock2.advance(seconds)
+        if clock2.at >= datetime(2026, 10, 10, 10, 30, tzinfo=UTC):
+            ctx2.stop.set()
+
+    ctx2 = context(settings, clock2, http=net.CollectHttp(transport=attention_transport(hits)), sleep=sleep2)
+    asyncio.run(attention.run(ctx2))
+    kinds = [e["kind"] for e in Journal(base.journal_path(settings, base.ATTENTION, clock2.at)).entries()]
+    assert kinds.count(attention.WIKI) == 1 and kinds.count(attention.TRENDING) == 5
 
 
 # --- reconnexion, état, service ----------------------------------------------------------------------------------
@@ -551,6 +575,49 @@ def test_stop_cancels_blocked_streams_and_waits_quickly(settings):
     state = base.read_state(settings)
     assert all(v["status"] == base.STOPPED for v in state["sources"].values())
     assert all(v["errors"] == 0 for v in state["sources"].values())
+
+
+def test_silent_liquidation_stream_goes_mute_after_five_minutes_and_retries_hourly(settings):
+    """Flux connecté mais muet (flux dérivés bloqués depuis ce réseau) : MUET après 5 min d'horloge fictive, pas une
+    erreur, réessai une fois par heure (pas la boucle 1 → 60 s)."""
+    clock = FakeClock()
+    calls = []
+    waits = []
+
+    @asynccontextmanager
+    async def mute_stream(url):
+        calls.append(clock.at)
+
+        async def messages():
+            await asyncio.Future()
+            yield {}
+        yield messages()
+
+    async def sleep(seconds):
+        waits.append(seconds)
+        clock.advance(seconds)
+
+    ctx = context(settings, clock, stream=mute_stream, sleep=sleep)
+    asyncio.run(service.supervise(base.LIQUIDATIONS, ctx, liquidations.run, max_runs=3))
+    assert len(calls) == 3 and waits == [300.0, 3600.0] * 3
+    assert (calls[1] - calls[0]).total_seconds() == 3900 and (calls[2] - calls[1]).total_seconds() == 3900
+    status = ctx.state.sources[base.LIQUIDATIONS]
+    assert status["status"] == base.MUTE and status["silences"] == 3 and status["errors"] == 0 and status["reconnections"] == 0
+    assert "aucune donnée en 5 min" in status["detail"] and "réessai toutes les heures" in status["detail"]
+    assert "bloqués depuis ce réseau" in status["detail"] and status["next_retry_s"] == 3600
+    assert not base.journal_path(settings, base.LIQUIDATIONS, NOW).exists()          # rien écrit
+    state = base.read_state(settings)
+    assert state["sources"]["LIQUIDATIONS"]["status"] == base.MUTE
+
+
+def test_first_message_within_the_delay_keeps_the_stream_in_service(settings):
+    clock = FakeClock()
+    stream = make_stream({"forceOrder": [liq("BTCUSDT", "SELL", 100_000, 2.0, T0 + 1_000)]})
+    ctx = context(settings, clock, stream=stream)
+    asyncio.run(liquidations.run(ctx))
+    status = ctx.state.sources[base.LIQUIDATIONS]
+    assert status["status"] == base.IN_SERVICE and status["messages"] == 1 and status["entries"] == 2
+    assert "silences" not in status
 
 
 def test_pair_list_change_reloads_the_book_stream_without_counting_an_error(settings, monkeypatch):
@@ -694,8 +761,20 @@ def test_collecteur_health_command_checks_the_state_freshness(settings, monkeypa
     base.State(settings, clock=clock, monotonic=clock.monotonic).write(force=True)
     assert runner.invoke(cli.app, ["collecteur-health", "--max-age", "300"]).exit_code == 0
     assert runner.invoke(cli.app, ["collecteur-health", "--max-age", "60"]).exit_code == 1
-    dead = base.State(settings, clock=clock, monotonic=clock.monotonic)
+    mute = base.State(settings, clock=clock, monotonic=clock.monotonic)
+    mute.touch(base.LIQUIDATIONS, status=base.MUTE)
+    for name in (base.CARNET, base.FLUX, base.OPTIONS, base.ATTENTION):
+        mute.touch(name, status=base.IN_SERVICE)
+    mute.write(force=True)
+    result = runner.invoke(cli.app, ["collecteur-health", "--max-age", "300"])
+    assert result.exit_code == 0 and "muette(s) depuis ce réseau" in result.output and "LIQUIDATIONS" in result.output
     for name in base.SOURCES:
-        dead.touch(name, status=base.UNAVAILABLE)
-    dead.write(force=True)
-    assert runner.invoke(cli.app, ["collecteur-health", "--max-age", "300"]).exit_code == 1    # plus aucune source vivante
+        mute.touch(name, status=base.MUTE)
+    mute.write(force=True)
+    assert runner.invoke(cli.app, ["collecteur-health", "--max-age", "300"]).exit_code == 0    # muet ≠ panne
+    mute.touch(base.CARNET, status=base.UNAVAILABLE)
+    mute.write(force=True)
+    assert runner.invoke(cli.app, ["collecteur-health", "--max-age", "300"]).exit_code == 1    # une panne, rien de vivant
+    mute.touch(base.FLUX, status=base.IN_SERVICE)
+    mute.write(force=True)
+    assert runner.invoke(cli.app, ["collecteur-health", "--max-age", "300"]).exit_code == 0    # une source vit encore

@@ -19,7 +19,7 @@ import logging
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from .base import LIQUIDATIONS, Context, iso_ms, minute_floor
+from .base import LIQUIDATIONS, Context, first_or_silence, iso_ms, minute_floor
 
 log = logging.getLogger("csi.collect.liquidations")
 
@@ -30,6 +30,7 @@ TOP_PAIRS = 10
 TOP_RESUME = 5
 FIELDS = ["n", "notional_usdt", "long_liq_usdt", "short_liq_usdt"]
 FLUSH_GRACE_MS = 3_000          # une minute est écrite 3 s après sa fin (messages en retard)
+SILENCE_SECONDS = 300.0         # connecté sans AUCUN message en 5 min → MUET (flux dérivés bloqués depuis ce réseau ?)
 
 
 @dataclass(frozen=True)
@@ -163,8 +164,20 @@ async def run(ctx: Context) -> None:
     agg = MinuteAggregator()
     assert ctx.stream is not None
     async with ctx.stream(URL) as messages:
+        ctx.state.touch(LIQUIDATIONS, detail=f"flux {URL} : connecté, en attente du premier message")
+        # Premier message attendu au plus `SILENCE_SECONDS` : passé ce délai, `Silent` (le superviseur passe MUET et
+        # réessaie chaque heure). Ensuite, un flux figé est détecté par le ping/pong de la bibliothèque (20 s).
+        first = await first_or_silence(ctx, messages, timeout=SILENCE_SECONDS)
+        if first is None:
+            return
         ctx.state.touch(LIQUIDATIONS, detail=f"flux {URL}")
-        async for message in messages:
+
+        async def all_messages():
+            yield first
+            async for later in messages:
+                yield later
+
+        async for message in all_messages():
             if ctx.stop.is_set():
                 break
             liq = parse(message)

@@ -8,13 +8,13 @@ Adresses autorisées (préfixes exacts, schéma compris) :
 - wss://stream.binance.com:9443/      flux publics Spot (carnet, transactions agrégées) ;
 - wss://fstream.binance.com/          flux publics du marché à terme (liquidations) ;
 - https://www.deribit.com/api/v2/public/   API publique de Deribit (options, DVOL, indice) ;
-- https://www.reddit.com/r/<sub>/new.json  derniers messages publics d'un sous-forum.
-Google Trends n'y est pas : NON_DISPONIBLE (pytrends ferait ses appels hors de ce client), voir collect/attention.py.
+- https://wikimedia.org/api/rest_v1/metrics/pageviews/   pages vues de Wikipédia (API REST publique) ;
+- https://api.coingecko.com/api/v3/search/trending       pièces « trending » de CoinGecko (sans clé ; rien d'autre).
+Reddit (connexion exigée depuis 2026) et Google Trends (pytrends hors de ce client) n'y sont pas : NON_DISPONIBLE.
 """
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from urllib.parse import urlsplit
@@ -24,9 +24,9 @@ import httpx
 USER_AGENT = "crypto-signal-intelligence/0.1 (collecteur shadow, lecture seule, sans cle)"
 MAX_BYTES = 4_000_000
 ALLOWED_WS = ("wss://stream.binance.com:9443/", "wss://fstream.binance.com/")
-ALLOWED_HTTPS = ("https://www.deribit.com/api/v2/public/",)
-REDDIT_NEW = re.compile(r"^https://www\.reddit\.com/r/[A-Za-z0-9_]{1,30}/new\.json$")
-ALLOWED = (*ALLOWED_WS, *ALLOWED_HTTPS, "https://www.reddit.com/r/<sub>/new.json")
+ALLOWED_HTTPS = ("https://www.deribit.com/api/v2/public/", "https://wikimedia.org/api/rest_v1/metrics/pageviews/",
+                 "https://api.coingecko.com/api/v3/search/trending")
+ALLOWED = (*ALLOWED_WS, *ALLOWED_HTTPS)
 #: Mots interdits dans toute adresse et tout paramètre (sécurité en profondeur : la liste fermée les exclut déjà ;
 #: « order » n'y est pas, le flux public des liquidations s'appelle `!forceOrder@arr`).
 FORBIDDEN_WORDS = ("private", "account", "signature", "apikey", "api_key", "listenkey", "userdata")
@@ -53,7 +53,7 @@ def check_url(url: str) -> str:
     base = f"{parts.scheme}://{parts.netloc}{parts.path}"
     if parts.scheme == "wss" and base.startswith(ALLOWED_WS):
         return url
-    if parts.scheme == "https" and (base.startswith(ALLOWED_HTTPS) or REDDIT_NEW.match(base)):
+    if parts.scheme == "https" and base.startswith(ALLOWED_HTTPS):
         return url
     raise RefusedUrl(f"adresse hors liste fermée : {url}")
 
