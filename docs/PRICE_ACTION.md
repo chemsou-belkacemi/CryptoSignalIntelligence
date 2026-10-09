@@ -253,9 +253,13 @@ Sur ce marché, rien n'est prévisible : l'espérance du R net est celle des fra
 
 - au moins **100 signaux** synthétiques (sinon non jugeable : échec) ;
 - **|excès moyen| ≤ 0,05 R** ;
-- **couverture ≥ 0,90** : les 100 paires forment 20 groupes de 5 (paire i → groupe i mod 20) ; dans chaque groupe,
-  l'intervalle de l'excès au niveau de l'étude (99 %, blocs de 7 jours, 10 000 tirages) doit contenir 0 ; couverture =
-  part des groupes calculables qui le contiennent ; il faut au moins 10 groupes calculables.
+- **couverture ≥ 0,90** : les paires sont réparties en G groupes (paire i → groupe i mod G), avec
+  G = min(20, max(3, n // 100)) pour qu'un groupe compte environ 100 signaux (n = signaux synthétiques de la
+  configuration) ; dans chaque groupe, l'intervalle de l'excès au niveau de l'étude (99 %, blocs de 7 jours, 10 000
+  tirages, au moins 8 blocs) doit contenir 0 ; couverture = part des G groupes qui le contiennent, **un groupe sans
+  intervalle calculable comptant comme non couvert**. Avec G ≤ 9, une couverture ≥ 0,90 exige que **tous** les groupes
+  contiennent 0 ; pour les configurations rares (G de 3 à 7), l'estimation repose sur peu de groupes et le critère est
+  peu informatif : il est appliqué tel quel.
 
 ### 5.3 Conséquence
 
@@ -269,11 +273,12 @@ relance ; le contrôle est alors relancé une fois et les deux passages sont pub
 
 **Puissance du critère d'excès, déclarée avant le passage.** L'erreur type de l'excès moyen est d'environ
 1,3 R / √n (écart-type du R d'une transaction supposé ≈ 1,3 R, hypothèse non mesurée). D'après les seuls comptages de
-candidats synthétiques (§ 5.4), n vaudra quelques milliers pour `BASE_RETEST` et `INSIDE_DAY` (erreur type ≈ 0,02 à
-0,03 R : un biais nul passe presque toujours) mais quelques centaines pour `SQUEEZE`, `FORCE_RELATIVE` et
-`SORTIE_BASE_LONGUE` (erreur type ≈ 0,05 à 0,08 R) : pour celles-ci, **même sans aucun biais**, le critère
-|excès| ≤ 0,05 R échoue par le seul hasard une fois sur trois à une fois sur deux. Le critère est celui du propriétaire ;
-il est appliqué tel quel (option prudente : une configuration que l'instrument ne peut pas valider n'est pas testée).
+candidats synthétiques (§ 5.4 : avant discipline, `BASE_RETEST` 5 124, `INSIDE_DAY` 3 458, `SQUEEZE` 664,
+`SORTIE_BASE_LONGUE` 441, `FORCE_RELATIVE` au plus 756), un biais nul passerait le critère |excès| ≤ 0,05 R avec une
+probabilité d'environ 0,99 (`BASE_RETEST`), 0,96 (`INSIDE_DAY`), 0,65 (`SQUEEZE`), 0,55 (`SORTIE_BASE_LONGUE`) et 0,70
+(`FORCE_RELATIVE`) : pour les trois configurations rares, **même sans aucun biais**, le critère échoue par le seul hasard
+une fois sur trois à une fois sur deux. Le critère est celui du propriétaire ; il est appliqué tel quel (option
+prudente : une configuration que l'instrument ne peut pas valider n'est pas testée).
 
 ### 5.4 Journal du générateur synthétique (comptages seulement, aucun R ni excès regardé)
 
@@ -282,6 +287,7 @@ il est appliqué tel quel (option prudente : une configuration que l'instrument 
 | 1 | 2026-10-10 | σ constant (0,8 %), volume lognormal i.i.d. | comptes de candidats sur 1 paire × 3 ans | `SQUEEZE` 0 et `SORTIE_BASE_LONGUE` 0 : une marche à σ constant ne se comprime presque jamais | volatilité GARCH (martingale conservée) |
 | 2 | 2026-10-10 | GARCH, Student sur la moitié des paires, volume × (0,5 + \|z\|) | comptes sur 10 paires × 6,5 ans | `BASE_RETEST` 323, `INSIDE_DAY` 353, `SQUEEZE` 55, `SORTIE_BASE_LONGUE` 0 ; BTC : 266 événements | facteur de volume journalier (sans lui, un volume journalier, somme de 24 heures i.i.d., ne dépasse jamais 1,5 × sa moyenne) |
 | 3 | 2026-10-10 | idem + facteur journalier lognormal σ = 0,5 (essais à 0,4 et 0,6 : 39 et 60 candidats `SORTIE_BASE_LONGUE` sur 10 paires) | comptes sur 10 paires | toutes les configurations ont des candidats | **générateur figé** (valeur ronde 0,5 entre les deux) |
+| 4 | 2026-10-10 | générateur figé | comptes de candidats dans la fenêtre sur les 100 paires (avant discipline, aucune simulation) ; jours distincts | `BASE_RETEST` 5 124, `INSIDE_DAY` 3 458, `SQUEEZE` 664, `SORTIE_BASE_LONGUE` 441 ; BTC : 252 événements (au plus 756 signaux `FORCE_RELATIVE`) ; avec 20 groupes fixes de 5 paires, un groupe des trois configurations rares n'aurait que 20 à 40 signaux, soit moins de 8 blocs de 7 jours : intervalle non calculable par construction | critère de couverture dimensionné sur ces comptes : G = min(20, max(3, n // 100)) groupes (§ 5.2) |
 
 Aucun R, aucun excès, aucune couverture n'a été calculé avant le passage inscrit du § 5.5.
 
@@ -310,8 +316,9 @@ Aucun R, aucun excès, aucune couverture n'a été calculé avant le passage ins
   halal figée au démarrage de F15, bougies 1 h du magasin de F15 en lecture seule, 300 jours d'historique ; passage
   horaire aligné comme F18 ; au-delà de **30 min** de retard, l'évaluation est inscrite `late` et aucun appel n'est
   émis.
-- **5 appels par jour UTC au plus**, toutes configurations, les plus récents d'abord (puis l'ordre des configurations
-  du § 2, puis la paire). Mêmes placebos, même gestion, mêmes frais ; niveaux arrondis au pas de cotation quand il est
+- **5 appels par jour UTC au plus**, toutes configurations, les plus récents d'abord ; à instant égal (tous les
+  candidats d'une clôture), l'ordre de leur identifiant sha256, neutre entre configurations et entre paires (§ 8,
+  choix 18). Mêmes placebos, même gestion, mêmes frais ; niveaux arrondis au pas de cotation quand il est
   connu (entrée, TP1 et objectif vers le haut ; stop et secours vers le bas).
 - Verdict **par configuration** avec `forward/f4.verdict` (lecture) ; `INSUFFISANT` sous 30 résolus. Revue à 42 jours,
   évaluation à 84 jours, 1 essai FORWARD.
@@ -357,12 +364,35 @@ Aucun R, aucun excès, aucune couverture n'a été calculé avant le passage ins
 17. **Comptages à blanc du § 9** : ils lisent les 60 derniers jours du magasin local (2026), donc la période réservée,
     **pour des comptes de candidats seulement** (aucun prix de sortie, aucun R), comme F18 ; c'est hors de l'étude
     historique, qui ne lit rien après le 2025-06-30.
+18. **Quota de 5 appels par jour, « les plus récents d'abord »** : tous les candidats d'une même clôture ont le même
+    instant ; les départager par l'ordre des configurations favoriserait toujours `BASE_RETEST` quand le quota est
+    atteint (≈ 17 candidats par jour attendus sur 166 paires, § 9). L'ordre retenu à instant égal est celui de
+    l'identifiant sha256 du signal : reproductible et neutre entre configurations et entre paires.
 
 ## 9. Comptages à blanc (aucun résultat de transaction)
 
-À remplir : 16 paires du magasin local, 60 jours, nombre de candidats par configuration, par le chemin du direct
-(`csi price-action comptages`). Si une configuration a 0 candidat ou plus de 20 par jour, un seul ajustement a priori
-est permis, déclaré « ajusté sur comptages, avant tout résultat ».
+Le 2026-10-10, `csi price-action comptages --debut 2026-08-01T00:00 --fin 2026-09-30T20:00` : les 16 paires du magasin
+local, 366 clôtures 4 h (61 jours), par le chemin du direct (détecteur sur 300 jours, données closes à chaque
+clôture), **sans discipline ni quota**. Seuls des comptes ont été regardés, jamais un R ni un prix de sortie.
+
+| Configuration | Candidats | Par jour (moyenne) | Par jour (maximum) | Refus de géométrie |
+|---|---|---|---|---|
+| `BASE_RETEST` | 41 | 0,67 | 6 | 8 objectifs sous 1,5 R |
+| `SQUEEZE` | 14 | 0,23 | 4 | — |
+| `FORCE_RELATIVE` | **0** | 0 | 0 | — |
+| `INSIDE_DAY` | 30 | 0,49 | 6 | 3 stops au-delà de 3 ATR journaliers |
+| `SORTIE_BASE_LONGUE` | 16 | 0,26 | 4 | — |
+
+- **Aucune configuration au-delà de 20 par jour.**
+- **`FORCE_RELATIVE` : 0 candidat parce qu'il n'y a eu aucun événement BTC (−5 % sur 24 h) dans la fenêtre** (0 début,
+  0 stabilisation : marché calme). **Aucun ajustement** : abaisser le seuil pour faire apparaître des événements dans
+  une fenêtre calme serait un réglage sur la période réservée, et la règle du propriétaire (−5 % sur 24 h) est
+  explicite. Conséquence déclarée : en direct, `FORCE_RELATIVE` dépend de la survenue de chutes de BTC pendant les 84
+  jours ; `INSUFFISANT` est probable. Sur DEVELOPMENT, les chutes de BTC sont nombreuses (2019-2022).
+- **Aucun paramètre n'a donc été ajusté sur comptages.**
+- Ordre de grandeur en direct : ≈ 1,7 candidat par jour pour 16 paires, soit de l'ordre de 17 par jour pour les 166
+  paires de F15 (extrapolation grossière) : le **quota de 5 appels par jour** sera souvent atteint ; avec la
+  discipline, de l'ordre de 300 à 400 appels en 84 jours, répartis sur les configurations (§ 8, choix 18).
 
 ## 10. Limites déclarées
 
@@ -380,3 +410,5 @@ est permis, déclaré « ajusté sur comptages, avant tout résultat ».
 
 - 2026-10-10 : protocole déclaré avant tout calcul sur données réelles (seuls des comptes de candidats synthétiques ont
   été regardés, § 5.4).
+- 2026-10-10 : code et tests ; critère de couverture du contrôle H0 dimensionné sur les comptes synthétiques (§ 5.4,
+  ligne 4) ; quota départagé par l'identifiant (§ 8, choix 18) ; comptages à blanc (§ 9) : aucun ajustement.

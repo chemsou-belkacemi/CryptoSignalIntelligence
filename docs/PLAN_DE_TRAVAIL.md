@@ -95,6 +95,15 @@ Les appels et leurs résultats sont envoyés au propriétaire par le bot du rela
 par ses transferts. Toute retouche de `assistant/*`, `forward/f18.py`, `risk/market_light.py`, `forward/liquidity_log.py`,
 `news/risk.py`, `risk/advice.py` ou `data/store.py` arrête F18 (liste dans `ASSISTANT.md`).
 
+**Étude « price action »** (demande du propriétaire du 2026-10-10, `PRICE_ACTION.md`, branche `recherche/price-action`) :
+cinq configurations long seulement (base puis retest, compression, force relative après une chute de BTC, journée
+intérieure, base longue), un seul détecteur pour l'historique et le direct. Historique : DEVELOPMENT, top 40 à date,
+20 placebos à ±84 h ou ±15 jours, 5 essais, **exécution unique après la relecture `leak-auditor`** (non lancée).
+Contrôle sous H0 sur marché synthétique (100 paires × 6 ans) lancé une fois avant toute donnée réelle (`PRICE_ACTION.md`
+§ 5.5). Direct : test **F19_PRICE_ACTION** pré-inscrit (`FORWARD_TESTS.md`), **non démarré** ; boîte Telegram
+séparée servie par `GET /assistant/outbox`, carte « Price action ». **Aucun gain démontré** ; attendu : `RIEN`,
+`PERTE` ou `INSUFFISANT`.
+
 **Feu de protection du marché** (demande du propriétaire du 2026-10-08, `METEO_PROTECTION.md`) : VERT / ORANGE /
 ROUGE / INCONNU d'après la volatilité prévue de BTC (rang sur 365 jours), BTC contre son EMA50 et la largeur ;
 `GET /meteo`, carte de l'onglet Marché, journal quotidien. Outil de gestion du risque, pas une stratégie, **aucun gain

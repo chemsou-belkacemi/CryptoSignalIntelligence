@@ -451,6 +451,51 @@ async function loadAssistant() {
   }
 }
 
+// Price action (GET /price-action, docs/PRICE_ACTION.md) : cinq configurations en SHADOW mesurées par le test en direct
+// F19 contre des placebos ; aucun ordre, aucun gain démontré. État écrit par la surveillance à chaque clôture 4 h.
+const PRICE_ACTION_HONESTY = "Price action en shadow : CSI ne passe aucun ordre. Les appels sont mesurés en direct par le test F19_PRICE_ACTION contre des placebos ; aucun gain démontré.";
+
+async function loadPriceAction() {
+  const target = document.getElementById("price-action-result");
+  if (!target) return;
+  busy(target, "Price action…");
+  try {
+    const d = await api("/price-action");
+    if (!d.available) {
+      target.replaceChildren(card("Price action (shadow, test F19)",
+        el("p", { class: "muted", text: d.reason || "aucune évaluation" }),
+        el("p", { class: "small", text: PRICE_ACTION_HONESTY })));
+      return;
+    }
+    const cands = d.candidates || {};
+    const candText = (d.configs || Object.keys(cands)).map((k) => `${cands[k] || 0} ${k}`).join(" · ");
+    const rows = [
+      ["Dernière évaluation", `clôture 4 h du ${when(d.at)} · calculée ${when(d.evaluated_at)}${d.late ? " · tardive (aucun appel)" : ""}`],
+      ["Candidats par configuration", candText],
+      ["Appels à cette clôture", `${d.calls_made || 0} (5 par jour au plus)`],
+      ["Prochaine évaluation", when(d.next_evaluation_at)],
+    ];
+    const active = (d.active_calls || []).map((c) => [
+      { node: el("strong", { text: pair(c.symbol) }) }, c.config, c.unit, price(c.entry),
+      `${price(c.stop)} (secours ${price(c.hard_stop)})`, price(c.tp1), price(c.objective),
+      isNum(c.latent_r) ? fmt(c.latent_r, 2, true) : "–", (c.explanation || []).join(" "),
+    ]);
+    const refusals = (d.last_refusals || []).slice().reverse().map((r) => [when(r.at), pair(r.symbol), r.config, r.reason, r.detail || ""]);
+    target.replaceChildren(card("Price action (shadow, test F19)",
+      kv(rows),
+      el("h3", { text: `Appels actifs (${active.length})` }),
+      table(["Paire", "Configuration", "Unité", { label: "Entrée", num: true }, { label: "Stop de clôture", num: true },
+             { label: "TP1", num: true }, { label: "Objectif", num: true }, { label: "R latent", num: true }, "Explication"],
+            active, "aucun appel actif"),
+      el("h3", { text: "Derniers refus" }),
+      table(["Clôture", "Paire", "Configuration", "Raison", "Détail"], refusals, "aucun refus enregistré"),
+      el("pre", { class: "small", text: d.resume || "" }),
+      el("p", { class: "small", text: PRICE_ACTION_HONESTY })));
+  } catch (error) {
+    showError(target, error);
+  }
+}
+
 async function loadMeteo() {
   const target = document.getElementById("meteo-result");
   if (!target) return;
@@ -1533,7 +1578,7 @@ function openTab(name) {
   for (const pane of document.querySelectorAll(".tabpane")) pane.classList.toggle("hidden", pane.id !== `tab-${name}`);
   if (name === "follow") loadFollow();
   if (name === "signal") { loadImages(); loadExports(); }
-  if (name === "market") { loadAssistant(); loadMeteo(); loadTechnical(); loadVolatility(); loadRisk(); }
+  if (name === "market") { loadAssistant(); loadPriceAction(); loadMeteo(); loadTechnical(); loadVolatility(); loadRisk(); }
 }
 
 function start() {
