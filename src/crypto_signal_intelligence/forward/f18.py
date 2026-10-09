@@ -300,15 +300,15 @@ TEST = ForwardTest(
     test_id=TEST_ID, title="Assistant de marché (régime journalier, repli en hausse ou rejet du support en range, filtres de "
                            "liquidité, volatilité, timing et discipline) contre placebos",
     hypothesis=("Un appel d'achat de l'assistant (docs/ASSISTANT.md : feu et BTC favorables, régime HAUSSE ou RANGE, repli puis "
-                "reprise ou rejet du support confirmés par le volume, carnet liquide, stop entre 1 et 3 fois le mouvement "
-                "attendu à 24 h, plan net ≥ 1,5 R, hors événements macro et news de risque, 3 appels par jour au plus), géré "
+                "reprise ou rejet du support confirmés par le volume, carnet liquide, stop entre 0,75 et 3 fois le mouvement "
+                "attendu à 24 h, TP2 ≥ 1,5 R net, hors événements macro et news de risque, 3 appels par jour au plus), géré "
                 "avec stop à la clôture 4 h, stop de secours, moitié à +1 R puis l'autre à TP2, rapporte en moyenne plus, en R "
                 "net, que 20 entrées placebo de même géométrie sur la même paire à ±84 h. Attendu : NON_DEMONTRE ou INSUFFISANT."),
     params={"evaluation": "chaque clôture 4 h UTC", "history_days": R.HISTORY_DAYS, "min_days": R.MIN_DAYS,
-            "ema": [R.EMA_FAST, R.EMA_SLOW, R.SLOPE_DAYS], "range_days": R.RANGE_DAYS, "merge_atr": R.MERGE_ATR,
+            "ema": [R.EMA_FAST, R.EMA_SLOW, R.SLOPE_DAYS], "range_days": R.RANGE_DAYS, "profile_days": R.PROFILE_DAYS, "merge_atr": R.MERGE_ATR,
             "min_touches": R.MIN_TOUCHES, "range_height_atr_d": R.RANGE_HEIGHT_ATR, "pullback_bars": R.PULLBACK_BARS,
             "touch_bars": R.TOUCH_BARS, "touch_atr": R.TOUCH_ATR, "stop_atr": R.STOP_ATR, "volume_bars": R.VOLUME_BARS,
-            "min_resistance_r": R.MIN_RESISTANCE_R, "min_plan_r_net": R.MIN_PLAN_R_NET, "spread_max_pct": R.SPREAD_MAX_PCT,
+            "min_resistance_r": R.MIN_RESISTANCE_R, "min_tp2_r_net": R.MIN_TP2_R_NET, "spread_max_pct": R.SPREAD_MAX_PCT,
             "slippage_max_pct": R.SLIPPAGE_MAX_PCT, "buy_size_usdt": R.BUY_SIZE_USDT, "stop_vol": [R.STOP_VOL_MIN, R.STOP_VOL_MAX],
             "realized_days": R.REALIZED_DAYS, "macro_margin_hours": 2, "news_window_hours": 24, "max_calls_per_day": R.MAX_CALLS_PER_DAY,
             "rest_hours": R.REST_HOURS, "hard_stop_factor": R.HARD_STOP_FACTOR, "tp1_share": R.TP1_SHARE, "max_hold_days": 10,

@@ -35,11 +35,13 @@ STEPS = {"1h": HOUR, "4h": H4, "1d": DAY}
 HISTORY_DAYS = 200                 # bougies 1 h lues avant la clôture évaluée (EMA50 journalière stabilisée)
 MIN_DAYS = 60                      # journées complètes exigées, sinon paire non évaluable
 EMA_FAST, EMA_SLOW, SLOPE_DAYS = 20, 50, 3
-RANGE_DAYS = 30                    # couloir : pivots ZigZag 4 h des 30 derniers jours
+RANGE_DAYS = 45                    # couloir et niveaux 4 h : pivots ZigZag des 45 derniers jours (ajusté le 2026-10-09)
 RANGE_BARS = RANGE_DAYS * 6
+PROFILE_DAYS = 30                  # VAL : profil de volume des 30 derniers jours
+PROFILE_BARS = PROFILE_DAYS * 6
 MERGE_ATR = 0.5                    # deux pivots à moins de 0,5 ATR(4 h) forment un même niveau
 MIN_TOUCHES = 2                    # support et résistance du couloir : touchés ≥ 2 fois chacun
-RANGE_HEIGHT_ATR = 4.0             # hauteur du couloir ≥ 4 ATR journaliers (ATR14)
+RANGE_HEIGHT_ATR = 3.0             # hauteur du couloir ≥ 3 ATR journaliers (ATR14 ; ajusté le 2026-10-09)
 ATR_PERIOD = 14
 PULLBACK_BARS = 5                  # repli : plus bas des 5 dernières bougies 4 h
 TOUCH_BARS = 3                     # rejet : une des 3 dernières bougies 4 h touche le support
@@ -47,12 +49,12 @@ TOUCH_ATR = 0.25                   # « touche » : plus bas ≤ support + 0,25 
 STOP_ATR = 0.10                    # stop = plus bas − 0,1 ATR(4 h)
 VOLUME_BARS = 20                   # volume quote de la bougie de confirmation > moyenne des 20 précédentes
 MIN_RESISTANCE_R = 1.0             # résistance à moins de 1 R au-dessus de l'entrée : refus
-MIN_PLAN_R_NET = 1.5               # plan (½ TP1 + ½ TP2) net des frais taker aller-retour ≥ 1,5 R (lecture prudente)
+MIN_TP2_R_NET = 1.5                # TP2 net des frais taker aller-retour ≥ 1,5 R (ajusté le 2026-10-09)
 SPREAD_MAX_PCT = 0.3               # carnet : écart < 0,3 %
 SLIPPAGE_MAX_PCT = 0.2             # glissement d'un achat de 500 USDT < 0,2 %
 BUY_SIZE_USDT = 500.0
 IMBALANCE_BAND = "1"               # déséquilibre à ±1 % ≥ 0 (achats ≥ ventes)
-STOP_VOL_MIN, STOP_VOL_MAX = 1.0, 3.0   # distance au stop entre 1 et 3 × le mouvement attendu sur 24 h
+STOP_VOL_MIN, STOP_VOL_MAX = 0.75, 3.0  # distance au stop entre 0,75 et 3 × le mouvement attendu sur 24 h (0,75 ajusté le 2026-10-09)
 REALIZED_DAYS = 7                  # sans prévision : écart-type des rendements 1 h des 7 derniers jours × √24
 MACRO_MARGIN = pd.Timedelta(hours=2)    # rien dans les 2 h avant/après un événement macro (jour entier : prudence)
 NEWS_WINDOW = pd.Timedelta(hours=24)
@@ -135,7 +137,7 @@ def daily_regime(daily: pd.DataFrame) -> dict:
 # --- Niveaux 4 h, couloir, zone de valeur ----------------------------------------------------------------------------
 
 def levels_4h(h4: pd.DataFrame) -> dict:
-    """Supports (pivots bas) et résistances (pivots hauts) des 30 derniers jours : ZigZag 4 h (m = 2,5 ATR), pivots
+    """Supports (pivots bas) et résistances (pivots hauts) des 45 derniers jours : ZigZag 4 h (m = 2,5 ATR), pivots
     regroupés à 0,5 ATR(4 h), avec leurs touches ; triés du plus proche de la clôture au plus loin."""
     h, lo, c = (h4[k].to_numpy(float) for k in ("high", "low", "close"))
     a = atr(h, lo, c, ATR_PERIOD)
@@ -153,7 +155,7 @@ def levels_4h(h4: pd.DataFrame) -> dict:
 
 
 def corridor(levels: dict, atr_d: float) -> dict | None:
-    """Couloir clair : support et résistance les plus proches touchés ≥ 2 fois chacun, hauteur ≥ 4 ATR journaliers."""
+    """Couloir clair : support et résistance les plus proches touchés ≥ 2 fois chacun, hauteur ≥ 3 ATR journaliers."""
     support = next((s for s in levels["supports"] if s["touches"] >= MIN_TOUCHES), None)
     resistance = next((r for r in levels["resistances"] if r["touches"] >= MIN_TOUCHES), None)
     if support is None or resistance is None or not np.isfinite(atr_d) or atr_d <= 0:
@@ -165,7 +167,7 @@ def corridor(levels: dict, atr_d: float) -> dict | None:
 
 def value_area_low(h4: pd.DataFrame) -> float:
     """VAL (bas de la zone de valeur à 70 %) du profil de volume quote des 30 derniers jours de bougies 4 h."""
-    recent = h4.iloc[-RANGE_BARS:]
+    recent = h4.iloc[-PROFILE_BARS:]
     return float(volume_profile(recent["high"], recent["low"], recent["quote_volume"]).val)
 
 
@@ -191,7 +193,7 @@ def volume_confirms(h4: pd.DataFrame) -> tuple[bool, float]:
 def pullback_setup(h4: pd.DataFrame, regime: dict, levels: dict) -> dict:
     """HAUSSE, « repli puis reprise » : le plus bas des 5 dernières bougies 4 h est entré dans la zone de valeur ET la
     bougie qui vient de clôturer clôture au-dessus de la zone avec un volume > moyenne des 20 précédentes."""
-    if len(h4) < RANGE_BARS:
+    if len(h4) < PROFILE_BARS:
         return {"ok": False, "reason": "moins de 30 jours de bougies 4 h"}
     support = levels["supports"][0] if levels["supports"] else None
     zone_low, zone_high = value_zone(regime["ema20"], support, value_area_low(h4))
@@ -257,12 +259,11 @@ def targets(entry: float, stop: float, resistance: float | None, tick: Decimal |
 
 # --- 3. Filtres ---------------------------------------------------------------------------------------------------------
 
-def plan_net_r(entry: float, stop: float, tp1: float, tp2: float, symbol: str, scenario: str = CENTRAL) -> float:
-    """R net du plan si les deux objectifs sont atteints (½ à TP1, ½ à TP2), frais taker aller-retour du scénario."""
+def tp2_net_r(entry: float, stop: float, tp2: float, symbol: str, scenario: str = CENTRAL) -> float:
+    """R net de TP2 : vente à TP2 moins l'achat, frais et glissement taker aller-retour du scénario, en R."""
     c = costs_for(symbol, scenario)
     cost_in = entry * (1 + c.market) * (1 + c.fee)
-    out = TP1_SHARE * tp1 * (1 - c.market) * (1 - c.fee) + (1 - TP1_SHARE) * tp2 * (1 - c.market) * (1 - c.fee)
-    return (out - cost_in) / (entry - stop)
+    return (tp2 * (1 - c.market) * (1 - c.fee) - cost_in) / (entry - stop)
 
 
 def book_check(book: dict | None, metrics) -> dict:
@@ -299,14 +300,14 @@ def realized_move_24h_pct(h1: pd.DataFrame) -> float | None:
 
 
 def stop_versus_volatility(entry: float, stop: float, move_24h_pct: float | None) -> dict:
-    """Distance au stop entre 1 et 3 × le mouvement attendu sur 24 h."""
+    """Distance au stop entre 0,75 et 3 × le mouvement attendu sur 24 h."""
     stop_pct = (entry - stop) / entry * 100
     if move_24h_pct is None or not np.isfinite(move_24h_pct) or move_24h_pct <= 0:
         return {"ok": False, "reason": VOL_UNKNOWN, "stop_pct": stop_pct, "detail": "mouvement attendu inconnu"}
     ratio = stop_pct / move_24h_pct
     if ratio < STOP_VOL_MIN:
         return {"ok": False, "reason": STOP_TIGHT, "stop_pct": stop_pct, "ratio": ratio,
-                "detail": f"stop à {stop_pct:.2f} % pour un mouvement attendu de {move_24h_pct:.2f} % (ratio {ratio:.2f} < 1)"}
+                "detail": f"stop à {stop_pct:.2f} % pour un mouvement attendu de {move_24h_pct:.2f} % (ratio {ratio:.2f} < {STOP_VOL_MIN})"}
     if ratio > STOP_VOL_MAX:
         return {"ok": False, "reason": STOP_WIDE, "stop_pct": stop_pct, "ratio": ratio,
                 "detail": f"stop à {stop_pct:.2f} % pour un mouvement attendu de {move_24h_pct:.2f} % (ratio {ratio:.2f} > 3)"}

@@ -1252,8 +1252,8 @@ son propre journal, son état (`state/assistant.json`) et sa boîte Telegram (`s
   seule, marqué. BTC (BTCUSDT) clôture journalière ≤ EMA50 journalière → silence. BTC inconnu → silence (prudence).
 - **Régime** de la paire sur la dernière journée complète (EMA20/EMA50 journalières, départ par moyenne simple) :
   HAUSSE (clôture > EMA50, EMA20 > EMA50, EMA50 > EMA50 d'il y a 3 jours) ; BAISSE (clôture < EMA50, EMA20 < EMA50)
-  → rien ; RANGE (ni l'un ni l'autre ET couloir clair sur 30 jours : support = pivots bas ZigZag 4 h regroupés à
-  0,5 ATR touchés ≥ 2 fois, résistance = pivots hauts touchés ≥ 2 fois, les plus proches de la clôture, hauteur ≥ 4
+  → rien ; RANGE (ni l'un ni l'autre ET couloir clair sur 45 jours : support = pivots bas ZigZag 4 h regroupés à
+  0,5 ATR touchés ≥ 2 fois, résistance = pivots hauts touchés ≥ 2 fois, les plus proches de la clôture, hauteur ≥ 3
   ATR journaliers) ; sinon INDECIS → rien.
 - **Configurations** : HAUSSE « repli puis reprise » (plus bas des 5 dernières bougies 4 h dans la zone de valeur
   [min(EMA20 journalière, support 4 h le plus proche) ; max(EMA20 journalière, VAL du profil de volume 30 jours)],
@@ -1265,10 +1265,10 @@ son propre journal, son état (`state/assistant.json`) et sa boîte Telegram (`s
   quand il est connu (stop vers le bas, objectifs vers le haut).
 - **Filtres**, tous vrais sinon refus avec la raison : carnet `/api/v3/depth` (1 000 niveaux, lu seulement pour les
   candidats qui ont passé tout le reste) avec écart < 0,3 %, glissement d'un achat de 500 USDT < 0,2 %, achats ≥
-  ventes à ±1 % ; carnet injoignable → `CARNET_INJOIGNABLE` ; distance au stop entre 1 et 3 × le mouvement attendu sur
+  ventes à ±1 % ; carnet injoignable → `CARNET_INJOIGNABLE` ; distance au stop entre 0,75 et 3 × le mouvement attendu sur
   24 h (prévision H24 de F12 quand la paire l'a, sinon écart-type des rendements 1 h des 7 derniers jours × √24,
-  source marquée) ; **plan net** (moitié à TP1, moitié à TP2, frais taker aller-retour, scénario central) ≥ 1,5 R
-  (lecture prudente de « TP1 ≥ 1,5 R net », impossible telle quelle puisque TP1 = +1 R) ; aucun événement macro
+  source marquée) ; **TP2 ≥ 1,5 R net** (vente à TP2 moins l'achat, frais taker aller-retour, scénario central, en R ;
+  la demande initiale « TP1 ≥ 1,5 R net » était incohérente avec TP1 = +1 R) ; aucun événement macro
   (`forward/light.macro_events`) dont le jour UTC recouvre [t − 2 h ; t + 2 h] (heure inconnue : jour entier) ;
   aucune news de risque des 24 h visant la paire ; base de news illisible → refus ; discipline : un seul appel actif
   par paire, 48 h de repos par paire après la sortie d'un appel, 3 appels par jour UTC au plus sur tout l'univers,
@@ -1292,10 +1292,11 @@ de F15 ; un placebo dont la bougie d'entrée manque est écarté ; appel non ré
 (t + 84 h + 10 jours) : `TROU`, hors mesure.
 
 **Paramètres** (figés dans le code, `assistant/rules.py`, et énumérés dans `forward/f18.py`) : 200 jours de bougies 1 h
-lus, 60 journées complètes au moins ; EMA 20 et 50, pente sur 3 jours ; couloir sur 30 jours, pivots regroupés à
-0,5 ATR(4 h), 2 touches, hauteur 4 ATR journaliers ; repli sur 5 bougies, touche sur 3 bougies à 0,25 ATR ; stop à
-0,1 ATR sous le plus bas ; volume contre 20 bougies ; résistance ≥ 1 R ; plan net ≥ 1,5 R ; écart < 0,3 %,
-glissement de 500 USDT < 0,2 %, déséquilibre ≥ 0 ; stop entre 1 et 3 × le mouvement H24 ; 2 h autour des
+lus, 60 journées complètes au moins ; EMA 20 et 50, pente sur 3 jours ; couloir et niveaux 4 h sur 45 jours, pivots
+regroupés à 0,5 ATR(4 h), 2 touches, hauteur 3 ATR journaliers ; VAL sur 30 jours ; repli sur 5 bougies, touche sur
+3 bougies à 0,25 ATR ; stop à 0,1 ATR sous le plus bas ; volume contre 20 bougies ; résistance ≥ 1 R ; TP2 ≥ 1,5 R
+net ; écart < 0,3 %, glissement de 500 USDT < 0,2 %, déséquilibre ≥ 0 ; stop entre 0,75 et 3 × le mouvement H24 ;
+trois valeurs (couloir 45 jours / 3 ATR, stop ≥ 0,75 × H24, TP2 ≥ 1,5 R net) ajustés le 2026-10-09 sur les comptages à blanc du 2026-08-01 → 2026-09-30 (60 jours de clôtures 4 h), 16 paires, avant tout résultat de transaction ; 2 h autour des
 événements macro ; news sur 24 h ; 3 appels par jour, 48 h de repos ; stop de secours à 1,5 R, moitié à TP1, 10
 jours ; 20 placebos à ±5…84 h ; minimum **30 appels résolus** sur **10 jours** pour conclure ; IC95 du R par blocs de
 7 jours (10 000 tirages, graine 20261009), excès au niveau 1 − 0,05/2 ; trou constaté 2 jours après la fenêtre.
@@ -1320,11 +1321,16 @@ moyen entièrement sous 0 dans les deux scénarios) ; sinon `NON_DEMONTRE`. Un r
 **Date d'évaluation.** Fin du recueil 84 jours après le démarrage ; revue intermédiaire à 42 jours (descriptive,
 aucun changement de règle) ; verdict une fois le dernier appel résolu (jusqu'à 84 + 13,5 + 2 jours).
 
-**Nombre d'appels attendu.** Balayage à blanc du 2026-10-09 sur les 16 paires de la configuration, 60 jours de
-clôtures 4 h du magasin local (comptes seulement, aucun résultat de transaction calculé) : 92 configurations
-validées, 45 refus « résistance proche », 38 « stop trop serré », 5 « gain/risque », 3 candidats arrivés au carnet
-(soit ≈ 1 appel par mois pour 16 paires) ; aucun régime RANGE rencontré (couloir strict). Sur 166 paires :
-quelques appels par semaine au plus. `INSUFFISANT` est probable et c'est une réponse acceptable.
+**Nombre d'appels attendu.** Balayages à blanc du 2026-10-09 sur les 16 paires de la configuration, 60 jours de
+clôtures 4 h du magasin local (2026-08-01 → 2026-09-30, comptes seulement, aucun résultat de transaction calculé).
+Règles initiales (couloir 30 jours / 4 ATR, stop ≥ 1 × H24, plan net ≥ 1,5 R) : 5 760 lectures (3 480 HAUSSE, 1 387
+BAISSE, 893 INDECIS, 0 RANGE), 92 configurations validées, refus 45 résistance proche / 38 stop trop serré / 5
+gain-risque / 1 stop trop large, 3 candidats arrivés au carnet. Règles figées après les trois ajustements (couloir 45
+jours / 3 ATR, stop ≥ 0,75 × H24, TP2 ≥ 1,5 R net) : 3 480 HAUSSE, 1 387 BAISSE, 812 INDECIS, 81 RANGE ; 92
+configurations validées (toutes « repli puis reprise » ; en RANGE, 53 lectures « support non touché ») ; refus 50
+résistance proche / 28 stop trop serré / 6 gain-risque / 1 stop trop large ; **7 candidats arrivés au carnet**
+(≈ 3,5 par mois pour 16 paires) ; 76 clôtures de silence BTC. Sur 166 paires : quelques appels par semaine au plus.
+`INSUFFISANT` est probable et c'est une réponse acceptable.
 
 **Limites déclarées.** Entrée au prix de clôture 4 h alors que l'appel est connu quelques minutes plus tard (écart
 et glissement taker comptés, mais aucun prix réel d'exécution) ; carnet lu à l'évaluation seulement ; prévision

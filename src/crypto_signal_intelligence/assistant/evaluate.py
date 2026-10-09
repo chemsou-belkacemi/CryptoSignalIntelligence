@@ -238,9 +238,9 @@ def evaluate(*, at: pd.Timestamp, now: pd.Timestamp, frames: dict[str, pd.DataFr
         if not vol["ok"]:
             _refuse(out, refusal, vol["reason"], f"{vol['detail']} (source : {source})")
             continue
-        net = R.plan_net_r(levels["entry"], levels["stop"], levels["tp1"], levels["tp2"], symbol)
-        if net < R.MIN_PLAN_R_NET:
-            _refuse(out, refusal, R.GAIN_RISK, f"plan net {net:.2f} R (< {R.MIN_PLAN_R_NET} R ; TP2 à {levels['r_tp2']:.2f} R)")
+        net = R.tp2_net_r(levels["entry"], levels["stop"], levels["tp2"], symbol)
+        if net < R.MIN_TP2_R_NET:
+            _refuse(out, refusal, R.GAIN_RISK, f"TP2 net {net:.2f} R (< {R.MIN_TP2_R_NET} R ; TP2 brut à {levels['r_tp2']:.2f} R)")
             continue
         if symbol in discipline.get("active", {}):
             _refuse(out, refusal, R.ACTIVE, f"appel {discipline['active'][symbol]} encore en cours")
@@ -303,14 +303,14 @@ def _decision(cand: dict, *, at: pd.Timestamp, now: pd.Timestamp, size: str, lig
                  f"{setup['volume_multiple']:.1f} × la moyenne."]
     lines.append(f"Stop à {cand['vol']['stop_pct']:.2f} % de l'entrée, soit {cand['vol']['ratio']:.1f} × le mouvement attendu "
                  f"sur 24 h ({cand['move']:.2f} %, {cand['move_source']}) ; TP2 = {lv['tp2_source']} à {lv['r_tp2']:.2f} R ; "
-                 f"plan net {cand['net']:.2f} R. Carnet : écart {cand['book']['spread_pct']:.3f} %, glissement de 500 USDT "
+                 f"TP2 net {cand['net']:.2f} R. Carnet : écart {cand['book']['spread_pct']:.3f} %, glissement de 500 USDT "
                  f"{cand['book']['slippage_pct']:.3f} %, déséquilibre à ±1 % {cand['book']['imbalance']:+.2f}.")
     lines.append(f"Feu {light['color']}" + (", taille réduite" if size == SIZE_REDUCED else "")
                  + f" ; BTC {'au-dessus' if btc.get('above_ema20') else 'sous'} son EMA20 journalière.")
     return {"call_id": ident, "symbol": symbol, "at": utc_iso(at), "decided_at": utc_iso(now), "regime": regime,
             "setup": setup["setup"], "entry": lv["entry"], "stop": lv["stop"], "hard_stop": lv["hard_stop"],
             "tp1": lv["tp1"], "tp2": lv["tp2"], "risk": lv["risk"], "r_tp2": round(lv["r_tp2"], 4),
-            "plan_net_r": round(cand["net"], 4), "size": size, "light": light["color"], "score": cand["score"]["total"],
+            "tp2_net_r": round(cand["net"], 4), "size": size, "light": light["color"], "score": cand["score"]["total"],
             "score_parts": cand["score"]["parts"], "explanation": lines,
             "volatility": {"move_24h_pct": cand["move"], "source": cand["move_source"], "stop_pct": round(cand["vol"]["stop_pct"], 4),
                            "ratio": round(cand["vol"]["ratio"], 4)},

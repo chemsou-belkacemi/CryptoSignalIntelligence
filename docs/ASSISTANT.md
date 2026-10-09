@@ -47,14 +47,15 @@ de bougies lus ; au moins 60 journées complètes, sinon la paire est INDECIS.
 |---|---|
 | HAUSSE | clôture > EMA50 **et** EMA20 > EMA50 **et** EMA50 d'aujourd'hui > EMA50 d'il y a 3 jours |
 | BAISSE | clôture < EMA50 **et** EMA20 < EMA50 → rien |
-| RANGE | ni l'un ni l'autre **et** couloir clair sur 30 jours (ci-dessous) |
+| RANGE | ni l'un ni l'autre **et** couloir clair sur 45 jours (ci-dessous) |
 | INDECIS | tout le reste → rien |
 | NON_EVALUABLE | bougie 4 h de clôture ou journée de la veille absente du magasin |
 
-**Couloir clair** : pivots ZigZag 4 h (m = 2,5 ATR, `patterns/primitives.zigzag`) des 30 derniers jours, pivots bas
+**Couloir clair** : pivots ZigZag 4 h (m = 2,5 ATR, `patterns/primitives.zigzag`) des 45 derniers jours, pivots bas
 regroupés à 0,5 ATR(4 h) en supports, pivots hauts en résistances (`technical/analysis.cluster_levels`) ; support =
 le plus proche sous la clôture touché ≥ 2 fois, résistance = la plus proche au-dessus touchée ≥ 2 fois ; hauteur
-(résistance − support) ≥ 4 ATR journaliers (ATR14 de Wilder).
+(résistance − support) ≥ 3 ATR journaliers (ATR14 de Wilder). 45 jours et 3 ATR : ajustés le 2026-10-09 sur les comptages à blanc du 2026-08-01 → 2026-09-30 (60 jours de clôtures 4 h), 16 paires, avant tout résultat de transaction (avant : 30 jours
+et 4 ATR, 0 lecture RANGE sur 5 760).
 
 ### 2. Configurations (jamais de cassure)
 
@@ -65,7 +66,7 @@ le plus proche sous la clôture touché ≥ 2 fois, résistance = la plus proche
 - le plus bas des 5 dernières bougies 4 h est dans la zone **et** la bougie qui vient de clôturer clôture au-dessus de
   la zone **et** son volume quote > moyenne des 20 bougies 4 h précédentes ;
 - entrée = clôture ; stop = plus bas du repli − 0,1 ATR(4 h) ; TP1 = entrée + 1 R ; TP2 = résistance 4 h la plus
-  proche, ou entrée + 2 R sans résistance (voir le filtre gain/risque : ce cas est alors refusé).
+  proche, ou entrée + 2 R sans résistance.
 
 **RANGE — « rejet du support »**
 - une des 3 dernières bougies 4 h a touché le support (plus bas ≤ support + 0,25 ATR(4 h)) **et** la bougie qui vient
@@ -81,8 +82,8 @@ significatifs).
 | Filtre | Règle | Raison de refus |
 |---|---|---|
 | Liquidité à l'instant | carnet `/api/v3/depth` (1 000 niveaux, client public en lecture seule), lu **seulement** pour les candidats qui ont passé tout le reste ; `liquidity_log.book_metrics` : écart < 0,3 %, glissement d'un achat de 500 USDT < 0,2 %, achats ≥ ventes à ±1 % | `CARNET_INJOIGNABLE`, `CARNET_ECART`, `CARNET_GLISSEMENT`, `CARNET_DESEQUILIBRE` |
-| Stop cohérent avec la volatilité | (entrée − stop)/entrée entre 1 et 3 × le mouvement attendu sur 24 h : prévision H24 de F12 (`risk/advice`, inscrite au plus tard à `t`) pour les 16 paires qui l'ont, sinon écart-type des rendements 1 h des 7 derniers jours × √24 (source marquée) | `STOP_TROP_SERRE`, `STOP_TROP_LARGE`, `VOLATILITE_INCONNUE` |
-| Gain/risque | plan net ≥ 1,5 R : ½ à TP1 + ½ à TP2, frais et glissement taker aller-retour (scénario central de `forward/costs`) | `GAIN_RISQUE` |
+| Stop cohérent avec la volatilité | (entrée − stop)/entrée entre 0,75 et 3 × le mouvement attendu sur 24 h (0,75 : ajustés le 2026-10-09 sur les comptages à blanc du 2026-08-01 → 2026-09-30 (60 jours de clôtures 4 h), 16 paires, avant tout résultat de transaction ; avant : 1) : prévision H24 de F12 (`risk/advice`, inscrite au plus tard à `t`) pour les 16 paires qui l'ont, sinon écart-type des rendements 1 h des 7 derniers jours × √24 (source marquée) | `STOP_TROP_SERRE`, `STOP_TROP_LARGE`, `VOLATILITE_INCONNUE` |
+| Gain/risque | **TP2 ≥ 1,5 R net** : vente à TP2 moins l'achat, frais et glissement taker aller-retour (scénario central de `forward/costs`), en R (ajustés le 2026-10-09 sur les comptages à blanc du 2026-08-01 → 2026-09-30 (60 jours de clôtures 4 h), 16 paires, avant tout résultat de transaction ; la demande initiale « TP1 ≥ 1,5 R net » était incohérente avec TP1 = +1 R) | `GAIN_RISQUE` |
 | Timing macro | aucun événement de `forward/light.macro_events` dont le jour UTC recouvre [t − 2 h ; t + 2 h] | `TIMING_MACRO` |
 | News | aucune news de risque (`news/risk.risk_items`) des 24 h précédant `t`, connue à `t`, visant la paire (base dans les actifs étiquetés, ou base/symbole en mot entier du titre) ; base illisible → refus | `NEWS_RISQUE`, `NEWS_INJOIGNABLES` |
 | Discipline | un seul appel actif par paire ; 48 h de repos par paire après la sortie d'un appel ; 3 appels par jour UTC au plus sur tout l'univers, les mieux classés d'abord | `APPEL_ACTIF`, `REPOS_48H`, `QUOTA_JOUR` |
@@ -130,11 +131,12 @@ explication, placebos), RESOLUTION, VERDICT, CLOTURE.
 | Paramètre | Valeur | Paramètre | Valeur |
 |---|---|---|---|
 | Bougies 1 h lues | 200 jours | Journées complètes minimum | 60 |
-| EMA | 20 et 50, pente sur 3 jours | Couloir | 30 jours, pivots à 0,5 ATR(4 h), 2 touches, 4 ATR journaliers |
+| EMA | 20 et 50, pente sur 3 jours | Couloir | 45 jours, pivots à 0,5 ATR(4 h), 2 touches, 3 ATR journaliers (ajusté) |
 | Repli | plus bas des 5 bougies 4 h | Touche du support | 3 bougies, 0,25 ATR(4 h) |
 | Stop | plus bas − 0,1 ATR(4 h) | Volume | > moyenne des 20 bougies 4 h |
-| Résistance proche | < 1 R : refus | Plan net | ≥ 1,5 R (½ TP1 + ½ TP2, taker) |
-| Carnet | écart < 0,3 %, 500 USDT < 0,2 %, déséquilibre ≥ 0 à ±1 % | Stop / mouvement H24 | entre 1 et 3 |
+| Résistance proche | < 1 R : refus | TP2 net | ≥ 1,5 R (taker aller-retour, central ; ajusté) |
+| Carnet | écart < 0,3 %, 500 USDT < 0,2 %, déséquilibre ≥ 0 à ±1 % | Stop / mouvement H24 | entre 0,75 et 3 (0,75 ajusté) |
+| Profil de volume (VAL) | 30 jours | | |
 | Volatilité réalisée | 7 jours, 1 h × √24 | Macro | jour de l'événement ± 2 h |
 | News | 24 h | Discipline | 1 actif par paire, 48 h, 3 par jour UTC |
 | Stop de secours | 1,5 R | TP1 | moitié à +1 R |
@@ -142,13 +144,15 @@ explication, placebos), RESOLUTION, VERDICT, CLOTURE.
 | Verdict | 30 résolus, 10 jours, IC95 blocs de 7 jours, 10 000 tirages, graine 20261009 | Trou | 2 jours après la fenêtre |
 
 Aucun de ces nombres n'a été réglé sur un résultat : ils viennent de la demande du propriétaire ou de conventions déjà
-en service (ATR14, ZigZag 2,5 ATR, EMA50, blocs de 7 jours). Rien ne sera réglé après coup.
+en service (ATR14, ZigZag 2,5 ATR, EMA50, blocs de 7 jours). Trois valeurs (couloir 45 jours / 3 ATR, stop ≥ 0,75 ×
+H24, TP2 ≥ 1,5 R net) ont été ajustés le 2026-10-09 sur les comptages à blanc du 2026-08-01 → 2026-09-30 (60 jours de clôtures 4 h), 16 paires, avant tout résultat de transaction : seuls des comptes de candidats et de refus
+ont été regardés, jamais un R. Rien ne sera réglé après le démarrage de F18.
 
 ## 4. Choix faits là où la demande était impossible ou ambiguë (option la plus prudente)
 
-- **« TP1 ≥ 1,5 R net »** est impossible puisque TP1 = +1 R par construction : le filtre porte sur le **plan net**
-  (½ à TP1 + ½ à TP2, frais taker aller-retour) ≥ 1,5 R. Conséquence : un appel HAUSSE sans résistance (TP2 = +2 R)
-  est toujours refusé `GAIN_RISQUE` ; il faut une résistance à ≈ 2,25 R ou plus.
+- **« TP1 ≥ 1,5 R net »** est impossible puisque TP1 = +1 R par construction : d'abord lu comme « plan net (½ TP1 +
+  ½ TP2) ≥ 1,5 R », ce qui refusait tout appel HAUSSE sans résistance ; le propriétaire a tranché le 2026-10-09 :
+  **TP2 ≥ 1,5 R net** (taker aller-retour, central). Un appel sans résistance (TP2 = +2 R) passe donc.
 - **Événements macro** : le calendrier ne donne que le jour, pas l'heure ; tout le jour UTC de l'événement est tenu
   pour sensible (plus 2 h de chaque côté de minuit).
 - **Base de news illisible** : refus (`NEWS_INJOIGNABLES`), comme pour le carnet. Une base vide (aucune news) ne
@@ -187,10 +191,19 @@ ne dit qu'elle fera mieux que le hasard.
 - **Rapport quotidien des tests en direct** : section F18 (évaluations, candidats, appels, refus par raison, R moyen
   et intervalles, taux de TP1/TP2, pire série, par régime).
 
-## 7. Comptage à blanc avant le démarrage (aucun résultat de transaction)
+## 7. Comptages à blanc avant le démarrage (aucun résultat de transaction)
 
-Balayage du 2026-10-09 sur les 16 paires de la configuration, 60 jours de clôtures 4 h du magasin local
-(`csi assistant evaluer` à blanc, feu INCONNU, carnet non interrogé) : 5 760 lectures de régime (3 480 HAUSSE,
-1 387 BAISSE, 893 INDECIS, 0 RANGE), 92 configurations validées, refus : 45 résistance proche, 38 stop trop serré,
-5 gain/risque, 1 stop trop large ; 3 candidats arrivés au carnet ; 76 clôtures de silence (BTC sous son EMA50). Soit
-≈ 1 appel par mois pour 16 paires ; sur 166 paires, quelques appels par semaine au plus. `INSUFFISANT` est probable.
+Balayages du 2026-10-09 sur les 16 paires de la configuration, 60 jours de clôtures 4 h du magasin local
+(2026-08-01 12:00 → 2026-09-30 08:00, 360 clôtures, feu INCONNU, carnet non interrogé : les candidats arrivés au
+carnet sont comptés `CARNET_INJOIGNABLE`). Seuls des comptes ont été regardés, jamais un R.
+
+| | Règles initiales (couloir 30 j / 4 ATR, stop ≥ 1 × H24, plan net ≥ 1,5 R) | Règles figées (couloir 45 j / 3 ATR, stop ≥ 0,75 × H24, TP2 ≥ 1,5 R net) |
+|---|---|---|
+| Lectures de régime (5 760) | 3 480 HAUSSE, 1 387 BAISSE, 893 INDECIS, **0 RANGE** | 3 480 HAUSSE, 1 387 BAISSE, 812 INDECIS, **81 RANGE** |
+| Configurations validées | 92 | 92 (toutes HAUSSE ; en RANGE : 53 lectures « support non touché ») |
+| Refus | 45 résistance proche, 38 stop trop serré, 5 gain/risque, 1 stop trop large | 50 résistance proche, 28 stop trop serré, 6 gain/risque, 1 stop trop large |
+| Candidats arrivés au carnet | 3 | **7** (toutes « repli puis reprise ») |
+| Clôtures de silence (BTC ≤ EMA50) | 76 | 76 |
+
+Soit ≈ 3,5 candidats au carnet par mois pour 16 paires ; sur 166 paires, quelques appels par semaine au plus (3 par
+jour maximum). `INSUFFISANT` reste probable.

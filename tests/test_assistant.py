@@ -113,10 +113,11 @@ def test_regimes_four_cases_and_boundaries():
     assert ev.read_pair(hours_from_4h(*path4h([(400, 160, 100, 1.0)])), T)["regime"] == R.DOWN
 
 
-def test_corridor_needs_two_touches_each_and_four_daily_atr():
+def test_corridor_needs_two_touches_each_and_three_daily_atr():
     levels = {"supports": [{"price": 100.0, "touches": 2}], "resistances": [{"price": 110.0, "touches": 2}]}
-    assert R.corridor(levels, 2.5)["height_atr_d"] == pytest.approx(4.0)
-    assert R.corridor(levels, 2.51) is None                                                 # hauteur < 4 ATR
+    assert R.corridor(levels, 10 / 3)["height_atr_d"] == pytest.approx(3.0)
+    assert R.corridor(levels, 3.34) is None                                                 # hauteur < 3 ATR
+    assert R.RANGE_DAYS == 45 and R.RANGE_BARS == 270 and R.PROFILE_DAYS == 30
     assert R.corridor({"supports": [{"price": 100.0, "touches": 1}], "resistances": levels["resistances"]}, 1.0) is None
     assert R.corridor({"supports": levels["supports"], "resistances": []}, 1.0) is None
     weak_first = {"supports": [{"price": 104.0, "touches": 1}, {"price": 100.0, "touches": 3}], "resistances": levels["resistances"]}
@@ -184,7 +185,7 @@ def test_a_call_comes_out_with_all_filters_passed():
     assert call["regime"] == R.RANGE and call["setup"] == R.REJECTION and call["stop"] < call["entry"] < call["tp1"] < call["tp2"]
     assert call["hard_stop"] == pytest.approx(call["entry"] - 1.5 * call["risk"], abs=1e-6)
     assert call["tp1"] == pytest.approx(call["entry"] + call["risk"], abs=1e-4)   # 8 chiffres significatifs sans pas de cotation
-    assert call["plan_net_r"] >= 1.5 and 1 <= call["volatility"]["ratio"] <= 3 and call["volatility"]["source"] == "prévision H24 de F12"
+    assert call["tp2_net_r"] >= 1.5 and 0.75 <= call["volatility"]["ratio"] <= 3 and call["volatility"]["source"] == "prévision H24 de F12"
     assert len(call["placebo_offsets_h"]) == 20 and call["score"] == sum(call["score_parts"].values())
     assert "aucun gain démontré" in call["note"] and len(call["explanation"]) == 3
 
@@ -217,11 +218,12 @@ def test_book_filters_including_unreachable_book():
 
 def test_stop_versus_volatility_bounds_and_realized_fallback():
     assert R.stop_versus_volatility(100.0, 98.0, 2.0)["ok"] and R.stop_versus_volatility(100.0, 94.0, 2.0)["ok"]
-    assert R.stop_versus_volatility(100.0, 98.0, 2.01)["reason"] == R.STOP_TIGHT
+    assert R.stop_versus_volatility(100.0, 98.5, 2.0)["ok"]                                   # ratio 0,75 : frontière admise
+    assert R.stop_versus_volatility(100.0, 98.5, 2.01)["reason"] == R.STOP_TIGHT
     assert R.stop_versus_volatility(100.0, 93.9, 2.0)["reason"] == R.STOP_WIDE
     assert R.stop_versus_volatility(100.0, 98.0, None)["reason"] == R.VOL_UNKNOWN
     frames = {"RNGUSDT": range_rejection()}
-    tight = run(frames, forecast={"available": True, "pairs": {"RNGUSDT": {"move_24h_pct": 5.0}}})
+    tight = run(frames, forecast={"available": True, "pairs": {"RNGUSDT": {"move_24h_pct": 6.0}}})
     assert tight["refusals"][0]["reason"] == R.STOP_TIGHT and "prévision H24" in tight["refusals"][0]["detail"]
     realized = run(frames, forecast={"available": False})                      # sans prévision : volatilité réalisée
     reason = (realized["refusals"][0]["reason"] if realized["refusals"] else realized["calls"][0]["volatility"]["source"])
@@ -232,15 +234,15 @@ def test_stop_versus_volatility_bounds_and_realized_fallback():
     assert move == pytest.approx(expected)
 
 
-def test_plan_net_gain_filter_by_hand():
+def test_tp2_net_gain_filter_by_hand():
     c = costs_for("XUSDT", "central")
-    net = R.plan_net_r(100.0, 95.0, 105.0, 115.0, "XUSDT")
-    expected = (0.5 * 105 * (1 - c.market) * (1 - c.fee) + 0.5 * 115 * (1 - c.market) * (1 - c.fee) - 100 * (1 + c.market) * (1 + c.fee)) / 5
-    assert net == pytest.approx(expected) and 1.9 < net < 2.0
-    assert R.plan_net_r(100.0, 95.0, 105.0, 110.0, "XUSDT") < 1.5           # +2 R sans résistance : refusé par le filtre
-    assert R.plan_net_r(100.0, 95.0, 105.0, 125.0, "XUSDT") > 1.5
-    out = run({"UPUSDT": uptrend_pullback(peak=175.0)})                       # résistance trop proche pour un plan ≥ 1,5 R net
-    assert out["refusals"] and out["refusals"][0]["reason"] in (R.GAIN_RISK, R.RESISTANCE_NEAR)
+    net = R.tp2_net_r(100.0, 95.0, 110.0, "XUSDT")
+    expected = (110 * (1 - c.market) * (1 - c.fee) - 100 * (1 + c.market) * (1 + c.fee)) / 5
+    assert net == pytest.approx(expected) and 1.9 < net < 2.0                 # +2 R sans résistance : passe
+    assert R.tp2_net_r(100.0, 95.0, 107.0, "XUSDT") < 1.5                     # 1,4 R brut : refusé
+    assert R.tp2_net_r(100.0, 95.0, 107.8, "XUSDT") > 1.5
+    out = run({"UPUSDT": uptrend_pullback(peak=175.0)})                       # résistance à ≈ 1,3 R : TP2 net < 1,5 R
+    assert out["refusals"] and out["refusals"][0]["reason"] == R.GAIN_RISK and "TP2 net" in out["refusals"][0]["detail"]
 
 
 def test_timing_macro_and_news_filters():
