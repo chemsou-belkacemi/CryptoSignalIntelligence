@@ -38,6 +38,7 @@ docker compose build
 docker compose run --rm tools download        # historique initial (archives vérifiées), une fois
 docker compose run --rm tools news-sources --check
 docker compose up -d monitor dashboard        # surveillance + tableau de bord (127.0.0.1:8502)
+docker compose up -d collecteur               # collecteur en shadow (docs/COLLECTE.md), part aussi avec `up -d`
 docker compose ps                             # « healthy » = un cycle récent terminé
 docker compose logs -f monitor
 docker compose run --rm tools backup          # sauvegarde vérifiée dans le volume (backups/)
@@ -55,6 +56,12 @@ docker compose stop monitor                   # SIGTERM : le cycle en cours se t
   service `api` monte à 2 Go pendant l'audit (modèles OCR), à côté de `monitor` et de BinanceSpotManager.
 - **Limites de ressources** : `monitor` plafonné à 1 Go et 4 CPU (plafond, pas réservation : un cycle ne dure que quelques secondes toutes les 15 min), 2 Go et 1 CPU pour les outils ponctuels. Un
   walk-forward sur 16 paires utilise environ 1 Go : le lancer avec `tools`, un seul à la fois.
+- **Collecteur en shadow** ([COLLECTE.md](COLLECTE.md)) : service `collecteur` (même image, même volume, 768 Mo et
+  1 CPU, basse priorité, `restart: unless-stopped`, sans profil : il part avec `docker compose up -d`). Il écrit les
+  journaux `forward/C_*.jsonl` et `state/C_ETAT.json` ; son `healthcheck` = `collecteur-health` (état réécrit depuis
+  moins de 5 min, délai de grâce 3 min). Flux WebSocket publics de Binance et REST public de Deribit et Reddit
+  seulement (liste fermée dans `collect/net.py`). Sa panne n'arrête pas `monitor` et inversement. Logs :
+  `docker compose logs -f collecteur` ; arrêt seul : `docker compose stop collecteur`.
 - **Arrêt propre** : SIGTERM termine le cycle en cours puis libère le verrou
   (`stop_grace_period: 180s`, car une attente de bougies peut durer 90 s).
 - **Redémarrage après panne** : `restart: unless-stopped`. Au redémarrage, seule la dernière bougie

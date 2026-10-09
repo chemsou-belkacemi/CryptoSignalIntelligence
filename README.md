@@ -254,6 +254,10 @@ docker compose up -d --build          # surveillance shadow, API et tableau de b
 docker compose ps                     # tout doit être « healthy »
 ```
 
+Le service `collecteur` part avec les autres : relevé continu en shadow des liquidations, du carnet, des flux de
+transactions, des options Deribit et de l'attention Reddit, dans des journaux `C_*.jsonl` en ajout seul
+([docs/COLLECTE.md](docs/COLLECTE.md)) ; aucun test, aucun seuil, aucune prédiction avant une pré-inscription.
+
 Tout démarrer d'un coup (CSI puis le bot) : `./scripts/demarrer.sh`, ou `./scripts/demarrer.sh --reconstruire`
 après une mise à jour du code. Sous Windows (Docker Desktop) : `.\scripts\docker-init.ps1` et
 `.\scripts\demarrer.ps1`.
@@ -361,6 +365,7 @@ puis `.\.venv\Scripts\python.exe -m pip install --no-deps -e .` ; les commandes 
 .venv/bin/csi exit-policies                      # politiques de sortie et empreintes
 .venv/bin/csi scan                               # un cycle : paires × stratégies, shadow
 .venv/bin/csi run --mode shadow                  # surveillance continue (Ctrl+C pour arrêter)
+.venv/bin/csi collecteur                         # collecteur en shadow (docs/COLLECTE.md) ; collecteur-health : santé
 .venv/bin/csi news-sources --check               # vérifie les sources d'actualités
 .venv/bin/csi news --hours 24                    # actualités (observe : sans influence)
 .venv/bin/csi dashboard --open                   # tableau de bord HTML (state/dashboard.html)
