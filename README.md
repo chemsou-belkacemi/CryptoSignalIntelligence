@@ -219,6 +219,7 @@ fait, faute de source gratuite fiable.
 .venv/bin/csi forward status                     # état et intégrité des journaux
 .venv/bin/csi forward start F1_MAKER_TAKER       # une seule fois, code commité
 .venv/bin/csi forward report                     # rapport du jour
+.venv/bin/csi assistant evaluer --now 2026-10-09T08:05:00Z   # assistant de marché à blanc (docs/ASSISTANT.md, test F18)
 ```
 
 ### Mesurer un groupe tout de suite

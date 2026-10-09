@@ -1224,6 +1224,114 @@ signaux `SUR` ou validés sont joués) ; une validation tardive retarde l'entré
 les signaux en image d'un groupe qui refuse les bots n'arrivent que transférés à la main (sélection du
 propriétaire en plus : marqués) ; une validation mesure « propriétaire + fournisseur ».
 
+## F18_ASSISTANT : l'assistant de marché (régime, repli ou rejet du support, filtres) contre placebos
+
+Demande du propriétaire du 2026-10-09 : un assistant qui lit le marché comme un trader prudent (régime journalier,
+repli en hausse ou rejet d'un support en range, confirmation par le volume, liquidité du carnet, stop cohérent avec
+la volatilité attendue, timing hors événements, discipline) et qui n'appelle que rarement. Il est construit EN
+SHADOW et mesuré ici, une seule fois, contre des placebos ; règles complètes dans `docs/ASSISTANT.md`, figées au
+démarrage avec tous les modules `assistant/*`. F17 reste réservé. Ce qui est déjà réfuté n'est pas repris comme
+règle isolée (niveaux seuls, repli sur EMA en 15 min, votes) : l'assistant combine un contexte, une configuration
+et des filtres, et c'est cette combinaison qui est mesurée. CSI ne passe aucun ordre ; aucun gain n'est annoncé ni
+démontré. Attendu, au vu de tout le programme : `NON_DEMONTRE` ou `INSUFFISANT`.
+
+**Hypothèse.** Un appel d'achat de l'assistant, géré avec ses règles fixes (stop à la clôture 4 h, stop de secours,
+moitié à +1 R puis l'autre moitié à TP2, 10 jours au plus), rapporte en moyenne plus, en R net, que 20 entrées
+placebo de même géométrie sur la même paire à des clôtures 1 h tirées au hasard dans les 84 heures qui précèdent et
+qui suivent l'appel.
+
+**Univers et données.** Paires de la liste halal figée au démarrage de F15 ; bougies 1 h du magasin de F15
+(`forward_figures/data`, tenu à jour chaque heure par F15, lu sans écriture par F18) ; 4 h et 1 jour agrégés depuis
+00:00 UTC, blocs complets seulement. Évaluation à **chaque clôture 4 h UTC** (00/04/08/12/16/20), au passage horaire
+qui suit, dès que la bougie 1 h de clôture est en magasin ; une clôture n'est évaluée qu'une fois, jamais après coup
+(machine éteinte : trou). Rien n'est écrit dans `SignalRegistry` ni `signals/` (F2 n'est pas touché) : l'assistant a
+son propre journal, son état (`state/assistant.json`) et sa boîte Telegram (`state/assistant_outbox.json`).
+
+**Règles** (`docs/ASSISTANT.md`, résumé) :
+- **Marché** : feu de protection ROUGE → silence ; ORANGE → appels marqués « taille réduite » ; INCONNU → règle BTC
+  seule, marqué. BTC (BTCUSDT) clôture journalière ≤ EMA50 journalière → silence. BTC inconnu → silence (prudence).
+- **Régime** de la paire sur la dernière journée complète (EMA20/EMA50 journalières, départ par moyenne simple) :
+  HAUSSE (clôture > EMA50, EMA20 > EMA50, EMA50 > EMA50 d'il y a 3 jours) ; BAISSE (clôture < EMA50, EMA20 < EMA50)
+  → rien ; RANGE (ni l'un ni l'autre ET couloir clair sur 30 jours : support = pivots bas ZigZag 4 h regroupés à
+  0,5 ATR touchés ≥ 2 fois, résistance = pivots hauts touchés ≥ 2 fois, les plus proches de la clôture, hauteur ≥ 4
+  ATR journaliers) ; sinon INDECIS → rien.
+- **Configurations** : HAUSSE « repli puis reprise » (plus bas des 5 dernières bougies 4 h dans la zone de valeur
+  [min(EMA20 journalière, support 4 h le plus proche) ; max(EMA20 journalière, VAL du profil de volume 30 jours)],
+  clôture 4 h au-dessus de la zone, volume quote > moyenne des 20 précédentes ; stop = plus bas du repli − 0,1
+  ATR(4 h) ; TP2 = résistance 4 h la plus proche, sinon entrée + 2 R) ; RANGE « rejet du support » (une des 3
+  dernières bougies 4 h avec plus bas ≤ support + 0,25 ATR(4 h), clôture au-dessus du support, même volume ; stop =
+  plus bas de la mèche − 0,1 ATR(4 h) ; TP2 = résistance du couloir). Entrée = clôture 4 h ; TP1 = entrée + 1 R ;
+  jamais de cassure ; résistance à moins de 1 R au-dessus de l'entrée → refus. Niveaux arrondis au pas de cotation
+  quand il est connu (stop vers le bas, objectifs vers le haut).
+- **Filtres**, tous vrais sinon refus avec la raison : carnet `/api/v3/depth` (1 000 niveaux, lu seulement pour les
+  candidats qui ont passé tout le reste) avec écart < 0,3 %, glissement d'un achat de 500 USDT < 0,2 %, achats ≥
+  ventes à ±1 % ; carnet injoignable → `CARNET_INJOIGNABLE` ; distance au stop entre 1 et 3 × le mouvement attendu sur
+  24 h (prévision H24 de F12 quand la paire l'a, sinon écart-type des rendements 1 h des 7 derniers jours × √24,
+  source marquée) ; **plan net** (moitié à TP1, moitié à TP2, frais taker aller-retour, scénario central) ≥ 1,5 R
+  (lecture prudente de « TP1 ≥ 1,5 R net », impossible telle quelle puisque TP1 = +1 R) ; aucun événement macro
+  (`forward/light.macro_events`) dont le jour UTC recouvre [t − 2 h ; t + 2 h] (heure inconnue : jour entier) ;
+  aucune news de risque des 24 h visant la paire ; base de news illisible → refus ; discipline : un seul appel actif
+  par paire, 48 h de repos par paire après la sortie d'un appel, 3 appels par jour UTC au plus sur tout l'univers,
+  les mieux classés d'abord.
+- **Score** (0-100, affiché, ne décide pas) : touches du niveau (0-25), déséquilibre du carnet (0-25), volume de la
+  bougie de confirmation (0-20), distance au stop en multiple du mouvement H24 (0-15), BTC au-dessus de son EMA20
+  journalière (15) ; formule dans `docs/ASSISTANT.md`.
+- **Gestion**, identique pour les placebos : entrée à la clôture (frais et glissement taker) ; stop à la clôture :
+  perdu si une clôture 4 h ≤ stop, sortie à cette clôture ; stop de secours dur à entrée − 1,5 × (entrée − stop),
+  touché intrabar sur bougie 1 h → sortie à ce niveau (ou à l'ouverture si elle est déjà dessous) ; TP1 : moitié à
+  +1 R touché intrabar, puis stop de clôture remonté à l'entrée ; TP2 : l'autre moitié ; 10 jours au plus puis sortie
+  à la clôture de la dernière bougie 1 h ; une bougie 1 h qui touche à la fois un objectif et le stop de secours
+  compte le stop (prudence) ; sorties comptées au marché (taker) partout ; frais central et défavorable du modèle
+  commun. R = résultat net / (entrée − stop).
+
+**Placebos.** Pour chaque appel : 20 entrées au marché sur la même paire à des clôtures 1 h tirées sans remise dans
+[t − 84 h ; t + 84 h] hors [t − 4 h ; t + 4 h] (décalages en heures de ±5 à ±84), graine
+`sha256("F18_ASSISTANT:" + call_id)`, inscrits à l'appel ; même géométrie en pourcentage du prix d'entrée, même
+gestion, mêmes frais. Excès = R de l'appel − moyenne des R des placebos. Résolution sur les bougies 1 h du magasin
+de F15 ; un placebo dont la bougie d'entrée manque est écarté ; appel non résoluble 2 jours après la fin de la fenêtre
+(t + 84 h + 10 jours) : `TROU`, hors mesure.
+
+**Paramètres** (figés dans le code, `assistant/rules.py`, et énumérés dans `forward/f18.py`) : 200 jours de bougies 1 h
+lus, 60 journées complètes au moins ; EMA 20 et 50, pente sur 3 jours ; couloir sur 30 jours, pivots regroupés à
+0,5 ATR(4 h), 2 touches, hauteur 4 ATR journaliers ; repli sur 5 bougies, touche sur 3 bougies à 0,25 ATR ; stop à
+0,1 ATR sous le plus bas ; volume contre 20 bougies ; résistance ≥ 1 R ; plan net ≥ 1,5 R ; écart < 0,3 %,
+glissement de 500 USDT < 0,2 %, déséquilibre ≥ 0 ; stop entre 1 et 3 × le mouvement H24 ; 2 h autour des
+événements macro ; news sur 24 h ; 3 appels par jour, 48 h de repos ; stop de secours à 1,5 R, moitié à TP1, 10
+jours ; 20 placebos à ±5…84 h ; minimum **30 appels résolus** sur **10 jours** pour conclure ; IC95 du R par blocs de
+7 jours (10 000 tirages, graine 20261009), excès au niveau 1 − 0,05/2 ; trou constaté 2 jours après la fenêtre.
+Gel : modules `forward/f18`, `assistant/rules`, `assistant/evaluate`, `assistant/state`, `assistant/outbox`, `costs`,
+`registry`, `journal` ; fonctions `day_block_ci95`, `day_block_ci`, `f4.verdict`, `f15.figure_store`,
+`light.macro_events`, `liquidity_log.book_metrics` (et ses aides), `market_light.decide/ema/daily_closes/current`,
+`advice.advice`, `news.risk.risk_items`, `indicators.ema`, `primitives.atr/zigzag`, `volume.volume_profile`,
+`analysis.cluster_levels/round_tick`, `CandleStore` ; configuration `data.rest_base_url`,
+`data.assumed_availability_latency_seconds`. Le pas de cotation (`data.tick_size`) n'est pas gelé : il ne sert qu'à
+arrondir les niveaux.
+
+**Métrique.** Principale : **R net moyen** des appels résolus (central et défavorable), IC95 par blocs de 7 jours.
+Secondaire : excès sur les placebos et son intervalle. Descriptif : évaluations, passages silencieux, candidats,
+appels par semaine, taux de TP1 et de TP2, part gagnante, pire série de pertes, appels et R moyen par régime
+(HAUSSE, RANGE), refus par raison, lectures de régime, trous, en attente. `n_trials` = 1 en FORWARD.
+
+**Seuil de décision** (à la date d'évaluation, tous les appels résolus ; `forward/f4.verdict`) : `INSUFFISANT`
+(moins de 30 appels résolus ou de 10 jours, ou intervalle non calculable) ; `SUPERIEUR_AU_HASARD` (IC95 du R moyen ET
+intervalle de l'excès entièrement au-dessus de 0, en central ET en défavorable) ; `INFERIEUR_AU_HASARD` (IC95 du R
+moyen entièrement sous 0 dans les deux scénarios) ; sinon `NON_DEMONTRE`. Un régime n'a jamais de verdict propre.
+
+**Date d'évaluation.** Fin du recueil 84 jours après le démarrage ; revue intermédiaire à 42 jours (descriptive,
+aucun changement de règle) ; verdict une fois le dernier appel résolu (jusqu'à 84 + 13,5 + 2 jours).
+
+**Nombre d'appels attendu.** Balayage à blanc du 2026-10-09 sur les 16 paires de la configuration, 60 jours de
+clôtures 4 h du magasin local (comptes seulement, aucun résultat de transaction calculé) : 92 configurations
+validées, 45 refus « résistance proche », 38 « stop trop serré », 5 « gain/risque », 3 candidats arrivés au carnet
+(soit ≈ 1 appel par mois pour 16 paires) ; aucun régime RANGE rencontré (couloir strict). Sur 166 paires :
+quelques appels par semaine au plus. `INSUFFISANT` est probable et c'est une réponse acceptable.
+
+**Limites déclarées.** Entrée au prix de clôture 4 h alors que l'appel est connu quelques minutes plus tard (écart
+et glissement taker comptés, mais aucun prix réel d'exécution) ; carnet lu à l'évaluation seulement ; prévision
+H24 de F12 absente pour 150 paires (volatilité réalisée à la place, marquée) ; F12 s'arrête le 2026-12-25 (ensuite
+volatilité réalisée partout) ; feu dépendant de F12 (INCONNU ensuite : règle BTC seule) ; appels corrélés entre
+paires (mêmes jours de marché) ; placebos à ±84 h partagent le contexte de l'appel ; 12 semaines ne valident rien.
+
 ## LECTURE_TP_MAHWASHI : vendre surtout aux TP lointains sur AL-MAHWASHI (lecture déclarée le 2026-10-04)
 
 **Origine.** Analyse du 2026-10-04 du fichier `BotHistory.json` (robot d'un ami du propriétaire, 6-30 septembre 2026,
