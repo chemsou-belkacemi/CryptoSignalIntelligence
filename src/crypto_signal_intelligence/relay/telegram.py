@@ -12,9 +12,11 @@ redirection. Le décalage `offset` n'avance qu'après un dépôt réussi ou une 
 n'est perdu si l'API CSI est arrêtée.
 
 Sens retour (2026-10-09) : le même bot ENVOIE au propriétaire les appels de l'assistant de marché que l'API CSI met
-en attente (`GET /assistant/outbox`, puis `POST /assistant/sent` pour les marquer). Le propriétaire est la première
-conversation privée qui envoie `/start` (gardée dans `proprietaire.json`), ou `CSI_TELEGRAM_OWNER_CHAT_ID` s'il est
-défini. Rien d'autre ne part : aucun ordre, aucune clé, aucun chiffre inventé ; l'envoi ne bloque jamais le relais.
+en attente (`GET /assistant/outbox`, puis `POST /assistant/sent` pour les marquer). Le propriétaire n'est jamais un
+inconnu : c'est `CSI_TELEGRAM_OWNER_CHAT_ID` s'il est défini, sinon la conversation privée depuis laquelle des messages
+TRANSFÉRÉS d'un groupe ou d'un canal sont arrivés (son relais Telethon transfère ses groupes depuis son propre
+compte) ; elle est apprise au premier transfert et gardée dans `proprietaire.json`. Un `/start` venu d'ailleurs est
+refusé. Rien d'autre ne part : aucun ordre, aucune clé, aucun chiffre inventé ; l'envoi ne bloque jamais le relais.
 """
 from __future__ import annotations
 
@@ -41,6 +43,8 @@ MAX_TEXT = 4096                      # longueur maximale d'un message Telegram
 MAX_RETRY_AFTER = 60.0               # attente maximale sur un 429 Telegram (une seule fois par passage)
 OWNER_REMINDER_SECONDS = 3600.0      # « aucun propriétaire connu » : une ligne de journal par heure au plus
 COMMANDS = ("start", "etat")         # commandes privées du propriétaire : jamais déposées dans F4
+FORWARD_ORIGINS = ("chat", "channel")  # origines de transfert qui désignent un groupe ou un canal (jamais un particulier)
+SEND_TIMEOUT = 10.0                  # un envoi Telegram : 20 envois ne retardent jamais le dépôt F4 de plus de ~3 min
 PRIVATE_BOT = "Ce bot est privé."
 WELCOME = "C'est bien toi : les appels de l'assistant de marché arriveront ici. Aucun ordre ne part d'ici."
 
@@ -56,7 +60,7 @@ class RelayConfig:
     api_token: str = field(default="", repr=False)
     chats: frozenset[str] = frozenset()          # vide : toutes les conversations où le bot reçoit des messages
     state_dir: Path = Path("/srv/relay")
-    owner_chat_id: str = ""                      # CSI_TELEGRAM_OWNER_CHAT_ID : fixé sur le VPS, prioritaire sur /start
+    owner_chat_id: str = ""                      # CSI_TELEGRAM_OWNER_CHAT_ID : fixé sur le VPS, prioritaire sur l'apprentissage
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> RelayConfig:
@@ -84,6 +88,18 @@ def masked_chat(chat_id: str | int | None) -> str:
 
 def _utc(seconds: int | None) -> str | None:
     return datetime.fromtimestamp(int(seconds), UTC).isoformat() if seconds else None
+
+
+def forwarding_private_chat(update: dict) -> dict | None:
+    """Le message privé (compte ↔ bot) qui TRANSFÈRE un message d'un groupe ou d'un canal (`forward_from_chat`, ou
+    `forward_origin` de type chat/canal), sinon None. C'est ainsi que le relais reconnaît le propriétaire : son relais
+    Telethon transfère ses groupes depuis son propre compte ; un simple texte privé n'apprend rien."""
+    message = update.get("message")
+    if not isinstance(message, dict) or (message.get("chat") or {}).get("type") != "private":
+        return None
+    origin = message.get("forward_origin") or {}
+    forwarded = bool(message.get("forward_from_chat")) or (isinstance(origin, dict) and origin.get("type") in FORWARD_ORIGINS)
+    return message if forwarded else None
 
 
 def command_of(update: dict) -> tuple[str, dict] | None:
@@ -343,7 +359,7 @@ class Relay:
         si l'envoi a réussi, sinon le délai `retry_after` demandé par Telegram (0 pour une autre erreur)."""
         body = {"chat_id": chat_id, "text": text[:MAX_TEXT], "disable_web_page_preview": True}
         try:
-            reply = self.http("POST", f"{TELEGRAM}/bot{self.config.token}/sendMessage", body, {}, 30)
+            reply = self.http("POST", f"{TELEGRAM}/bot{self.config.token}/sendMessage", body, {}, SEND_TIMEOUT)
         except Exception as exc:  # noqa: BLE001 - le message peut contenir l'URL, donc le jeton
             error = masked(f"{type(exc).__name__}: {exc}", self.config)
             log.warning("envoi vers %s refusé : %s", masked_chat(chat_id), error)
@@ -353,11 +369,30 @@ class Relay:
             return 0.0
         return None
 
+    def learn_owner(self, updates: list[dict]) -> bool:
+        """Sans `CSI_TELEGRAM_OWNER_CHAT_ID` ni `proprietaire.json`, la PREMIÈRE conversation privée qui transfère un
+        message d'un groupe ou d'un canal devient le propriétaire (le premier apprenant gagne ; un `/start` ou un texte
+        privé sans origine de transfert n'apprend rien). Renvoie True si un propriétaire vient d'être enregistré."""
+        if self.owner() is not None:
+            return False
+        for update in updates:
+            message = forwarding_private_chat(update)
+            if message is None:
+                continue
+            chat = str((message.get("chat") or {}).get("id", ""))
+            user = str((message.get("from") or {}).get("username") or "")
+            self._write_json(self._owner_path, {"chat_id": chat, "first_seen": datetime.now(UTC).isoformat(),
+                                                "username_masked": (user[:2] + "…") if user else ""})
+            log.info("propriétaire reconnu par ses transferts : conversation %s", masked_chat(chat))
+            return True
+        return False
+
     def handle_commands(self, updates: list[dict]) -> dict:
-        """`/start` en privé : la PREMIÈRE conversation devient le propriétaire (sauf si l'environnement l'a fixé) ;
-        toute autre conversation privée reçoit « Ce bot est privé. » une seule fois et n'est jamais enregistrée.
-        `/etat` du propriétaire : cinq lignes de `GET /assistant`. Aucune commande n'est déposée dans F4."""
-        out = {"registered": 0, "refused": 0, "replied": 0}
+        """`/start` en privé : accepté seulement depuis la conversation du propriétaire (variable d'environnement ou
+        transferts déjà vus) ; toute autre conversation privée reçoit « Ce bot est privé. » une seule fois et n'est
+        jamais enregistrée. `/etat` du propriétaire : cinq lignes de `GET /assistant`. Aucune commande n'est déposée
+        dans F4."""
+        out = {"welcomed": 0, "refused": 0, "replied": 0}
         for update in updates:
             found = command_of(update)
             if found is None:
@@ -366,15 +401,9 @@ class Relay:
             chat = str((message.get("chat") or {}).get("id", ""))
             owner = self.owner()
             if word == "start":
-                if owner is None:
-                    user = str((message.get("from") or {}).get("username") or "")
-                    self._write_json(self._owner_path, {"chat_id": chat, "first_seen": datetime.now(UTC).isoformat(),
-                                                        "username_masked": (user[:2] + "…") if user else ""})
-                    log.info("propriétaire enregistré après /start : conversation %s", masked_chat(chat))
-                    out["registered"] += 1
+                if owner is not None and chat == owner:
                     self.send_text(chat, WELCOME)
-                elif chat == owner:
-                    self.send_text(chat, WELCOME)
+                    out["welcomed"] += 1
                 else:
                     refused = self._read_json_list(self._refused_path)
                     if chat not in refused:
@@ -406,8 +435,8 @@ class Relay:
             now = self.clock()
             if self._owner_reminded_at is None or now - self._owner_reminded_at >= OWNER_REMINDER_SECONDS:
                 self._owner_reminded_at = now
-                log.info("aucun propriétaire connu : envoyer /start au bot en privé, ou fixer CSI_TELEGRAM_OWNER_CHAT_ID ; "
-                         "les appels de l'assistant attendent")
+                log.info("aucun propriétaire connu : transférer un message de groupe au bot depuis son compte, ou fixer "
+                         "CSI_TELEGRAM_OWNER_CHAT_ID ; les appels de l'assistant attendent")
         else:
             try:
                 reply = self.http("GET", f"{self.config.api_url}/assistant/outbox", None, self._csi_headers(), 30)
@@ -456,6 +485,7 @@ class Relay:
                     handle.write(json.dumps(row, ensure_ascii=False) + "\n")
         photos = self._queue_photos(updates)
         try:
+            self.learn_owner(updates)
             self.handle_commands(updates)
         except Exception as exc:  # noqa: BLE001 - une commande ne doit jamais empêcher le décalage d'avancer
             log.warning("commande privée ignorée : %s", masked(f"{type(exc).__name__}: {exc}", self.config))
@@ -492,7 +522,7 @@ def main() -> None:
     owner = relay.owner()
     log.info("relais Telegram démarré (conversations autorisées : %s) → %s ; propriétaire : %s",
              ", ".join(sorted(config.chats)) or "toutes", config.api_url,
-             f"conversation {masked_chat(owner)}" if owner else "inconnu (envoyer /start au bot en privé)")
+             f"conversation {masked_chat(owner)}" if owner else "inconnu (reconnu au premier transfert d'un groupe)")
     pause = 5.0
     while True:
         try:

@@ -61,21 +61,22 @@ Code : `src/crypto_signal_intelligence/relay/telegram.py`. Tests : `tests/test_t
 
 Le même bot sert aussi dans l'autre sens : quand l'assistant de marché de CSI a quelque chose à te dire (un appel à
 la prudence, un changement de feu, un rappel), l'API CSI le met en attente et le relais te l'envoie **en message
-privé**. Pour ça, le relais doit savoir **qui tu es** : un bot Telegram ne peut écrire qu'à une conversation qui lui
-a parlé en premier.
+privé**. Pour ça, le relais doit savoir **qui tu es**, et il ne le demande jamais à un inconnu : le bot est membre de
+tes groupes, n'importe quel membre pourrait lui écrire avant toi.
 
-**Ce que tu fais (une fois)** : ouvre une conversation privée avec ton deuxième bot et envoie-lui `/start`. Le relais
-répond « C'est bien toi : les appels de l'assistant de marché arriveront ici. » et garde ta conversation dans
-`proprietaire.json` (volume `csi-relay`, à côté du décalage Telegram ; survit aux redémarrages). Le **premier** chat
-privé qui envoie `/start` devient le propriétaire ; toute autre personne qui écrit `/start` au bot reçoit « Ce bot
-est privé. » une seule fois et n'est jamais enregistrée.
+**Reconnaissance automatique, rien à faire.** Le propriétaire est **la conversation privée depuis laquelle des
+messages transférés d'un groupe ou d'un canal sont arrivés** : c'est exactement ce que fait ton relais Telethon, qui
+transfère tes groupes au bot depuis ton propre compte. Au premier transfert, le relais note ta conversation dans
+`proprietaire.json` (volume `csi-relay`, à côté du décalage Telegram ; gardé après un redémarrage) et le journal dit
+« propriétaire reconnu par ses transferts : conversation 424200**** ». Le premier compte qui transfère gagne ; un
+simple texte privé, un transfert venant d'un particulier ou un `/start` n'apprennent rien. **`/start` n'est plus
+requis** : il est accepté seulement depuis ta conversation (le bot répond « C'est bien toi… ») ; toute autre
+conversation privée reçoit « Ce bot est privé. » une seule fois et n'est jamais enregistrée.
 
-**Sur le VPS, ou pour le fixer sans `/start`** : pose `CSI_TELEGRAM_OWNER_CHAT_ID=<identifiant de ta conversation>`
-dans le `.env` (l'identifiant apparaît masqué dans le journal du relais après un `/start` : `propriétaire enregistré …
-conversation 424200****` ; l'identifiant complet est dans `proprietaire.json` du volume, ou donné par `@userinfobot`).
-Cette variable a **priorité** sur `proprietaire.json` ; aucun `/start` n'est alors nécessaire, et un `/start` venu
-d'une autre conversation est refusé. Elle doit être passée au service `telegram-relay` dans `docker-compose.yml`
-(ligne prête, en commentaire, sous `CSI_API_TOKEN`).
+**Sur le VPS** : pose `CSI_TELEGRAM_OWNER_CHAT_ID=<identifiant de ta conversation>` dans le `.env` (l'identifiant
+complet est dans `proprietaire.json` du volume, ou donné par `@userinfobot` ; le journal ne le montre que masqué).
+Cette variable a **toujours priorité** sur `proprietaire.json` ; vide, elle ne compte pas. Le service `telegram-relay`
+la reçoit déjà dans `docker-compose.yml`.
 
 **Ce qui est envoyé** : à chaque passage du relais (après le dépôt des signaux, jamais avant), il lit
 `GET /assistant/outbox` de l'API CSI (20 messages au plus, du plus ancien au plus récent), envoie chaque texte **tel

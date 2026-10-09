@@ -1,6 +1,6 @@
-"""Sens retour du relais Telegram (2026-10-09) : le propriétaire se fait connaître par `/start` en privé (ou par
-`CSI_TELEGRAM_OWNER_CHAT_ID`), les appels de l'assistant de marché mis en attente par l'API CSI lui sont envoyés
-puis marqués. Aucun réseau : un faux client HTTP simule Telegram et le contrat de l'API CSI
+"""Sens retour du relais Telegram (2026-10-09) : le propriétaire est reconnu par ses transferts de groupe en privé
+(ou fixé par `CSI_TELEGRAM_OWNER_CHAT_ID`), jamais par un `/start` d'inconnu ; les appels de l'assistant de marché
+mis en attente par l'API CSI lui sont envoyés puis marqués. Aucun réseau : un faux client HTTP simule Telegram et le contrat de l'API CSI
 (`GET /assistant/outbox` → {"messages": [...]}, `POST /assistant/sent` → {"marked": n})."""
 from __future__ import annotations
 
@@ -20,6 +20,16 @@ def private(update_id: int, chat: int, text: str, username: str = "chamsou") -> 
     return {"update_id": update_id, "message": {"message_id": update_id * 10, "date": 1790000000 + update_id, "text": text,
                                                 "chat": {"id": chat, "type": "private"},
                                                 "from": {"id": chat, "username": username}}}
+
+
+def forwarded(update_id: int, chat: int, text: str = SIGNAL, *, origin: str = "forward_from_chat") -> dict:
+    """Message de groupe transféré au bot depuis un compte (conversation privée), comme le fait le relais Telethon."""
+    update = private(update_id, chat, text)
+    if origin == "forward_from_chat":
+        update["message"]["forward_from_chat"] = {"id": GROUP, "type": "supergroup"}
+    else:
+        update["message"]["forward_origin"] = {"type": origin, "chat": {"id": GROUP}, "date": 1}
+    return update
 
 
 def group(update_id: int, text: str = SIGNAL) -> dict:
@@ -85,25 +95,45 @@ def message(ident: str, text: str = "<BTC/USDT> appel : rien à faire, marché >
 
 # --- /start et propriétaire ----------------------------------------------------------------------------------------
 
-def test_first_private_start_registers_the_owner(tmp_path):
-    http = FakeHttp([private(1, OWNER, "/start")])
+def test_the_owner_is_learned_from_forwards_never_from_a_stranger_start(tmp_path):
+    http = FakeHttp([private(1, STRANGER, "/start", username="intrus")])
     relay = tg.Relay(config(tmp_path), http=http)
-    assert relay.owner() is None
+    relay.cycle()
+    assert relay.owner() is None and not (tmp_path / "proprietaire.json").exists()      # un inconnu n'apprend rien
+    assert [(s["chat_id"], s["text"]) for s in http.sent] == [(str(STRANGER), "Ce bot est privé.")]
+
+    http.updates.append(forwarded(2, OWNER))                                            # transfert d'un groupe
     relay.cycle()
     saved = json.loads((tmp_path / "proprietaire.json").read_text(encoding="utf-8"))
     assert saved["chat_id"] == str(OWNER) and saved["first_seen"].startswith("20")
     assert saved["username_masked"] == "ch…" and "chamsou" not in json.dumps(saved)
-    assert relay.owner() == str(OWNER)
-    assert [s["chat_id"] for s in http.sent] == [str(OWNER)] and "ordre" in http.sent[0]["text"]
+    assert relay.owner() == str(OWNER) and len(http.sent) == 1                          # aucun /start nécessaire
+    assert [r["signal_id"] for batch in http.posted for r in batch] == [f"{OWNER}:20"]  # le signal est bien déposé
+
+    http.updates.append(forwarded(3, STRANGER))                                         # l'intrus transfère aussi
+    relay.cycle()
+    assert relay.owner() == str(OWNER)                                                  # le premier apprenant gagne
+    assert tg.Relay(config(tmp_path), http=http).owner() == str(OWNER)                   # gardé après redémarrage
 
 
-def test_a_second_private_chat_is_refused_once_and_never_registered(tmp_path):
-    http = FakeHttp([private(1, OWNER, "/start@CsiBot"), private(2, STRANGER, "/start", username="intrus")])
+def test_a_plain_private_text_or_a_user_forward_teaches_nothing(tmp_path):
+    http = FakeHttp([private(1, OWNER, "#BTC/USDT long"), private(2, OWNER, "coucou")])
     relay = tg.Relay(config(tmp_path), http=http)
     relay.cycle()
-    assert relay.owner() == str(OWNER)
-    assert [(s["chat_id"], s["text"]) for s in http.sent][1] == (str(STRANGER), "Ce bot est privé.")
-    http.updates.append(private(3, STRANGER, "/start"))          # insiste : plus aucune réponse
+    assert relay.owner() is None
+    assert tg.forwarding_private_chat(forwarded(3, OWNER, origin="user")) is None        # transfert d'un particulier
+    assert tg.forwarding_private_chat(forwarded(3, OWNER, origin="channel")) is not None
+    assert tg.forwarding_private_chat(forwarded(3, OWNER, origin="chat")) is not None
+    assert tg.forwarding_private_chat(group(3)) is None                                 # un groupe n'est pas privé
+
+
+def test_start_is_welcomed_only_from_the_owner_and_strangers_are_refused_once(tmp_path):
+    http = FakeHttp([forwarded(1, OWNER), private(2, OWNER, "/start@CsiBot"), private(3, STRANGER, "/start")])
+    relay = tg.Relay(config(tmp_path), http=http)
+    relay.cycle()
+    assert [(s["chat_id"], "ordre" in s["text"]) for s in http.sent] == [(str(OWNER), True), (str(STRANGER), False)]
+    assert http.sent[1]["text"] == "Ce bot est privé."
+    http.updates.append(private(4, STRANGER, "/start"))                                 # insiste : plus aucune réponse
     relay.cycle()
     assert [s["chat_id"] for s in http.sent].count(str(STRANGER)) == 1
     assert json.loads((tmp_path / "proprietaire.json").read_text(encoding="utf-8"))["chat_id"] == str(OWNER)
@@ -113,10 +143,11 @@ def test_environment_owner_wins_and_needs_no_start(tmp_path):
     cfg = tg.RelayConfig.from_env({"CSI_TELEGRAM_RELAY_TOKEN": TOKEN, "CSI_TELEGRAM_OWNER_CHAT_ID": f" {OWNER} ",
                                    "CSI_TELEGRAM_RELAY_STATE": str(tmp_path)})
     assert cfg.owner_chat_id == str(OWNER)
-    http = FakeHttp([private(1, STRANGER, "/start")], outbox=[message("m1")])
+    (tmp_path / "proprietaire.json").write_text(json.dumps({"chat_id": str(STRANGER)}), encoding="utf-8")   # fichier ancien
+    http = FakeHttp([private(1, STRANGER, "/start"), forwarded(2, STRANGER)], outbox=[message("m1")])
     relay = tg.Relay(config(tmp_path, owner_chat_id=str(OWNER)), http=http)
     out = relay.cycle()
-    assert relay.owner() == str(OWNER) and not (tmp_path / "proprietaire.json").exists()
+    assert relay.owner() == str(OWNER)                                                  # la variable l'emporte toujours
     assert out["assistant_sent"] == 1 and http.sent[-1]["chat_id"] == str(OWNER)      # l'appel part sans /start
     assert [s["text"] for s in http.sent if s["chat_id"] == str(STRANGER)] == ["Ce bot est privé."]
 
@@ -126,6 +157,7 @@ def test_commands_are_never_deposited_in_f4(tmp_path):
     assert tg.to_row(private(1, OWNER, "/start@CsiBot")) is None
     assert tg.to_row(private(1, OWNER, "/etat")) is None
     assert tg.to_row(private(1, OWNER, "#BTC/USDT long")) is not None                  # un signal privé passe
+    assert tg.to_row(forwarded(1, OWNER))["source_chat_id"] == str(GROUP)                # un transfert garde son groupe
     assert tg.to_row(group(1, "/start")) is not None                                    # un groupe n'a pas de commandes
     http = FakeHttp([private(1, OWNER, "/start"), group(2)])
     tg.Relay(config(tmp_path), http=http).cycle()
@@ -223,7 +255,7 @@ def test_the_token_never_appears_in_logs_even_when_telegram_fails(tmp_path, capl
                 raise ConnectionError(f"impossible de joindre {url}")
             return super().__call__(method, url, body, headers, timeout)
 
-    http = Failing([private(1, OWNER, "/start")], outbox=[message("m1")])
+    http = Failing([forwarded(1, OWNER)], outbox=[message("m1")])
     relay = tg.Relay(config(tmp_path), http=http)
     with caplog.at_level(logging.INFO):
         out = relay.cycle()

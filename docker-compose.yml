@@ -138,10 +138,9 @@ services:
       CSI_TELEGRAM_RELAY_CHATS: ${CSI_TELEGRAM_RELAY_CHATS:-}
       CSI_TELEGRAM_RELAY_API: http://csi-api:8503
       CSI_API_TOKEN: ${CSI_API_TOKEN:-}
-      # Sens retour (appels de l'assistant au propriétaire, docs/TELEGRAM_RELAY.md) : le propriétaire est la
-      # conversation privée qui a envoyé /start au bot (gardée dans le volume csi-relay). Pour le fixer sans /start,
-      # par exemple sur le VPS, décommenter la ligne suivante et poser la valeur dans .env :
-      # CSI_TELEGRAM_OWNER_CHAT_ID: ${CSI_TELEGRAM_OWNER_CHAT_ID:-}
+      # Sens retour (appels de l'assistant au propriétaire, docs/TELEGRAM_RELAY.md) : vide = propriétaire reconnu
+      # automatiquement par ses transferts (gardé dans le volume csi-relay) ; sur le VPS, poser la valeur dans .env.
+      CSI_TELEGRAM_OWNER_CHAT_ID: ${CSI_TELEGRAM_OWNER_CHAT_ID:-}
     command: ["python", "-m", "crypto_signal_intelligence.relay.telegram"]
     # Le contrôle de santé de l'image vise la surveillance (cycle du scanner) : sans objet pour le relais, qui
     # signale ses pannes dans son journal et redémarre seul.
