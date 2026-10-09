@@ -244,3 +244,22 @@ carnet sont comptés `CARNET_INJOIGNABLE`). Seuls des comptes ont été regardé
 
 Soit ≈ 3,5 candidats au carnet par mois pour 16 paires ; sur 166 paires, quelques appels par semaine au plus (3 par
 jour maximum). `INSUFFISANT` reste probable.
+
+### 7.1 Contrôle sous l'hypothèse nulle (marches aléatoires), lancé une fois le 2026-10-09
+
+`tests/test_assistant_h0.py` (lent, `--lents`, `CSI_H0_PAIRS=100`) : 100 paires × 400 jours de bougies 1 h fabriquées
+(martingale en rendements simples, aucune information), détecteur, gestion et placebos **exacts** de l'assistant, frais
+du scénario central. Ce contrôle **mesure le biais de la méthode de mesure**, il ne le corrige pas.
+
+| | Valeur |
+|---|---|
+| Appels synthétiques | 250 (205 HAUSSE, 45 RANGE) |
+| R net moyen | +0,006 R (écart-type 1,25 R) : l'espérance des frais, comme attendu |
+| Excès global sur les 20 placebos | **−0,028 R**, IC95 [−0,146 ; +0,090] |
+| Excès sur les placebos arrière (t − 84 → t − 5 h) | −0,008 R |
+| Excès sur les placebos avant (t + 5 → t + 84 h) | −0,008 R |
+
+Lecture : avec cette construction (fenêtre symétrique ±84 h, même gestion), aucun biais n'est détectable à ±0,06 R
+près sur des marchés sans information ; le biais « placebos en arrière » documenté dans `FIGURES_HISTORIQUE.md` ne
+réapparaît pas ici, sans qu'on puisse exclure un biais plus petit que 0,06 R. Le verdict de F18 exige de toute façon
+un IC95 du R moyen entièrement > 0, pas seulement un excès.
