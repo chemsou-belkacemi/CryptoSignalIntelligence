@@ -1447,6 +1447,14 @@ paires, de l'ordre de 17 candidats par jour (extrapolation) : le quota de 5 appe
 quelques centaines d'appels en 84 jours répartis sur les configurations ; `FORCE_RELATIVE` dépend des chutes de BTC et
 restera probablement `INSUFFISANT`, comme toute configuration qui n'atteint pas 30 appels résolus.
 
+**Contrôle sous H0 (2026-10-10, avant le démarrage ; `docs/PRICE_ACTION.md` § 5.5).** Sur un marché synthétique sans
+information, avec ces mêmes détecteur, gestion et placebos, l'excès moyen sur les placebos vaut −0,20 à −0,42 R selon la
+configuration (placebos arrière : −0,47 à −0,86 R ; placebos avant : −0,004 à +0,075 R) : les cinq configurations
+échouent au contrôle. Ici, l'intervalle de l'excès porte donc ce biais négatif : `SUPERIEUR_AU_HASARD` est presque
+impossible par construction ; `INFERIEUR_AU_HASARD` (R seul) reste valable ; l'issue attendue est `NON_DEMONTRE` ou
+`INSUFFISANT`. Le démarrage de F19 avec ces placebos est une décision du propriétaire, prise en connaissance de ce
+résultat.
+
 **Limites déclarées.** Entrée au prix de clôture alors que l'appel est connu quelques minutes plus tard (glissement
 taker compté, aucun prix réel d'exécution) ; liste halal figée de F15 choisie en 2026 (biais des survivantes) ; appels
 corrélés entre paires (mêmes jours de marché, et jusqu'à 3 appels `FORCE_RELATIVE` par événement) ; placebos voisins qui

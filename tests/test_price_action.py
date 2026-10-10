@@ -674,3 +674,11 @@ def test_study_end_to_end_on_a_tiny_synthetic_universe(settings, monkeypatch):
     signals = json.loads((Path(registry.get(summary["run_id"])["report_dir"]) / "signals.json").read_text(encoding="utf-8"))
     last = max((r["at_ns"] + S.horizon_ns(r["unit"]) for rows in signals.values() for r in rows), default=0)
     assert last <= int(D.to_ns([end])[0])
+
+
+def test_study_refuses_to_run_when_every_configuration_failed_the_h0_control(settings, monkeypatch):
+    monkeypatch.setattr(S, "require_clean_and_reviewed", lambda *a, **k: None)
+    monkeypatch.setattr(S, "control_of", lambda inscription: {"configs": {c: {"passes": False} for c in D.CONFIGS}, "kept": []})
+    with pytest.raises(S.NotReady, match="abandonnée"):
+        S.run(settings, now=pd.Timestamp("2026-10-10", tz="UTC"))
+    assert not settings.experiments_db.exists() or S.ExperimentRegistry(settings.experiments_db).program_trials() == 0

@@ -1,5 +1,8 @@
 # Étude « price action » : cinq configurations, mesurées sur l'historique et en direct (F19)
 
+> **Issue du 2026-10-10 : le contrôle sous H0 (§ 5.5) a fait échouer les cinq configurations (biais des placebos tirés
+> avant le signal). L'étude historique est abandonnée avec 0 essai ; aucune donnée réelle n'a été lue.**
+
 Demande du propriétaire du 2026-10-10. Protocole **déclaré le 2026-10-10, avant tout calcul sur des données réelles** :
 aucun R, aucun excès sur des données de marché n'a été regardé pour écrire ce texte. Seuls ont été regardés des
 **comptes de candidats** (synthétiques au § 5.4, sur le magasin local au § 9), jamais un résultat de transaction.
@@ -291,9 +294,49 @@ prudente : une configuration que l'instrument ne peut pas valider n'est pas test
 
 Aucun R, aucun excès, aucune couverture n'a été calculé avant le passage inscrit du § 5.5.
 
-### 5.5 Résultats du contrôle sous H0
+### 5.5 Résultats du contrôle sous H0 (passage unique du 2026-10-10)
 
-À remplir après le passage unique (chiffres par configuration, retraits éventuels).
+`csi price-action controle-h0 --workers 4`, code du commit `fa7b872` (propre), `CSI_ROOT` = dépôt principal, aucune
+variable `CSI_*` de calcul. Fichier : `reports/PRICE_ACTION-H0-fa7b872f4ccd/criteres.json`, SHA-256
+`ca7252a9645b61d995f56d228b6f7e3401b3b72d63c59037468540977f26cccf` (inscrit dans `price_action_review.CONTROLE_H0`).
+Marché synthétique : 100 paires, 266 événements BTC (252 avec au moins une lecture). Frais centraux. R et excès en R.
+
+| Configuration | Signaux | R moyen (σ) | Excès moyen (erreur type) | IC 99 % de l'excès, toutes paires | Excès arrière | Excès avant | Couverture (groupes) | Issue |
+|---|---|---|---|---|---|---|---|---|
+| `BASE_RETEST` | 4 210 | −0,182 (1,45) | **−0,424** (0,022) | [−0,478 ; −0,370] | −0,865 | +0,017 | 0,00 (20) | **ÉCHEC** |
+| `SQUEEZE` | 645 | −0,022 (1,13) | **−0,307** (0,028) | [−0,371 ; −0,248] | −0,676 | +0,054 | 0,00 (6) | **ÉCHEC** |
+| `FORCE_RELATIVE` | 756 | −0,052 (1,10) | **−0,204** (0,029) | [−0,268 ; −0,144] | −0,467 | +0,075 | 0,43 (7) | **ÉCHEC** |
+| `INSIDE_DAY` | 2 507 | −0,037 (1,21) | **−0,271** (0,021) | [−0,322 ; −0,218] | −0,567 | +0,028 | 0,45 (20) | **ÉCHEC** |
+| `SORTIE_BASE_LONGUE` | 325 | −0,002 (0,94) | **−0,373** (0,031) | [−0,430 ; −0,320] | −0,744 | −0,004 | 0,00 (3) | **ÉCHEC** |
+
+Signaux écartés par la discipline : 914, 19, 532, 951 et 116 ; refus de géométrie : 1 108 objectifs sous 1,5 R
+(`BASE_RETEST`), 24 stops trop larges (`INSIDE_DAY`).
+
+**Verdict, à la lettre du § 5.3 : les cinq configurations échouent (excès et couverture) ; elles sont toutes retirées
+de l'étude, avec 0 essai. L'étude historique est abandonnée : aucune donnée réelle n'a été lue et ne le sera pas.**
+`csi price-action executer` refuse désormais de tourner (toutes les configurations retirées). Pas de seconde
+itération : l'exception « bug » du § 5.3 ne s'applique pas (voir ci-dessous, c'est la méthode, pas un écart au texte).
+
+**Lecture.** Les R moyens sont ceux des frais (−0,18 R pour `BASE_RETEST`, dont le stop serré rend les frais lourds en
+R ; proches de 0 ailleurs) : le détecteur et la gestion se comportent comme attendu sur un marché sans information.
+L'échec vient **entièrement des placebos arrière** : excès arrière de −0,47 à −0,86 R, excès avant de −0,004 à +0,075 R.
+Les cinq configurations exigent une montée juste avant la décision (cassure d'une base, clôture au-dessus de la
+Bollinger, cassure de la mère, plus haut de 90 jours, rebond après la chute) ; un placebo pris 5 à 84 h (ou 2 à 15 jours)
+avant entre plus bas et sa gestion contient cette montée, que le signal, lui, n'a pas encore : il « sait » ce qui va
+arriver par rapport à sa propre entrée. C'est le biais déjà décrit dans `FIGURES_HISTORIQUE.md`, ici bien plus fort que
+pour l'assistant (F18, ±0,03 R au même contrôle), dont la configuration (repli puis reprise) est presque symétrique.
+Avec ces placebos, l'excès d'un signal sans aucune valeur serait de −0,2 à −0,4 R : la mesure ne peut pas trancher.
+
+**Ce qui n'est pas fait, et pourquoi.** Ne garder que les placebos avant, ou changer la fenêtre, serait une nouvelle
+méthode décidée APRÈS avoir vu ce contrôle : ce serait régler l'instrument jusqu'à ce qu'il passe (leçon de
+`METEO_MARCHE.md` § 7.5-7.6). Rien n'est donc relancé ici. Toute suite (par exemple une étude « placebos avant
+seulement », avec son propre contrôle H0 et ses propres essais) est une **décision du propriétaire**, à pré-inscrire
+comme une nouvelle étude.
+
+**Conséquence pour F19** (même gestion, mêmes placebos) : l'intervalle de l'excès y porte le même biais négatif. Un
+verdict `SUPERIEUR_AU_HASARD` (qui exige un excès > 0) y est donc presque impossible par construction ; `INFERIEUR_AU_HASARD`
+ne regarde que le R (non biaisé) et reste valable ; `NON_DEMONTRE` est l'issue attendue. Déclaré dans la section
+`F19_PRICE_ACTION` de `FORWARD_TESTS.md`. F19 n'est pas démarré : son démarrage reste une décision du propriétaire.
 
 ## 6. Ordre et garde d'exécution
 
@@ -412,3 +455,6 @@ clôture), **sans discipline ni quota**. Seuls des comptes ont été regardés, 
   été regardés, § 5.4).
 - 2026-10-10 : code et tests ; critère de couverture du contrôle H0 dimensionné sur les comptes synthétiques (§ 5.4,
   ligne 4) ; quota départagé par l'identifiant (§ 8, choix 18) ; comptages à blanc (§ 9) : aucun ajustement.
+- 2026-10-10 : contrôle sous H0 lancé une fois (commit `fa7b872`) : **les cinq configurations échouent** (biais des
+  placebos arrière, § 5.5) ; toutes retirées, 0 essai, étude historique abandonnée ; `executer` refuse. Relecture
+  `leak-auditor` toujours demandée (code, contrôle, F19) avant toute autre décision.

@@ -445,6 +445,9 @@ def run(settings: Settings, *, now: datetime, workers: int = 2, progress: Callab
         raise AlreadyRun("l'étude « price action » a déjà été exécutée : exécution unique, rien n'est relancé")
     kept = tuple(c for c in D.CONFIGS if control["configs"][c]["passes"])
     removed = [c for c in D.CONFIGS if c not in kept]
+    if not kept:
+        raise NotReady("toutes les configurations ont échoué au contrôle sous H0 : étude historique abandonnée, 0 essai, "
+                       "aucune donnée réelle lue (docs/PRICE_ACTION.md § 5.5)")
     end = development_end_exclusive(settings)
     members = load_membership(settings)
     by_month = membership_index(members, end)

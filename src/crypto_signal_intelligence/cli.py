@@ -2542,7 +2542,10 @@ def price_action_execute(executer: bool = typer.Option(False, "--executer", help
     settings = _settings(verbose)
     try:
         st.require_clean_and_reviewed(code_state(), settings=settings)
-        st.control_of(st.CONTROLE_H0)
+        control = st.control_of(st.CONTROLE_H0)
+        if not control.get("kept"):
+            raise st.NotReady("toutes les configurations ont échoué au contrôle sous H0 : étude historique abandonnée, "
+                              "0 essai (docs/PRICE_ACTION.md § 5.5)")
     except (DirtyCode, st.NotReady) as exc:
         console.print(f"[red]Aucun calcul :[/red] {exc}")
         raise typer.Exit(3) from None
