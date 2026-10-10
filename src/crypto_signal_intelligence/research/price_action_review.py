@@ -15,4 +15,4 @@ from __future__ import annotations
 
 CODE_REVIEW: str | None = None
 CONFIG_FINGERPRINT: str | None = None
-CONTROLE_H0: str | None = None
+CONTROLE_H0: str | None = "/home/chamsou-blk/BinanceSpotManager/CryptoSignalIntelligence/reports/PRICE_ACTION-H0-fa7b872f4ccd/criteres.json#ca7252a9645b61d995f56d228b6f7e3401b3b72d63c59037468540977f26cccf"
