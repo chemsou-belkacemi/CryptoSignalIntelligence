@@ -135,9 +135,20 @@ def instants_aleatoires(bars: Bougies, etape: Etape, n: int, rng: np.random.Gene
     return np.sort(rng.choice(pool, size=min(n, len(pool)), replace=False))
 
 
+def _fronts(flags: np.ndarray) -> np.ndarray:
+    """Instants où l'indicateur PASSE à vrai (déclencheur d'un événement ; bascule d'un état)."""
+    out = flags.copy()
+    out[1:] &= ~flags[:-1]
+    return out
+
+
 def instants_de_signal(strategie: Strategie, bars: Bougies, ctx: Contexte, debut_ns: int, fin_ns: int) -> np.ndarray:
+    """Instants de signal : passages à vrai de l'entrée ou de la sortie (pour une règle d'état, ses bascules ; une
+    décision d'entrée prise pendant un état déjà vrai ne fait que répéter la bascule, contrôlée elle aussi)."""
     out = strategie(bars, ctx)
-    flags = out.entree | (out.sortie if out.sortie is not None else False)
+    flags = _fronts(out.entree)
+    if out.sortie is not None:
+        flags |= _fronts(out.sortie)
     keep = flags & (bars.disponible >= debut_ns) & (bars.disponible <= fin_ns)
     return bars.disponible[keep]
 
