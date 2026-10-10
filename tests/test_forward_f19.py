@@ -46,6 +46,11 @@ def frames(extra: list[tuple] | None = None) -> dict[str, pd.DataFrame]:
     return {"RETUSDT": ret, "BTCUSDT": btc}
 
 
+def at_clock(moment):
+    """Horloge injectée : l'heure réelle d'évaluation vaut `moment` (les tests rejouent des dates passées)."""
+    return lambda: moment
+
+
 def write_store(settings, data: dict[str, pd.DataFrame]):
     store = ev.store_for(settings)
     for symbol, frame in data.items():
@@ -108,19 +113,20 @@ def test_record_decisions_evaluates_each_close_once_and_journals_the_call(settin
     start = started(settings, monkeypatch)
     journal = registry.journal_for(settings, f19.TEST_ID)
     store = write_store(settings, frames())
-    early = f19.record_decisions(settings, journal, start, now=T + pd.Timedelta(seconds=1), store=store)
+    early = f19.record_decisions(settings, journal, start, now=T + pd.Timedelta(seconds=1), store=store, clock=at_clock(T + pd.Timedelta(seconds=1)))
     assert early["evaluations"] == 0 and "waiting" in early and journal.first(f19.EVALUATION) is None
-    out = f19.record_decisions(settings, journal, start, now=NOW, store=store)
+    out = f19.record_decisions(settings, journal, start, now=NOW, store=store, clock=at_clock(NOW))
     assert out == {"evaluations": 1, "calls": 1, "repaired": 0}
     evaluation = journal.first(f19.EVALUATION)["data"]
     assert evaluation["at"] == T.isoformat() and evaluation["late"] is False and evaluation["delay_min"] == 5
     assert evaluation["candidates"][D.BASE_RETEST] == 1 and evaluation["universe"]["source"] == "F19_PRICE_ACTION"
+    assert evaluation["pairs_with_close"] == 2 and evaluation["pass_started_at"] == NOW.isoformat()
     call = journal.first(f19.CALL)["data"]
     assert call["config"] == D.BASE_RETEST and call["symbol"] == "RETUSDT" and call["unit"] == "4h"
     assert call["entry"] == pytest.approx(107.2) and call["placebo_offsets_h"] == M.placebo_offsets(call["call_id"], "4h")
     assert call["call_id"] == M.signal_id(D.BASE_RETEST, "RETUSDT", T)
     assert call["tp1"] == pytest.approx(call["entry"] + call["risk"]) and call["hard_stop"] == pytest.approx(call["entry"] - 1.5 * call["risk"])
-    assert f19.record_decisions(settings, journal, start, now=NOW + timedelta(hours=1), store=store) == {"evaluations": 0, "calls": 0, "repaired": 0}
+    assert f19.record_decisions(settings, journal, start, now=NOW + timedelta(hours=1), store=store, clock=at_clock(NOW + timedelta(hours=1))) == {"evaluations": 0, "calls": 0, "repaired": 0}
     waiting = outbox.pending(settings, now=NOW)
     assert [m["id"] for m in waiting] == [f"pa:APPEL:{call['call_id']}"]
     text = waiting[0]["text"]
@@ -139,7 +145,7 @@ def test_late_evaluation_is_recorded_without_any_call(settings, monkeypatch, no_
     start = started(settings, monkeypatch)
     journal = registry.journal_for(settings, f19.TEST_ID)
     store = write_store(settings, frames())
-    out = f19.record_decisions(settings, journal, start, now=T + timedelta(minutes=45), store=store)
+    out = f19.record_decisions(settings, journal, start, now=T + timedelta(minutes=45), store=store, clock=at_clock(T + timedelta(minutes=45)))
     assert out == {"evaluations": 1, "calls": 0, "repaired": 0}
     evaluation = journal.first(f19.EVALUATION)["data"]
     assert evaluation["late"] is True and evaluation["refusals_by_reason"] == {ev.LATE: 1} and journal.first(f19.CALL) is None
@@ -188,7 +194,7 @@ def test_resolve_call_and_placebos_then_verdict_per_configuration(settings, monk
     start = started(settings, monkeypatch)
     journal = registry.journal_for(settings, f19.TEST_ID)
     store = write_store(settings, frames())
-    f19.record_decisions(settings, journal, start, now=NOW, store=store)
+    f19.record_decisions(settings, journal, start, now=NOW, store=store, clock=at_clock(NOW))
     call = journal.first(f19.CALL)["data"]
     store = write_store(settings, frames(extra=rising()))
     end = pd.Timestamp(call["resolution_end"])
@@ -214,7 +220,7 @@ def test_a_gap_is_declared_two_days_after_the_window(settings, monkeypatch, no_t
     start = started(settings, monkeypatch)
     journal = registry.journal_for(settings, f19.TEST_ID)
     store = write_store(settings, frames())
-    f19.record_decisions(settings, journal, start, now=NOW, store=store)
+    f19.record_decisions(settings, journal, start, now=NOW, store=store, clock=at_clock(NOW))
     call = journal.first(f19.CALL)["data"]
     end = pd.Timestamp(call["resolution_end"])
     assert f19.resolve(settings, journal, now=end + timedelta(days=1), store=store) == {}
@@ -293,3 +299,100 @@ def test_f19_verdict_uses_net_r_only():
                         "defavorable": block(low=-0.6, high=-0.2, low95=-0.5, high95=-0.1)}, ended=True) == "INFERIEUR_A_ZERO"
     assert f19.verdict({"central": block(n=29), "defavorable": block()}, ended=True) == "INSUFFISANT"
     assert f19.verdict({"central": block(days=9), "defavorable": block()}, ended=True) == "INSUFFISANT"
+
+
+def test_delay_is_measured_on_the_real_clock_not_the_pass_start(settings, monkeypatch, no_tick):
+    start = started(settings, monkeypatch)
+    journal = registry.journal_for(settings, f19.TEST_ID)
+    store = write_store(settings, frames())
+    # Le passage a commencé 5 min après la clôture, mais F19 n'évalue que 45 min après (tests précédents lents).
+    out = f19.record_decisions(settings, journal, start, now=NOW, store=store, clock=at_clock(T + timedelta(minutes=45)))
+    evaluation = journal.first(f19.EVALUATION)["data"]
+    assert out["calls"] == 0 and evaluation["late"] is True and evaluation["delay_min"] == 45
+    assert evaluation["pass_started_at"] == NOW.isoformat() and evaluation["refusals_by_reason"] == {ev.LATE: 1}
+    assert f19.real_clock().tzinfo is not None
+
+
+def test_per_pair_reading_gives_the_same_candidates_and_reads_only_useful_columns(settings):
+    data = frames()
+    store = write_store(settings, data)
+    with_frames = ev.detect_at(data, T)
+    loaded = ev.inputs_for(settings, at=T, now=NOW, store=store, symbols=list(data))
+    assert all(isinstance(b, D.Bars) for b in loaded["frames"].values()) and loaded["pairs_with_close"] == 2
+    with_bars = ev.detect_at(loaded["frames"], T, btc_frame=loaded["btc_frame"])
+    key = lambda out: [(c["config"], c["symbol"], c["at_ns"], c["entry"], c["stop"], c["objective"]) for c in out["candidates"]]  # noqa: E731
+    assert key(with_frames) == key(with_bars) and len(key(with_bars)) == 1
+    columns = set(ev.load_h1(store, "RETUSDT", at=T, now=NOW).columns)
+    assert columns == set(ev.READ_COLUMNS)
+    with pytest.raises(ValueError):                                     # des Bars qui voient l'avenir sont refusées
+        ev.detect_at({"RETUSDT": D.Bars(data["RETUSDT"])}, T)
+
+
+def test_falsified_future_in_the_store_changes_nothing(settings, tmp_path):
+    """Mutation du futur PAR LE MAGASIN : bougies falsifiées après T, dont la bougie en formation déjà « publiée »."""
+    import numpy as np
+
+    from crypto_signal_intelligence.data.store import CandleStore
+
+    def evaluate(data, root):
+        store = CandleStore(root)
+        for symbol, frame in data.items():
+            path = store.path(symbol, "1h")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            frame.to_parquet(path, index=False)
+        out = ev.run(settings, at=T, now=NOW, discipline={"calls_today": 0}, store=store, symbols=list(data))
+        return ([(c["symbol"], c["config"], c["entry"], c["stop"], c["objective"], c["tp1"], c["hard_stop"]) for c in out["calls"]],
+                out["candidates"], out["refusals"])
+    reference = evaluate(frames(), tmp_path / "vrai")
+    rng = np.random.default_rng(1)
+    lied = {}
+    for symbol, frame in frames(extra=rising()).items():
+        frame = frame.copy()
+        after = frame["open_time"] >= T
+        n = int(after.sum())
+        noise = 100 * rng.lognormal(0, 1, n)
+        frame.loc[after, ["open", "close"]] = np.c_[noise, noise[::-1]]
+        frame.loc[after, "high"] = np.maximum(noise, noise[::-1]) * 2
+        frame.loc[after, "low"] = np.minimum(noise, noise[::-1]) * 0.3
+        frame.loc[after, "quote_volume"] = 1e9
+        frame.loc[frame["open_time"] == T, "available_at"] = T + pd.Timedelta(seconds=1)
+        lied[symbol] = frame
+    assert evaluate(lied, tmp_path / "faux") == reference and len(reference[0]) == 1
+
+
+def test_after_f15_ends_the_store_is_refreshed_and_f19_still_evaluates_and_resolves(settings, monkeypatch, no_tick):
+    from crypto_signal_intelligence.forward import f15, runner
+    f15_start = T - pd.Timedelta(days=100)                                 # F15 terminé 16 jours avant T
+    registry.start(settings, f15.TEST, now=f15_start, allow_dirty=True, halal=HALAL)
+    start = started(settings, monkeypatch)
+    journal = registry.journal_for(settings, f19.TEST_ID)
+    full = frames(extra=rising())
+    write_store(settings, {s: f[f["open_time"] + pd.Timedelta(hours=1) <= T - pd.Timedelta(days=2)] for s, f in full.items()})
+    calls = []
+
+    def fake_download(settings_, symbol, timeframe, *, now, rest_client, rest_only):
+        """Télécharge (ici : recopie) les bougies 1 h connues à `now` dans le magasin de F15."""
+        assert rest_only and timeframe == "1h" and settings_.root == settings.root / "forward_figures"
+        calls.append((symbol, pd.Timestamp(now)))
+        frame = full[symbol]
+        known = frame[frame["available_at"] <= pd.Timestamp(now)]
+        write_store(settings, {symbol: known})
+    monkeypatch.setattr("crypto_signal_intelligence.data.pipeline.download", fake_download)
+    assert registry.status(settings, f15.TEST, now=NOW)["state"] == registry.ENDED
+    assert f15.record_decisions(settings, registry.journal_for(settings, f15.TEST_ID), registry.journal_for(settings, f15.TEST_ID).first(registry.START)["data"], now=NOW)["figures"] == 0
+    refreshed = runner.refresh_figure_store(settings, now=NOW, rest=object())
+    assert refreshed == {"pairs": 2, "errors": 0, "readers": ["F19_PRICE_ACTION"]} and {c[0] for c in calls} == {"BTCUSDT", "RETUSDT"}
+    store = ev.store_for(settings)
+    out = f19.record_decisions(settings, journal, start, now=NOW, store=store, clock=at_clock(NOW))
+    assert out["calls"] == 1
+    call = journal.first(f19.CALL)["data"]
+    end = pd.Timestamp(call["resolution_end"]) + timedelta(hours=1)
+    runner.refresh_figure_store(settings, now=end, rest=object())
+    assert f19.resolve(settings, journal, now=end, store=store) == {f19.RESOLVED: 1}
+    stats = f19.stats(journal, start, now=end)
+    assert stats["configs"][D.BASE_RETEST]["gaps"] == 0
+    assert stats["configs"][D.BASE_RETEST]["scenarios"]["central"]["r_by_pair"]["top"][0]["symbol"] == "RETUSDT"
+    # Pas de mise à jour tant que F15 tourne, ni quand plus aucun lecteur n'en dépend.
+    assert runner.refresh_figure_store(settings, now=f15_start + timedelta(days=1), rest=object()) is None
+    monkeypatch.setattr(runner, "STORE_READERS", ())
+    assert runner.refresh_figure_store(settings, now=end, rest=object()) is None

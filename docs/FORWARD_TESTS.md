@@ -1368,11 +1368,16 @@ de tout le programme : `NON_DEMONTRE` ou `INSUFFISANT` pour chaque configuration
 
 **Univers et données.** Paires de la liste halal **figée au DEMARRAGE de F15** (lue dans son journal ; sans journal
 F15, repli sur la liste figée de F19, source inscrite) ; bougies 1 h du magasin de F15 (`forward_figures/data`, tenu à
-jour chaque heure par F15, lu sans écriture par F19), 300 jours lus à chaque évaluation ; BTCUSDT du même magasin
+jour chaque heure par F15 jusqu'à sa date de fin, puis par la surveillance elle-même — `forward/runner.refresh_figure_store`,
+mêmes fonctions de téléchargement, paires figées de F15 — tant que F18 ou F19 est en cours ou en résolution ; lu sans
+écriture par F19), 300 jours lus à chaque évaluation, paire par paire (colonnes utiles seulement) ; BTCUSDT du même magasin
 (sinon du magasin de la surveillance) pour `FORCE_RELATIVE` ; 4 h et 1 jour agrégés depuis 00:00 UTC, blocs complets
 seulement. Évaluation à **chaque clôture 4 h UTC** (la clôture journalière est celle de 00:00), au passage horaire de la
 surveillance qui part dès le changement d'heure, dès que la bougie 1 h de clôture de BTCUSDT est en magasin ; **au plus
-30 min** de retard, sinon l'évaluation est inscrite `late` (retard `delay_min`) et **aucun appel n'est émis** ; une
+30 min** de retard, mesuré sur l'**horloge réelle** au moment où F19 évalue (pas à l'heure de début du passage, que les
+tests précédents peuvent retarder de plusieurs minutes), sinon l'évaluation est inscrite `late` (retard `delay_min`) et
+**aucun appel n'est émis** ; chaque EVALUATION inscrit aussi `pairs_with_close`, le nombre de paires dont la bougie qui
+clôture à cette heure est en magasin ; une
 clôture n'est évaluée qu'une fois, jamais après coup ; un appel listé dans une EVALUATION sans entrée APPEL (arrêt
 brutal) est ré-émis au passage suivant, marqué `repaired`. Rien n'est écrit dans `SignalRegistry`, `signals/` ni
 `state/assistant*` : F19 a son journal, son état (`state/price_action.json`) et sa boîte Telegram
@@ -1433,7 +1438,8 @@ taux de TP1 et d'objectif, part gagnante, pire série, excès arrière et avant,
 l'ensemble des configurations en central (sans verdict). `n_trials` = 1 en FORWARD.
 
 **Seuil de décision** (à la date d'évaluation, tous les appels résolus ; `forward/f19.verdict`, **par configuration**,
-sur le **R net seul**) : `INSUFFISANT` (moins de 30 appels résolus ou de 10 jours, ou intervalle non calculable) ;
+sur le **R net seul**) : `INSUFFISANT` (moins de 30 appels résolus ou de 10 jours, ou intervalle non calculable : l'intervalle exige au moins 8
+blocs de 7 **jours distincts avec des appels résolus**, soit **au moins 50 jours distincts** ; c'est le vrai seuil) ;
 `SUPERIEUR_A_ZERO` (intervalle 1 − 0,05/5 du R net moyen entièrement au-dessus de 0, en central ET en défavorable) ;
 `INFERIEUR_A_ZERO` (IC95 du R net moyen entièrement sous 0 dans les deux scénarios) ; sinon `NON_DEMONTRE`. Les placebos
 ne décident de rien. `SUPERIEUR_A_ZERO` ne dit pas « mieux qu'une entrée au hasard » : la dérive du marché pendant les
@@ -1458,6 +1464,17 @@ descriptifs. Contrôle n° 2 (décision au R net seul, `PRICE_ACTION.md` § 11.6
 puissance < 0,50 pour les cinq configurations (`INSTRUMENT_TROP_FAIBLE` sur l'historique, 0 essai) ; elles sont quand
 même mesurées ici. À 30-60 appels résolus par configuration, la puissance du verdict `SUPERIEUR_A_ZERO` est encore plus
 faible qu'au contrôle (sous-échantillons de 130 à 1 700 signaux) : `NON_DEMONTRE` ou `INSUFFISANT` sont attendus.
+
+**Seuil réel et conséquences.** Une configuration n'a de verdict que si ses appels résolus tombent sur au moins 50
+jours distincts (8 blocs de 7 jours avec appels). Aux comptages à blanc (≈ 0,2 à 0,7 candidat par jour pour 16 paires,
+quota de 5 par jour toutes configurations, discipline, puis 84 jours de recueil), `INSUFFISANT` est **probable pour
+`SQUEEZE`, `SORTIE_BASE_LONGUE` et `FORCE_RELATIVE`** (cette dernière dépend en plus des chutes de BTC) ; `BASE_RETEST` et
+`INSIDE_DAY` peuvent l'atteindre.
+
+**Biais des `TROU`.** Un appel dont les bougies manquent encore 2 jours après sa fenêtre (paire retirée de la cote,
+trou durable du magasin) est `TROU`, hors mesure : si les paires qui finissent mal sont plus souvent retirées, le R
+mesuré est trop flatteur. Le nombre de `TROU` est rapporté par configuration (descriptif), ainsi que la part du R par
+paire (une paire qui porte le résultat se voit).
 
 **Limites déclarées.** Entrée au prix de clôture alors que l'appel est connu quelques minutes plus tard (glissement
 taker compté, aucun prix réel d'exécution) ; liste halal figée de F15 choisie en 2026 (biais des survivantes) ; appels

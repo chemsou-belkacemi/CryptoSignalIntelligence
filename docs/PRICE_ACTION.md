@@ -367,8 +367,8 @@ ne regarde que le R (non biaisé) et reste valable ; `NON_DEMONTRE` est l'issue 
   candidats d'une clôture), l'ordre de leur identifiant sha256, neutre entre configurations et entre paires (§ 8,
   choix 18). Mêmes placebos, même gestion, mêmes frais ; niveaux arrondis au pas de cotation quand il est
   connu (entrée, TP1 et objectif vers le haut ; stop et secours vers le bas).
-- Verdict **par configuration** avec `forward/f4.verdict` (lecture) ; `INSUFFISANT` sous 30 résolus. Revue à 42 jours,
-  évaluation à 84 jours, 1 essai FORWARD.
+- Verdict **par configuration** sur le R net seul (§ 11.5, `forward/f19.verdict`) ; `INSUFFISANT` sous 30 résolus.
+  Revue à 42 jours, évaluation à 84 jours, 1 essai FORWARD.
 - Messages Telegram dans une boîte séparée `state/price_action_outbox.json` (identifiants `pa:`), servis par
   `GET /assistant/outbox` (fusion chronologique avec ceux de l'assistant, 20 au plus) et marqués par
   `POST /assistant/sent`. État `state/price_action.json`, route `GET /price-action`, carte « Price action » dans
@@ -571,3 +571,8 @@ seconde itération). La suite est une décision du propriétaire ou du coordinat
 - 2026-10-10 : contrôle sous H0 n° 2 lancé une fois (commit `a3f8ff8`) : faux `PISTE` 0/200 pour les cinq configurations,
   puissance à +0,15 R net 0,010 / 0,040 / 0,045 / 0,285 / 0,080 → **`INSTRUMENT_TROP_FAIBLE` partout**, 0 essai
   historique, `executer` refuse ; inscrit dans `CONTROLE_H0`. Relecture `leak-auditor` à faire.
+- 2026-10-10 : corrections de la relecture du coordinateur avant le démarrage de F19 : magasin de F15 tenu à jour par
+  la surveillance après la fin de F15 tant que F18 ou F19 en dépend ; lecture du direct paire par paire (colonnes utiles
+  seulement) ; retard mesuré sur l'horloge réelle ; `pairs_with_close` inscrit ; seuil réel (50 jours) et biais des
+  `TROU` déclarés dans la section F19 ; mémoire de la surveillance portée à 3 Gio. Détecteur, gestion et placebos
+  inchangés (contrôles H0 toujours valables).

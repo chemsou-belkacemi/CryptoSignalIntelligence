@@ -478,18 +478,49 @@ def test_management_gaps_live_versus_history_and_delisting():
     assert sim(None, bars=dead)["status"] == M.RUNNING
 
 
-def test_management_matches_the_assistant_rule_in_four_hours():
-    rng = np.random.default_rng(5)
-    closes = 100 * np.cumprod(1 + rng.normal(0, 0.006, 400))
+@pytest.mark.parametrize("seed", range(12))
+def test_management_matches_the_assistant_rule_in_four_hours(seed):
+    """Égalité avec `assistant/rules.simulate` (F18) en 4 h, sur plusieurs graines : objectif, sorties après TP1,
+    temps, secours, et en direct avec un trou (les deux attendent)."""
+    rng = np.random.default_rng(seed)
+    closes = 100 * np.cumprod(1 + rng.normal(0.0004 * (seed % 3 - 1), 0.006, 400))
     opens = np.r_[100.0, closes[:-1]]
     rows = list(zip(opens, np.maximum(opens, closes) * 1.002, np.minimum(opens, closes) * 0.998, closes, strict=True))
     bars = path(rows)
-    for stop, objective in ((97.0, 106.0), (98.5, 103.5), (95.0, 112.0)):
-        mine = M.simulate(bars, entry_at=ENTRY_AT, entry=100.0, stop=stop, objective=objective, symbol="XUSDT",
-                          scenario="defavorable", unit="4h", complete=False)
-        theirs = assistant_rules.simulate(bars, entry_at=ENTRY_AT, entry=100.0, stop=stop, tp1=100 + (100 - stop),
-                                          tp2=objective, symbol="XUSDT", scenario="defavorable")
-        assert mine["r"] == pytest.approx(theirs["r"], abs=1e-9) and mine["exit_at"] == theirs["exit_at"]
+    seen = set()
+    for stop, objective in ((97.0, 106.0), (98.5, 103.5), (95.0, 112.0), (99.0, 140.0), (90.0, 101.5)):
+        for scenario in ("central", "defavorable"):
+            mine = M.simulate(bars, entry_at=ENTRY_AT, entry=100.0, stop=stop, objective=objective, symbol="XUSDT",
+                              scenario=scenario, unit="4h", complete=False)
+            theirs = assistant_rules.simulate(bars, entry_at=ENTRY_AT, entry=100.0, stop=stop, tp1=100 + (100 - stop),
+                                              tp2=objective, symbol="XUSDT", scenario=scenario)
+            assert mine["r"] == pytest.approx(theirs["r"], abs=1e-9) and mine["exit_at"] == theirs["exit_at"]
+            assert mine["outcome"].replace(M.TARGET, assistant_rules.TP2).replace(M.TIME, assistant_rules.TIME) == theirs["outcome"]
+            seen.add(mine["outcome"])
+    holed = bars.drop(index=[30]).reset_index(drop=True)
+    for stop, objective in ((99.0, 140.0), (90.0, 101.5)):
+        mine = M.simulate(holed, entry_at=ENTRY_AT, entry=100.0, stop=stop, objective=objective, symbol="XUSDT",
+                          scenario="central", unit="4h", complete=False)
+        theirs = assistant_rules.simulate(holed, entry_at=ENTRY_AT, entry=100.0, stop=stop, tp1=100 + (100 - stop),
+                                          tp2=objective, symbol="XUSDT", scenario="central")
+        assert (mine["status"] == M.RUNNING) == (theirs["status"] == assistant_rules.RUNNING)
+        if mine["status"] == M.RESOLVED:
+            assert mine["r"] == pytest.approx(theirs["r"], abs=1e-9)
+    assert seen
+
+
+def test_assistant_equality_covers_every_outcome():
+    outcomes = set()
+    for seed in range(12):
+        rng = np.random.default_rng(seed)
+        closes = 100 * np.cumprod(1 + rng.normal(0.0004 * (seed % 3 - 1), 0.006, 400))
+        opens = np.r_[100.0, closes[:-1]]
+        bars = path(list(zip(opens, np.maximum(opens, closes) * 1.002, np.minimum(opens, closes) * 0.998, closes, strict=True)))
+        for stop, objective in ((97.0, 106.0), (98.5, 103.5), (95.0, 112.0), (99.0, 140.0), (90.0, 101.5)):
+            outcomes.add(M.simulate(bars, entry_at=ENTRY_AT, entry=100.0, stop=stop, objective=objective, symbol="XUSDT",
+                                    scenario="central", unit="4h", complete=False)["outcome"])
+    assert {M.TARGET, M.TIME, M.STOP_CLOSE, f"{M.STOP_CLOSE}_APRES_TP1"} <= outcomes
+    assert outcomes & {M.STOP_HARD, f"{M.STOP_HARD}_APRES_TP1", f"{M.TIME}_APRES_TP1"}
 
 
 # --- Placebos ------------------------------------------------------------------------------------------------------------------

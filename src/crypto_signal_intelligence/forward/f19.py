@@ -11,7 +11,8 @@ tout résolu, puis CLOTURE. Rien n'est écrit dans `SignalRegistry`, `signals/` 
 """
 from __future__ import annotations
 
-from datetime import datetime
+from collections.abc import Callable
+from datetime import UTC, datetime
 
 import numpy as np
 import pandas as pd
@@ -143,9 +144,16 @@ def write_state(settings: Settings, journal: Journal, store: CandleStore, *, now
 
 # --- Décisions -----------------------------------------------------------------------------------------------------------------
 
-def record_decisions(settings: Settings, journal: Journal, start: dict, *, now: datetime, store: CandleStore | None = None) -> dict:
+def real_clock() -> datetime:
+    return datetime.now(UTC)
+
+
+def record_decisions(settings: Settings, journal: Journal, start: dict, *, now: datetime, store: CandleStore | None = None,
+                     clock: Callable[[], datetime] | None = None) -> dict:
     """Évalue la dernière clôture 4 h UTC passée depuis le démarrage, une seule fois, dès que sa bougie 1 h est en
-    magasin ; inscrit EVALUATION puis chaque APPEL, dépose les messages, écrit l'état."""
+    magasin ; inscrit EVALUATION puis chaque APPEL, dépose les messages, écrit l'état. Le retard (`delay_min`, `late`)
+    est mesuré sur l'HORLOGE RÉELLE au moment où F19 évalue (`clock`, injectable), pas sur l'heure de début du passage
+    horaire (les tests précédents du passage peuvent prendre des minutes)."""
     moment = pd.Timestamp(now)
     started, final = pd.Timestamp(start["started_at"]), pd.Timestamp(start["final_at"])
     store = store or ev.store_for(settings)
@@ -162,16 +170,18 @@ def record_decisions(settings: Settings, journal: Journal, start: dict, *, now: 
     if not ev.available(store, probe, at=at, now=moment):
         return counts | {"waiting": f"bougie 1 h de {probe} clôturée à {utc_iso(at)} pas encore en magasin"}
     discipline = discipline_at(journal, store, at=at, now=moment)
-    result = ev.run(settings, at=at, now=moment, discipline=discipline, store=store, symbols=symbols)
+    decided = pd.Timestamp((clock or real_clock)())
+    result = ev.run(settings, at=at, now=decided, discipline=discipline, store=store, symbols=symbols)
+    result["pass_started_at"] = utc_iso(moment)
     record = result | {"call_ids": [c["call_id"] for c in result["calls"]], "discipline": discipline,
                        "universe": {"source": universe["source"], "pairs": len(symbols), "sha256": universe["sha256"]}}
-    journal.append(EVALUATION, record, now=moment)
+    journal.append(EVALUATION, record, now=decided)
     counts["evaluations"] = 1
     for decision in result["calls"]:
-        journal.append(CALL, decision, now=moment)
-        outbox.queue(settings, message_id=f"APPEL:{decision['call_id']}", text=outbox.call_message(decision), now=moment)
+        journal.append(CALL, decision, now=decided)
+        outbox.queue(settings, message_id=f"APPEL:{decision['call_id']}", text=outbox.call_message(decision), now=decided)
         counts["calls"] += 1
-    write_state(settings, journal, store, now=moment)
+    write_state(settings, journal, store, now=decided)
     return counts
 
 
@@ -275,7 +285,14 @@ def _measure(rows: list[dict], scenario: str, *, samples: int = SAMPLES, seed: i
     for value in r:
         streak = streak + 1 if value < 0 else 0
         worst = max(worst, streak)
-    return {"n": int(len(r)), "days": int(pd.DatetimeIndex(times).floor("D").nunique()), "r_mean": round(float(r.mean()), 4),
+    by_pair: dict[str, float] = {}
+    for row, value in zip(rows, r, strict=True):
+        by_pair[row["symbol"]] = by_pair.get(row["symbol"], 0.0) + float(value)
+    total_abs = sum(abs(v) for v in by_pair.values()) or 1.0
+    top = sorted(by_pair.items(), key=lambda kv: -abs(kv[1]))[:5]
+    pairs = {"pairs": len(by_pair), "top": [{"symbol": k, "r_sum": round(v, 4), "share_abs": round(abs(v) / total_abs, 4)} for k, v in top],
+             "max_share_abs": round(abs(top[0][1]) / total_abs, 4) if top else None}
+    return {"n": int(len(r)), "r_by_pair": pairs, "days": int(pd.DatetimeIndex(times).floor("D").nunique()), "r_mean": round(float(r.mean()), 4),
             "r_ci95": ci_r, "r_ci_decision": ci_d, "win_share": round(float((r > 0).mean()), 4), "tp1_rate": round(float((hits >= 1).mean()), 4),
             "target_rate": round(float(target.mean()), 4), "worst_streak": int(worst),
             "placebo_excess": round(float(excess[ok].mean()), 4) if ok.any() else None, "placebo_excess_ci": ci_x,
@@ -318,7 +335,9 @@ def stats(journal: Journal, start: dict, *, now: datetime) -> dict:
     for config in D.CONFIGS:
         mine = [r for r in resolved if r["config"] == config]
         scenarios = {s: _measure(mine, s) for s in SCENARIOS}
+        gaps = sum(1 for k, r in done.items() if r["status"] == GAP and decided.get(k, {}).get("config") == config)
         configs[config] = {"calls": sum(1 for c in decided.values() if c["config"] == config), "resolved": len(mine),
+                           "gaps": gaps,
                            "candidates": candidates.get(config, 0), "scenarios": scenarios,
                            "verdict": verdict(scenarios, ended=ended)}
     return {"evaluations": len(evaluations), "late": sum(1 for e in evaluations if e.get("late")),

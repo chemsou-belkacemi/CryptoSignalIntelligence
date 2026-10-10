@@ -70,16 +70,43 @@ def universe(settings: Settings) -> list[str]:
         return []
 
 
+READ_COLUMNS = ("open_time", "open", "high", "low", "close", "quote_volume", "available_at")
+
+
 def load_h1(store: CandleStore, symbol: str, *, at: pd.Timestamp, now: pd.Timestamp, days: int = HISTORY_DAYS) -> pd.DataFrame:
-    """Bougies 1 h clôturées au plus tard à `at` ET connues à `now`, sur `days` jours."""
-    frame = store.load_since(symbol, "1h", at - pd.Timedelta(days=days))
+    """Bougies 1 h clôturées au plus tard à `at` ET connues à `now`, sur `days` jours. Seules les colonnes utiles sont
+    lues (date d'ouverture, prix, volume quote, `available_at`) : 166 paires × 300 jours tiennent en mémoire."""
+    import pyarrow.parquet as pq
+    path = store.path(symbol, "1h")
+    if not path.exists():
+        return pd.DataFrame(columns=list(READ_COLUMNS))
+    names = set(pq.ParquetFile(path).schema_arrow.names)
+    table = pq.read_table(path, columns=[c for c in READ_COLUMNS if c in names],
+                          filters=[("open_time", ">=", (at - pd.Timedelta(days=days)).to_pydatetime())])
+    frame = table.to_pandas()
     if frame.empty:
         return frame
-    frame = frame.assign(open_time=pd.to_datetime(frame["open_time"], utc=True))
+    frame["open_time"] = pd.to_datetime(frame["open_time"], utc=True)
     if "available_at" in frame.columns:
         frame = frame[pd.to_datetime(frame["available_at"], utc=True) <= now]
     frame = frame[frame["open_time"] + HOUR <= at]
     return frame.sort_values("open_time").drop_duplicates("open_time").reset_index(drop=True)
+
+
+def load_bars(store: CandleStore, symbol: str, *, at: pd.Timestamp, now: pd.Timestamp) -> D.Bars | None:
+    """`Bars` d'une paire (causales à `at`, connues à `now`), construits tout de suite : le DataFrame lu est libéré
+    avant la paire suivante (pic de mémoire d'une paire à la fois)."""
+    frame = load_h1(store, symbol, at=at, now=now)
+    if frame.empty:
+        return None
+    bars = D.Bars(frame)
+    del frame
+    return bars
+
+
+def has_close(bars: D.Bars | None, at: pd.Timestamp) -> bool:
+    """La bougie 1 h qui clôture à `at` est dans ces bougies."""
+    return bool(bars is not None and len(bars.h1) and int(bars.h1.t[-1]) + D.HOUR_NS == int(D.to_ns([at])[0]))
 
 
 def available(store: CandleStore, symbol: str, *, at: pd.Timestamp, now: pd.Timestamp) -> bool:
@@ -114,29 +141,40 @@ def key(symbol: str, config: str) -> str:
     return f"{symbol}:{config}"
 
 
-def detect_at(frames: dict[str, pd.DataFrame], at: pd.Timestamp, *, btc_frame: pd.DataFrame | None = None,
+def _causal_bars(item, at: pd.Timestamp, at_ns: int) -> D.Bars | None:
+    """`Bars` causales à `at` : un DataFrame est coupé (bougies clôturées au plus tard à `at`, quoi qu'on reçoive) ;
+    des `Bars` déjà construites (lecture `load_bars`) sont refusées si elles contiennent une bougie postérieure."""
+    if item is None:
+        return None
+    if isinstance(item, D.Bars):
+        if len(item.h1) and int(item.h1.t[-1]) + D.HOUR_NS > at_ns:
+            raise ValueError("bougies postérieures à la clôture évaluée : lecture non causale")
+        return item if len(item.h1) else None
+    if item.empty:
+        return None
+    return D.Bars(item[pd.to_datetime(item["open_time"], utc=True) + HOUR <= at])
+
+
+def detect_at(frames: dict, at: pd.Timestamp, *, btc_frame=None,
               blocked: Callable[[str, str], str | None] | None = None) -> dict:
-    """Candidats et refus de géométrie d'instant `at` (détecteur partagé), toutes configurations. `blocked(paire,
-    config)` rend une raison de discipline ou None : pour FORCE_RELATIVE, une paire bloquée est écartée AVANT le choix
-    des 3 (comme dans l'étude historique)."""
+    """Candidats et refus de géométrie d'instant `at` (détecteur partagé), toutes configurations. `frames` : par paire,
+    un DataFrame de bougies 1 h ou des `Bars` déjà lues causalement. `blocked(paire, config)` rend une raison de
+    discipline ou None : pour FORCE_RELATIVE, une paire bloquée est écartée AVANT le choix des 3 (comme dans l'étude
+    historique)."""
     at = pd.Timestamp(at)
     at_ns = int(D.to_ns([at])[0])
     candidates, refusals, bars_of = [], [], {}
     for symbol in sorted(frames):
-        h1 = frames[symbol]
-        if h1 is None or h1.empty:
+        bars = _causal_bars(frames[symbol], at, at_ns)
+        if bars is None:
             continue
-        h1 = h1[pd.to_datetime(h1["open_time"], utc=True) + HOUR <= at]       # causalité, quoi qu'on reçoive
-        bars = D.Bars(h1)
         bars_of[symbol] = bars
         found, refused = D.scan_pair(bars, symbol)
         candidates += [c for c in found if c["at_ns"] == at_ns]
         refusals += [r for r in refused if r["at_ns"] == at_ns]
-    market = btc_frame if btc_frame is not None and not btc_frame.empty else frames.get(D.FR_MARKET)
-    events = []
-    if market is not None and not market.empty:
-        market = market[pd.to_datetime(market["open_time"], utc=True) + HOUR <= at]
-        events = [e for e in D.force_events(D.Bars(market)) if e["stabilized"] == at_ns]
+    market = _causal_bars(btc_frame, at, at_ns) if btc_frame is not None else None
+    market = market if market is not None else bars_of.get(D.FR_MARKET)
+    events = [e for e in D.force_events(market) if e["stabilized"] == at_ns] if market is not None else []
     for event in events:
         readings = {}
         for symbol, bars in bars_of.items():
@@ -204,8 +242,8 @@ def explanation(c: dict) -> list[str]:
     return [first, second]
 
 
-def evaluate(*, at: pd.Timestamp, now: pd.Timestamp, frames: dict[str, pd.DataFrame], discipline: dict,
-             btc_frame: pd.DataFrame | None = None, tick: Callable[[str], Decimal | None] | None = None) -> dict:
+def evaluate(*, at: pd.Timestamp, now: pd.Timestamp, frames: dict, discipline: dict, btc_frame=None,
+             tick: Callable[[str], Decimal | None] | None = None, pairs_with_close: int | None = None) -> dict:
     """Évaluation à la clôture `at` : détection, discipline (une position par paire et par configuration, 48 h de repos),
     retard (au-delà de 30 min : aucun appel), quota (5 appels par jour UTC, les plus récents d'abord, puis l'ordre de
     l'identifiant sha256, neutre entre configurations). `discipline` : {"active": {"PAIRE:CONFIG": id}, "rest_until": {"PAIRE:CONFIG": iso},
@@ -225,7 +263,7 @@ def evaluate(*, at: pd.Timestamp, now: pd.Timestamp, frames: dict[str, pd.DataFr
 
     found = detect_at(frames, at, btc_frame=btc_frame, blocked=blocked)
     out: dict = {"at": utc_iso(at), "evaluated_at": utc_iso(now), "decided_at": utc_iso(now), "delay_min": delay_min,
-                 "late": bool(late), "pairs": len(frames), "events": found["events"],
+                 "late": bool(late), "pairs": len(frames), "pairs_with_close": pairs_with_close, "events": found["events"],
                  "candidates": {c: 0 for c in D.CONFIGS}, "refusals": [], "refusals_by_reason": {}, "calls": [], "note": NOTE}
     for r in found["refusals"]:
         _refuse(out, r, r["reason"], r["detail"])
@@ -280,13 +318,20 @@ def decision(cand: dict, lv: dict, *, at: pd.Timestamp, now: pd.Timestamp) -> di
 
 def inputs_for(settings: Settings, *, at: pd.Timestamp, now: pd.Timestamp, store: CandleStore | None = None,
                symbols: list[str] | None = None) -> dict:
+    """`Bars` causales de chaque paire, lues une à une (colonnes utiles seulement, DataFrame libéré aussitôt), BTCUSDT
+    pour FORCE_RELATIVE (magasin de F15, sinon celui de la surveillance), et le nombre de paires dont la bougie de
+    clôture `at` est en magasin."""
     store = store or store_for(settings)
     symbols = universe(settings) if symbols is None else symbols
-    frames = {s: load_h1(store, s, at=at, now=now) for s in symbols}
+    frames: dict[str, D.Bars | None] = {}
+    with_close = 0
+    for symbol in symbols:
+        frames[symbol] = load_bars(store, symbol, at=at, now=now)
+        with_close += int(has_close(frames[symbol], at))
     btc = frames.get(D.FR_MARKET)
-    if btc is None or btc.empty:
-        btc = load_h1(CandleStore(settings.data_dir), D.FR_MARKET, at=at, now=now)
-    return {"frames": frames, "btc_frame": btc}
+    if btc is None and settings is not None:
+        btc = load_bars(CandleStore(settings.data_dir), D.FR_MARKET, at=at, now=now)
+    return {"frames": frames, "btc_frame": btc, "pairs_with_close": with_close}
 
 
 def run(settings: Settings, *, at: pd.Timestamp, now, discipline: dict, store: CandleStore | None = None,
