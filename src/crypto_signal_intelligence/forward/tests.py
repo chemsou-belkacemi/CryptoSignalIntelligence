@@ -6,10 +6,37 @@ appelé à chaque cycle de la surveillance (toutes les 15 min) pour les tests qu
 """
 from __future__ import annotations
 
-from . import f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16, f18, f19
+from . import (
+         f1,
+         f2,
+         f3,
+         f4,
+         f5,
+         f6,
+         f7,
+         f8,
+         f9,
+         f10,
+         f11,
+         f12,
+         f13,
+         f14,
+         f15,
+         f16,
+         f18,
+         f19,
+         f20,
+         f21,
+         f22,
+         f23,
+         f24,
+)
 
 # F17 reste réservé. F18 et F19 viennent après F15 : ils lisent le magasin de bougies que F15 vient de mettre à jour.
+# F20 à F24 (une configuration « price action » chacun, quota propre) viennent après F19 : ils savent quels appels F19
+# vient de faire (pas de message Telegram en double) et partagent une seule détection par clôture (forward/pa_single.py).
 TESTS = ((f1.TEST, f1), (f2.TEST, f2), (f3.TEST, f3), (f4.TEST, f4), (f5.TEST, f5), (f6.TEST, f6), (f7.TEST, f7),
          (f8.TEST, f8), (f9.TEST, f9), (f10.TEST, f10), (f11.TEST, f11), (f12.TEST, f12), (f13.TEST, f13),
-         (f14.TEST, f14), (f15.TEST, f15), (f16.TEST, f16), (f18.TEST, f18), (f19.TEST, f19))
+         (f14.TEST, f14), (f15.TEST, f15), (f16.TEST, f16), (f18.TEST, f18), (f19.TEST, f19),
+         (f20.TEST, f20), (f21.TEST, f21), (f22.TEST, f22), (f23.TEST, f23), (f24.TEST, f24))
 BY_ID = {test.test_id: (test, module) for test, module in TESTS}

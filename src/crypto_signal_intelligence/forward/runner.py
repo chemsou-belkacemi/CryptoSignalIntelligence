@@ -58,14 +58,15 @@ def process_lock(settings: Settings):
 
 
 F15_ID = "F15_FIGURES"
-STORE_READERS = ("F18_ASSISTANT", "F19_PRICE_ACTION")       # lisent le magasin 1 h de F15 (`forward_figures/data`)
+STORE_READERS = ("F18_ASSISTANT", "F19_PRICE_ACTION",     # lisent le magasin 1 h de F15 (`forward_figures/data`)
+                 "F20_BASE_RETEST", "F21_SQUEEZE", "F22_FORCE_RELATIVE", "F23_INSIDE_DAY", "F24_SORTIE_BASE_LONGUE")
 STORE_REFRESH = "_magasin_f15"
 
 
 def refresh_figure_store(settings: Settings, *, now: datetime, rest=None) -> dict | None:
     """Tient à jour le magasin 1 h de F15 (`forward_figures/data`, paires figées au démarrage de F15) quand F15 ne le
-    fait plus (après sa date de fin, F15 ne télécharge plus rien) mais que F18 ou F19 en dépend encore (EN_COURS ou en
-    résolution). Réutilise les fonctions de F15 et du pipeline en lecture (`f15.figure_settings`,
+    fait plus (après sa date de fin, F15 ne télécharge plus rien) mais que F18, F19 ou l'un de F20 à F24 en dépend encore
+    (EN_COURS ou en résolution). Réutilise les fonctions de F15 et du pipeline en lecture (`f15.figure_settings`,
     `data.pipeline.download`, `rest_only=True`), sans les modifier. None si rien n'est à faire."""
     from ..data.http import PublicHttpClient
     from ..data.pipeline import download
@@ -89,6 +90,14 @@ def refresh_figure_store(settings: Settings, *, now: datetime, rest=None) -> dic
 
 
 def run_tests(settings: Settings, *, now: datetime) -> dict:
+    try:
+        return _run_tests(settings, now=now)
+    finally:
+        from . import pa_single
+        pa_single.clear_cache()                  # détection partagée de F20 à F24 : libérée à la fin du passage
+
+
+def _run_tests(settings: Settings, *, now: datetime) -> dict:
     out = {}
     try:
         refreshed = refresh_figure_store(settings, now=now)

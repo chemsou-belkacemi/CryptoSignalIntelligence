@@ -79,9 +79,40 @@ def _context_line(log: dict) -> str:
             "aucune de ces données n'influence un test en cours.")
 
 
+SINGLE_IDS = ("F20_BASE_RETEST", "F21_SQUEEZE", "F22_FORCE_RELATIVE", "F23_INSIDE_DAY", "F24_SORTIE_BASE_LONGUE")
+
+
+def _singles_section(items: list[dict]) -> list[str]:
+    """Une seule section pour les tests séparés F20 à F24 (une configuration chacun, quota propre) : une ligne par test."""
+    lines = ["## F20 à F24 : tests séparés « price action » (une configuration chacun, quota propre)", "",
+             "| Test | Configuration | État | Journal | Évaluations (tardives) | Candidats | Appels (aussi dans F19) | Résolus | "
+             "Trous | En cours | R net (central) | IC 99 % du R | R net (défavorable) | Excès avant (descr.) | Verdict |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    for item in items:
+        journal = "intègre" if item["journal"]["ok"] else "ROMPU"
+        stats = item.get("stats")
+        if not stats or not stats.get("price_action_single"):
+            lines.append(f"| {item['test_id']} | — | {item['state']} | {journal} | — | — | — | — | — | — | — | — | — | — | — |")
+            continue
+        c, a = stats["scenarios"].get("central", {}), stats["scenarios"].get("defavorable", {})
+        lines.append(f"| {item['test_id']} | {stats['config']} | {item['state']} | {journal} | {stats['evaluations']} "
+                     f"({stats['late']}) | {stats['candidates']} | {stats['calls']} ({stats['also_in_f19']}) | {stats['resolved']} | "
+                     f"{stats['gaps']} | {stats['pending']} | {_fmt(c.get('r_mean'))} | {c.get('r_ci_decision') or '—'} | "
+                     f"{_fmt(a.get('r_mean'))} | {_fmt(c.get('placebo_excess_forward'))} | {stats['verdict']} |")
+    lines += ["", "Mêmes règles que F19, une configuration par test avec son propre quota de 5 appels par jour ; une partie "
+              "des appels sont aussi ceux de F19 (mêmes données, verdicts corrélés). Shadow : aucun ordre ; aucun gain "
+              "démontré. Verdict sur le R net seul (`INSUFFISANT` sous 30 appels résolus).", ""]
+    return lines
+
+
 def markdown(report: dict) -> str:
     lines = [f"# Tests en direct : rapport du {report['generated_at'][:10]}", "", f"> {report['warning']}", ""]
+    singles = [item for item in report["tests"] if item["test_id"] in SINGLE_IDS]
     for item in report["tests"]:
+        if item["test_id"] in SINGLE_IDS:                     # F20 à F24 : une section pour les cinq
+            if item is singles[0]:
+                lines += _singles_section(singles)
+            continue
         lines += [f"## {item['test_id']} : {item['title']}", "", f"État : **{item['state']}**.",
                   f"Journal : {'intègre' if item['journal']['ok'] else 'ROMPU : ' + str(item['journal']['reason'])}"
                   f" ({item['journal']['entries']} entrées)."]
