@@ -51,7 +51,8 @@ PISTE, RIEN, INSUFFISANT = "PISTE", "RIEN", "INSUFFISANT"
 H0_SEED, H0_REPLICATES, H0_MAX_FALSE, H0_INJECT, H0_MIN_POWER = 20261014, 200, 0.02, 0.005, 0.50
 
 CODE_REVIEW: str | None = None          # commit relu (relecture leak-auditor), inscrit avant l'exécution réelle
-CONTROLE_H0: str | None = None          # "<chemin du criteres.json>#<sha256>", inscrit après le passage unique du contrôle
+CONTROLE_H0: str | None = ("/home/chamsou-blk/BinanceSpotManager/CryptoSignalIntelligence/reports/OPTIONS_PEUR-H0-e4ef59b455ae/"
+                           "criteres.json#04bc00df7613fc8a06a7e61b012e444e24df67aeaed4e24eb66f4cbfe83511de")   # INSTRUMENT_TROP_FAIBLE
 
 
 class NotReady(RuntimeError):

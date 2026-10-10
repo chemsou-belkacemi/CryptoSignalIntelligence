@@ -93,9 +93,24 @@ les données réelles), donc **`INSUFFISANT` possible**. L'écart-type d'un rend
 effet vrai de +0,5 % net serait donc **très rarement** déclaré à 99 % (le contrôle positif le dira) ; l'étude ne peut
 voir qu'un effet grand.
 
-## 9. Résultats du contrôle sous H0
+## 9. Résultats du contrôle sous H0 (passage unique du 2026-10-10)
 
-À inscrire ici après le passage unique, avant toute exécution réelle.
+`csi options-peur controle-h0`, code du commit `e4ef59b` (propre), 200 marchés synthétiques, 10 000 tirages, 11 min
+environ. Fichier : `reports/OPTIONS_PEUR-H0-e4ef59b455ae/criteres.json` (dépôt principal), SHA-256
+`04bc00df7613fc8a06a7e61b012e444e24df67aeaed4e24eb66f4cbfe83511de`, inscrit dans `research/options_peur.CONTROLE_H0`.
+
+| Mesure | Valeur | Critère |
+|---|---|---|
+| Faux `PISTE` (H0) | **0,000** (200 `RIEN`) | ≤ 0,02 : passe |
+| Brut : IC 99 % > 0 (descriptif, au bord de l'hypothèse nulle) | 0,010 | — |
+| Événements par marché | 66,8 (66,4 mesurés) | ≥ 30 |
+| Puissance (+0,5 % au rendement brut à 24 h) | **0,005** | ≥ 0,50 : **échec** |
+
+**Issue, à la lettre du § 6 : `INSTRUMENT_TROP_FAIBLE`.** La règle ne se trompe pas sous H0, mais elle ne verrait
+presque jamais un effet vrai de +0,5 % net à 24 h (1 marché sur 200) : avec environ 67 événements et un rendement de BTC
+à 24 h d'écart-type de 3 à 4 %, l'IC 99 % fait environ 2 % de large. **L'étude historique n'est pas exécutée : 0 essai,
+aucune donnée réelle lue** ; `csi options-peur executer` refuse (contrôle non `PASSE`). Pas de seconde itération. F29
+reste pré-inscrit tel quel en direct.
 
 ## 10. Limites déclarées
 
