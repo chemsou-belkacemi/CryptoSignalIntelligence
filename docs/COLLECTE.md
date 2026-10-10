@@ -243,3 +243,7 @@ Le plan initial prévoyait d'attendre 14 jours de journaux, de choisir des seuil
 La demande du 2026-10-10 l'a remplacé par des **seuils auto-calibrés de façon causale** (quantile des 7 ou 30 jours
 précédents, recalculé à chaque fenêtre) et un **rodage de 7 jours** sans décision : aucun seuil n'est choisi en
 regardant les données, et rien n'est fixé sur une période qui compterait ensuite.
+
+## Décision du 2026-10-10
+
+**Décision du 2026-10-10 (avant tout démarrage) : non démarré.** Au contrôle sous H0, la famille F25–F30 est soit en échec (F27, F30), soit presque aveugle : puissance de 0 à 4 % pour un effet de +0,5 % sur 24 h (F25, F26, F28, F29). Démarrer ces tests aurait ajouté des essais et gelé les fonctions du collecteur pour des verdicts presque sûrement `INSUFFISANT` ou `NON_DEMONTRE`. Le collecteur continue d'enregistrer ; aucun rendement n'est regardé. Une nouvelle pré-inscription sera faite quand les journaux accumulés permettront une puissance d'au moins 50 % (au plus tôt début 2027), avec les remarques de la relecture traitées (entrée mesurée depuis `detected_at`, générateurs avec tendance et persistance observée, gel de `Recorder.append` et de la lecture du DVOL, critère sur le brut pour les hypothèses positives).

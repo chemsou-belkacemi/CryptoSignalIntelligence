@@ -124,3 +124,7 @@ seule période ; une `PISTE` historique ne vaut pas validation (le direct F29 tr
 - 2026-10-10 : pré-inscription, code et tests (aucune donnée réelle hors de la sonde de format du DVOL de 2021).
 - 2026-10-10 : contrôle sous H0 lancé une fois (commit `e4ef59b`) : 0 faux `PISTE`, puissance 0,005 →
   **`INSTRUMENT_TROP_FAIBLE`**, étude non exécutée, 0 essai (§ 9).
+
+## Décision du 2026-10-10
+
+**Décision du 2026-10-10 (avant tout démarrage) : non démarré.** Au contrôle sous H0, la famille F25–F30 est soit en échec (F27, F30), soit presque aveugle : puissance de 0 à 4 % pour un effet de +0,5 % sur 24 h (F25, F26, F28, F29). Démarrer ces tests aurait ajouté des essais et gelé les fonctions du collecteur pour des verdicts presque sûrement `INSUFFISANT` ou `NON_DEMONTRE`. Le collecteur continue d'enregistrer ; aucun rendement n'est regardé. Une nouvelle pré-inscription sera faite quand les journaux accumulés permettront une puissance d'au moins 50 % (au plus tôt début 2027), avec les remarques de la relecture traitées (entrée mesurée depuis `detected_at`, générateurs avec tendance et persistance observée, gel de `Recorder.append` et de la lecture du DVOL, critère sur le brut pour les hypothèses positives).

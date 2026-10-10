@@ -2084,6 +2084,8 @@ résultat).
 
 ## F25_LIQ_CASCADE : cascade de liquidations de positions longues sur une paire, achat Spot ensuite
 
+**Décision du 2026-10-10 (avant tout démarrage) : non démarré.** Au contrôle sous H0, la famille F25–F30 est soit en échec (F27, F30), soit presque aveugle : puissance de 0 à 4 % pour un effet de +0,5 % sur 24 h (F25, F26, F28, F29). Démarrer ces tests aurait ajouté des essais et gelé les fonctions du collecteur pour des verdicts presque sûrement `INSUFFISANT` ou `NON_DEMONTRE`. Le collecteur continue d'enregistrer ; aucun rendement n'est regardé. Une nouvelle pré-inscription sera faite quand les journaux accumulés permettront une puissance d'au moins 50 % (au plus tôt début 2027), avec les remarques de la relecture traitées (entrée mesurée depuis `detected_at`, générateurs avec tendance et persistance observée, gel de `Recorder.append` et de la lecture du DVOL, critère sur le brut pour les hypothèses positives).
+
 Demande du 2026-10-10 : premiers tests en direct sur les journaux du collecteur. Les liquidations sont reçues depuis le 2026-10-10 19:58 UTC (nouvelle adresse Binance « /market/ws »). Mesure seulement : CSI ne passe aucun ordre, aucun appel n'est envoyé, aucun gain n'est annoncé ni
 démontré. Module `forward/f25.py` (mince) et `forward/collecte_events.py` (commun).
 
@@ -2196,6 +2198,8 @@ trous comptés, jamais comblés) ; 12 semaines ne valident rien ; `INSUFFISANT` 
 
 ## F26_MUR_ACHETEURS : mur d'acheteurs dans le carnet deux heures de suite, achat ensuite
 
+**Décision du 2026-10-10 (avant tout démarrage) : non démarré.** Au contrôle sous H0, la famille F25–F30 est soit en échec (F27, F30), soit presque aveugle : puissance de 0 à 4 % pour un effet de +0,5 % sur 24 h (F25, F26, F28, F29). Démarrer ces tests aurait ajouté des essais et gelé les fonctions du collecteur pour des verdicts presque sûrement `INSUFFISANT` ou `NON_DEMONTRE`. Le collecteur continue d'enregistrer ; aucun rendement n'est regardé. Une nouvelle pré-inscription sera faite quand les journaux accumulés permettront une puissance d'au moins 50 % (au plus tôt début 2027), avec les remarques de la relecture traitées (entrée mesurée depuis `detected_at`, générateurs avec tendance et persistance observée, gel de `Recorder.append` et de la lecture du DVOL, critère sur le brut pour les hypothèses positives).
+
 Demande du 2026-10-10 : tests en direct sur les journaux du collecteur. Mesure seulement : CSI ne passe aucun ordre, aucun appel n'est envoyé, aucun gain n'est annoncé ni
 démontré. Module `forward/f26.py` (mince) et `forward/collecte_events.py` (commun).
 
@@ -2307,6 +2311,8 @@ sinon `NON_DEMONTRE` ; `INSUFFISANT` sous 30 événements résolus ou 50 jours d
 trous comptés, jamais comblés) ; 12 semaines ne valident rien ; `INSUFFISANT` est une réponse acceptable.
 
 ## F27_RETRAIT_LIQUIDITE : retrait de la liquidité acheteuse (hypothèse négative, veto)
+
+**Décision du 2026-10-10 (avant tout démarrage) : non démarré.** Au contrôle sous H0, la famille F25–F30 est soit en échec (F27, F30), soit presque aveugle : puissance de 0 à 4 % pour un effet de +0,5 % sur 24 h (F25, F26, F28, F29). Démarrer ces tests aurait ajouté des essais et gelé les fonctions du collecteur pour des verdicts presque sûrement `INSUFFISANT` ou `NON_DEMONTRE`. Le collecteur continue d'enregistrer ; aucun rendement n'est regardé. Une nouvelle pré-inscription sera faite quand les journaux accumulés permettront une puissance d'au moins 50 % (au plus tôt début 2027), avec les remarques de la relecture traitées (entrée mesurée depuis `detected_at`, générateurs avec tendance et persistance observée, gel de `Recorder.append` et de la lecture du DVOL, critère sur le brut pour les hypothèses positives).
 
 Demande du 2026-10-10 : tests en direct sur les journaux du collecteur. **Hypothèse négative.** Mesure seulement : CSI ne passe aucun ordre, aucun appel n'est envoyé, aucun gain n'est annoncé ni
 démontré. Module `forward/f27.py` (mince) et `forward/collecte_events.py` (commun).
@@ -2421,6 +2427,8 @@ trous comptés, jamais comblés) ; 12 semaines ne valident rien ; `INSUFFISANT` 
 
 ## F28_BALEINES : baleines : solde des gros ordres au marché sur 1 h, achat ensuite
 
+**Décision du 2026-10-10 (avant tout démarrage) : non démarré.** Au contrôle sous H0, la famille F25–F30 est soit en échec (F27, F30), soit presque aveugle : puissance de 0 à 4 % pour un effet de +0,5 % sur 24 h (F25, F26, F28, F29). Démarrer ces tests aurait ajouté des essais et gelé les fonctions du collecteur pour des verdicts presque sûrement `INSUFFISANT` ou `NON_DEMONTRE`. Le collecteur continue d'enregistrer ; aucun rendement n'est regardé. Une nouvelle pré-inscription sera faite quand les journaux accumulés permettront une puissance d'au moins 50 % (au plus tôt début 2027), avec les remarques de la relecture traitées (entrée mesurée depuis `detected_at`, générateurs avec tendance et persistance observée, gel de `Recorder.append` et de la lecture du DVOL, critère sur le brut pour les hypothèses positives).
+
 Demande du 2026-10-10 : tests en direct sur les journaux du collecteur. Mesure seulement : CSI ne passe aucun ordre, aucun appel n'est envoyé, aucun gain n'est annoncé ni
 démontré. Module `forward/f28.py` (mince) et `forward/collecte_events.py` (commun).
 
@@ -2534,6 +2542,8 @@ trous comptés, jamais comblés) ; 12 semaines ne valident rien ; `INSUFFISANT` 
 
 ## F29_PEUR_OPTIONS : peur sur les options BTC (asymétrie 25-delta), achat de BTCUSDT
 
+**Décision du 2026-10-10 (avant tout démarrage) : non démarré.** Au contrôle sous H0, la famille F25–F30 est soit en échec (F27, F30), soit presque aveugle : puissance de 0 à 4 % pour un effet de +0,5 % sur 24 h (F25, F26, F28, F29). Démarrer ces tests aurait ajouté des essais et gelé les fonctions du collecteur pour des verdicts presque sûrement `INSUFFISANT` ou `NON_DEMONTRE`. Le collecteur continue d'enregistrer ; aucun rendement n'est regardé. Une nouvelle pré-inscription sera faite quand les journaux accumulés permettront une puissance d'au moins 50 % (au plus tôt début 2027), avec les remarques de la relecture traitées (entrée mesurée depuis `detected_at`, générateurs avec tendance et persistance observée, gel de `Recorder.append` et de la lecture du DVOL, critère sur le brut pour les hypothèses positives).
+
 Demande du 2026-10-10 : tests en direct sur les journaux du collecteur. Étude historique liée, sur le DVOL seulement : `docs/OPTIONS_PEUR.md` (pré-inscrite, non exécutée). Mesure seulement : CSI ne passe aucun ordre, aucun appel n'est envoyé, aucun gain n'est annoncé ni
 démontré. Module `forward/f29.py` (mince) et `forward/collecte_events.py` (commun).
 
@@ -2645,6 +2655,8 @@ sinon `NON_DEMONTRE` ; `INSUFFISANT` sous 30 événements résolus ou 50 jours d
 trous comptés, jamais comblés) ; 12 semaines ne valident rien ; `INSUFFISANT` est une réponse acceptable.
 
 ## F30_TRENDING : entrée dans les « trending » de CoinGecko (hypothèse négative, veto)
+
+**Décision du 2026-10-10 (avant tout démarrage) : non démarré.** Au contrôle sous H0, la famille F25–F30 est soit en échec (F27, F30), soit presque aveugle : puissance de 0 à 4 % pour un effet de +0,5 % sur 24 h (F25, F26, F28, F29). Démarrer ces tests aurait ajouté des essais et gelé les fonctions du collecteur pour des verdicts presque sûrement `INSUFFISANT` ou `NON_DEMONTRE`. Le collecteur continue d'enregistrer ; aucun rendement n'est regardé. Une nouvelle pré-inscription sera faite quand les journaux accumulés permettront une puissance d'au moins 50 % (au plus tôt début 2027), avec les remarques de la relecture traitées (entrée mesurée depuis `detected_at`, générateurs avec tendance et persistance observée, gel de `Recorder.append` et de la lecture du DVOL, critère sur le brut pour les hypothèses positives).
 
 Demande du 2026-10-10 : tests en direct sur les journaux du collecteur. **Hypothèse négative.** Mesure seulement : CSI ne passe aucun ordre, aucun appel n'est envoyé, aucun gain n'est annoncé ni
 démontré. Module `forward/f30.py` (mince) et `forward/collecte_events.py` (commun).
