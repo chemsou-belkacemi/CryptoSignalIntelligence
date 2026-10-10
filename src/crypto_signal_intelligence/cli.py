@@ -937,6 +937,58 @@ def context_status_command(verbose: bool = False):
         console.print(f"Dernier relevé : {last} ; séries réussies : {len(days[last]['done'])} ; erreurs : {days[last]['errors'] or 'aucune'}")
 
 
+@app.command("zoo-download")
+def zoo_download_command(series: list[str] = typer.Option(None, "--series",
+                                                          help="zoo_marches | zoo_dollar_bce | zoo_fear_greed | "
+                                                               "zoo_capitalisations | calendrier_macro | "
+                                                               "calendrier_crypto | annonces_binance ; défaut : toutes"),
+                         verbose: bool = False):
+    """Télécharge les données gratuites du « zoo » (docs/CONTEXTE.md, « Données du zoo (2026-10) ») : marchés
+    traditionnels, indice dollar, Fear & Greed, capitalisations, calendriers, annonces Binance. Liste fermée dédiée
+    (context/zoo_net.py), chaque ligne avec `available_at`. Information seulement, aucun rendement calculé."""
+    from .context.zoo import download
+    settings = _settings(verbose)
+    try:
+        out = download(settings, now=_now(), only=series or None, progress=lambda text: console.print(f"… {text}"))
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(2) from None
+    table = Table("Série", "Lignes écrites", "Erreurs ou remarques")
+    for name, r in out.items():
+        note = r.get("error") or r.get("errors") or r.get("corrections_ecartees") or ""
+        table.add_row(name, str(r.get("rows", "—")), str(note)[:120])
+    console.print(table)
+
+
+@app.command("zoo-status")
+def zoo_status_command(as_json: bool = typer.Option(False, "--json", help="Rapport complet en JSON"),
+                       verbose: bool = False):
+    """Qualité des données du « zoo » en magasin : profondeur, doublons, jours manquants, plus long trou, unités,
+    `available_at` (aucun réseau, aucun rendement)."""
+    import json as _json
+
+    from .context.zoo import status
+    settings = _settings(verbose)
+    report = status(settings)
+    if as_json:
+        console.print_json(_json.dumps(report, ensure_ascii=False, default=str))
+        return
+    table = Table("Série", "Clé", "Lignes", "Première", "Dernière", "Doublons", "Manquants (événements : week-end)", "Trou max (j)",
+                  "Hors unité", "available_at KO")
+    for name, items in report.items():
+        for key, q in items.items():
+            if key == "recoupement_light":
+                continue
+            table.add_row(name, key, str(q["rows"]), q["first"], q["last"], str(q["duplicates"]),
+                          str(q.get("missing_days", q.get("weekend_new_york", "—"))), str(q.get("largest_gap_days", "—")),
+                          str(q.get("out_of_unit_range", "—")), str(q["bad_available_at"]))
+    console.print(table)
+    check = report.get("calendrier_macro", {}).get("recoupement_light")
+    if check:
+        console.print(f"Recoupement avec forward/light.py : {len(check['common'])} dates communes, "
+                      f"absentes ici : {check['missing_here'] or 'aucune'}")
+
+
 @app.command("level-reaction")
 def level_reaction_command(allow_dirty: bool = typer.Option(False, "--allow-dirty", help="Code non commité : enregistré et COMPTÉ"),
                            verbose: bool = False):
