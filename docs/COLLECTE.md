@@ -22,7 +22,7 @@ Binance passent par `collect/net.py`, qui refuse toute adresse hors de cette lis
 | Adresse (préfixe exact) | Usage |
 |---|---|
 | `wss://stream.binance.com:9443/` | flux publics Spot : `<sym>@depth20@1000ms`, `<sym>@aggTrade` |
-| `wss://fstream.binance.com/` | flux public du marché à terme : `!forceOrder@arr` |
+| `wss://fstream.binance.com/` | flux public du marché à terme : `/market/ws/!forceOrder@arr` |
 | `https://www.deribit.com/api/v2/public/` | API publique de Deribit (indice, DVOL, résumé des options) |
 | `https://wikimedia.org/api/rest_v1/metrics/pageviews/` | pages vues de Wikipédia (API REST publique de Wikimedia) |
 | `https://api.coingecko.com/api/v3/search/trending` | pièces « trending » de CoinGecko (sans clé ; rien d'autre de CoinGecko) |
@@ -53,15 +53,14 @@ position **longue** est liquidée, `BUY` = une position **courte**. Notionnel = 
 - `LIQ_RESUME` (par heure) : `hour`, `n`, `notional_usdt`, `long_liq_usdt`, `short_liq_usdt`, `long_share`,
   `minutes_with_liquidations`, `pairs`, `top` (5 paires : `symbol`, `n`, `notional_usdt`).
 
-**MUET depuis ce réseau (constaté le 2026-10-09, à vérifier sur le VPS).** Depuis le PC du propriétaire, le flux se
-connecte mais ne livre jamais rien (`!forceOrder@arr`, `btcusdt@forceOrder`, même `btcusdt@markPrice@1s` sur
-`fstream.binance.com` restent muets, comme Bybit et OKX, alors que le REST `fapi` et les flux Spot répondent) : les
-flux de produits dérivés sont bloqués depuis ce réseau. Le collecteur le détecte : connecté sans **aucun** message en
-**5 min** → statut `MUET` (ni `EN_SERVICE` ni `DEMARRAGE`), `detail` = « connecté, aucune donnée en 5 min : flux dérivés
-probablement bloqués depuis ce réseau ; réessai toutes les heures », puis **réessai une fois par heure** (pas la
-boucle 1 → 60 s) ; `silences` et `last_silence_at` dans l'état, rien dans `errors`, journal vide. Le contrôle de santé
-ne compte pas une source `MUET` comme vivante, ni comme une panne. Ça pourra marcher depuis le VPS ; aucune autre
-source de liquidations n'est cherchée.
+**Adresse corrigée le 2026-10-10.** Du 2026-10-09 au 2026-10-10, le flux restait muet : ce n'était **pas** un blocage
+par pays (testé par VPN depuis la Suisse, le Japon et Singapour : même silence), mais un **changement d'adresse chez
+Binance**. Les flux publics du marché à terme USD-M sont désormais servis sous `wss://fstream.binance.com/market/ws/…`
+(ou `/market/stream?streams=…`) ; l'ancien chemin `/ws/…` se connecte et ne livre plus rien. Avec la nouvelle adresse,
+les liquidations arrivent depuis la France sans VPN (première reçue en 9 s, vérifié le 2026-10-10). La détection du
+silence reste en place : connecté sans **aucun** message en **5 min** → statut `MUET`, réessai une fois par heure,
+rien dans `errors` ; le contrôle de santé ne compte une source `MUET` ni comme vivante ni comme une panne. Si
+Binance change encore d'adresse, c'est ce statut qui le signalera.
 
 **Limite** : Binance ne publie dans ce flux qu'**un ordre par seconde et par paire** (le plus gros de la seconde) : les
 comptes et notionnels sont des **minimums**. Une minute n'est écrite que 3 s après sa fin, à l'arrivée du message

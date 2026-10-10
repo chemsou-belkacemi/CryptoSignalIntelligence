@@ -1,4 +1,4 @@
-"""Source LIQUIDATIONS : flux public `wss://fstream.binance.com/ws/!forceOrder@arr` (ordres de liquidation du marché
+"""Source LIQUIDATIONS : flux public `wss://fstream.binance.com/market/ws/!forceOrder@arr` (ordres de liquidation du marché
 à terme USDⓈ-M, toutes les paires). Lecture seule : CSI ne négocie aucun contrat à terme.
 
 Message Binance : `{"e": "forceOrder", "E": ms, "o": {"s": "BTCUSDT", "S": "SELL", "q": "0.014", "p": "9910",
@@ -23,14 +23,14 @@ from .base import LIQUIDATIONS, Context, first_or_silence, iso_ms, minute_floor
 
 log = logging.getLogger("csi.collect.liquidations")
 
-URL = "wss://fstream.binance.com/ws/!forceOrder@arr"
+URL = "wss://fstream.binance.com/market/ws/!forceOrder@arr"   # chemin « /market » : l'ancien « /ws » est muet (2026-10-10)
 MINUTE, LARGE, RESUME = "LIQ_MINUTE", "LIQ_GROS", "LIQ_RESUME"
 LARGE_USDT = 100_000.0
 TOP_PAIRS = 10
 TOP_RESUME = 5
 FIELDS = ["n", "notional_usdt", "long_liq_usdt", "short_liq_usdt"]
 FLUSH_GRACE_MS = 3_000          # une minute est écrite 3 s après sa fin (messages en retard)
-SILENCE_SECONDS = 300.0         # connecté sans AUCUN message en 5 min → MUET (flux dérivés bloqués depuis ce réseau ?)
+SILENCE_SECONDS = 300.0         # connecté sans AUCUN message en 5 min → MUET (adresse changée par Binance ? réseau ?)
 
 
 @dataclass(frozen=True)
