@@ -78,11 +78,23 @@ de la surveillance, qui enregistre en continu ce que les bougies ne contiennent 
 carnet depth20 (16 paires + appels actifs de l'assistant), flux des transactions, options Deribit (DVOL, IV ATM,
 asymétrie, max pain), attention (pages vues Wikipédia par jour, CoinGecko trending par heure ; Reddit exige une
 connexion depuis 2026 : NON_DISPONIBLE). Journaux `C_*.jsonl` en ajout seul, liste fermée
-d'adresses (`data/http.py` inchangé), `GET /collecte`, carte « Collecte en shadow ». **Aucun test, aucun seuil,
-aucune prédiction** : après 14 jours de journaux, pré-inscription de tests en direct (événement → placebo) sur les
-comptages seulement. Google Trends NON_DISPONIBLE. **Liquidations MUET depuis le réseau du PC** (flux dérivés de Binance bloqués, constaté
+d'adresses (`data/http.py` inchangé), `GET /collecte`, carte « Collecte en shadow ». Aucun seuil ni prédiction dans le
+collecteur ; ses journaux sont lus par les tests F25 à F30 (ci-dessous), qui ont remplacé le plan « 14 jours puis
+seuils figés ». Google Trends NON_DISPONIBLE. **Liquidations MUET depuis le réseau du PC** (flux dérivés de Binance bloqués, constaté
 le 2026-10-09 ; réessai horaire, à vérifier sur le VPS). **Codé et testé le 2026-10-09 (branche `feat/collecteur`), à
 déployer** : `docker compose up -d --build` (le service part sans profil) ; champs Deribit à vérifier au déploiement.
+
+**Tests en direct sur les journaux du collecteur, F25 à F30** (demande du 2026-10-10, branche `feat/tests-collecte`,
+`FORWARD_TESTS.md`, `COLLECTE.md`) : cascade de liquidations (F25), mur d'acheteurs dans le carnet (F26), retrait de
+liquidité acheteuse (F27, veto), baleines (F28), peur sur les options BTC (F29), entrée dans les « trending » (F30, veto).
+Seuils auto-calibrés de façon causale (quantile des 7 ou 30 jours précédents), 7 jours de rodage, un événement par paire
+et par 24 h, entrée à la clôture 15 min suivante, mesure à 24 h sur les bougies 15 min publiques, décision au rendement
+seul (net, ou brut pour les vetos), famille de 6 au niveau 1 − 0,05/6 ; mesure seulement (aucun message, aucun ordre).
+Contrôle sous H0 synthétique lancé une fois (commit e4ef59b) : F25, F26, F28, F29 passent (0 faux positif ; puissance
+à +0,5 % de 0 à 0,04 : seul un effet d'environ 1 % net à 24 h serait vu ; F29 toujours `INSUFFISANT`) ; **F27 et F30
+échouent** (faux `INFERIEUR_A_ZERO` 0,030 et 0,040 > 0,0167) : **non démarrables**. **Pré-inscrits, NON démarrés**
+(relecture du coordinateur). Étude historique liée (DVOL, `OPTIONS_PEUR.md`) : contrôle H0 **`INSTRUMENT_TROP_FAIBLE`**
+(puissance 0,005) : non exécutée, 0 essai. Aucun gain démontré.
 
 **Assistant de marché** (demande du propriétaire du 2026-10-09, `ASSISTANT.md`) : à chaque clôture 4 h UTC, lecture du
 marché (feu, BTC), du régime journalier de chaque paire halal suivie par F15, d'une configuration (repli puis reprise

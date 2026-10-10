@@ -192,25 +192,58 @@ Enveloppe d'une entrée (numéro, heure, nature, empreintes chaînées) ≈ 230 
 Total attendu **≈ 130 à 165 Mo/mois** avec 19 paires au carnet ; la cible est < 150 Mo/mois, le carnet étant
 désormais borné (10 min entre deux `CARNET_5S`). Si une source dépasse, on agrège davantage, dans cet ordre :
 `flux.LARGE_USDT_BY_PAIR` (100 000 USDT pour d'autres paires), `carnet.MAX_WRITES_PER_HOUR` (6 → 3),
-`liquidations.TOP_PAIRS` (10 → 5). Aucune de ces constantes n'est un réglage de stratégie.
+`liquidations.TOP_PAIRS` (10 → 5). Aucune de ces constantes n'est un réglage de stratégie. **Attention depuis la
+pré-inscription de F25 à F30** : `flux.LARGE_USDT`, `LARGE_USDT_BY_PAIR`, `MAX_LARGE_PER_MINUTE`, `liquidations.TOP_PAIRS`,
+`FIELDS` et les constantes d'échantillonnage du carnet entrent dans les **paramètres** de F25 à F30 : les changer
+**arrête** les tests qui en dépendent (une fois démarrés). À ne faire qu'en connaissance de cause.
+
+## Tests en direct sur ces journaux : F25 à F30 (pré-inscrits le 2026-10-10)
+
+Six tests lisent ces journaux **en lecture seule** (`forward/collecte_events.py`, sections `F25_LIQ_CASCADE` …
+`F30_TRENDING` de `FORWARD_TESTS.md`) ; ils n'écrivent que leur propre journal `forward/F2x.jsonl`, n'envoient rien et ne
+passent aucun ordre. Le collecteur, lui, ne change pas : il ne lit rien de ces tests.
+
+| Test | Journal lu | Événement (seuil causal, 7 jours de rodage, un par paire et par 24 h) | Hypothèse |
+|---|---|---|---|
+| F25_LIQ_CASCADE | `C_LIQUIDATIONS` | longs liquidés d'une paire sur 1 h > quantile 0,99 de 7 jours et ≥ 250 000 USDT | rendement net 24 h > 0 |
+| F26_MUR_ACHETEURS | `C_CARNET` | `imb_1` horaire > quantile 0,95 de 7 jours, 2 heures de suite | rendement net 24 h > 0 |
+| F27_RETRAIT_LIQUIDITE | `C_CARNET` | `bid_1` horaire < 50 % de sa médiane de 24 h | rendement **brut** 24 h < 0 (veto) |
+| F28_BALEINES | `C_FLUX` | solde des gros ordres taker sur 1 h > quantile 0,99 de 7 jours (et > 0) | rendement net 24 h > 0 |
+| F29_PEUR_OPTIONS | `C_OPTIONS` | asymétrie 25-delta BTC > quantile 0,95 de 30 jours (repli : DVOL) → BTCUSDT | rendement net 24 h > 0 |
+| F30_TRENDING | `C_ATTENTION` | une paire entre dans les « trending » de CoinGecko | rendement **brut** 24 h < 0 (veto) |
+
+**Ce que ces tests gèlent du collecteur** : ses **fonctions pures d'agrégation** (`liquidations.parse` et
+`MinuteAggregator`, `carnet.book_sample`, `PairTracker`, `parse` et `BookCollector.sample_all`, `flux.parse`,
+`MinuteAggregator`, `large_usdt` et `imbalance`, `options.summarize`, `bs_delta`, `_norm_cdf` et `parse_instrument`,
+`attention.parse_trending`, `base.minute_floor` et `iso_ms`) et, dans leurs paramètres, les constantes dont dépend la
+grandeur mesurée. **Ils ne gèlent pas** les adresses des flux (`URL`, `BASE_URL`), le client à liste fermée
+(`collect/net.py`), le superviseur ni le service (`collect/service.py`) : Binance a déjà changé une adresse une fois
+(2026-10-10, « /ws » → « /market/ws ») ; il faut pouvoir la corriger **sans arrêter les tests**. La correction laisse un
+trou dans les journaux : les fenêtres touchées sont non évaluables (comptées), jamais comblées. La lecture du DVOL dans
+`options.snapshot` (appel réseau) n'est pas gelée non plus (déclaré dans F29).
+
+Les trous se lisent dans les journaux eux-mêmes (10 minutes consécutives sans entrée de minute, résumé du carnet
+absent, tardif ou incomplet, relevé manquant), pas dans `C_ETAT.json` qui ne garde que le présent. Carte « Événements de
+marché (collecteur) » dans l'onglet Suivi, route `GET /evenements`. Étude historique liée à F29 (DVOL seulement) :
+`OPTIONS_PEUR.md`.
 
 ## Ce qui n'est PAS fait
 
-- **Aucun test, aucun seuil, aucune prédiction** : rien ici ne dit qu'une liquidation, un carnet déséquilibré, un
-  gros ordre, une asymétrie d'options ou un pic d'attention annonce quoi que ce soit.
-- Aucune lecture par la surveillance, l'assistant, les avis, le feu de protection ou BSM : les journaux `C_*` ne sont
-  lus que par `GET /collecte` (taille) et, plus tard, par l'analyse pré-inscrite.
+- **Aucun seuil, aucune prédiction dans le collecteur** : rien ici ne dit qu'une liquidation, un carnet déséquilibré, un
+  gros ordre, une asymétrie d'options ou un pic d'attention annonce quoi que ce soit. Les seuils de F25 à F30 sont
+  calculés par les tests, de façon causale, et ne disent rien avant leur verdict.
+- Aucune lecture par l'assistant, les avis, le feu de protection ou BSM : les journaux `C_*` ne sont lus que par
+  `GET /collecte` (taille) et par les tests F25 à F30 (lecture seule, passage horaire de la surveillance).
 - Pas d'historique : la collecte commence au premier démarrage, rien n'est reconstitué.
-- Pas de Reddit ni de Google Trends (voir plus haut), pas d'autre bourse que Binance et Deribit ; les liquidations
-  restent vides tant que les flux dérivés sont bloqués depuis le réseau du collecteur (`MUET`).
+- Pas de Reddit ni de Google Trends (voir plus haut), pas d'autre bourse que Binance et Deribit.
 
-## Plan : après 14 jours, pré-inscription de tests en direct
+## Plan d'origine (2026-10-09), remplacé le 2026-10-10
 
-Rien n'est ajouté à `FORWARD_TESTS.md` aujourd'hui. Quand les journaux auront **14 jours**, des tests en direct
-seront **pré-inscrits** (nouvelle section, empreintes gelées, placebos), sur les **comptages seulement** :
-« événement → placebo », par exemple : une heure où le notionnel liquidé dépasse un rang élevé de son propre
-historique, un déséquilibre du carnet au-delà d'un rang, une heure de gros ordres, un pic de mentions ; mesure =
-rendement de la paire (ou de BTC) sur 1 h / 4 h / 24 h après l'événement contre 20 placebos à la même heure les
-jours précédents, avec intervalle par blocs. Les seuils seront choisis sur ces 14 premiers jours **et figés avant**
-le début du test ; les 14 jours ne compteront pas dans la mesure. Verdict attendu, comme pour les autres : le plus
-probable est « rien ».
+Le plan initial prévoyait d'attendre 14 jours de journaux, de choisir des seuils sur ces 14 jours puis de les figer.
+La demande du 2026-10-10 l'a remplacé par des **seuils auto-calibrés de façon causale** (quantile des 7 ou 30 jours
+précédents, recalculé à chaque fenêtre) et un **rodage de 7 jours** sans décision : aucun seuil n'est choisi en
+regardant les données, et rien n'est fixé sur une période qui compterait ensuite.
+
+## Décision du 2026-10-10
+
+**Décision du 2026-10-10 (avant tout démarrage) : non démarré.** Au contrôle sous H0, la famille F25–F30 est soit en échec (F27, F30), soit presque aveugle : puissance de 0 à 4 % pour un effet de +0,5 % sur 24 h (F25, F26, F28, F29). Démarrer ces tests aurait ajouté des essais et gelé les fonctions du collecteur pour des verdicts presque sûrement `INSUFFISANT` ou `NON_DEMONTRE`. Le collecteur continue d'enregistrer ; aucun rendement n'est regardé. Une nouvelle pré-inscription sera faite quand les journaux accumulés permettront une puissance d'au moins 50 % (au plus tôt début 2027), avec les remarques de la relecture traitées (entrée mesurée depuis `detected_at`, générateurs avec tendance et persistance observée, gel de `Recorder.append` et de la lecture du DVOL, critère sur le brut pour les hypothèses positives).

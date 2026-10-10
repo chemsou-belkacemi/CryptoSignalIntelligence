@@ -2562,3 +2562,46 @@ def price_action_execute(executer: bool = typer.Option(False, "--executer", help
         raise typer.Exit(3) from None
     console.print_json(json.dumps({k: summary[k] for k in ("run_id", "n_trials", "program_trials", "decisions",
                                                            "configs_removed_h0")}, ensure_ascii=False, default=str))
+
+
+options_peur_app = typer.Typer(no_args_is_help=True,
+                               help="Étude historique pré-inscrite « peur sur les options » (docs/OPTIONS_PEUR.md, liée à "
+                                    "F29) : DVOL de BTC au plus haut de 30 jours → achat de BTCUSDT ; contrôle sous H0 "
+                                    "d'abord, exécution réelle unique après relecture ; aucun gain démontré.")
+app.add_typer(options_peur_app, name="options-peur")
+
+
+@options_peur_app.command("controle-h0")
+def options_peur_h0(verbose: bool = False):
+    """Contrôle sous l'hypothèse nulle (synthétique, 200 marchés) : faux PISTE et puissance ; écrit
+    `reports/OPTIONS_PEUR-H0-<commit>/criteres.json` à inscrire dans `research/options_peur.CONTROLE_H0`."""
+    import hashlib
+
+    from .research import options_peur as op
+    from .research.experiments import code_state
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    commit = code_state()
+    out = settings.reports_dir / f"OPTIONS_PEUR-H0-{commit[:12]}{'-DIRTY' if commit.endswith('+DIRTY') else ''}" / "criteres.json"
+    with console.status("contrôle sous H0…") as status:
+        report = op.controle_h0(out_path=out, progress=lambda text: status.update(f"H0 : {text}"))
+    console.print_json(json.dumps(report, ensure_ascii=False))
+    console.print(f"Inscription : CONTROLE_H0 = \"{out}#{hashlib.sha256(out.read_bytes()).hexdigest()}\"")
+
+
+@options_peur_app.command("executer")
+def options_peur_execute(executer: bool = typer.Option(False, "--executer", help="Exécution réelle UNIQUE"),
+                         verbose: bool = False):
+    """Exécution réelle UNIQUE (DEVELOPMENT seulement). Refusée sans --executer, sans contrôle H0 inscrit et passé, sans
+    relecture inscrite, sur du code non commité, ou si elle a déjà eu lieu."""
+    from .research import options_peur as op
+    if not executer:
+        console.print("[red]Exécution réelle unique : ajouter --executer (après la relecture inscrite).[/red]")
+        raise typer.Exit(2)
+    settings = _settings(verbose)
+    try:
+        summary = op.run(settings, now=_now())
+    except (op.NotReady, op.AlreadyRun) as exc:
+        console.print(f"[red]Aucun calcul :[/red] {exc}")
+        raise typer.Exit(3) from None
+    console.print_json(json.dumps(summary, ensure_ascii=False, default=str))

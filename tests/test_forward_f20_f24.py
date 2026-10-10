@@ -73,7 +73,7 @@ def test_forward_start_each_separate_test_on_a_temporary_root(settings, monkeypa
 
 def test_separate_tests_come_after_f19_and_freeze_their_rules():
     ids = [t.test_id for t, _ in TESTS]
-    assert ids[ids.index("F19_PRICE_ACTION") + 1:] == list(MODULES)
+    assert ids[ids.index("F19_PRICE_ACTION") + 1:ids.index("F19_PRICE_ACTION") + 6] == list(MODULES)   # F25 à F30 suivent
     doc = PROJECT.joinpath("docs", "FORWARD_TESTS.md").read_text(encoding="utf-8")
     assert doc.index("## F19_PRICE_ACTION") < doc.index("## F20_BASE_RETEST") < doc.index("## F24_SORTIE_BASE_LONGUE") \
         < doc.index("## LECTURE_TP_MAHWASHI")

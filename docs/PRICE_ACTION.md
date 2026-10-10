@@ -585,6 +585,11 @@ complètes dans `FORWARD_TESTS.md`, code `forward/pa_single.py` et `forward/f20.
   presque un sous-ensemble). Le verdict par configuration de F19 devient descriptif pour cette configuration. Si F19 et
   F2x divergent, F2x fait foi. Sans cette règle, deux lectures à 0,99 par configuration porteraient le risque de la
   famille entre 0,05 et 0,10. (La section F19 de `FORWARD_TESTS.md`, gelée, n'est pas modifiée.)
+- **Précision de lecture (2026-10-10, sans rien changer : modules gelés)** : les paramètres de F20 à F24 écrivent
+  « INSUFFISANT sous 30 appels résolus ou 50 jours distincts », alors que `forward/f19.verdict`, qu'ils réutilisent,
+  teste `MIN_DAYS = 10`. Il n'y a pas d'écart de résultat : l'intervalle de décision (`day_block_ci`, `min_blocks=8`,
+  blocs de 7 jours avec appels résolus) n'est calculable qu'à partir de 50 jours distincts, et sans intervalle le
+  verdict est `INSUFFISANT`. Le seuil effectif est donc bien 50 jours, imposé par `min_blocks=8`.
 
 ## Historique
 
