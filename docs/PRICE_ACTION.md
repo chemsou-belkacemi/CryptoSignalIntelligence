@@ -4,6 +4,8 @@
 > tirés avant le signal). Amendement du même jour (§ 11), décidé sur du synthétique seulement, aucune donnée réelle lue :
 > la décision repose sur le R net seul, les placebos deviennent descriptifs, et un contrôle sous H0 n° 2 revalide le
 > nouveau critère avant toute exécution. Les sections 4.3 à 4.6 et 5.2 à 5.3 sont remplacées par le § 11 là où il le dit.**
+> **Contrôle n° 2 (§ 11.6) : aucun faux `PISTE`, mais puissance < 0,50 pour les cinq configurations →
+> `INSTRUMENT_TROP_FAIBLE` partout, 0 essai historique, exécution refusée ; F19 les mesure quand même.**
 
 Demande du propriétaire du 2026-10-10. Protocole **déclaré le 2026-10-10, avant tout calcul sur des données réelles** :
 aucun R, aucun excès sur des données de marché n'a été regardé pour écrire ce texte. Seuls ont été regardés des
@@ -522,9 +524,36 @@ calculable) ; `SUPERIEUR_A_ZERO` si l'intervalle 1 − 0,05/5 du R net moyen est
 `INFERIEUR_A_ZERO` si l'IC95 est < 0 dans les deux ; sinon `NON_DEMONTRE`. L'excès « avant » et l'excès global sont
 descriptifs. `forward/f4.verdict` n'est plus utilisé par F19.
 
-### 11.6 Résultats du contrôle sous H0 n° 2
+### 11.6 Résultats du contrôle sous H0 n° 2 (passage unique du 2026-10-10)
 
-À remplir après le passage unique.
+`csi price-action controle-h0 --workers 4`, code du commit `a3f8ff8` (propre), `CSI_ROOT` = dépôt principal, 3 min 40 s.
+Fichier : `reports/PRICE_ACTION-H0N2-a3f8ff8bbb22/criteres.json`, SHA-256
+`d494a8a37ce6e99ae440da04466e3aacbb2d25812270f23b1648827e6882c5c6` (inscrit dans `price_action_review.CONTROLE_H0`).
+Même marché que le n° 1 (mêmes signaux : 4 210, 645, 756, 2 507, 325). 200 sous-échantillons de 40 paires.
+
+| Configuration | R net H0 (central / défav.) | Faux `PISTE` (H0) | Décisions H0 | R brut : IC 99 % > 0 (descr.) | Dérive m (R/h) | R net avec dérive (central / défav.) | Puissance | Issue |
+|---|---|---|---|---|---|---|---|---|
+| `BASE_RETEST` | −0,182 / −0,299 | **0,000** | 200 PERTE | 0,005 | 0,0171 | +0,150 / +0,033 | **0,010** | `INSTRUMENT_TROP_FAIBLE` |
+| `SQUEEZE` | −0,022 / −0,061 | **0,000** | 196 RIEN, 4 PERTE | 0,015 | 0,0024 | +0,154 / +0,114 | **0,040** | `INSTRUMENT_TROP_FAIBLE` |
+| `FORCE_RELATIVE` | −0,052 / −0,103 | **0,000** | 179 RIEN, 21 PERTE | 0,015 | 0,0017 | +0,150 / +0,098 | **0,045** | `INSTRUMENT_TROP_FAIBLE` |
+| `INSIDE_DAY` | −0,037 / −0,066 | **0,000** | 170 RIEN, 30 PERTE | 0,015 | 0,0012 | +0,151 / +0,121 | **0,285** | `INSTRUMENT_TROP_FAIBLE` |
+| `SORTIE_BASE_LONGUE` | −0,002 / −0,014 | **0,000** | 194 RIEN, 4 PERTE, 2 INSUFFISANT | 0,025 | 0,0003 | +0,151 / +0,140 | **0,080** | `INSTRUMENT_TROP_FAIBLE` |
+
+**Verdict, à la lettre du § 11.4 :** la règle au R net seul ne donne **aucun faux `PISTE`** (0 sur 200 partout ; même le
+R brut, au bord de l'hypothèse nulle, ne passe que dans 0,5 à 2,5 % des sous-échantillons), mais elle est **trop faible
+pour les cinq configurations** : avec +0,15 R net vrai par signal, `PISTE` sort dans 1 à 28,5 % des sous-échantillons
+seulement (critère : 50 %). Les cinq sont **`INSTRUMENT_TROP_FAIBLE`** : **0 essai historique**, `csi price-action
+executer` refuse (aucune configuration validée) ; l'étude historique n'est pas exécutée, aucune donnée réelle lue.
+**F19 les mesure quand même en direct**, comme prévu par l'amendement (§ 11.5).
+
+**Lecture.** Trois causes, toutes visibles sur ces chiffres et déclarées sans rien relancer :
+- **le scénario défavorable** : la règle exige l'intervalle > 0 en défavorable aussi ; pour `BASE_RETEST`, dont le stop
+  est serré, les frais défavorables coûtent ≈ 0,12 R de plus et ramènent +0,15 à +0,03 R : presque jamais > 0 ;
+- **la taille d'un sous-échantillon** (40 paires, de l'ordre de 130 à 1 700 signaux) face à un écart-type d'environ
+  1 à 1,5 R, au niveau 99 % ;
+- **les garde-fous** (sans la meilleure année, 4 années positives), qui s'ajoutent.
+Pour qu'une piste à +0,15 R se voie, il faudrait plus de signaux, ou un effet plus grand ; ce n'est pas réglé ici (pas de
+seconde itération). La suite est une décision du propriétaire ou du coordinateur.
 
 ## Historique
 
@@ -539,3 +568,6 @@ descriptifs. `forward/f4.verdict` n'est plus utilisé par F19.
   changé sur synthétique seulement, aucune donnée réelle lue** (§ 11, décision du coordinateur par délégation du
   propriétaire) : décision au R net seul (IC 99 % > 0 dans les deux scénarios), placebos descriptifs, contrôle H0 n° 2
   (faux `PISTE` ≤ 0,02, puissance ≥ 0,50 à +0,15 R net) déclaré avant son passage ; F19 jugé sur le R net seul.
+- 2026-10-10 : contrôle sous H0 n° 2 lancé une fois (commit `a3f8ff8`) : faux `PISTE` 0/200 pour les cinq configurations,
+  puissance à +0,15 R net 0,010 / 0,040 / 0,045 / 0,285 / 0,080 → **`INSTRUMENT_TROP_FAIBLE` partout**, 0 essai
+  historique, `executer` refuse ; inscrit dans `CONTROLE_H0`. Relecture `leak-auditor` à faire.

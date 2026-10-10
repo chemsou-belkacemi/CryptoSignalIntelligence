@@ -99,10 +99,10 @@ par ses transferts. Toute retouche de `assistant/*`, `forward/f18.py`, `risk/mar
 cinq configurations long seulement (base puis retest, compression, force relative après une chute de BTC, journée
 intérieure, base longue), un seul détecteur pour l'historique et le direct. Historique : DEVELOPMENT, top 40 à date,
 20 placebos à ±84 h ou ±15 jours, 5 essais, **exécution unique après la relecture `leak-auditor`** (non lancée).
-Contrôle sous H0 sur marché synthétique (100 paires × 6 ans) lancé une fois avant toute donnée réelle : **les cinq
-configurations échouent** (placebos tirés avant le signal biaisés de −0,2 à −0,4 R, `PRICE_ACTION.md` § 5.5) ; **étude
-historique abandonnée, 0 essai**. Direct : test **F19_PRICE_ACTION** pré-inscrit (`FORWARD_TESTS.md`), **non démarré** (son excès porte le même biais :
-décision du propriétaire) ; boîte Telegram séparée servie par `GET /assistant/outbox`, carte « Price action ». **Aucun gain démontré** ; attendu : `RIEN`,
+Contrôle sous H0 n° 1 sur marché synthétique : **échec sur l'excès** (placebos tirés avant le signal biaisés de −0,2 à
+−0,4 R, `PRICE_ACTION.md` § 5.5) ; amendement (§ 11) : décision au R net seul ; contrôle n° 2 : 0 faux PISTE mais
+**puissance < 0,5 pour les cinq** (`INSTRUMENT_TROP_FAIBLE`) → **0 essai historique, exécution refusée**. Direct : test **F19_PRICE_ACTION** pré-inscrit (`FORWARD_TESTS.md`), **non démarré** (verdict au R net seul ; il mesure les cinq
+configurations malgré la faible puissance ; démarrage après la relecture) ; boîte Telegram séparée servie par `GET /assistant/outbox`, carte « Price action ». **Aucun gain démontré** ; attendu : `RIEN`,
 `PERTE` ou `INSUFFISANT`.
 
 **Feu de protection du marché** (demande du propriétaire du 2026-10-08, `METEO_PROTECTION.md`) : VERT / ORANGE /

@@ -1454,8 +1454,10 @@ restera probablement `INSUFFISANT`, comme toute configuration qui n'atteint pas 
 **Contrôle sous H0 (2026-10-10, avant le démarrage ; `docs/PRICE_ACTION.md` § 5.5 et § 11).** Contrôle n° 1 : sur un
 marché synthétique sans information, avec ces mêmes détecteur, gestion et placebos, l'excès moyen vaut −0,20 à −0,42 R
 (placebos arrière −0,47 à −0,86 R, placebos avant −0,004 à +0,075 R) : critère d'excès abandonné, placebos devenus
-descriptifs. Contrôle n° 2 (décision au R net seul) : chiffres au § 11.6 de `PRICE_ACTION.md` ; une configuration
-`INSTRUMENT_TROP_FAIBLE` sur l'historique est quand même mesurée ici.
+descriptifs. Contrôle n° 2 (décision au R net seul, `PRICE_ACTION.md` § 11.6) : aucun faux `PISTE` (0/200), mais
+puissance < 0,50 pour les cinq configurations (`INSTRUMENT_TROP_FAIBLE` sur l'historique, 0 essai) ; elles sont quand
+même mesurées ici. À 30-60 appels résolus par configuration, la puissance du verdict `SUPERIEUR_A_ZERO` est encore plus
+faible qu'au contrôle (sous-échantillons de 130 à 1 700 signaux) : `NON_DEMONTRE` ou `INSUFFISANT` sont attendus.
 
 **Limites déclarées.** Entrée au prix de clôture alors que l'appel est connu quelques minutes plus tard (glissement
 taker compté, aucun prix réel d'exécution) ; liste halal figée de F15 choisie en 2026 (biais des survivantes) ; appels
