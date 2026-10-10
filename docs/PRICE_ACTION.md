@@ -1,7 +1,9 @@
 # Étude « price action » : cinq configurations, mesurées sur l'historique et en direct (F19)
 
-> **Issue du 2026-10-10 : le contrôle sous H0 (§ 5.5) a fait échouer les cinq configurations (biais des placebos tirés
-> avant le signal). L'étude historique est abandonnée avec 0 essai ; aucune donnée réelle n'a été lue.**
+> **2026-10-10 : le contrôle sous H0 n° 1 (§ 5.5) a fait échouer les cinq configurations sur l'excès (biais des placebos
+> tirés avant le signal). Amendement du même jour (§ 11), décidé sur du synthétique seulement, aucune donnée réelle lue :
+> la décision repose sur le R net seul, les placebos deviennent descriptifs, et un contrôle sous H0 n° 2 revalide le
+> nouveau critère avant toute exécution. Les sections 4.3 à 4.6 et 5.2 à 5.3 sont remplacées par le § 11 là où il le dit.**
 
 Demande du propriétaire du 2026-10-10. Protocole **déclaré le 2026-10-10, avant tout calcul sur des données réelles** :
 aucun R, aucun excès sur des données de marché n'a été regardé pour écrire ce texte. Seuls ont été regardés des
@@ -185,7 +187,7 @@ Un ajustement a priori par configuration reste permis **une seule fois**, sur le
   cote** pendant une position : sortie à la dernière clôture connue (`FIN_DE_COTATION`), pour le signal comme pour un
   placebo ; on garde ainsi la fin d'une paire morte, souvent la pire, au lieu de la perdre.
 
-### 4.3 Placebos
+### 4.3 Placebos (rôle décisif retiré le 2026-10-10 : descriptifs seulement, § 11)
 
 Pour chaque signal, **20 entrées au marché** sur la même paire, tirées sans remise, graine
 `sha256("PRICE_ACTION:" + id)` :
@@ -198,14 +200,14 @@ descriptif, l'excès est donné séparément sur les placebos **arrière** et **
 arrière partagent le chemin qui a formé la configuration, `FIGURES_HISTORIQUE.md` ; les placebos avant, le contexte
 des jours suivants ; la fenêtre symétrique est faite pour équilibrer les deux, et le contrôle H0 le mesure).
 
-### 4.4 Métriques, par configuration
+### 4.4 Métriques, par configuration (remplacé par § 11.2)
 
 R net moyen, central et défavorable, avec un **IC95 par blocs de 7 jours** (`backtest/metrics.day_block_ci95`, 10 000
 tirages, graine 20261010, au moins 8 blocs) ; **excès** moyen sur les placebos avec un intervalle au niveau
 **1 − 0,05/5 = 99 %** (`day_block_ci`). Descriptifs : part gagnante, taux de TP1, issues, excès arrière et avant,
 nombre et R moyen par année, signaux écartés par la discipline, refus de géométrie.
 
-### 4.5 Décision, par configuration (correction pour 5 tests)
+### 4.5 Décision, par configuration (version initiale, remplacée par § 11.1)
 
 - `INSUFFISANT` : moins de **100 signaux** (central), ou un intervalle non calculable ;
 - `PISTE` : borne basse de l'IC de l'excès (99 %) **et** borne basse de l'IC95 du R moyen > 0, **en central et en
@@ -213,7 +215,7 @@ nombre et R moyen par année, signaux écartés par la discipline, refus de géo
 - `PERTE` : borne haute de l'IC95 du R moyen < 0 dans les deux scénarios ;
 - sinon `RIEN` (y compris une piste qui échoue aux garde-fous).
 
-### 4.6 Garde-fous d'une piste
+### 4.6 Garde-fous d'une piste (appliqués au R net seul depuis le § 11.1)
 
 - **Sans sa meilleure année** : l'année civile dont la somme des R (central) est la plus forte est retirée ; les deux
   conditions de `PISTE` doivent encore tenir, dans les deux scénarios.
@@ -252,7 +254,7 @@ contrôle descriptif des survivantes est dans la même exécution, sans verdict,
 
 Sur ce marché, rien n'est prévisible : l'espérance du R net est celle des frais, et l'excès doit rester proche de 0.
 
-### 5.2 Critères, par configuration
+### 5.2 Critères du contrôle n° 1, par configuration (critère d'excès abandonné ; contrôle n° 2 au § 11.4)
 
 - au moins **100 signaux** synthétiques (sinon non jugeable : échec) ;
 - **|excès moyen| ≤ 0,05 R** ;
@@ -449,6 +451,80 @@ clôture), **sans discipline ni quota**. Seuls des comptes ont été regardés, 
 - Le direct (F19) porte sur la liste halal figée de F15 (choisie en 2026) : biais de sélection des survivantes.
 - 12 semaines de direct ne valident rien.
 
+## 11. Amendement du 2026-10-10 : décision au R net seul, placebos descriptifs, contrôle sous H0 n° 2
+
+Décision du coordinateur, par délégation du propriétaire, prise après le contrôle n° 1 (§ 5.5) qui n'a porté que sur
+du synthétique ; **aucune donnée réelle n'a été lue** avant cet amendement. Les cinq configurations, leur gestion et
+leurs placebos ne changent pas (code de `price_action/detect.py` et `manage.py` inchangé) ; seul le critère de
+décision change, et il est revalidé par un nouveau contrôle sous H0 avant toute exécution.
+
+### 11.1 Décision par configuration (remplace le § 4.5)
+
+- `INSUFFISANT` : moins de **100 signaux** (central), ou un intervalle non calculable ;
+- `PISTE` : l'intervalle du **R net moyen** au niveau **1 − 0,05/5 = 99 %** (blocs de 7 jours, 10 000 tirages, graine
+  20261010, au moins 8 blocs ; `day_block_ci`) est entièrement > 0, **en central ET en défavorable**, et les garde-fous
+  tiennent ;
+- `PERTE` : l'IC95 du R net moyen est entièrement < 0 dans les deux scénarios ;
+- sinon `RIEN` (y compris une piste qui échoue aux garde-fous).
+
+**Garde-fous** (§ 4.6, appliqués au R net seul) : la condition de `PISTE` doit encore tenir sans l'année civile dont la
+somme des R nets centraux est la plus forte, dans les deux scénarios ; et au moins 4 années positives (R net moyen
+central > 0) parmi les années civiles qui ont des signaux.
+
+**Justification.** Sur une martingale, l'espérance du gain brut d'une position est nulle quelle que soit la gestion
+(temps d'arrêt borné : 10 ou 30 jours) ; le R net vaut donc moins les frais. Le test « R net > 0 » est prudent et ne
+dépend d'aucun placebo. Il ne dit pas qu'une configuration fait mieux qu'une entrée au hasard au même moment : il dit
+qu'elle a gagné, net de frais, plus que zéro, sur cette période (la dérive du marché y entre ; le top 40 à date et les
+paires retirées limitent le biais de survivance, sans l'annuler).
+
+### 11.2 Métriques (remplace le § 4.4)
+
+R net moyen, central et défavorable, avec l'intervalle de décision (99 %) et l'IC95 ; descriptifs : part gagnante,
+taux de TP1, issues, nombre et R net moyen par année, signaux écartés par la discipline, refus de géométrie.
+
+### 11.3 Placebos : descriptifs seulement (remplace le rôle des placebos du § 4.3)
+
+Mêmes 20 placebos, mêmes graines. On rapporte l'**excès « avant »** (placebos à t + 5 → t + 84 h, ou t + 2 → t + 15
+jours) et l'**excès global**, avec la mention du biais des placebos arrière mesuré au contrôle n° 1 (§ 5.5 : excès
+global de −0,20 à −0,42 R sur un marché sans information, excès avant de −0,004 à +0,075 R). **Ils ne servent jamais à
+décider.**
+
+### 11.4 Contrôle sous H0 n° 2 (déclaré avant son passage, lancé une seule fois)
+
+- **Marché** : le même qu'au § 5.1 (100 paires, BTC synthétique, graine 20261010, générateur figé du § 5.4), même
+  pipeline exact (`collect`), **deux scénarios de coûts** (central et défavorable).
+- **Répliques** : 200 sous-échantillons de **40 paires** tirées sans remise parmi les 100 (graine 20261011), taille
+  voisine du top 40 de l'étude. Chaque réplique applique la décision du § 11.1 (garde-fous compris) aux signaux de ses 40
+  paires ; pour `FORCE_RELATIVE`, aux signaux choisis sur les 100 paires et restreints aux 40. Des répliques entières
+  (200 marchés) seraient possibles mais le coordinateur a demandé le même marché : ce sont donc des **sous-échantillons
+  chevauchants** (deux répliques partagent en moyenne 16 paires), corrélés entre eux : l'estimation des taux est moins
+  précise que 200 tirages indépendants (déclaré).
+- **Faux `PISTE`** : part des 200 répliques décidées `PISTE`. Critère : **≤ 0,02** (= 0,05/5 × 2). Sinon **ÉCHEC** :
+  configuration retirée de l'étude, 0 essai. En descriptif, plus sévère (au bord de l'hypothèse nulle) : part des
+  répliques dont l'intervalle 99 % du R **brut** (frais nuls) est > 0.
+- **Contrôle positif** : pour chaque signal synthétique, les bougies 1 h qui suivent la décision, sur toute la durée de
+  détention, sont multipliées par (1 + δ)^k (k = rang de l'heure après la décision : dérive ajoutée en rendement simple),
+  avec δ = m × (entrée − stop) / entrée ; m (en R par heure), le même pour tous les signaux d'une configuration, est
+  calibré par dichotomie pour que le **R net moyen central de tous les signaux synthétiques de la configuration vaille
+  +0,15 R** (« +0,15 R net vrai par signal »). Les signaux restent ceux du passage sans dérive (discipline non
+  recalculée) ; les placebos ne sont pas modifiés (ils ne décident de rien). **Puissance** = part des 200 mêmes
+  répliques décidées `PISTE`. Critère : **≥ 0,50**, sinon **`INSTRUMENT_TROP_FAIBLE`** : 0 essai historique pour cette
+  configuration, mais F19 la mesure quand même en direct.
+- **Essais** : une configuration n'est exécutée et comptée que si ses faux `PISTE` ≤ 0,02 **et** sa puissance ≥ 0,50.
+- Fichier `reports/PRICE_ACTION-H0N2-<commit>/criteres.json`, inscrit dans `price_action_review.CONTROLE_H0` avec son
+  empreinte (il remplace l'inscription du contrôle n° 1, que l'exécution refuse désormais). Pas de seconde itération.
+
+### 11.5 F19 (remplace le seuil de décision de la section `F19_PRICE_ACTION`)
+
+Verdict par configuration sur le **R net seul** : `INSUFFISANT` sous 30 appels résolus ou 10 jours (ou intervalle non
+calculable) ; `SUPERIEUR_A_ZERO` si l'intervalle 1 − 0,05/5 du R net moyen est > 0 en central ET en défavorable ;
+`INFERIEUR_A_ZERO` si l'IC95 est < 0 dans les deux ; sinon `NON_DEMONTRE`. L'excès « avant » et l'excès global sont
+descriptifs. `forward/f4.verdict` n'est plus utilisé par F19.
+
+### 11.6 Résultats du contrôle sous H0 n° 2
+
+À remplir après le passage unique.
+
 ## Historique
 
 - 2026-10-10 : protocole déclaré avant tout calcul sur données réelles (seuls des comptes de candidats synthétiques ont
@@ -458,3 +534,7 @@ clôture), **sans discipline ni quota**. Seuls des comptes ont été regardés, 
 - 2026-10-10 : contrôle sous H0 lancé une fois (commit `fa7b872`) : **les cinq configurations échouent** (biais des
   placebos arrière, § 5.5) ; toutes retirées, 0 essai, étude historique abandonnée ; `executer` refuse. Relecture
   `leak-auditor` toujours demandée (code, contrôle, F19) avant toute autre décision.
+- 2026-10-10 : **contrôle H0 n° 1 en échec sur l'excès, à cause du biais des placebos arrière ; critère de décision
+  changé sur synthétique seulement, aucune donnée réelle lue** (§ 11, décision du coordinateur par délégation du
+  propriétaire) : décision au R net seul (IC 99 % > 0 dans les deux scénarios), placebos descriptifs, contrôle H0 n° 2
+  (faux `PISTE` ≤ 0,02, puissance ≥ 0,50 à +0,15 R net) déclaré avant son passage ; F19 jugé sur le R net seul.
