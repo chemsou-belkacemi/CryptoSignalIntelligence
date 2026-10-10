@@ -167,7 +167,11 @@ def verifier_test(test: Test, paires: list[Paire], etape: Etape, ctx_de: Callabl
         return total
     year_start = etape.debut_ns
     year_end = year_start + 365 * DAY_H * HOUR_NS
-    picks = rng.choice(len(usable), size=min(echantillon, len(usable)), replace=False)
+    # échantillon : paires dont l'historique couvre toute l'année contrôlée (sinon, les plus anciennes)
+    covering = [i for i, p in enumerate(usable) if p.h1.disponible[0] <= year_start and p.h1.disponible[-1] >= year_end]
+    pool = covering if len(covering) >= echantillon else sorted(range(len(usable)),
+                                                                key=lambda i: usable[i].h1.disponible[0])[:echantillon]
+    picks = rng.choice(pool, size=min(echantillon, len(pool)), replace=False)
     per_pair: dict[int, list[int]] = {}
     for _ in range(n_aleatoires):
         per_pair.setdefault(int(rng.integers(len(usable))), []).append(0)
