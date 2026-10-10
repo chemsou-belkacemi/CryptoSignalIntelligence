@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from datetime import timedelta
+from decimal import Decimal
 
 import numpy as np
 import pandas as pd
@@ -137,6 +138,13 @@ def keyed(out: dict) -> tuple:
             [(r["config"], r["symbol"], r["reason"], r["detail"]) for r in out["refusals"]], out["events"])
 
 
+LEVELS = ("entry", "stop", "hard_stop", "tp1", "objective", "risk", "at", "unit")
+
+
+def tick(symbol: str) -> Decimal:
+    return Decimal("0.01")
+
+
 def test_same_candidates_as_f19_before_quota(settings, tmp_path):
     store, symbols = h0_store(tmp_path / "h0")
     closes = closes_to_check(store, symbols)
@@ -145,7 +153,7 @@ def test_same_candidates_as_f19_before_quota(settings, tmp_path):
     def blocked(symbol, config):                                       # discipline : une paire sur deux bloquée
         return ev.ACTIVE if symbol in blocked_pairs else None
 
-    configs, with_force, force_refused = set(), 0, 0
+    configs, with_force, force_refused, shared_calls = set(), 0, 0, 0
     for at in closes:
         now = at + pd.Timedelta(minutes=3)
         loaded = ev.inputs_for(settings, at=at, now=now, store=store, symbols=symbols)
@@ -158,15 +166,47 @@ def test_same_candidates_as_f19_before_quota(settings, tmp_path):
             configs |= {c["config"] for c in mine["candidates"]}
             with_force += int(mine["events"] > 0)
             force_refused += sum(1 for r in mine["refusals"] if r.get("discipline_checked"))
-        # Même compte par configuration que F19 (evaluate) avant quota, à discipline égale.
+        # Même compte par configuration que F19 (evaluate) avant quota, à discipline égale ; avec un pas de cotation non
+        # nul, chaque appel de F19 d'une configuration est un appel de son test séparé, aux mêmes niveaux.
         discipline = {"calls_today": 0, "active": {}}
-        f19_out = ev.evaluate(at=at, now=now, discipline=discipline, **loaded)
+        f19_out = ev.evaluate(at=at, now=now, discipline=discipline, tick=tick, **loaded)
         for test_id, config in pa_single.CONFIG_OF.items():
-            single = pa_single.evaluate_single(test_id, scan, now=now, discipline=discipline)
+            single = pa_single.evaluate_single(test_id, scan, now=now, discipline=discipline, tick=tick)
             assert single["candidates"] == {config: f19_out["candidates"][config]}
             assert [r for r in single["refusals"] if r["reason"] != ev.QUOTA] == \
                 [r for r in f19_out["refusals"] if r["config"] == config and r["reason"] != ev.QUOTA]
+            mine_calls = {c["call_id"]: c for c in single["calls"]}
+            for call in (c for c in f19_out["calls"] if c["config"] == config):
+                assert call["call_id"] in mine_calls
+                assert {k: mine_calls[call["call_id"]][k] for k in LEVELS} == {k: call[k] for k in LEVELS}
+                shared_calls += 1
     assert configs == set(D.CONFIGS) and with_force > 0 and force_refused > 0   # cinq configurations, chutes de BTC, discipline
+    assert shared_calls > 0
+
+
+def test_btc_fallback_on_the_monitor_store_gives_the_same_candidates(settings, tmp_path):
+    """BTCUSDT absent du magasin de F15 (ou de la liste) : lu dans le magasin de la surveillance, comme `inputs_for`."""
+    full, symbols = h0_store(tmp_path / "h0")
+    store = CandleStore(tmp_path / "sans_btc")
+    for symbol in symbols:
+        target = (CandleStore(settings.data_dir) if symbol == D.FR_MARKET else store).path(symbol, "1h")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(full.path(symbol, "1h").read_bytes())
+    btc = D.Bars(pd.read_parquet(full.path(D.FR_MARKET, "1h")))
+    first = int(D.to_ns([H.START + pd.Timedelta(days=60)])[0])
+    closes = [D.stamp(e["stabilized"]) for e in D.force_events(btc) if e["stabilized"] >= first][:4]
+    force = 0
+    for names in (symbols, symbols[1:]):                                # BTCUSDT listé mais absent, puis non listé
+        for at in closes:
+            now = at + pd.Timedelta(minutes=3)
+            loaded = ev.inputs_for(settings, at=at, now=now, store=store, symbols=names)
+            assert loaded["btc_frame"] is not None
+            scan = pa_single.scan_at(settings, at=at, now=now, store=store, symbols=names)
+            assert scan["pairs_with_close"] == loaded["pairs_with_close"]
+            reference = ev.detect_at(loaded["frames"], at, btc_frame=loaded["btc_frame"])
+            assert keyed(pa_single.candidates_for(scan)) == keyed(reference) and reference["events"] == 1
+            force += sum(c["config"] == D.FORCE_RELATIVE for c in reference["candidates"])
+    assert force > 0
 
 
 # --- Quota propre ---------------------------------------------------------------------------------------------------------------
@@ -260,6 +300,36 @@ def test_a_call_also_made_by_f19_is_not_sent_again_but_journaled(settings, monke
     assert f20.stats(journal, mine, now=end)["also_in_f19"] == 1
     assert not settings.signals_db.exists() and not (settings.root / "signals").exists()
     assert list((settings.root / "state").glob("assistant*")) == []
+
+
+def test_a_call_listed_in_an_f19_evaluation_without_its_call_entry_is_not_sent(settings, monkeypatch, no_tick):
+    """Arrêt brutal de F19 entre EVALUATION et APPEL : F19 ré-émettra l'appel ; F20 ne doit pas le déposer aussi."""
+    mine = start(settings, monkeypatch, f20.TEST)
+    store = write_store(settings, frames())
+    ident = M.signal_id(D.BASE_RETEST, "RETUSDT", T)
+    registry.journal_for(settings, f19.TEST_ID).append(f19.EVALUATION, {"at": T.isoformat(), "call_ids": [ident],
+                                                                        "calls": [{"call_id": ident}]}, now=NOW)
+    assert ident in pa_single.f19_call_ids(settings)
+    journal = registry.journal_for(settings, f20.TEST_ID)
+    assert f20.record_decisions(settings, journal, mine, now=NOW, store=store, clock=at_clock(NOW))["calls"] == 1
+    assert journal.first(pa_single.CALL)["data"]["aussi_dans_F19"] is True
+    assert pa_single.pending(settings, now=NOW) == []
+
+
+def test_cache_is_not_reused_for_an_earlier_reading_time(settings, monkeypatch):
+    store = write_store(settings, frames())
+    seen = []
+    original = pa_single.scan_at
+
+    def counted(*args, **kwargs):
+        seen.append(kwargs["now"])
+        return original(*args, **kwargs)
+    monkeypatch.setattr(pa_single, "scan_at", counted)
+    pa_single.shared_scan(settings, at=T, now=NOW, store=store, symbols=["BTCUSDT", "RETUSDT"])
+    pa_single.shared_scan(settings, at=T, now=NOW + timedelta(minutes=1), store=store, symbols=["BTCUSDT", "RETUSDT"])
+    assert len(seen) == 1                                             # lu plus tôt : réutilisé
+    earlier = pa_single.shared_scan(settings, at=T, now=NOW - timedelta(minutes=1), store=store, symbols=["BTCUSDT", "RETUSDT"])
+    assert len(seen) == 2 and earlier["read_at"] == (NOW - timedelta(minutes=1)).isoformat()
 
 
 def test_own_call_is_sent_with_its_header_and_resolved_with_its_placebos(settings, monkeypatch, no_tick):
@@ -390,7 +460,19 @@ def test_fewer_than_fifty_distinct_days_is_insufficient(settings, monkeypatch):
 
 # --- Causalité par le magasin, détection partagée ------------------------------------------------------------------------------
 
-def test_falsified_future_in_the_store_changes_nothing(settings, tmp_path):
+def test_falsified_future_in_the_store_changes_nothing(settings, tmp_path, monkeypatch):
+    """Futur falsifié DANS le magasin, dont une bougie postérieure à T déjà « publiée » (`available_at` ≤ now) : le
+    détecteur ne reçoit jamais une bougie qui clôture après T (espion sur `scan_pair`)."""
+    at_ns = int(D.to_ns([T])[0])
+    real_scan = D.scan_pair
+    scanned = []
+
+    def spy(bars, symbol, *args, **kwargs):
+        assert int(bars.h1.t[-1]) + D.HOUR_NS <= at_ns, f"{symbol} : bougie postérieure à la clôture évaluée"
+        scanned.append(symbol)
+        return real_scan(bars, symbol, *args, **kwargs)
+    monkeypatch.setattr(D, "scan_pair", spy)
+
     def evaluate(data, root):
         store = CandleStore(root)
         for symbol, frame in data.items():
@@ -418,7 +500,10 @@ def test_falsified_future_in_the_store_changes_nothing(settings, tmp_path):
         frame.loc[after, "quote_volume"] = 1e9
         frame.loc[frame["open_time"] == T, "available_at"] = T + pd.Timedelta(seconds=1)
         lied[symbol] = frame
+    posted = lied["RETUSDT"][(lied["RETUSDT"]["open_time"] >= T) & (lied["RETUSDT"]["available_at"] <= NOW)]
+    assert len(posted) == 1                                         # une bougie postérieure est déjà connue à `now`
     assert evaluate(lied, tmp_path / "faux") == reference and len(reference["F20_BASE_RETEST"][0]) == 1
+    assert sorted(set(scanned)) == ["BTCUSDT", "RETUSDT"]
 
 
 def test_detection_is_shared_once_per_close_and_pass(settings, monkeypatch, no_tick):

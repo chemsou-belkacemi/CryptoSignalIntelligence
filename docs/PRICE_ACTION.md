@@ -580,6 +580,11 @@ complètes dans `FORWARD_TESTS.md`, code `forward/pa_single.py` et `forward/f20.
 - **Ce que cela ne change pas** : les cinq hypothèses restent les mêmes (pas de nouvelle correction de multiplicité) ;
   les verdicts de F19 et de F20 à F24 sont fortement corrélés (mêmes appels en partie) ; la puissance reste faible
   (§ 11.6) ; 23 tests en direct sont pré-inscrits ; 5 essais FORWARD de plus au démarrage. Aucun gain démontré.
+- **Verdict de référence** (règle inscrite dans les paragraphes « Multiplicité » de F20 à F24, `FORWARD_TESTS.md`) :
+  le verdict de référence d'une configuration est celui de son test séparé F2x (échantillon le plus grand ; F19 en est
+  presque un sous-ensemble). Le verdict par configuration de F19 devient descriptif pour cette configuration. Si F19 et
+  F2x divergent, F2x fait foi. Sans cette règle, deux lectures à 0,99 par configuration porteraient le risque de la
+  famille entre 0,05 et 0,10. (La section F19 de `FORWARD_TESTS.md`, gelée, n'est pas modifiée.)
 
 ## Historique
 

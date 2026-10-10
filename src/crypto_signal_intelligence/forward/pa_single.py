@@ -126,8 +126,8 @@ def shared_scan(settings: Settings | None, *, at: pd.Timestamp, now: pd.Timestam
     la lecture reste causale."""
     key = (utc_iso(pd.Timestamp(at)), pairs_fingerprint(list(symbols)), *_store_key(store, settings))
     hit = _CACHE.get(key)
-    if hit is not None:
-        return hit
+    if hit is not None and pd.Timestamp(hit["read_at"]) <= pd.Timestamp(now):
+        return hit                                       # lu plus tôt : rien d'inconnu à `now` n'y est entré
     _CACHE.clear()
     scan = scan_at(settings, at=at, now=now, store=store, symbols=list(symbols))
     _CACHE[key] = scan
@@ -323,9 +323,15 @@ def real_clock() -> datetime:
 
 
 def f19_call_ids(settings: Settings) -> set[str]:
-    """Identifiants des appels déjà inscrits par F19 (lecture seule de son journal)."""
+    """Identifiants des appels de F19 (lecture seule de son journal) : APPEL inscrits, et appels listés dans une
+    EVALUATION sans APPEL encore (arrêt brutal de F19 : son passage suivant les ré-émettra)."""
     from .registry import journal_for
-    return set(f19.calls(journal_for(settings, F19_ID)))
+    journal = journal_for(settings, F19_ID)
+    ids = set(f19.calls(journal))
+    for entry in journal.entries({EVALUATION}):
+        ids |= set(entry["data"].get("call_ids") or [])
+        ids |= {d["call_id"] for d in entry["data"].get("calls") or []}
+    return ids
 
 
 def record_decisions(test_id: str, settings: Settings, journal: Journal, start: dict, *, now: datetime,
@@ -593,6 +599,8 @@ def make_test(test_id: str) -> ForwardTest:
                            "rest_hours": M.REST_HOURS, "placebos": M.PLACEBOS, "placebo_hours": list(M.PLACEBO_HOURS),
                            "placebo_days": list(M.PLACEBO_DAYS), "seed_prefix": test_id},
                 "min_resolved": f19.MIN_RESOLVED, "min_days_resolved": f19.MIN_DAYS, "alpha": f19.ALPHA, "tests": f19.TESTS,
+                "insufficient": "sous 30 appels résolus ou 50 jours distincts (avec appels résolus)",
+                "reference_verdict": f"celui de {short} pour {config} (celui de F19 devient descriptif)",
                 "decision_level": f19.LEVEL, "decision": "R net seul (docs/PRICE_ACTION.md § 11.5) ; placebos descriptifs",
                 "samples": f19.SAMPLES, "seed": f19.SEED, "block_days": f19.BLOCK_DAYS, "gap_after_days": GAP_AFTER.days,
                 "exits": "taker partout ; bougie 1 h touchant objectif et stop de secours : stop",

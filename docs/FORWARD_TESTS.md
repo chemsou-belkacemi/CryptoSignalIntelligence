@@ -1571,7 +1571,8 @@ net : **≈ 1 à 3 % : à +0,15 R net central, le scénario défavorable ne lais
 **Chevauchement avec F19.** Mêmes données, même détecteur, mêmes clôtures : un appel `BASE_RETEST` de F19 est presque
 toujours aussi un appel de F20 (sauf discipline différente : F20 a pu prendre une position que F19, limité par
 son quota commun, n'a pas prise, et réciproquement) ; quand le quota commun de F19 est atteint, une part de l'ordre d'un
-tiers à la moitié des appels de F20 sont aussi dans F19 (comptée au journal, `aussi_dans_F19`). Les verdicts de F19
+tiers à la moitié des appels de F20 serait aussi dans F19 (estimation **non mesurée** ; la part réelle est comptée
+au journal, `aussi_dans_F19`). Les verdicts de F19
 pour `BASE_RETEST` et de F20 sont donc **fortement corrélés** : deux `SUPERIEUR_A_ZERO` ne valent pas deux
 confirmations.
 
@@ -1579,6 +1580,10 @@ confirmations.
 réservé), chacun compté **1 essai FORWARD** (5 essais de plus). Aucune correction au-delà de 1 − 0,05/5 n'est ajoutée :
 F20 à F24 ne sont pas de nouvelles hypothèses. Un verdict isolé ne se lit jamais seul : parmi 23 tests, un
 `SUPERIEUR_A_ZERO` par hasard est attendu de temps en temps.
+**Le verdict de référence de `BASE_RETEST` est celui de son test séparé F20** (échantillon le plus grand ; F19 en est
+presque un sous-ensemble). Le verdict de F19 pour `BASE_RETEST` devient **descriptif**. Si F19 et F20 divergent, F20
+fait foi. Sans cette règle, deux lectures à 0,99 par configuration porteraient le risque de la famille entre 0,05
+et 0,10.
 
 **Biais des `TROU`.** Un appel dont les bougies manquent encore 2 jours après sa fenêtre (paire retirée de la cote,
 trou durable du magasin) est `TROU`, hors mesure : si les paires qui finissent mal sont plus souvent retirées, le R
@@ -1686,7 +1691,8 @@ net : **≈ 5 à 10 % pour un effet vrai de +0,15 R net**. `INSUFFISANT` : possi
 **Chevauchement avec F19.** Mêmes données, même détecteur, mêmes clôtures : un appel `SQUEEZE` de F19 est presque
 toujours aussi un appel de F21 (sauf discipline différente : F21 a pu prendre une position que F19, limité par
 son quota commun, n'a pas prise, et réciproquement) ; quand le quota commun de F19 est atteint, une part de l'ordre d'un
-tiers à la moitié des appels de F21 sont aussi dans F19 (comptée au journal, `aussi_dans_F19`). Les verdicts de F19
+tiers à la moitié des appels de F21 serait aussi dans F19 (estimation **non mesurée** ; la part réelle est comptée
+au journal, `aussi_dans_F19`). Les verdicts de F19
 pour `SQUEEZE` et de F21 sont donc **fortement corrélés** : deux `SUPERIEUR_A_ZERO` ne valent pas deux
 confirmations.
 
@@ -1694,6 +1700,10 @@ confirmations.
 réservé), chacun compté **1 essai FORWARD** (5 essais de plus). Aucune correction au-delà de 1 − 0,05/5 n'est ajoutée :
 F20 à F24 ne sont pas de nouvelles hypothèses. Un verdict isolé ne se lit jamais seul : parmi 23 tests, un
 `SUPERIEUR_A_ZERO` par hasard est attendu de temps en temps.
+**Le verdict de référence de `SQUEEZE` est celui de son test séparé F21** (échantillon le plus grand ; F19 en est
+presque un sous-ensemble). Le verdict de F19 pour `SQUEEZE` devient **descriptif**. Si F19 et F21 divergent, F21
+fait foi. Sans cette règle, deux lectures à 0,99 par configuration porteraient le risque de la famille entre 0,05
+et 0,10.
 
 **Biais des `TROU`.** Un appel dont les bougies manquent encore 2 jours après sa fenêtre (paire retirée de la cote,
 trou durable du magasin) est `TROU`, hors mesure : si les paires qui finissent mal sont plus souvent retirées, le R
@@ -1800,8 +1810,9 @@ net : **≈ 0 : le quota propre ne change rien (au plus 3 appels par événement
 
 **Chevauchement avec F19.** Mêmes données, même détecteur, mêmes clôtures : un appel `FORCE_RELATIVE` de F19 est presque
 toujours aussi un appel de F22 (sauf discipline différente : F22 a pu prendre une position que F19, limité par
-son quota commun, n'a pas prise, et réciproquement) ; quand le quota commun de F19 est atteint, une part de l'ordre d'un
-tiers à la moitié des appels de F22 sont aussi dans F19 (comptée au journal, `aussi_dans_F19`). Les verdicts de F19
+son quota commun, n'a pas prise, et réciproquement) ; pour `FORCE_RELATIVE` (au plus 3 appels par événement, déjà
+sous les 5 du quota commun de F19), le recouvrement avec F19 sera **probablement presque total** (estimation **non
+mesurée** ; la part réelle est comptée au journal, `aussi_dans_F19`). Les verdicts de F19
 pour `FORCE_RELATIVE` et de F22 sont donc **fortement corrélés** : deux `SUPERIEUR_A_ZERO` ne valent pas deux
 confirmations.
 
@@ -1809,6 +1820,10 @@ confirmations.
 réservé), chacun compté **1 essai FORWARD** (5 essais de plus). Aucune correction au-delà de 1 − 0,05/5 n'est ajoutée :
 F20 à F24 ne sont pas de nouvelles hypothèses. Un verdict isolé ne se lit jamais seul : parmi 23 tests, un
 `SUPERIEUR_A_ZERO` par hasard est attendu de temps en temps.
+**Le verdict de référence de `FORCE_RELATIVE` est celui de son test séparé F22** (échantillon le plus grand ; F19 en est
+presque un sous-ensemble). Le verdict de F19 pour `FORCE_RELATIVE` devient **descriptif**. Si F19 et F22 divergent, F22
+fait foi. Sans cette règle, deux lectures à 0,99 par configuration porteraient le risque de la famille entre 0,05
+et 0,10.
 
 **Biais des `TROU`.** Un appel dont les bougies manquent encore 2 jours après sa fenêtre (paire retirée de la cote,
 trou durable du magasin) est `TROU`, hors mesure : si les paires qui finissent mal sont plus souvent retirées, le R
@@ -1916,7 +1931,8 @@ net : **≈ 10 à 20 % pour un effet vrai de +0,15 R net (la plus forte des cinq
 **Chevauchement avec F19.** Mêmes données, même détecteur, mêmes clôtures : un appel `INSIDE_DAY` de F19 est presque
 toujours aussi un appel de F23 (sauf discipline différente : F23 a pu prendre une position que F19, limité par
 son quota commun, n'a pas prise, et réciproquement) ; quand le quota commun de F19 est atteint, une part de l'ordre d'un
-tiers à la moitié des appels de F23 sont aussi dans F19 (comptée au journal, `aussi_dans_F19`). Les verdicts de F19
+tiers à la moitié des appels de F23 serait aussi dans F19 (estimation **non mesurée** ; la part réelle est comptée
+au journal, `aussi_dans_F19`). Les verdicts de F19
 pour `INSIDE_DAY` et de F23 sont donc **fortement corrélés** : deux `SUPERIEUR_A_ZERO` ne valent pas deux
 confirmations.
 
@@ -1924,6 +1940,10 @@ confirmations.
 réservé), chacun compté **1 essai FORWARD** (5 essais de plus). Aucune correction au-delà de 1 − 0,05/5 n'est ajoutée :
 F20 à F24 ne sont pas de nouvelles hypothèses. Un verdict isolé ne se lit jamais seul : parmi 23 tests, un
 `SUPERIEUR_A_ZERO` par hasard est attendu de temps en temps.
+**Le verdict de référence de `INSIDE_DAY` est celui de son test séparé F23** (échantillon le plus grand ; F19 en est
+presque un sous-ensemble). Le verdict de F19 pour `INSIDE_DAY` devient **descriptif**. Si F19 et F23 divergent, F23
+fait foi. Sans cette règle, deux lectures à 0,99 par configuration porteraient le risque de la famille entre 0,05
+et 0,10.
 
 **Biais des `TROU`.** Un appel dont les bougies manquent encore 2 jours après sa fenêtre (paire retirée de la cote,
 trou durable du magasin) est `TROU`, hors mesure : si les paires qui finissent mal sont plus souvent retirées, le R
@@ -2031,7 +2051,8 @@ net : **≈ 5 à 15 % pour un effet vrai de +0,15 R net**. `INSUFFISANT` : possi
 **Chevauchement avec F19.** Mêmes données, même détecteur, mêmes clôtures : un appel `SORTIE_BASE_LONGUE` de F19 est presque
 toujours aussi un appel de F24 (sauf discipline différente : F24 a pu prendre une position que F19, limité par
 son quota commun, n'a pas prise, et réciproquement) ; quand le quota commun de F19 est atteint, une part de l'ordre d'un
-tiers à la moitié des appels de F24 sont aussi dans F19 (comptée au journal, `aussi_dans_F19`). Les verdicts de F19
+tiers à la moitié des appels de F24 serait aussi dans F19 (estimation **non mesurée** ; la part réelle est comptée
+au journal, `aussi_dans_F19`). Les verdicts de F19
 pour `SORTIE_BASE_LONGUE` et de F24 sont donc **fortement corrélés** : deux `SUPERIEUR_A_ZERO` ne valent pas deux
 confirmations.
 
@@ -2039,6 +2060,10 @@ confirmations.
 réservé), chacun compté **1 essai FORWARD** (5 essais de plus). Aucune correction au-delà de 1 − 0,05/5 n'est ajoutée :
 F20 à F24 ne sont pas de nouvelles hypothèses. Un verdict isolé ne se lit jamais seul : parmi 23 tests, un
 `SUPERIEUR_A_ZERO` par hasard est attendu de temps en temps.
+**Le verdict de référence de `SORTIE_BASE_LONGUE` est celui de son test séparé F24** (échantillon le plus grand ; F19 en est
+presque un sous-ensemble). Le verdict de F19 pour `SORTIE_BASE_LONGUE` devient **descriptif**. Si F19 et F24 divergent, F24
+fait foi. Sans cette règle, deux lectures à 0,99 par configuration porteraient le risque de la famille entre 0,05
+et 0,10.
 
 **Biais des `TROU`.** Un appel dont les bougies manquent encore 2 jours après sa fenêtre (paire retirée de la cote,
 trou durable du magasin) est `TROU`, hors mesure : si les paires qui finissent mal sont plus souvent retirées, le R

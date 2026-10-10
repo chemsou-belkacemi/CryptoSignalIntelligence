@@ -101,7 +101,8 @@ def _singles_section(items: list[dict]) -> list[str]:
                      f"{_fmt(a.get('r_mean'))} | {_fmt(c.get('placebo_excess_forward'))} | {stats['verdict']} |")
     lines += ["", "Mêmes règles que F19, une configuration par test avec son propre quota de 5 appels par jour ; une partie "
               "des appels sont aussi ceux de F19 (mêmes données, verdicts corrélés). Shadow : aucun ordre ; aucun gain "
-              "démontré. Verdict sur le R net seul (`INSUFFISANT` sous 30 appels résolus).", ""]
+              "démontré. Verdict sur le R net seul (`INSUFFISANT` sous 30 appels résolus ou 50 jours distincts) ; le "
+              "verdict de référence d'une configuration est celui de son test séparé (celui de F19 devient descriptif).", ""]
     return lines
 
 
