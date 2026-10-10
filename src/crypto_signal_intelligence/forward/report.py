@@ -93,6 +93,21 @@ def markdown(report: dict) -> str:
         if "stop" in item:
             lines.append(f"ARRÊTÉ : {item['stop']['reason']}.")
         stats = item["stats"]
+        if stats.get("price_action"):                         # F19 : cinq configurations « price action » contre placebos
+            lines += [f"Évaluations 4 h : {stats['evaluations']} (tardives : {stats['late']}) ; candidats : {stats['candidates']} ; "
+                      f"appels : {stats['calls']} ({stats['calls_per_week']} par semaine ; résolus {stats['resolved']}, trous "
+                      f"{stats['gaps']}, en cours {stats['pending']}) ; refus par raison : {stats['refusals_by_reason'] or 'aucun'}.", "",
+                      "| Configuration | Candidats | Appels | Résolus | R net (central) | IC 99 % du R | R net (défavorable) | "
+                      "Excès global (descr.) | Excès avant (descr.) | Verdict |", "|---|---|---|---|---|---|---|---|---|---|"]
+            verdicts = stats["verdict"] if isinstance(stats["verdict"], dict) else {}
+            for config, g in stats["configs"].items():
+                c, a = g["scenarios"].get("central", {}), g["scenarios"].get("defavorable", {})
+                lines.append(f"| {config} | {g['candidates']} | {g['calls']} | {g['resolved']} | {_fmt(c.get('r_mean'))} | "
+                             f"{c.get('r_ci_decision') or '—'} | {_fmt(a.get('r_mean'))} | {_fmt(c.get('placebo_excess'))} | "
+                             f"{_fmt(c.get('placebo_excess_forward'))} | {verdicts.get(config, g['verdict'])} |")
+            lines += ["", "Shadow : aucun ordre ; aucun gain démontré. Verdict par configuration sur le R net seul "
+                      "(`INSUFFISANT` sous 30 appels résolus) ; placebos descriptifs.", ""]
+            continue
         if stats.get("assistant"):                            # F18 : assistant de marché contre placebos
             lines += [f"Évaluations 4 h : {stats['evaluations']} (silence : {stats['silent']}) ; candidats : {stats['candidates']} ; "
                       f"appels : {stats['calls']} ({stats['calls_per_week']} par semaine ; résolus {stats['resolved']}, trous "

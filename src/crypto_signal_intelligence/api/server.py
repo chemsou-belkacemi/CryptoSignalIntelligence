@@ -46,8 +46,13 @@ demande de clé Binance. Pages : `/` (application : analyser une paire, évaluer
                                state/assistant.json (dernière évaluation, feu, BTC, régimes, appels actifs, refus,
                                prochaine évaluation, `resume` de 5 lignes) ; shadow, aucun ordre, aucun gain démontré
     GET  /assistant/outbox     {"messages": [{"id", "created_at", "text"}]} : messages Telegram EN_ATTENTE de
-                               l'assistant, du plus ancien au plus récent, 20 au plus (lus par le service relais)
-    POST /assistant/sent       {"ids": [...]} → {"marked": n} : messages passés ENVOYE par le relais (jeton requis)
+                               l'assistant (F18) ET du test « price action » (F19, identifiants préfixés `pa:`),
+                               fusionnés du plus ancien au plus récent, 20 au plus (lus par le service relais)
+    POST /assistant/sent       {"ids": [...]} → {"marked": n} : messages passés ENVOYE par le relais, chacun dans sa
+                               boîte selon son identifiant (jeton requis)
+    GET  /price-action         test en direct F19 (docs/PRICE_ACTION.md) : contenu de state/price_action.json
+                               (dernière évaluation, candidats par configuration, appels actifs, refus) ; shadow,
+                               aucun ordre, aucun gain démontré
     GET  /collecte             état du collecteur en shadow (docs/COLLECTE.md) : `state/C_ETAT.json` (dernier message
                                et dernière entrée par source, compteurs, erreurs) et taille des journaux du mois ;
                                information seulement, aucune influence sur les tests, les avis ou BSM
@@ -363,19 +368,35 @@ class CsiApi:
         return state.read(self.settings)
 
     def assistant_outbox(self) -> dict:
-        """Messages Telegram EN_ATTENTE de l'assistant (20 au plus, du plus ancien au plus récent) ; ceux de plus de
-        6 h sont passés EXPIRE. Contrat consommé par le service relais."""
+        """Messages Telegram EN_ATTENTE de l'assistant (F18) et du test « price action » (F19, identifiants `pa:`),
+        fusionnés par ordre chronologique, 20 au plus ; ceux de plus de 6 h sont passés EXPIRE. Contrat consommé par
+        le service relais (inchangé : une seule liste)."""
         from ..assistant import outbox
-        return {"messages": outbox.pending(self.settings, now=self.now())}
+        from ..price_action import outbox as pa_outbox
+        now = self.now()
+        merged = outbox.pending(self.settings, now=now) + pa_outbox.pending(self.settings, now=now)
+        merged.sort(key=lambda m: (str(m["created_at"]), str(m["id"])))
+        return {"messages": merged[:outbox.MAX_PENDING_RETURNED]}
 
     def assistant_sent(self, payload: dict) -> dict:
-        """`{"ids": [...]}` → `{"marked": n}` : le relais confirme l'envoi (jeton requis : la route écrit l'état)."""
+        """`{"ids": [...]}` → `{"marked": n}` : le relais confirme l'envoi (jeton requis : la route écrit l'état) ;
+        un identifiant `pa:` est marqué dans la boîte de F19, les autres dans celle de l'assistant."""
         from ..assistant import outbox
+        from ..price_action import outbox as pa_outbox
         self._require_token("confirmation d'envoi de l'assistant")
         ids = payload.get("ids")
         if not isinstance(ids, list) or not all(isinstance(i, str) and i for i in ids) or len(ids) > 500:
             raise ApiError(HTTPStatus.BAD_REQUEST, "champ « ids » : liste de textes (500 au plus)")
-        return {"marked": outbox.mark_sent(self.settings, ids)}
+        mine = [i for i in ids if i.startswith(pa_outbox.PREFIX)]
+        others = [i for i in ids if not i.startswith(pa_outbox.PREFIX)]
+        marked = (outbox.mark_sent(self.settings, others) if others else 0) + (pa_outbox.mark_sent(self.settings, mine) if mine else 0)
+        return {"marked": marked}
+
+    def price_action(self) -> dict:
+        """Test en direct F19 « price action » (docs/PRICE_ACTION.md) : état écrit par la surveillance à chaque clôture
+        4 h. Lecture seule ; shadow, aucun ordre, aucun gain démontré."""
+        from ..price_action import state
+        return state.read(self.settings)
 
     def telegram_relay_status(self) -> dict:
         """État du relais Telegram vu par CSI : messages déposés (dossier lu par F4), le dernier, et le nombre par
@@ -1135,6 +1156,7 @@ class CsiApi:
                 "/telegram/relay": self.telegram_relay_status,
                 "/liquidity": lambda: self.liquidity(query.get("size", ["500"])[0], query.get("limit", ["20"])[0]),
                 "/assistant": self.assistant, "/assistant/outbox": self.assistant_outbox,
+                "/price-action": self.price_action,
                 "/collecte": self.collecte,
                 "/images/pending": self.images_pending, "/sources/exports": self.sources_exports,
                 "/sources/exports/audit": lambda: self.sources_exports_result(query.get("folder", [""])[0]),

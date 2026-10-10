@@ -1352,6 +1352,136 @@ H24 de F12 absente pour 150 paires (volatilité réalisée à la place, marquée
 volatilité réalisée partout) ; feu dépendant de F12 (INCONNU ensuite : règle BTC seule) ; appels corrélés entre
 paires (mêmes jours de marché) ; placebos à ±84 h partagent le contexte de l'appel ; 12 semaines ne valident rien.
 
+## F19_PRICE_ACTION : cinq configurations « price action » (base et retest, compression, force relative, journée intérieure, base longue) contre placebos
+
+Demande du propriétaire du 2026-10-10 : mesurer de deux façons une étude « price action » (`docs/PRICE_ACTION.md`) :
+sur l'historique (DEVELOPMENT, exécution unique après relecture) et EN DIRECT, ici, avec le même détecteur
+(`price_action/detect.py`), la même gestion et les mêmes placebos (`price_action/manage.py`). Tous les modules
+`price_action/*` sont figés au démarrage. CSI ne passe aucun ordre ; aucun gain n'est annoncé ni démontré. Attendu, au vu
+de tout le programme : `NON_DEMONTRE` ou `INSUFFISANT` pour chaque configuration.
+
+**Hypothèse** (amendée le 2026-10-10 avant le démarrage, `docs/PRICE_ACTION.md` § 11). Pour chaque configuration
+(`BASE_RETEST`, `SQUEEZE`, `FORCE_RELATIVE`, `INSIDE_DAY`, `SORTIE_BASE_LONGUE`), un appel géré avec les règles communes
+(stop à la clôture de son unité, stop de secours à −1,5 R, moitié à +1 R puis l'autre moitié à l'objectif, 10 jours en
+4 h ou 30 jours en journalier) rapporte en moyenne un **R net > 0 après frais**. Les 20 placebos de même géométrie
+(±84 h ou ±15 jours) sont rapportés en descriptif seulement.
+
+**Univers et données.** Paires de la liste halal **figée au DEMARRAGE de F15** (lue dans son journal ; sans journal
+F15, repli sur la liste figée de F19, source inscrite) ; bougies 1 h du magasin de F15 (`forward_figures/data`, tenu à
+jour chaque heure par F15 jusqu'à sa date de fin, puis par la surveillance elle-même — `forward/runner.refresh_figure_store`,
+mêmes fonctions de téléchargement, paires figées de F15 — tant que F18 ou F19 est en cours ou en résolution ; lu sans
+écriture par F19), 300 jours lus à chaque évaluation, paire par paire (colonnes utiles seulement) ; BTCUSDT du même magasin
+(sinon du magasin de la surveillance) pour `FORCE_RELATIVE` ; 4 h et 1 jour agrégés depuis 00:00 UTC, blocs complets
+seulement. Évaluation à **chaque clôture 4 h UTC** (la clôture journalière est celle de 00:00), au passage horaire de la
+surveillance qui part dès le changement d'heure, dès que la bougie 1 h de clôture de BTCUSDT est en magasin ; **au plus
+30 min** de retard, mesuré sur l'**horloge réelle** au moment où F19 évalue (pas à l'heure de début du passage, que les
+tests précédents peuvent retarder de plusieurs minutes), sinon l'évaluation est inscrite `late` (retard `delay_min`) et
+**aucun appel n'est émis** ; chaque EVALUATION inscrit aussi `pairs_with_close`, le nombre de paires dont la bougie qui
+clôture à cette heure est en magasin ; une
+clôture n'est évaluée qu'une fois, jamais après coup ; un appel listé dans une EVALUATION sans entrée APPEL (arrêt
+brutal) est ré-émis au passage suivant, marqué `repaired`. Rien n'est écrit dans `SignalRegistry`, `signals/` ni
+`state/assistant*` : F19 a son journal, son état (`state/price_action.json`) et sa boîte Telegram
+(`state/price_action_outbox.json`, identifiants `pa:`).
+
+**Règles** (`docs/PRICE_ACTION.md` § 2 et § 3, résumé ; long seulement ; décision à la clôture, entrée à ce prix) :
+- `BASE_RETEST` (4 h) : base d'au moins 10 bougies 4 h tenant dans 1,5 × ATR14 journalier (étendue en arrière, 180 au
+  plus) ; cassure = clôture au-dessus du haut de base avec un volume > 1,5 × la moyenne des 20 précédentes ; retest dans
+  les 10 bougies (plus bas ≤ haut + 0,25 ATR 4 h) sans clôture sous le haut ; entrée = première clôture qui repart
+  (clôture > ouverture et > clôture précédente) ; stop = haut − 0,25 ATR 4 h ; objectif = haut + hauteur, refus sous
+  +1,5 R.
+- `SQUEEZE` (4 h) : tendance haussière journalière (clôture > EMA50, EMA20 > EMA50) ; Bollinger (20, 2) dans Keltner
+  (EMA20 ± 1,5 ATR20) pendant au moins 6 bougies ; première clôture au-dessus de la Bollinger haute avec un volume >
+  1,5 × la moyenne ; stop = plus bas des 6 bougies ; objectif +2 R.
+- `FORCE_RELATIVE` (4 h) : BTCUSDT perd ≥ 5 % sur 24 h glissantes ; paires qui n'ont pas clôturé en 4 h sous leur plus
+  bas des 10 jours d'avant pendant la chute ; entrée à la stabilisation de BTC (première clôture 4 h au-dessus du plus
+  haut de la bougie du plus bas, sans nouveau plus bas) ; stop = plus bas de la chute − 0,25 ATR 4 h ; objectif +2 R ;
+  au plus 3 paires par événement, les plus faibles baisses.
+- `INSIDE_DAY` (1 jour) : tendance haussière journalière ; journée intérieure ; entrée = première clôture 4 h au-dessus
+  du haut de la mère dans les 48 h ; stop de clôture journalière = bas de la mère, refus au-delà de 3 ATR14 journalier ;
+  objectif +2 R.
+- `SORTIE_BASE_LONGUE` (1 jour) : base d'au moins 30 jours de hauteur ≤ 25 % ; clôture journalière au-dessus du plus
+  haut des 90 jours et du haut de base avec un volume > 1,5 × la moyenne de 20 jours ; stop = clôture sous le milieu de
+  la base ; objectif = max(hauteur reportée, +2 R).
+- **Gestion**, identique pour les placebos : frais et glissement taker à l'entrée et partout ; stop de clôture vérifié
+  aux clôtures 4 h UTC (configurations 4 h) ou à 00:00 UTC (journalières) ; stop de secours dur à entrée − 1,5 R touché
+  intrabar en 1 h (sortie au niveau, ou à l'ouverture si elle est déjà dessous) ; TP1 = moitié à +1 R, puis stop de
+  clôture à l'entrée ; objectif = l'autre moitié ; 10 ou 30 jours au plus ; une bougie 1 h qui touche à la fois un
+  objectif et le stop de secours compte le stop ; R = résultat net / (entrée − stop). Niveaux arrondis au pas de
+  cotation quand il est connu (entrée, TP1 et objectif vers le haut ; stop et secours vers le bas).
+- **Discipline** : une seule position active par paire et par configuration ; 48 h de repos après la sortie (scénario
+  central) ; pour `FORCE_RELATIVE`, une paire bloquée est écartée avant le choix des 3 ; **5 appels par jour UTC au
+  plus**, toutes configurations, les plus récents d'abord ; à instant égal, l'ordre de l'identifiant sha256 de l'appel
+  (neutre entre configurations et entre paires).
+
+**Placebos.** Pour chaque appel, 20 entrées au marché sur la même paire, tirées sans remise, graine
+`sha256("PRICE_ACTION:" + call_id)`, inscrites à l'appel : clôtures 1 h à `t ± 5…84 h` (configurations 4 h) ou
+`t ± 2…15 jours` à la même heure (journalières) ; même géométrie en pourcentage, même gestion, mêmes frais ; un placebo
+dont la bougie d'entrée manque est écarté. Excès = R de l'appel − moyenne des placebos ; **descriptif seulement** :
+excès global, arrière et surtout « avant » (t + 5 → t + 84 h, ou t + 2 → t + 15 jours) ; les placebos arrière sont
+biaisés (contrôle H0 n° 1, ci-dessous) et ne décident de rien. Les placebos avant attendent jusqu'à 84 h ou 15 jours : un appel se résout au plus tard à t + 84 h + 10 jours ou
+t + 15 + 30 jours ; bougies encore manquantes 2 jours après : `TROU`, hors mesure.
+
+**Paramètres** (figés dans le code, `price_action/detect.py` et `manage.py`, énumérés dans `forward/f19.py`) : ceux du
+tableau de `docs/PRICE_ACTION.md` § 2.6 ; 300 jours lus ; retard maximal 30 min ; 5 appels par jour ; minimum **30 appels
+résolus** sur **10 jours** par configuration pour conclure ; intervalle de décision du R net au niveau 1 − 0,05/5
+(cinq configurations) et IC95, par blocs de 7 jours (10 000 tirages, graine 20261010) ; trou constaté 2 jours après la
+fenêtre. Gel : modules `forward/f19` (qui porte son verdict), `price_action` (paquet), `price_action/detect`, `manage`,
+`evaluate`, `state`, `outbox`, `forward/costs`, `registry`, `journal` ; fonctions `day_block_ci95`, `day_block_ci`,
+`f15.figure_store`,
+`indicators.ema`, `primitives.atr/true_range`, `analysis.round_tick`, `CandleStore` ; configuration
+`data.assumed_availability_latency_seconds`. Le pas de cotation (`data.tick_size`) n'est pas gelé : il ne sert qu'à
+arrondir les niveaux.
+
+**Métrique.** Par configuration : **R net moyen** des appels résolus (central et défavorable), intervalle 1 − 0,05/5 et
+IC95 par blocs de 7 jours. Descriptif : excès global et « avant » sur les placebos, évaluations, tardives, candidats, appels par semaine,
+taux de TP1 et d'objectif, part gagnante, pire série, excès arrière et avant, refus par raison, trous, en attente, et
+l'ensemble des configurations en central (sans verdict). `n_trials` = 1 en FORWARD.
+
+**Seuil de décision** (à la date d'évaluation, tous les appels résolus ; `forward/f19.verdict`, **par configuration**,
+sur le **R net seul**) : `INSUFFISANT` (moins de 30 appels résolus ou de 10 jours, ou intervalle non calculable : l'intervalle exige au moins 8
+blocs de 7 **jours distincts avec des appels résolus**, soit **au moins 50 jours distincts** ; c'est le vrai seuil) ;
+`SUPERIEUR_A_ZERO` (intervalle 1 − 0,05/5 du R net moyen entièrement au-dessus de 0, en central ET en défavorable) ;
+`INFERIEUR_A_ZERO` (IC95 du R net moyen entièrement sous 0 dans les deux scénarios) ; sinon `NON_DEMONTRE`. Les placebos
+ne décident de rien. `SUPERIEUR_A_ZERO` ne dit pas « mieux qu'une entrée au hasard » : la dérive du marché pendant les
+84 jours y entre. L'ensemble n'a pas de verdict propre.
+
+**Date d'évaluation.** Fin du recueil 84 jours après le démarrage ; revue intermédiaire à 42 jours (descriptive, aucun
+changement de règle) ; verdict une fois le dernier appel résolu (jusqu'à 84 + 45 + 2 jours pour une configuration
+journalière).
+
+**Nombre d'appels attendu.** Comptages à blanc du 2026-10-10 (`docs/PRICE_ACTION.md` § 9) : 16 paires du magasin
+local, 366 clôtures 4 h du 2026-08-01 au 2026-09-30, sans discipline ni quota, comptes seulement (aucun résultat de
+transaction) : `BASE_RETEST` 41, `SQUEEZE` 14, `FORCE_RELATIVE` 0 (aucune chute de BTC de 5 % en 24 h dans la fenêtre),
+`INSIDE_DAY` 30, `SORTIE_BASE_LONGUE` 16 ; au plus 6 par jour pour une configuration ; aucun ajustement. Sur les 166
+paires, de l'ordre de 17 candidats par jour (extrapolation) : le quota de 5 appels par jour sera souvent atteint, soit
+quelques centaines d'appels en 84 jours répartis sur les configurations ; `FORCE_RELATIVE` dépend des chutes de BTC et
+restera probablement `INSUFFISANT`, comme toute configuration qui n'atteint pas 30 appels résolus.
+
+**Contrôle sous H0 (2026-10-10, avant le démarrage ; `docs/PRICE_ACTION.md` § 5.5 et § 11).** Contrôle n° 1 : sur un
+marché synthétique sans information, avec ces mêmes détecteur, gestion et placebos, l'excès moyen vaut −0,20 à −0,42 R
+(placebos arrière −0,47 à −0,86 R, placebos avant −0,004 à +0,075 R) : critère d'excès abandonné, placebos devenus
+descriptifs. Contrôle n° 2 (décision au R net seul, `PRICE_ACTION.md` § 11.6) : aucun faux `PISTE` (0/200), mais
+puissance < 0,50 pour les cinq configurations (`INSTRUMENT_TROP_FAIBLE` sur l'historique, 0 essai) ; elles sont quand
+même mesurées ici. À 30-60 appels résolus par configuration, la puissance du verdict `SUPERIEUR_A_ZERO` est encore plus
+faible qu'au contrôle (sous-échantillons de 130 à 1 700 signaux) : `NON_DEMONTRE` ou `INSUFFISANT` sont attendus.
+
+**Seuil réel et conséquences.** Une configuration n'a de verdict que si ses appels résolus tombent sur au moins 50
+jours distincts (8 blocs de 7 jours avec appels). Aux comptages à blanc (≈ 0,2 à 0,7 candidat par jour pour 16 paires,
+quota de 5 par jour toutes configurations, discipline, puis 84 jours de recueil), `INSUFFISANT` est **probable pour
+`SQUEEZE`, `SORTIE_BASE_LONGUE` et `FORCE_RELATIVE`** (cette dernière dépend en plus des chutes de BTC) ; `BASE_RETEST` et
+`INSIDE_DAY` peuvent l'atteindre.
+
+**Biais des `TROU`.** Un appel dont les bougies manquent encore 2 jours après sa fenêtre (paire retirée de la cote,
+trou durable du magasin) est `TROU`, hors mesure : si les paires qui finissent mal sont plus souvent retirées, le R
+mesuré est trop flatteur. Le nombre de `TROU` est rapporté par configuration (descriptif), ainsi que la part du R par
+paire (une paire qui porte le résultat se voit).
+
+**Limites déclarées.** Entrée au prix de clôture alors que l'appel est connu quelques minutes plus tard (glissement
+taker compté, aucun prix réel d'exécution) ; liste halal figée de F15 choisie en 2026 (biais des survivantes) ; appels
+corrélés entre paires (mêmes jours de marché, et jusqu'à 3 appels `FORCE_RELATIVE` par événement) ; placebos voisins qui
+partagent le régime de l'appel ; amorçage des moyennes sur 300 jours (écart négligeable avec l'historique) ; 12
+semaines ne valident rien ; `INSUFFISANT` est probable pour les configurations rares, et c'est une réponse acceptable.
+
 ## LECTURE_TP_MAHWASHI : vendre surtout aux TP lointains sur AL-MAHWASHI (lecture déclarée le 2026-10-04)
 
 **Origine.** Analyse du 2026-10-04 du fichier `BotHistory.json` (robot d'un ami du propriétaire, 6-30 septembre 2026,

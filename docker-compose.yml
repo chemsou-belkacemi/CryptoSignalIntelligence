@@ -28,7 +28,9 @@ services:
     <<: *app
     command: ["python", "-m", "crypto_signal_intelligence", "run", "--mode", "shadow"]
     # Lecture OCR des signaux Telegram en image (modèles chargés une fois) : quelques centaines de Mo de plus.
-    mem_limit: 2g
+    # 3g depuis le 2026-10-10 : la surveillance touchait déjà son plafond de 2 Gio (F15, F18 et bientôt F19 lisent
+    # chacun 166 paires de bougies 1 h) ; la machine a 22 Go.
+    mem_limit: 3g
     volumes:
       - csi-state:/srv/csi
       # Boîte de réception de BinanceSpotManager (messages Telegram reçus en direct par son bot), LECTURE SEULE :

@@ -2415,3 +2415,150 @@ def assistant_state():
         console.print(f"- {r.get('at', '')[:16]} {r['symbol']} ({r['regime']}) : {r['reason']} — {r.get('detail', '')[:100]}")
     console.print(f"Boîte Telegram : {outbox.counts(settings)}")
     console.print(f"[dim]{data.get('note', '')}[/dim]")
+
+
+price_action_app = typer.Typer(no_args_is_help=True,
+                               help="Étude « price action » (docs/PRICE_ACTION.md) : cinq configurations mesurées sur "
+                                    "l'historique (exécution unique, après relecture) et en direct (F19) ; shadow, aucun "
+                                    "ordre, aucun gain démontré.")
+app.add_typer(price_action_app, name="price-action")
+
+
+def _price_action_store(settings, magasin: Path | None):
+    from .data.store import CandleStore
+    from .price_action import evaluate as pa
+    store = CandleStore(magasin) if magasin else pa.store_for(settings)
+    symbols = pa.universe(settings)
+    if magasin:
+        present = sorted(p.name for p in (Path(magasin) / "candles" / "binance" / "spot").glob("*") if (p / "1h.parquet").exists())
+        symbols = [s for s in symbols if s in present] or present
+    return store, symbols
+
+
+@price_action_app.command("evaluer")
+def price_action_evaluate(now: str = typer.Option(None, "--now", help="Instant de l'évaluation (ISO, UTC) ; défaut : maintenant"),
+                          magasin: Path = typer.Option(None, "--magasin", help="Dossier de bougies à lire à la place du "
+                                                                              "magasin de F15"),
+                          verbose: bool = False):
+    """Évaluation À BLANC de la dernière clôture 4 h UTC : rien n'est journalisé, aucun message, aucun état écrit."""
+    from .price_action import evaluate as pa
+    settings = _settings(verbose)
+    moment = pd.Timestamp(now, tz="UTC") if now and pd.Timestamp(now).tzinfo is None else (pd.Timestamp(now) if now else pd.Timestamp(_now()))
+    at = pa.closing_time(moment)
+    store, symbols = _price_action_store(settings, magasin)
+    if not symbols:
+        console.print("[red]Aucune paire à évaluer[/red] (ni journal F15, ni liste halal validée, ni magasin).")
+        raise typer.Exit(3)
+    with console.status(f"évaluation à blanc de la clôture {at:%Y-%m-%d %H:%M} UTC sur {len(symbols)} paires…"):
+        out = pa.run(settings, at=at, now=moment, discipline={"active": {}, "rest_until": {}, "calls_today": 0},
+                     store=store, symbols=symbols)
+    console.print(f"Clôture évaluée : {out['at']} (données connues à {out['evaluated_at']}) ; retard {out['delay_min']} min"
+                  + (" (TARDIVE : aucun appel)" if out["late"] else ""))
+    console.print(f"Candidats : {out['candidates']} ; refus : {out['refusals_by_reason'] or 'aucun'}")
+    for r in out["refusals"]:
+        console.print(f"- {r['symbol']} ({r['config']}) : {r['reason']} — {r['detail']}")
+    for c in out["calls"]:
+        console.print(f"[bold]APPEL {c['symbol']}[/bold] {c['config']} ({c['unit']}) : entrée {c['entry']:.8g}, stop {c['stop']:.8g} "
+                      f"(secours {c['hard_stop']:.8g}), TP1 {c['tp1']:.8g}, objectif {c['objective']:.8g} ({c['r_objective']:.2f} R)")
+        for line in c["explanation"]:
+            console.print(f"  {line}")
+    console.print(f"[dim]{pa.NOTE} Évaluation à blanc : rien n'est journalisé.[/dim]")
+
+
+@price_action_app.command("comptages")
+def price_action_counts(debut: str = typer.Option(..., "--debut", help="Première clôture 4 h (ISO, UTC)"),
+                        fin: str = typer.Option(..., "--fin", help="Dernière clôture 4 h (ISO, UTC)"),
+                        magasin: Path = typer.Option(None, "--magasin", help="Dossier de bougies (défaut : magasin local de "
+                                                                            "la configuration)"),
+                        verbose: bool = False):
+    """Comptages À BLANC : nombre de candidats par configuration à chaque clôture 4 h de [début ; fin], par le chemin
+    du direct (détecteur sur 300 jours, données ≤ clôture). AUCUN résultat de transaction n'est calculé."""
+    from .data.store import CandleStore
+    from .price_action import detect as D
+    from .price_action import evaluate as pa
+    settings = _settings(verbose)
+    root = Path(magasin) if magasin else settings.data_dir
+    store = CandleStore(root)
+    symbols = sorted(p.name for p in (root / "candles" / "binance" / "spot").glob("*") if (p / "1h.parquet").exists())
+    start, end = pd.Timestamp(debut, tz="UTC").floor("4h"), pd.Timestamp(fin, tz="UTC").floor("4h")
+    full = {s: pa.load_h1(store, s, at=end, now=end + pd.Timedelta(days=1), days=pa.HISTORY_DAYS + (end - start).days + 1)
+            for s in symbols}
+    counts = {c: 0 for c in D.CONFIGS}
+    refusals: dict[str, int] = {}
+    per_day: dict[str, dict[str, int]] = {}
+    closes = pd.date_range(start, end, freq="4h")
+    with console.status("comptages…") as status:
+        for i, at in enumerate(closes):
+            frames = {s: f[(f["open_time"] >= at - pd.Timedelta(days=pa.HISTORY_DAYS)) & (f["open_time"] + pd.Timedelta(hours=1) <= at)]
+                      for s, f in full.items()}
+            found = pa.detect_at(frames, at)
+            for c in found["candidates"]:
+                counts[c["config"]] += 1
+                day = per_day.setdefault(f"{at:%Y-%m-%d}", {})
+                day[c["config"]] = day.get(c["config"], 0) + 1
+            for r in found["refusals"]:
+                refusals[f"{r['config']}:{r['reason']}"] = refusals.get(f"{r['config']}:{r['reason']}", 0) + 1
+            status.update(f"comptages : {i + 1}/{len(closes)} clôtures")
+    days = max(1, len({f'{t:%Y-%m-%d}' for t in closes}))
+    summary = {"debut": str(start), "fin": str(end), "clotures": len(closes), "jours": days, "paires": symbols,
+               "candidats": counts, "par_jour_moyen": {c: round(v / days, 3) for c, v in counts.items()},
+               "par_jour_max": {c: max((d.get(c, 0) for d in per_day.values()), default=0) for c in D.CONFIGS},
+               "refus_geometrie": refusals, "note": "comptes seulement : aucun R, aucun résultat de transaction"}
+    console.print_json(json.dumps(summary, ensure_ascii=False))
+
+
+@price_action_app.command("controle-h0")
+def price_action_h0(workers: int = typer.Option(2, "--workers", help="Processus (4 au plus)"), verbose: bool = False):
+    """Contrôle sous l'hypothèse nulle n° 2 (docs/PRICE_ACTION.md § 11.4, décision au R net seul) : marché synthétique de
+    100 paires × 6 ans et un BTC, pipeline exact de l'étude, 200 sous-échantillons de 40 paires (faux PISTE) et contrôle
+    positif (+0,15 R net) ; écrit `reports/PRICE_ACTION-H0N2-<commit>/criteres.json` à inscrire (CONTROLE_H0)."""
+    from .research import price_action_h0 as H
+    from .research.experiments import code_state
+    settings = _settings(verbose)
+    _heavy_job(settings)
+    commit = code_state()
+    out_dir = settings.reports_dir / f"PRICE_ACTION-H0N2-{commit[:12]}{'-DIRTY' if commit.endswith('+DIRTY') else ''}"
+    with console.status("contrôle sous H0 n° 2…") as status:
+        report = H.run(now=_now(), out_dir=out_dir, workers=min(workers, 4), progress=lambda text: status.update(f"H0 : {text}"))
+    table = Table("Configuration", "Signaux", "R net (central / défav.)", "Excès global / avant (descr.)", "Faux PISTE",
+                  "R brut IC > 0 (descr.)", "Dérive (R/h)", "Puissance", "Issue")
+    for config, c in report["configs"].items():
+        positive = c.get("positive") or {}
+        table.add_row(config, str(c["n"]), f"{c.get('r_mean')} / {c.get('r_mean_adverse')}",
+                      f"{c.get('excess')} / {c.get('excess_forward')}", str(c["false_piste_rate"]),
+                      str(c["null"]["gross_ci_positive_rate"]), f"{positive.get('drift_r_per_hour', 0):.5f}",
+                      str(c["power"]), c["status"] + ("" if c["passes"] else " : " + " ; ".join(c["reasons"])))
+    console.print(table)
+    console.print(f"Fichier : {report['path']}\nInscription : CONTROLE_H0 = \"{report['path']}#{report['sha256']}\"")
+
+
+@price_action_app.command("executer")
+def price_action_execute(executer: bool = typer.Option(False, "--executer", help="Exécution réelle UNIQUE"),
+                         workers: int = typer.Option(2, "--workers", help="Processus (4 au plus)"), verbose: bool = False):
+    """Exécution réelle UNIQUE de l'étude historique sur DEVELOPMENT. Refusée sans --executer, sans code commité et relu
+    (CODE_REVIEW), sans configuration identique (CONFIG_FINGERPRINT), sans contrôle H0 inscrit (CONTROLE_H0)."""
+    from .research import price_action_study as st
+    from .research.experiments import code_state
+    from .research.factors import DirtyCode
+    if not executer:
+        console.print("[red]Exécution réelle unique : ajouter --executer (après la relecture leak-auditor inscrite).[/red]")
+        raise typer.Exit(2)
+    settings = _settings(verbose)
+    try:
+        st.require_clean_and_reviewed(code_state(), settings=settings)
+        control = st.control_of(st.CONTROLE_H0)
+        if not control.get("kept"):
+            raise st.NotReady("aucune configuration validée par le contrôle sous H0 n° 2 : étude historique abandonnée, "
+                              "0 essai (docs/PRICE_ACTION.md § 11.6)")
+    except (DirtyCode, st.NotReady) as exc:
+        console.print(f"[red]Aucun calcul :[/red] {exc}")
+        raise typer.Exit(3) from None
+    _heavy_job(settings)
+    try:
+        with console.status("price action, exécution unique…") as status:
+            summary = st.run(settings, now=_now(), workers=min(workers, 4), progress=lambda text: status.update(f"price action : {text}"))
+    except (DirtyCode, st.NotReady, st.AlreadyRun, FileNotFoundError) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    console.print_json(json.dumps({k: summary[k] for k in ("run_id", "n_trials", "program_trials", "decisions",
+                                                           "configs_removed_h0")}, ensure_ascii=False, default=str))

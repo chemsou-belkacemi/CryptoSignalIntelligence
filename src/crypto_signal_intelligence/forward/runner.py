@@ -21,7 +21,7 @@ import pandas as pd
 from ..config import Settings
 from . import datalog, derivlog, report
 from .halal import HalalNotValidated
-from .registry import ENDED, RUNNING, check_frozen, journal_for, status
+from .registry import ENDED, NOT_STARTED, RUNNING, check_frozen, journal_for, status
 from .tests import TESTS
 
 try:
@@ -57,8 +57,46 @@ def process_lock(settings: Settings):
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
+F15_ID = "F15_FIGURES"
+STORE_READERS = ("F18_ASSISTANT", "F19_PRICE_ACTION")       # lisent le magasin 1 h de F15 (`forward_figures/data`)
+STORE_REFRESH = "_magasin_f15"
+
+
+def refresh_figure_store(settings: Settings, *, now: datetime, rest=None) -> dict | None:
+    """Tient à jour le magasin 1 h de F15 (`forward_figures/data`, paires figées au démarrage de F15) quand F15 ne le
+    fait plus (après sa date de fin, F15 ne télécharge plus rien) mais que F18 ou F19 en dépend encore (EN_COURS ou en
+    résolution). Réutilise les fonctions de F15 et du pipeline en lecture (`f15.figure_settings`,
+    `data.pipeline.download`, `rest_only=True`), sans les modifier. None si rien n'est à faire."""
+    from ..data.http import PublicHttpClient
+    from ..data.pipeline import download
+    from . import f15
+    from .tests import BY_ID
+    figures = status(settings, f15.TEST, now=now)
+    if figures["state"] in {NOT_STARTED, RUNNING}:
+        return None
+    readers = [tid for tid in STORE_READERS if tid in BY_ID and status(settings, BY_ID[tid][0], now=now)["state"] in {RUNNING, ENDED}]
+    if not readers:
+        return None
+    client = rest or PublicHttpClient.rest(settings.data.rest_base_url)
+    symbols = list(figures["start"]["halal"]["symbols"])
+    errors = 0
+    for symbol in symbols:
+        try:
+            download(f15.figure_settings(settings), symbol, "1h", now=now, rest_client=client, rest_only=True)
+        except Exception:  # noqa: BLE001 - une paire en échec n'arrête pas les autres (reprise au passage suivant)
+            errors += 1
+    return {"pairs": len(symbols), "errors": errors, "readers": readers}
+
+
 def run_tests(settings: Settings, *, now: datetime) -> dict:
     out = {}
+    try:
+        refreshed = refresh_figure_store(settings, now=now)
+    except Exception as exc:  # noqa: BLE001 - le magasin en échec n'empêche jamais les tests
+        log.exception("mise à jour du magasin de F15")
+        refreshed = {"error": f"{type(exc).__name__}: {exc}"[:300]}
+    if refreshed is not None:
+        out[STORE_REFRESH] = refreshed
     for test, module in TESTS:
         if status(settings, test, now=now)["state"] in {RUNNING, ENDED}:
             reason = check_frozen(settings, test, now=now)
