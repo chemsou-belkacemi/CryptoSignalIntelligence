@@ -506,7 +506,8 @@ décider.**
   détention, sont multipliées par (1 + δ)^k (k = rang de l'heure après la décision : dérive ajoutée en rendement simple),
   avec δ = m × (entrée − stop) / entrée ; m (en R par heure), le même pour tous les signaux d'une configuration, est
   calibré par dichotomie pour que le **R net moyen central de tous les signaux synthétiques de la configuration vaille
-  +0,15 R** (« +0,15 R net vrai par signal »). Les signaux restent ceux du passage sans dérive (discipline non
+  +0,15 R** (« +0,15 R net vrai par signal ») : plus petit m (à 1e-7 près) qui l'atteint, la moyenne avançant par
+  petits sauts ; la valeur obtenue est inscrite. Les signaux restent ceux du passage sans dérive (discipline non
   recalculée) ; les placebos ne sont pas modifiés (ils ne décident de rien). **Puissance** = part des 200 mêmes
   répliques décidées `PISTE`. Critère : **≥ 0,50**, sinon **`INSTRUMENT_TROP_FAIBLE`** : 0 essai historique pour cette
   configuration, mais F19 la mesure quand même en direct.

@@ -97,16 +97,16 @@ def markdown(report: dict) -> str:
             lines += [f"Évaluations 4 h : {stats['evaluations']} (tardives : {stats['late']}) ; candidats : {stats['candidates']} ; "
                       f"appels : {stats['calls']} ({stats['calls_per_week']} par semaine ; résolus {stats['resolved']}, trous "
                       f"{stats['gaps']}, en cours {stats['pending']}) ; refus par raison : {stats['refusals_by_reason'] or 'aucun'}.", "",
-                      "| Configuration | Candidats | Appels | Résolus | R moyen (central) | IC95 du R | R moyen (défavorable) | "
-                      "Excès placebos | IC de l'excès | Verdict |", "|---|---|---|---|---|---|---|---|---|---|"]
+                      "| Configuration | Candidats | Appels | Résolus | R net (central) | IC 99 % du R | R net (défavorable) | "
+                      "Excès global (descr.) | Excès avant (descr.) | Verdict |", "|---|---|---|---|---|---|---|---|---|---|"]
             verdicts = stats["verdict"] if isinstance(stats["verdict"], dict) else {}
             for config, g in stats["configs"].items():
                 c, a = g["scenarios"].get("central", {}), g["scenarios"].get("defavorable", {})
                 lines.append(f"| {config} | {g['candidates']} | {g['calls']} | {g['resolved']} | {_fmt(c.get('r_mean'))} | "
-                             f"{c.get('r_ci95') or '—'} | {_fmt(a.get('r_mean'))} | {_fmt(c.get('placebo_excess'))} | "
-                             f"{c.get('placebo_excess_ci') or '—'} | {verdicts.get(config, g['verdict'])} |")
-            lines += ["", "Shadow : aucun ordre ; aucun gain démontré. Verdict par configuration (`INSUFFISANT` sous 30 "
-                      "appels résolus).", ""]
+                             f"{c.get('r_ci_decision') or '—'} | {_fmt(a.get('r_mean'))} | {_fmt(c.get('placebo_excess'))} | "
+                             f"{_fmt(c.get('placebo_excess_forward'))} | {verdicts.get(config, g['verdict'])} |")
+            lines += ["", "Shadow : aucun ordre ; aucun gain démontré. Verdict par configuration sur le R net seul "
+                      "(`INSUFFISANT` sous 30 appels résolus) ; placebos descriptifs.", ""]
             continue
         if stats.get("assistant"):                            # F18 : assistant de marché contre placebos
             lines += [f"Évaluations 4 h : {stats['evaluations']} (silence : {stats['silent']}) ; candidats : {stats['candidates']} ; "

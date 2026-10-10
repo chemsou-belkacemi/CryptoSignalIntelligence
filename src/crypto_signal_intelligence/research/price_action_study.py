@@ -1,11 +1,12 @@
-"""Étude historique « price action » (docs/PRICE_ACTION.md § 4) : les cinq configurations du détecteur partagé
-(`price_action/detect.py`) sur DEVELOPMENT (2019-01 → 2025-06-30), univers principal = top 40 À DATE, contre 20 placebos
-de même géométrie, même gestion (`price_action/manage.py`), mêmes frais.
+"""Étude historique « price action » (docs/PRICE_ACTION.md § 4 et § 11) : les cinq configurations du détecteur partagé
+(`price_action/detect.py`) sur DEVELOPMENT (2019-01 → 2025-06-30), univers principal = top 40 À DATE, gestion commune
+(`price_action/manage.py`). Décision au R NET SEUL (amendement du 2026-10-10, § 11.1) ; les 20 placebos de même
+géométrie sont mesurés et rapportés en descriptif seulement (§ 11.3).
 
 Exécution UNIQUE (`csi price-action executer --executer`) : code commité et identique, sur les chemins relus, au
 commit inscrit par la relecture `leak-auditor` (`price_action_review.CODE_REVIEW`), configuration effective identique
-(`CONFIG_FINGERPRINT`), contrôle sous H0 inscrit (`CONTROLE_H0`) ; une configuration qui échoue au contrôle H0 est
-retirée (0 essai). Rien n'est lu après le 2025-06-30 : les bougies sont coupées à la fin de DEVELOPMENT et un signal
+(`CONFIG_FINGERPRINT`), contrôle sous H0 n° 2 inscrit (`CONTROLE_H0`) ; une configuration qui y échoue (faux PISTE) ou qui y est trop faible
+(puissance) n'est ni exécutée ni comptée (0 essai). Rien n'est lu après le 2025-06-30 : les bougies sont coupées à la fin de DEVELOPMENT et un signal
 n'entre que si toute sa fenêtre (placebos et échéance) y tient.
 
 Les fonctions par paire (`pair_rows`, `force_items`, `force_rows`) servent aussi au contrôle sous H0
@@ -38,7 +39,9 @@ KIND = "PRICE_ACTION_HISTORIQUE"
 FIRST_SIGNAL = pd.Timestamp("2019-01-01", tz="UTC")
 SCENARIOS = (CENTRAL, ADVERSE)
 ALPHA, TESTS = 0.05, 5
-EXCESS_LEVEL = 1 - ALPHA / TESTS                 # IC de l'excès à 1 − 0,05/5 (5 configurations)
+DECISION_LEVEL = 1 - ALPHA / TESTS               # IC de décision du R net à 1 − 0,05/5 (5 configurations, § 11.1)
+EXCESS_LEVEL = DECISION_LEVEL                    # excès sur les placebos : descriptif seulement (§ 11.3)
+CONTROL_KIND = "H0_N2_R_NET"                     # seul contrôle accepté par l'exécution (§ 11.4)
 BLOCK_DAYS, SAMPLES, SEED, MIN_BLOCKS = 7, 10_000, 20261010, 8
 MIN_SIGNALS = 100                                # INSUFFISANT sous 100 signaux
 MIN_POSITIVE_YEARS = 4                           # garde-fou : au moins 4 années positives
@@ -180,7 +183,7 @@ def force_rows(events: list[dict], items: list[dict]) -> tuple[list[dict], dict]
 def scenario_summary(rows: list[dict], scenario: str, *, samples: int = SAMPLES, seed: int = SEED) -> dict:
     """R net moyen (IC95 par blocs de 7 jours), excès sur les placebos (IC à 1 − 0,05/5), descriptifs."""
     if not rows:
-        return {"n": 0, "days": 0, "r_ci95": None, "placebo_excess_ci": None}
+        return {"n": 0, "days": 0, "r_ci95": None, "r_ci_decision": None, "placebo_excess_ci": None}
     rows = sorted(rows, key=lambda x: x["at_ns"])
     res = [x["results"][scenario] for x in rows]
     r = np.array([x["r"] for x in res], float)
@@ -188,6 +191,8 @@ def scenario_summary(rows: list[dict], scenario: str, *, samples: int = SAMPLES,
     excess = np.array([np.nan if x["excess"] is None else x["excess"] for x in res], float)
     ok = np.isfinite(excess)
     ci_r, blocks = day_block_ci95(r, times, block_days=BLOCK_DAYS, samples=samples, seed=seed, min_blocks=MIN_BLOCKS)
+    ci_decision, _ = day_block_ci(r, times, block_days=BLOCK_DAYS, samples=samples, seed=seed, level=DECISION_LEVEL,
+                                  min_blocks=MIN_BLOCKS)
     ci_x, _ = (day_block_ci(excess[ok], times[ok], block_days=BLOCK_DAYS, samples=samples, seed=seed, level=EXCESS_LEVEL,
                             min_blocks=MIN_BLOCKS) if ok.any() else (None, 0))
     sides = {}
@@ -199,14 +204,14 @@ def scenario_summary(rows: list[dict], scenario: str, *, samples: int = SAMPLES,
     for x in res:
         outcomes[x["outcome"]] = outcomes.get(x["outcome"], 0) + 1
     return {"n": int(len(r)), "days": int(pd.DatetimeIndex(times).floor("D").nunique()), "blocks": int(blocks),
-            "r_mean": round(float(r.mean()), 4), "r_ci95": ci_r, "win_share": round(float((r > 0).mean()), 4),
+            "r_mean": round(float(r.mean()), 4), "r_ci95": ci_r, "r_ci_decision": ci_decision, "win_share": round(float((r > 0).mean()), 4),
             "tp1_rate": round(float(np.mean([x["hits"] >= 1 for x in res])), 4),
             "placebo_excess": round(float(excess[ok].mean()), 4) if ok.any() else None, "placebo_excess_ci": ci_x,
             "placebo_excess_back": sides["back"], "placebo_excess_forward": sides["forward"], "outcomes": outcomes}
 
 
 def by_year(rows: list[dict]) -> dict[str, dict]:
-    """Par année civile (central) : nombre, R moyen, excès moyen ; « positive » = R moyen > 0 ET excès moyen > 0."""
+    """Par année civile (central) : nombre, R net moyen, excès moyen (descriptif) ; « positive » = R net moyen > 0."""
     out: dict[str, dict] = {}
     for year in sorted({pd.Timestamp(x["at_ns"], unit="ns", tz="UTC").year for x in rows}):
         mine = [x["results"][CENTRAL] for x in rows if pd.Timestamp(x["at_ns"], unit="ns", tz="UTC").year == year]
@@ -214,35 +219,35 @@ def by_year(rows: list[dict]) -> dict[str, dict]:
         ex = np.array([x["excess"] for x in mine if x["excess"] is not None], float)
         out[str(year)] = {"n": len(mine), "r_mean": round(float(r.mean()), 4), "r_sum": round(float(r.sum()), 4),
                           "excess": round(float(ex.mean()), 4) if len(ex) else None,
-                          "positive": bool(r.mean() > 0 and len(ex) and ex.mean() > 0)}
+                          "positive": bool(r.mean() > 0)}
     return out
 
 
 def _passes(summaries: dict) -> bool:
-    return all(s.get("r_ci95") is not None and s.get("placebo_excess_ci") is not None and s["r_ci95"][0] > 0
-               and s["placebo_excess_ci"][0] > 0 for s in summaries.values())
+    return all(s.get("r_ci_decision") is not None and s["r_ci_decision"][0] > 0 for s in summaries.values())
 
 
-def decide(rows: list[dict], *, samples: int = SAMPLES, seed: int = SEED) -> dict:
-    """Décision d'une configuration (docs/PRICE_ACTION.md § 4.5) : INSUFFISANT sous 100 signaux ou intervalle non
-    calculable ; PISTE si l'IC de l'excès (1 − 0,05/5) ET l'IC95 du R sont > 0, central ET défavorable, et que les
-    garde-fous tiennent (même règle sans la meilleure année ; au moins 4 années positives) ; PERTE si l'IC95 du R est
-    < 0 dans les deux scénarios ; sinon RIEN."""
-    summaries = {s: scenario_summary(rows, s, samples=samples, seed=seed) for s in SCENARIOS}
+def decide(rows: list[dict], *, samples: int = SAMPLES, seed: int = SEED,
+           scenarios: tuple[str, ...] = SCENARIOS) -> dict:
+    """Décision d'une configuration (docs/PRICE_ACTION.md § 11.1, R net seul) : INSUFFISANT sous 100 signaux ou
+    intervalle non calculable ; PISTE si l'intervalle 1 − 0,05/5 du R net moyen est > 0 en central ET en défavorable
+    et que les garde-fous tiennent (même règle sans la meilleure année ; au moins 4 années à R net moyen > 0) ; PERTE
+    si l'IC95 du R net est < 0 dans les deux scénarios ; sinon RIEN. Les placebos ne décident de rien."""
+    summaries = {s: scenario_summary(rows, s, samples=samples, seed=seed) for s in scenarios}
     years = by_year(rows) if rows else {}
     out = {"scenarios": summaries, "by_year": years, "guards": None}
-    central = summaries[CENTRAL]
-    if central["n"] < MIN_SIGNALS or any(s.get("r_ci95") is None or s.get("placebo_excess_ci") is None
+    central = summaries[scenarios[0]]
+    if central["n"] < MIN_SIGNALS or any(s.get("r_ci95") is None or s.get("r_ci_decision") is None
                                          for s in summaries.values()):
         return out | {"decision": INSUFFISANT}
     if _passes(summaries):
         best = max(years, key=lambda y: years[y]["r_sum"])
         rest = [x for x in rows if str(pd.Timestamp(x["at_ns"], unit="ns", tz="UTC").year) != best]
-        without = {s: scenario_summary(rest, s, samples=samples, seed=seed) for s in SCENARIOS}
+        without = {s: scenario_summary(rest, s, samples=samples, seed=seed) for s in scenarios}
         positive = sum(1 for y in years.values() if y["positive"])
         guards = {"best_year": best, "without_best_year": {s: {k: without[s].get(k) for k in ("n", "r_mean", "r_ci95",
-                                                                                              "placebo_excess", "placebo_excess_ci")}
-                                                           for s in SCENARIOS},
+                                                                                              "r_ci_decision")}
+                                                           for s in scenarios},
                   "holds_without_best_year": _passes(without), "positive_years": positive, "years": len(years)}
         guards["ok"] = bool(guards["holds_without_best_year"] and positive >= MIN_POSITIVE_YEARS)
         return out | {"guards": guards, "decision": PISTE if guards["ok"] else RIEN}
@@ -328,6 +333,9 @@ def control_of(inscription: str | None) -> dict:
     report = json.loads(path.read_text(encoding="utf-8"))
     if report.get("study") != STUDY or set(report.get("configs", {})) != set(D.CONFIGS):
         raise NotReady("fichier du contrôle sous H0 d'une autre étude ou incomplet")
+    if report.get("control") != CONTROL_KIND:
+        raise NotReady(f"contrôle inscrit {report.get('control')} : seul le contrôle sous H0 n° 2 ({CONTROL_KIND}, "
+                       "décision au R net seul) autorise l'exécution")
     return report
 
 
@@ -446,8 +454,8 @@ def run(settings: Settings, *, now: datetime, workers: int = 2, progress: Callab
     kept = tuple(c for c in D.CONFIGS if control["configs"][c]["passes"])
     removed = [c for c in D.CONFIGS if c not in kept]
     if not kept:
-        raise NotReady("toutes les configurations ont échoué au contrôle sous H0 : étude historique abandonnée, 0 essai, "
-                       "aucune donnée réelle lue (docs/PRICE_ACTION.md § 5.5)")
+        raise NotReady("aucune configuration validée par le contrôle sous H0 n° 2 : étude historique abandonnée, 0 essai, "
+                       "aucune donnée réelle lue (docs/PRICE_ACTION.md § 11.6)")
     end = development_end_exclusive(settings)
     members = load_membership(settings)
     by_month = membership_index(members, end)
@@ -469,7 +477,8 @@ def run(settings: Settings, *, now: datetime, workers: int = 2, progress: Callab
     report_dir.mkdir(parents=True, exist_ok=True)
     summary = {"run_id": run_id, "study": STUDY, "doc": "docs/PRICE_ACTION.md", "n_trials": len(kept),
                "program_trials": program, "configs_kept": list(kept), "configs_removed_h0": removed,
-               "decisions": {c: decisions[c]["decision"] for c in kept} | dict.fromkeys(removed, RETIREE),
+               "decisions": {c: decisions[c]["decision"] for c in kept}
+                            | {c: f"{RETIREE}:{control['configs'][c].get('status', '?')}" for c in removed},
                "details": decisions, "counts": main["counts"], "survivors_descriptive": survivors,
                "survivors_counts": surv["counts"], "missing_hourly": main["missing"], "events": len(events),
                "symbols": symbols, "code_review": CODE_REVIEW, "controle_h0": CONTROLE_H0, "commit": state}
@@ -496,4 +505,5 @@ def study_params() -> dict:
                        "placebo_days": M.PLACEBO_DAYS, "seed_prefix": M.SEED_PREFIX},
             "study": {"first_signal": str(FIRST_SIGNAL), "excess_level": EXCESS_LEVEL, "block_days": BLOCK_DAYS,
                       "samples": SAMPLES, "seed": SEED, "min_blocks": MIN_BLOCKS, "min_signals": MIN_SIGNALS,
+                      "decision": "R net seul, IC 1 − 0,05/5 > 0 central et défavorable (§ 11.1)",
                       "min_positive_years": MIN_POSITIVE_YEARS}}

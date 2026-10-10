@@ -90,13 +90,13 @@ def test_f19_is_registered_after_f18_and_freezes_the_price_action_modules():
                  "crypto_signal_intelligence.price_action.detect", "crypto_signal_intelligence.price_action.manage",
                  "crypto_signal_intelligence.price_action.evaluate", "crypto_signal_intelligence.price_action.state",
                  "crypto_signal_intelligence.price_action.outbox", "crypto_signal_intelligence.forward.costs",
-                 "day_block_ci95", "day_block_ci", "verdict", "figure_store", "ema", "atr", "round_tick", "CandleStore"):
+                 "day_block_ci95", "day_block_ci", "figure_store", "ema", "atr", "round_tick", "CandleStore"):
         assert name in names, name
     doc = PROJECT.joinpath("docs", "FORWARD_TESTS.md").read_text(encoding="utf-8")
     text = registry.section(doc, f19.TEST_ID)
     assert text is not None and registry.missing_fields(text) == []
     for value in ("Placebos", "5 appels par jour", "1,5 R", "84 jours", "sha256", "INSUFFISANT", "aucun gain",
-                  "pa:", "price_action_outbox"):
+                  "pa:", "price_action_outbox", "R net seul", "SUPERIEUR_A_ZERO", "descriptif"):
         assert value in text, value
     assert "F19_PRICE_ACTION" not in registry.section(doc, "Cadre")
     assert f19.TEST.params["detect"]["CONFIGS"] == D.CONFIGS and f19.TEST.params["max_calls_per_day"] == 5
@@ -281,3 +281,15 @@ def test_card_sits_under_the_assistant_in_the_market_tab():
     assert market.index('id="assistant-result"') < market.index('id="price-action-result"') < market.index('id="meteo-result"')
     assert 'api("/price-action")' in script and "loadPriceAction();" in script and "Price action (shadow, test F19)" in script
     assert "aucun gain démontré" in script and "aucun ordre" in script
+
+
+def test_f19_verdict_uses_net_r_only():
+    def block(n=40, days=20, low=0.1, high=0.5, low95=0.05, high95=0.6, excess_ci=(-1.0, -0.5)):
+        return {"n": n, "days": days, "r_ci_decision": (low, high), "r_ci95": (low95, high95), "placebo_excess_ci": excess_ci}
+    assert f19.verdict({"central": block(), "defavorable": block()}, ended=False) == "EN_COURS"
+    assert f19.verdict({"central": block(), "defavorable": block()}, ended=True) == "SUPERIEUR_A_ZERO"   # excès ignoré
+    assert f19.verdict({"central": block(), "defavorable": block(low=-0.01)}, ended=True) == "NON_DEMONTRE"
+    assert f19.verdict({"central": block(low=-0.5, high=-0.1, low95=-0.4, high95=-0.05),
+                        "defavorable": block(low=-0.6, high=-0.2, low95=-0.5, high95=-0.1)}, ended=True) == "INFERIEUR_A_ZERO"
+    assert f19.verdict({"central": block(n=29), "defavorable": block()}, ended=True) == "INSUFFISANT"
+    assert f19.verdict({"central": block(days=9), "defavorable": block()}, ended=True) == "INSUFFISANT"

@@ -561,19 +561,25 @@ def fake_rows(values: list[tuple[str, float, float]]) -> list[dict]:
     return rows
 
 
-def test_decision_rules_and_guards():
+def test_decision_rules_on_net_r_only_and_guards():
     days = pd.date_range("2019-01-03", "2025-05-30", freq="5D", tz="UTC")
     rng = np.random.default_rng(3)
     good = fake_rows([(str(d), 0.6 + rng.normal(0, 0.3), 0.6 + rng.normal(0, 0.3)) for d in days])
     out = S.decide(good, samples=500)
     assert out["decision"] == S.PISTE and out["guards"]["ok"] and out["guards"]["positive_years"] >= 4
+    assert out["scenarios"]["central"]["r_ci_decision"][0] > 0
+    # Les placebos ne décident de rien : même R, excès très négatif → toujours PISTE.
+    against = fake_rows([(str(d), 0.6 + rng.normal(0, 0.3), -2.0) for d in days])
+    assert S.decide(against, samples=500)["decision"] == S.PISTE
+    # Défavorable sous 0 : pas de PISTE (les deux scénarios sont exigés).
+    thin = fake_rows([(str(d), 0.04 + rng.normal(0, 0.02), 0.0) for d in days])
+    assert S.decide(thin, samples=500)["decision"] == S.RIEN
     bad = fake_rows([(str(d), -0.6 + rng.normal(0, 0.3), rng.normal(0, 0.3)) for d in days])
     assert S.decide(bad, samples=500)["decision"] == S.PERTE
     few = fake_rows([(str(d), 1.0, 1.0) for d in days[:99]])
     assert S.decide(few, samples=500)["decision"] == S.INSUFFISANT
     # Tout le gain dans une seule année : les garde-fous refusent la piste.
-    lucky = fake_rows([(str(d), (3.0 if d.year == 2021 else -0.05) + rng.normal(0, 0.05),
-                        (3.0 if d.year == 2021 else -0.05) + rng.normal(0, 0.05)) for d in days])
+    lucky = fake_rows([(str(d), (3.0 if d.year == 2021 else -0.05) + rng.normal(0, 0.05), 0.0) for d in days])
     decided = S.decide(lucky, samples=500)
     assert decided["decision"] == S.RIEN and decided["guards"]["best_year"] == "2021" and not decided["guards"]["ok"]
 
@@ -612,7 +618,12 @@ def test_control_inscription_is_checked(tmp_path):
     with pytest.raises(S.NotReady):
         S.control_of(None)
     path = tmp_path / "criteres.json"
-    path.write_text(json.dumps({"study": S.STUDY, "configs": {c: {"passes": True} for c in D.CONFIGS}}), encoding="utf-8")
+    path.write_text(json.dumps({"study": S.STUDY, "control": "H0_MARCHES_ALEATOIRES",
+                                "configs": {c: {"passes": True} for c in D.CONFIGS}}), encoding="utf-8")
+    with pytest.raises(S.NotReady, match="n° 2"):                       # le contrôle n° 1 n'autorise plus rien
+        S.control_of(f"{path}#{hashlib.sha256(path.read_bytes()).hexdigest()}")
+    path.write_text(json.dumps({"study": S.STUDY, "control": S.CONTROL_KIND,
+                                "configs": {c: {"passes": True} for c in D.CONFIGS}}), encoding="utf-8")
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     assert S.control_of(f"{path}#{digest}")["study"] == S.STUDY
     with pytest.raises(S.NotReady):
@@ -668,7 +679,7 @@ def test_study_end_to_end_on_a_tiny_synthetic_universe(settings, monkeypatch):
     monkeypatch.setattr(S, "control_of", lambda inscription: {"configs": {c: {"passes": c != D.SQUEEZE} for c in D.CONFIGS}})
     summary = S.run(settings, now=pd.Timestamp("2026-10-10", tz="UTC"), workers=1)
     assert summary["n_trials"] == 4 and summary["configs_removed_h0"] == [D.SQUEEZE]
-    assert summary["decisions"][D.SQUEEZE] == S.RETIREE and set(summary["decisions"]) == set(D.CONFIGS)
+    assert summary["decisions"][D.SQUEEZE].startswith(S.RETIREE) and set(summary["decisions"]) == set(D.CONFIGS)
     registry = S.ExperimentRegistry(settings.experiments_db)
     assert registry.count_runs(S.STUDY) == 1 and registry.program_trials("DEVELOPMENT") == 4
     signals = json.loads((Path(registry.get(summary["run_id"])["report_dir"]) / "signals.json").read_text(encoding="utf-8"))

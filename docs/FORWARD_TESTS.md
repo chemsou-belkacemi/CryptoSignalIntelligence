@@ -1360,11 +1360,11 @@ sur l'historique (DEVELOPMENT, exécution unique après relecture) et EN DIRECT,
 `price_action/*` sont figés au démarrage. CSI ne passe aucun ordre ; aucun gain n'est annoncé ni démontré. Attendu, au vu
 de tout le programme : `NON_DEMONTRE` ou `INSUFFISANT` pour chaque configuration.
 
-**Hypothèse.** Pour chaque configuration (`BASE_RETEST`, `SQUEEZE`, `FORCE_RELATIVE`, `INSIDE_DAY`,
-`SORTIE_BASE_LONGUE`), un appel géré avec les règles communes (stop à la clôture de son unité, stop de secours à
-−1,5 R, moitié à +1 R puis l'autre moitié à l'objectif, 10 jours en 4 h ou 30 jours en journalier) rapporte en moyenne
-plus, en R net, que 20 entrées placebo de même géométrie sur la même paire à des moments voisins (±84 h ou ±15 jours),
-et un R net moyen > 0.
+**Hypothèse** (amendée le 2026-10-10 avant le démarrage, `docs/PRICE_ACTION.md` § 11). Pour chaque configuration
+(`BASE_RETEST`, `SQUEEZE`, `FORCE_RELATIVE`, `INSIDE_DAY`, `SORTIE_BASE_LONGUE`), un appel géré avec les règles communes
+(stop à la clôture de son unité, stop de secours à −1,5 R, moitié à +1 R puis l'autre moitié à l'objectif, 10 jours en
+4 h ou 30 jours en journalier) rapporte en moyenne un **R net > 0 après frais**. Les 20 placebos de même géométrie
+(±84 h ou ±15 jours) sont rapportés en descriptif seulement.
 
 **Univers et données.** Paires de la liste halal **figée au DEMARRAGE de F15** (lue dans son journal ; sans journal
 F15, repli sur la liste figée de F19, source inscrite) ; bougies 1 h du magasin de F15 (`forward_figures/data`, tenu à
@@ -1411,29 +1411,33 @@ brutal) est ré-émis au passage suivant, marqué `repaired`. Rien n'est écrit 
 **Placebos.** Pour chaque appel, 20 entrées au marché sur la même paire, tirées sans remise, graine
 `sha256("PRICE_ACTION:" + call_id)`, inscrites à l'appel : clôtures 1 h à `t ± 5…84 h` (configurations 4 h) ou
 `t ± 2…15 jours` à la même heure (journalières) ; même géométrie en pourcentage, même gestion, mêmes frais ; un placebo
-dont la bougie d'entrée manque est écarté. Excès = R de l'appel − moyenne des placebos ; en descriptif, excès arrière et
-avant. Les placebos avant attendent jusqu'à 84 h ou 15 jours : un appel se résout au plus tard à t + 84 h + 10 jours ou
+dont la bougie d'entrée manque est écarté. Excès = R de l'appel − moyenne des placebos ; **descriptif seulement** :
+excès global, arrière et surtout « avant » (t + 5 → t + 84 h, ou t + 2 → t + 15 jours) ; les placebos arrière sont
+biaisés (contrôle H0 n° 1, ci-dessous) et ne décident de rien. Les placebos avant attendent jusqu'à 84 h ou 15 jours : un appel se résout au plus tard à t + 84 h + 10 jours ou
 t + 15 + 30 jours ; bougies encore manquantes 2 jours après : `TROU`, hors mesure.
 
 **Paramètres** (figés dans le code, `price_action/detect.py` et `manage.py`, énumérés dans `forward/f19.py`) : ceux du
 tableau de `docs/PRICE_ACTION.md` § 2.6 ; 300 jours lus ; retard maximal 30 min ; 5 appels par jour ; minimum **30 appels
-résolus** sur **10 jours** par configuration pour conclure ; IC95 du R par blocs de 7 jours (10 000 tirages, graine
-20261010) ; intervalle de l'excès au niveau 1 − 0,05/5 (cinq configurations) ; trou constaté 2 jours après la fenêtre.
-Gel : modules `forward/f19`, `price_action` (paquet), `price_action/detect`, `manage`, `evaluate`, `state`, `outbox`,
-`forward/costs`, `registry`, `journal` ; fonctions `day_block_ci95`, `day_block_ci`, `f4.verdict`, `f15.figure_store`,
+résolus** sur **10 jours** par configuration pour conclure ; intervalle de décision du R net au niveau 1 − 0,05/5
+(cinq configurations) et IC95, par blocs de 7 jours (10 000 tirages, graine 20261010) ; trou constaté 2 jours après la
+fenêtre. Gel : modules `forward/f19` (qui porte son verdict), `price_action` (paquet), `price_action/detect`, `manage`,
+`evaluate`, `state`, `outbox`, `forward/costs`, `registry`, `journal` ; fonctions `day_block_ci95`, `day_block_ci`,
+`f15.figure_store`,
 `indicators.ema`, `primitives.atr/true_range`, `analysis.round_tick`, `CandleStore` ; configuration
 `data.assumed_availability_latency_seconds`. Le pas de cotation (`data.tick_size`) n'est pas gelé : il ne sert qu'à
 arrondir les niveaux.
 
-**Métrique.** Par configuration : **R net moyen** des appels résolus (central et défavorable), IC95 par blocs de 7
-jours ; excès sur les placebos et son intervalle. Descriptif : évaluations, tardives, candidats, appels par semaine,
+**Métrique.** Par configuration : **R net moyen** des appels résolus (central et défavorable), intervalle 1 − 0,05/5 et
+IC95 par blocs de 7 jours. Descriptif : excès global et « avant » sur les placebos, évaluations, tardives, candidats, appels par semaine,
 taux de TP1 et d'objectif, part gagnante, pire série, excès arrière et avant, refus par raison, trous, en attente, et
 l'ensemble des configurations en central (sans verdict). `n_trials` = 1 en FORWARD.
 
-**Seuil de décision** (à la date d'évaluation, tous les appels résolus ; `forward/f4.verdict`, **par configuration**) :
-`INSUFFISANT` (moins de 30 appels résolus ou de 10 jours, ou intervalle non calculable) ; `SUPERIEUR_AU_HASARD` (IC95
-du R moyen ET intervalle de l'excès entièrement au-dessus de 0, en central ET en défavorable) ; `INFERIEUR_AU_HASARD`
-(IC95 du R moyen entièrement sous 0 dans les deux scénarios) ; sinon `NON_DEMONTRE`. L'ensemble n'a pas de verdict propre.
+**Seuil de décision** (à la date d'évaluation, tous les appels résolus ; `forward/f19.verdict`, **par configuration**,
+sur le **R net seul**) : `INSUFFISANT` (moins de 30 appels résolus ou de 10 jours, ou intervalle non calculable) ;
+`SUPERIEUR_A_ZERO` (intervalle 1 − 0,05/5 du R net moyen entièrement au-dessus de 0, en central ET en défavorable) ;
+`INFERIEUR_A_ZERO` (IC95 du R net moyen entièrement sous 0 dans les deux scénarios) ; sinon `NON_DEMONTRE`. Les placebos
+ne décident de rien. `SUPERIEUR_A_ZERO` ne dit pas « mieux qu'une entrée au hasard » : la dérive du marché pendant les
+84 jours y entre. L'ensemble n'a pas de verdict propre.
 
 **Date d'évaluation.** Fin du recueil 84 jours après le démarrage ; revue intermédiaire à 42 jours (descriptive, aucun
 changement de règle) ; verdict une fois le dernier appel résolu (jusqu'à 84 + 45 + 2 jours pour une configuration
@@ -1447,13 +1451,11 @@ paires, de l'ordre de 17 candidats par jour (extrapolation) : le quota de 5 appe
 quelques centaines d'appels en 84 jours répartis sur les configurations ; `FORCE_RELATIVE` dépend des chutes de BTC et
 restera probablement `INSUFFISANT`, comme toute configuration qui n'atteint pas 30 appels résolus.
 
-**Contrôle sous H0 (2026-10-10, avant le démarrage ; `docs/PRICE_ACTION.md` § 5.5).** Sur un marché synthétique sans
-information, avec ces mêmes détecteur, gestion et placebos, l'excès moyen sur les placebos vaut −0,20 à −0,42 R selon la
-configuration (placebos arrière : −0,47 à −0,86 R ; placebos avant : −0,004 à +0,075 R) : les cinq configurations
-échouent au contrôle. Ici, l'intervalle de l'excès porte donc ce biais négatif : `SUPERIEUR_AU_HASARD` est presque
-impossible par construction ; `INFERIEUR_AU_HASARD` (R seul) reste valable ; l'issue attendue est `NON_DEMONTRE` ou
-`INSUFFISANT`. Le démarrage de F19 avec ces placebos est une décision du propriétaire, prise en connaissance de ce
-résultat.
+**Contrôle sous H0 (2026-10-10, avant le démarrage ; `docs/PRICE_ACTION.md` § 5.5 et § 11).** Contrôle n° 1 : sur un
+marché synthétique sans information, avec ces mêmes détecteur, gestion et placebos, l'excès moyen vaut −0,20 à −0,42 R
+(placebos arrière −0,47 à −0,86 R, placebos avant −0,004 à +0,075 R) : critère d'excès abandonné, placebos devenus
+descriptifs. Contrôle n° 2 (décision au R net seul) : chiffres au § 11.6 de `PRICE_ACTION.md` ; une configuration
+`INSTRUMENT_TROP_FAIBLE` sur l'historique est quand même mesurée ici.
 
 **Limites déclarées.** Entrée au prix de clôture alors que l'appel est connu quelques minutes plus tard (glissement
 taker compté, aucun prix réel d'exécution) ; liste halal figée de F15 choisie en 2026 (biais des survivantes) ; appels

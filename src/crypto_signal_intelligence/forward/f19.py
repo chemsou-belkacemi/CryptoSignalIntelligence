@@ -1,12 +1,12 @@
-"""F19_PRICE_ACTION : les cinq configurations « price action » (docs/PRICE_ACTION.md) mesurées en direct contre des
-placebos (docs/FORWARD_TESTS.md, section F19_PRICE_ACTION ; règles figées au démarrage, modules `price_action/*` gelés).
+"""F19_PRICE_ACTION : les cinq configurations « price action » (docs/PRICE_ACTION.md) mesurées en direct, verdict au R
+NET SEUL, placebos descriptifs (§ 11.5 ; docs/FORWARD_TESTS.md, section F19_PRICE_ACTION ; règles figées au démarrage, modules `price_action/*` gelés).
 
 À chaque passage horaire de la surveillance : si une clôture 4 h UTC est passée depuis le démarrage, pas encore
 évaluée, et que la bougie 1 h qui la clôture est en magasin (magasin de F15, lecture seule), le détecteur partagé est
 appelé une fois sur cette clôture (EVALUATION) — c'est aussi la clôture journalière à 00:00 UTC ; chaque appel retenu
 (5 par jour UTC au plus, toutes configurations) est inscrit (APPEL, placebos tirés d'avance) et déposé dans la boîte
 Telegram `state/price_action_outbox.json`. Résolution sur les bougies 1 h du même magasin (RESOLUTION : appel et 20
-placebos de même géométrie, même gestion, mêmes frais) ; VERDICT par configuration à la date d'évaluation une fois
+placebos de même géométrie, même gestion, mêmes frais, descriptifs) ; VERDICT par configuration à la date d'évaluation une fois
 tout résolu, puis CLOTURE. Rien n'est écrit dans `SignalRegistry`, `signals/` ni `state/assistant*`.
 """
 from __future__ import annotations
@@ -23,7 +23,6 @@ from ..price_action import detect as D
 from ..price_action import evaluate as ev
 from ..price_action import manage as M
 from ..price_action import outbox, state
-from . import f4
 from .costs import ADVERSE, CENTRAL, SCENARIOS
 from .journal import Journal, utc_iso
 from .registry import ForwardTest
@@ -32,10 +31,12 @@ TEST_ID = ev.TEST_ID
 EVALUATION, CALL, RESOLUTION = "EVALUATION", "APPEL", "RESOLUTION"
 RESOLVED, GAP = M.RESOLVED, M.GAP
 ALPHA, TESTS = 0.05, 5
-LEVEL = 1 - ALPHA / TESTS                    # intervalle de l'excès : 1 − 0,05/5 (cinq configurations)
+LEVEL = 1 - ALPHA / TESTS                    # intervalle de décision du R net : 1 − 0,05/5 (cinq configurations)
 SAMPLES, SEED, BLOCK_DAYS = 10_000, 20261010, 7
 GAP_AFTER = pd.Timedelta(days=2)
-MIN_RESOLVED, MIN_DAYS = f4.MIN_RESOLVED, f4.MIN_DAYS
+MIN_RESOLVED, MIN_DAYS = 30, 10
+ABOVE, BELOW, NOT_SHOWN, INSUFFICIENT, RUNNING = ("SUPERIEUR_A_ZERO", "INFERIEUR_A_ZERO", "NON_DEMONTRE", "INSUFFISANT",
+                                                  "EN_COURS")
 
 
 # --- Journal -----------------------------------------------------------------------------------------------------------------
@@ -259,6 +260,7 @@ def _measure(rows: list[dict], scenario: str, *, samples: int = SAMPLES, seed: i
     excess = np.array([np.nan if x["results"][scenario]["excess"] is None else x["results"][scenario]["excess"] for x in rows], float)
     ok = np.isfinite(excess)
     ci_r, _ = day_block_ci95(r, times, block_days=BLOCK_DAYS, samples=samples, seed=seed, min_blocks=8)
+    ci_d, _ = day_block_ci(r, times, block_days=BLOCK_DAYS, samples=samples, seed=seed, level=LEVEL, min_blocks=8)
     ci_x, _ = (day_block_ci(excess[ok], times[ok], block_days=BLOCK_DAYS, samples=samples, seed=seed, level=LEVEL, min_blocks=8)
                if ok.any() else (None, 0))
     hits = np.array([x["results"][scenario]["hits"] for x in rows])
@@ -274,10 +276,28 @@ def _measure(rows: list[dict], scenario: str, *, samples: int = SAMPLES, seed: i
         streak = streak + 1 if value < 0 else 0
         worst = max(worst, streak)
     return {"n": int(len(r)), "days": int(pd.DatetimeIndex(times).floor("D").nunique()), "r_mean": round(float(r.mean()), 4),
-            "r_ci95": ci_r, "win_share": round(float((r > 0).mean()), 4), "tp1_rate": round(float((hits >= 1).mean()), 4),
+            "r_ci95": ci_r, "r_ci_decision": ci_d, "win_share": round(float((r > 0).mean()), 4), "tp1_rate": round(float((hits >= 1).mean()), 4),
             "target_rate": round(float(target.mean()), 4), "worst_streak": int(worst),
             "placebo_excess": round(float(excess[ok].mean()), 4) if ok.any() else None, "placebo_excess_ci": ci_x,
             "placebo_excess_back": sides["back"], "placebo_excess_forward": sides["forward"]}
+
+
+def verdict(scenarios: dict, *, ended: bool) -> str:
+    """Seuil de décision d'une configuration, sur le R NET SEUL (docs/PRICE_ACTION.md § 11.5) : INSUFFISANT sous 30
+    appels résolus ou 10 jours (ou intervalle non calculable) ; SUPERIEUR_A_ZERO si l'intervalle 1 − 0,05/5 du R net
+    moyen est > 0 en central ET en défavorable ; INFERIEUR_A_ZERO si l'IC95 est < 0 dans les deux ; sinon
+    NON_DEMONTRE. Les placebos ne décident de rien (biais des placebos arrière, contrôle H0 n° 1)."""
+    if not ended:
+        return RUNNING
+    central, adverse = scenarios.get(CENTRAL, {}), scenarios.get(ADVERSE, {})
+    if central.get("n", 0) < MIN_RESOLVED or central.get("days", 0) < MIN_DAYS or any(
+            x.get(k) is None for x in (central, adverse) for k in ("r_ci95", "r_ci_decision")):
+        return INSUFFICIENT
+    if central["r_ci_decision"][0] > 0 and adverse["r_ci_decision"][0] > 0:
+        return ABOVE
+    if central["r_ci95"][1] < 0 and adverse["r_ci95"][1] < 0:
+        return BELOW
+    return NOT_SHOWN
 
 
 def stats(journal: Journal, start: dict, *, now: datetime) -> dict:
@@ -300,7 +320,7 @@ def stats(journal: Journal, start: dict, *, now: datetime) -> dict:
         scenarios = {s: _measure(mine, s) for s in SCENARIOS}
         configs[config] = {"calls": sum(1 for c in decided.values() if c["config"] == config), "resolved": len(mine),
                            "candidates": candidates.get(config, 0), "scenarios": scenarios,
-                           "verdict": f4.verdict(scenarios, ended=ended)}
+                           "verdict": verdict(scenarios, ended=ended)}
     return {"evaluations": len(evaluations), "late": sum(1 for e in evaluations if e.get("late")),
             "candidates": sum(candidates.values()), "calls": len(decided), "resolved": len(resolved),
             "gaps": sum(1 for r in done.values() if r["status"] == GAP), "pending": sum(1 for k in decided if k not in done),
@@ -328,15 +348,16 @@ TEST = ForwardTest(
     title="Price action : base et retest, compression, force relative, journée intérieure, base longue, contre placebos",
     hypothesis=("Un appel d'une des cinq configurations « price action » (docs/PRICE_ACTION.md), géré avec stop de clôture de son "
                 "unité, stop de secours à −1,5 R, moitié à +1 R puis l'autre à l'objectif, 10 ou 30 jours au plus, rapporte en "
-                "moyenne plus, en R net, que 20 entrées placebo de même géométrie sur la même paire (±84 h ou ±15 jours). "
-                "Verdict par configuration. Attendu : NON_DEMONTRE ou INSUFFISANT."),
+                "moyenne un R net > 0 après frais (verdict par configuration sur le R net seul ; 20 placebos de même "
+                "géométrie rapportés en descriptif). Attendu : NON_DEMONTRE ou INSUFFISANT."),
     params={"evaluation": "chaque clôture 4 h UTC (la clôture journalière est celle de 00:00)",
             "history_days": ev.HISTORY_DAYS, "max_calls_per_day": ev.MAX_CALLS_PER_DAY, "max_delay_minutes": 30,
             "detect": D.params(),
             "manage": {"hard_stop_factor": M.HARD_STOP_FACTOR, "tp1_share": M.TP1_SHARE, "max_hold_days": M.MAX_HOLD_DAYS,
                        "rest_hours": M.REST_HOURS, "placebos": M.PLACEBOS, "placebo_hours": list(M.PLACEBO_HOURS),
                        "placebo_days": list(M.PLACEBO_DAYS), "seed_prefix": M.SEED_PREFIX},
-            "min_resolved": MIN_RESOLVED, "min_days_resolved": MIN_DAYS, "alpha": ALPHA, "tests": TESTS, "excess_level": LEVEL,
+            "min_resolved": MIN_RESOLVED, "min_days_resolved": MIN_DAYS, "alpha": ALPHA, "tests": TESTS, "decision_level": LEVEL,
+            "decision": "R net seul (docs/PRICE_ACTION.md § 11.5) ; placebos descriptifs",
             "samples": SAMPLES, "seed": SEED, "block_days": BLOCK_DAYS, "gap_after_days": GAP_AFTER.days,
             "exits": "taker partout ; bougie 1 h touchant objectif et stop de secours : stop",
             "universe": "liste halal figée de F15, magasin forward_figures/data en lecture seule"},
@@ -348,7 +369,6 @@ TEST = ForwardTest(
                     "crypto_signal_intelligence.forward.registry", "crypto_signal_intelligence.forward.journal"),
     frozen_functions=(("crypto_signal_intelligence.backtest.metrics", "day_block_ci95"),
                       ("crypto_signal_intelligence.backtest.metrics", "day_block_ci"),
-                      ("crypto_signal_intelligence.forward.f4", "verdict"),
                       ("crypto_signal_intelligence.forward.f15", "figure_store"),
                       ("crypto_signal_intelligence.patterns.indicators", "ema"),
                       ("crypto_signal_intelligence.patterns.primitives", "atr"),

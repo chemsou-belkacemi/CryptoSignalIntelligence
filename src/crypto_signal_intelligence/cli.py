@@ -2509,21 +2509,25 @@ def price_action_counts(debut: str = typer.Option(..., "--debut", help="Premièr
 
 @price_action_app.command("controle-h0")
 def price_action_h0(workers: int = typer.Option(2, "--workers", help="Processus (4 au plus)"), verbose: bool = False):
-    """Contrôle sous l'hypothèse nulle (docs/PRICE_ACTION.md § 5) : marché synthétique de 100 paires × 6 ans et un BTC,
-    pipeline exact de l'étude ; écrit `reports/PRICE_ACTION-H0-<commit>/criteres.json` à inscrire (CONTROLE_H0)."""
+    """Contrôle sous l'hypothèse nulle n° 2 (docs/PRICE_ACTION.md § 11.4, décision au R net seul) : marché synthétique de
+    100 paires × 6 ans et un BTC, pipeline exact de l'étude, 200 sous-échantillons de 40 paires (faux PISTE) et contrôle
+    positif (+0,15 R net) ; écrit `reports/PRICE_ACTION-H0N2-<commit>/criteres.json` à inscrire (CONTROLE_H0)."""
     from .research import price_action_h0 as H
     from .research.experiments import code_state
     settings = _settings(verbose)
     _heavy_job(settings)
     commit = code_state()
-    out_dir = settings.reports_dir / f"PRICE_ACTION-H0-{commit[:12]}{'-DIRTY' if commit.endswith('+DIRTY') else ''}"
-    with console.status("contrôle sous H0…") as status:
+    out_dir = settings.reports_dir / f"PRICE_ACTION-H0N2-{commit[:12]}{'-DIRTY' if commit.endswith('+DIRTY') else ''}"
+    with console.status("contrôle sous H0 n° 2…") as status:
         report = H.run(now=_now(), out_dir=out_dir, workers=min(workers, 4), progress=lambda text: status.update(f"H0 : {text}"))
-    table = Table("Configuration", "Signaux", "R moyen", "Excès", "Excès arrière", "Excès avant", "Couverture", "Groupes", "Passe")
+    table = Table("Configuration", "Signaux", "R net (central / défav.)", "Excès global / avant (descr.)", "Faux PISTE",
+                  "R brut IC > 0 (descr.)", "Dérive (R/h)", "Puissance", "Issue")
     for config, c in report["configs"].items():
-        table.add_row(config, str(c["n"]), str(c.get("r_mean")), str(c.get("excess")), str(c.get("excess_back")),
-                      str(c.get("excess_forward")), str(c.get("coverage")), str(c.get("groups_defined")),
-                      "oui" if c["passes"] else "NON : " + " ; ".join(c["reasons"]))
+        positive = c.get("positive") or {}
+        table.add_row(config, str(c["n"]), f"{c.get('r_mean')} / {c.get('r_mean_adverse')}",
+                      f"{c.get('excess')} / {c.get('excess_forward')}", str(c["false_piste_rate"]),
+                      str(c["null"]["gross_ci_positive_rate"]), f"{positive.get('drift_r_per_hour', 0):.5f}",
+                      str(c["power"]), c["status"] + ("" if c["passes"] else " : " + " ; ".join(c["reasons"])))
     console.print(table)
     console.print(f"Fichier : {report['path']}\nInscription : CONTROLE_H0 = \"{report['path']}#{report['sha256']}\"")
 
@@ -2544,8 +2548,8 @@ def price_action_execute(executer: bool = typer.Option(False, "--executer", help
         st.require_clean_and_reviewed(code_state(), settings=settings)
         control = st.control_of(st.CONTROLE_H0)
         if not control.get("kept"):
-            raise st.NotReady("toutes les configurations ont échoué au contrôle sous H0 : étude historique abandonnée, "
-                              "0 essai (docs/PRICE_ACTION.md § 5.5)")
+            raise st.NotReady("aucune configuration validée par le contrôle sous H0 n° 2 : étude historique abandonnée, "
+                              "0 essai (docs/PRICE_ACTION.md § 11.6)")
     except (DirtyCode, st.NotReady) as exc:
         console.print(f"[red]Aucun calcul :[/red] {exc}")
         raise typer.Exit(3) from None

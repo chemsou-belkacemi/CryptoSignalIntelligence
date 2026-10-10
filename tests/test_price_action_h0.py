@@ -3,8 +3,8 @@
 Le contrôle complet (100 paires × 6 ans + BTC, pipeline exact de l'étude) est LENT : lancé seulement avec `--lents`
 (`CSI_PA_H0_PAIRS`, `CSI_PA_H0_WORKERS` pour le réduire ou l'accélérer ; déterministe : même code, même graine, mêmes
 chiffres). Le passage qui fait foi est celui de `csi price-action controle-h0`, inscrit dans
-`research/price_action_review.CONTROLE_H0`. Les autres tests de ce fichier vérifient le générateur et le calcul des
-critères sur des lignes fabriquées, sans lancer le contrôle."""
+`research/price_action_review.CONTROLE_H0`. Les autres tests de ce fichier vérifient le générateur, le R brut, la
+dérive du contrôle positif et les critères sur un pipeline de 3 paires, sans lancer le contrôle."""
 from __future__ import annotations
 
 import os
@@ -26,35 +26,55 @@ def test_synthetic_market_is_deterministic_martingale_shaped_and_spans_six_years
     assert (a["low"] > 0).all() and (a["quote_volume"] > 0).all()
     r = a["close"].pct_change().dropna()
     assert abs(r.mean()) < 4 * r.std() / np.sqrt(len(r))                 # aucune dérive détectable
-    assert H.symbol_of(H.PAIRS) == "BTCUSDT" and H.symbol_of(7) == "H07USDT" and H.group_of("H47USDT") == 7
-    assert H.group_of("H47USDT", 6) == 5 and [H.groups_for(n) for n in (50, 350, 664, 5124)] == [3, 3, 6, 20]
+    assert H.symbol_of(H.PAIRS) == "BTCUSDT" and H.symbol_of(7) == "H07USDT"
     assert not H.market(3).equals(H.market(4))
 
 
-def fabricated(values: list[tuple[int, str, float]]) -> list[dict]:
-    """(indice de paire, date, excès) → lignes au format de l'étude (central seulement)."""
-    rows = []
-    for index, date, excess in values:
-        at = pd.Timestamp(date, tz="UTC")
-        rows.append({"symbol": H.symbol_of(index), "at_ns": int(D.to_ns([at])[0]),
-                     "results": {"central": {"r": excess, "excess": excess, "excess_back": excess, "excess_forward": excess}}})
-    return rows
+def test_subsets_are_reproducible_samples_of_forty_pairs():
+    first, again = H.subsets(), H.subsets()
+    assert first == again and len(first) == H.REPLICATES == 200
+    assert all(len(x) == 40 and x <= {H.symbol_of(i) for i in range(H.PAIRS)} for x in first)
+    assert len({frozenset(x) for x in first}) > 190
+    assert pytest.approx(0.02) == H.MAX_FALSE_PISTE and H.MIN_POWER == 0.5 and H.TARGET_NET_R == 0.15
 
 
-def test_criteria_coverage_and_reasons_on_fabricated_rows():
-    rng = np.random.default_rng(0)
-    days = pd.date_range("2019-01-01", "2024-12-01", freq="3D", tz="UTC")
-    unbiased = fabricated([(k % H.PAIRS, str(d), float(rng.normal(0, 1))) for k, d in enumerate(days) for _ in range(1)])
-    unbiased += fabricated([((k + 37) % H.PAIRS, str(d), float(rng.normal(0, 1))) for k, d in enumerate(days)])
-    out = H.criteria(unbiased, samples=500)
-    assert out["n"] == len(unbiased) and out["groups_count"] == H.groups_for(len(unbiased)) == len(out["groups"])
-    assert out["groups_defined"] == out["groups_count"] and out["coverage"] is not None
-    biased = fabricated([(k % H.PAIRS, str(d), float(rng.normal(0.8, 0.2))) for k, d in enumerate(days)] * 2)
-    worse = H.criteria(biased, samples=500)
-    assert not worse["passes"] and any("excès" in reason for reason in worse["reasons"]) and worse["coverage"] < 0.9
-    few = H.criteria(fabricated([(1, "2020-01-01", 0.0)] * 20), samples=500)
-    assert not few["passes"] and any("non jugeable" in reason for reason in few["reasons"])
-    assert few["coverage"] == 0.0                                       # groupes sans intervalle : non couverts
+@pytest.fixture(scope="module")
+def tiny():
+    """Pipeline exact sur 3 paires synthétiques (vérification du code, pas le contrôle)."""
+    collected = H.collect(pairs=3, workers=1)
+    return collected, H.hours_for(3)
+
+
+def test_gross_r_and_zero_drift_reproduce_the_pipeline(tiny):
+    collected, hours_of = tiny
+    rows = collected["rows"][D.INSIDE_DAY][:30]
+    assert rows and set(rows[0]["results"]) == {"central", "defavorable"}
+    for row in rows:
+        for scenario in H.SCENARIOS:
+            assert H.drifted(hours_of[row["symbol"]], row, 0.0, scenario) == pytest.approx(row["results"][scenario]["r"], abs=1e-6)
+        assert H.gross_r(row, "central") == pytest.approx(H.gross_r(row, "defavorable"), abs=1e-4)   # mêmes prix, frais retirés (R arrondis à 1e-6)
+        assert H.gross_r(row, "central") > row["results"]["central"]["r"]
+
+
+def test_positive_drift_is_calibrated_to_plus_fifteen_hundredths_of_r(tiny):
+    collected, hours_of = tiny
+    rows = collected["rows"][D.BASE_RETEST]
+    m = H.calibrate(rows, hours_of)
+    assert m > 0
+    mean = np.mean([H.drifted(hours_of[r["symbol"]], r, m, "central") for r in rows])
+    assert H.TARGET_NET_R <= mean < H.TARGET_NET_R + 0.02                # au plus près par-dessus (sauts de la moyenne)
+    assert np.mean([H.drifted(hours_of[r["symbol"]], r, m, "defavorable") for r in rows]) < mean
+
+
+def test_criteria_statuses_on_the_tiny_pipeline(tiny):
+    collected, hours_of = tiny
+    samples = [{H.symbol_of(i) for i in range(3)}] * 4
+    out = H.criteria(collected["rows"][D.INSIDE_DAY], hours_of, samples, decision_samples=200)
+    assert {"false_piste_rate", "power", "status", "passes", "null", "positive", "excess_forward"} <= set(out)
+    assert out["null"]["replicates"] == 4 and out["status"] in (H.VALID, H.FAILED, H.WEAK)
+    assert out["passes"] == (out["status"] == H.VALID)
+    empty = H.criteria([], hours_of, samples, decision_samples=200)
+    assert empty["status"] == H.WEAK and empty["power"] == 0.0 and empty["false_piste_rate"] == 0.0
 
 
 @pytest.mark.slow
@@ -62,7 +82,8 @@ def test_h0_control_full_run(tmp_path):
     pairs = int(os.environ.get("CSI_PA_H0_PAIRS", str(H.PAIRS)))
     workers = int(os.environ.get("CSI_PA_H0_WORKERS", "2"))
     report = H.run(now=pd.Timestamp.now(tz="UTC"), out_dir=tmp_path, workers=workers, pairs=pairs)
-    print("\nCONTROLE H0 PRICE ACTION :", {c: {k: v for k, v in r.items() if k != "groups"} for c, r in report["configs"].items()})
-    assert set(report["configs"]) == set(D.CONFIGS) and (tmp_path / "criteres.json").exists()
+    print("\nCONTROLE H0 N° 2 PRICE ACTION :", {c: (r["n"], r["false_piste_rate"], r["power"], r["status"])
+                                                for c, r in report["configs"].items()})
+    assert report["control"] == "H0_N2_R_NET" and set(report["configs"]) == set(D.CONFIGS)
     for result in report["configs"].values():
-        assert {"n", "passes", "reasons"} <= set(result)
+        assert {"n", "passes", "reasons", "false_piste_rate", "power", "status"} <= set(result)
