@@ -160,6 +160,14 @@ def replique(k: int, test_ids: list[str], marches: tuple[str, ...] = MARCHES, *,
     return out
 
 
+def memoire_pic_mo() -> int:
+    """Pic de mémoire résidente du processus courant, en Mo (Linux : ru_maxrss en Kio ; macOS : en octets)."""
+    import resource
+    import sys
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return int(peak / (1024 * 1024) if sys.platform == "darwin" else peak / 1024)
+
+
 def _travail(args: tuple) -> tuple[int, str]:
     k, test_ids, marches, out_dir, n_paires, externes, evenements = args
     path = Path(out_dir) / "repliques" / f"{k:03d}.json"
@@ -167,8 +175,7 @@ def _travail(args: tuple) -> tuple[int, str]:
         return k, "deja_faite"
     os.environ.setdefault("OMP_NUM_THREADS", "1")
     summary = replique(k, test_ids, marches, n_paires=n_paires, externes=externes, evenements=evenements)
-    from ...live.priority import peak_memory_mb
-    summary["memoire_pic"] = peak_memory_mb()
+    summary["memoire_pic_mo"] = memoire_pic_mo()
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(summary, ensure_ascii=False, default=float), encoding="utf-8")
     tmp.replace(path)
@@ -322,7 +329,7 @@ def executer(out_dir: Path, test_ids: list[str], *, repliques: int = REPLIQUES, 
     report = {**plan, "date": (now or datetime.now()).isoformat(), "secondes_totales": round(time.perf_counter() - started, 1),
               "secondes_par_replique": {m: round(float(np.mean([r["secondes"][m] for r in resumes])), 1)
                                         for m in marches},
-              "memoire_pic_mo": max((r.get("memoire_pic") or {}).get("ram_peak_mb", 0) or 0 for r in resumes),
+              "memoire_pic_mo": max(int(r.get("memoire_pic_mo") or 0) for r in resumes),
               **criteres(resumes, test_ids)}
     final.write_text(json.dumps(report, indent=2, ensure_ascii=False, default=float), encoding="utf-8")
     report["path"] = str(final)
