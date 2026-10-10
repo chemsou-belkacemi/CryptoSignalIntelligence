@@ -1482,6 +1482,581 @@ corrélés entre paires (mêmes jours de marché, et jusqu'à 3 appels `FORCE_RE
 partagent le régime de l'appel ; amorçage des moyennes sur 300 jours (écart négligeable avec l'historique) ; 12
 semaines ne valident rien ; `INSUFFISANT` est probable pour les configurations rares, et c'est une réponse acceptable.
 
+## F20_BASE_RETEST : la configuration `BASE_RETEST` seule (base, cassure puis retest), quota propre, contre placebos
+
+Demande du propriétaire du 2026-10-10 : en plus de F19_PRICE_ACTION, qui reste tel quel, **cinq tests séparés**, un par
+configuration (F20 à F24). Celui-ci mesure `BASE_RETEST` (4 h) **seule**, avec **son propre quota**. Règles,
+gestion, frais, placebos et verdict : **ceux de F19** (section `F19_PRICE_ACTION` ci-dessus) et de `docs/PRICE_ACTION.md`
+(§ 2, § 3 et § 11), sans aucun changement ; code commun `forward/pa_single.py`, module du test `forward/f20.py`.
+CSI ne passe aucun ordre ; aucun gain n'est annoncé ni démontré. Attendu : `NON_DEMONTRE` ou `INSUFFISANT` (ou
+`INFERIEUR_A_ZERO`, voir plus bas).
+
+**Hypothèse.** Un appel `BASE_RETEST`, géré avec les règles communes de F19 (stop à la clôture de son unité, stop de
+secours à −1,5 R, moitié à +1 R puis l'autre moitié à l'objectif, 10 jours en 4 h ou 30 jours en journalier), rapporte
+en moyenne un **R net > 0 après frais**. Les 20 placebos de même géométrie sont rapportés en descriptif seulement.
+
+**Univers et données.** Ceux de F19 : paires de la liste halal **figée au DEMARRAGE de F15** (sans journal F15, repli
+sur la liste figée de F20, source inscrite) ; bougies 1 h du magasin de F15 (`forward_figures/data`, lecture seule,
+tenu à jour par la surveillance après la fin de F15 tant que F18, F19 ou l'un de F20 à F24 est en cours ou en résolution,
+`forward/runner.refresh_figure_store`) ; 300 jours lus ; BTCUSDT du même magasin (sinon de celui de la surveillance).
+Évaluation à **chaque clôture 4 h UTC** (la clôture journalière est celle de 00:00), une fois, jamais après coup, dès
+que la bougie 1 h de clôture de BTCUSDT est en magasin. **Une seule détection par clôture et par passage pour F20 à
+F24** : la lecture du magasin et le détecteur partagé (`scan_pair`, `force_events`, `force_pair`) sont faits une fois,
+paire par paire, gardés en mémoire du processus (clé : heure de clôture + empreinte des paires + magasins) et libérés à
+la fin du passage ; la lecture est faite à l'heure réelle du premier des cinq tests qui évalue : les suivants évaluent
+plus tard, donc rien qui leur était inconnu n'y entre (lecture causale). Retard mesuré sur l'**horloge réelle** au
+moment où F20 évalue : **au-delà de 30 min**, l'évaluation est inscrite `late` et aucun appel n'est émis. Journal
+propre `forward/F20_BASE_RETEST.jsonl` ; rien n'est écrit dans `SignalRegistry`, `signals/` ni `state/assistant*`.
+
+**Règles** (celles de F19 pour la seule configuration `BASE_RETEST`, `docs/PRICE_ACTION.md` § 2 et § 3) : base d'au moins 10 bougies 4 h tenant dans 1,5 × ATR14 journalier (étendue en arrière, 180 au plus) ; cassure = clôture au-dessus du haut de base avec un volume > 1,5 × la moyenne des 20 précédentes ; retest dans les 10 bougies (plus bas ≤ haut + 0,25 ATR 4 h) sans clôture sous le haut ; entrée = première clôture qui repart ; stop = haut − 0,25 ATR 4 h ; objectif = haut + hauteur, refus sous +1,5 R.
+Même enchaînement que `price_action/evaluate.evaluate` (détecteur, discipline, retard, arrondi au pas de cotation,
+ordre « les plus récents d'abord » puis l'identifiant sha256 de l'appel), vérifié par un test : mêmes candidats que F19
+avant quota, à discipline égale. **Discipline** : une position active par paire ; 48 h de repos après la sortie (scénario
+central) ; elle est lue dans le journal de F20 seulement. **Quota propre : 5 appels par jour UTC pour `BASE_RETEST`
+seule**, indépendant de F19 et des quatre autres tests séparés. Identifiant d'appel : celui de F19
+(`sha256("PRICE_ACTION:<configuration>:<paire>:<clôture>")`), ce qui fait reconnaître un appel aussi fait par F19.
+**Gestion** : identique à F19 (frais et glissement taker partout ; stop de secours intrabar en 1 h ; une bougie 1 h qui
+touche un objectif et le stop de secours compte le stop ; R = résultat net / (entrée − stop)).
+
+**Placebos.** Ceux de F19 (20 entrées au marché sur la même paire, même géométrie, mêmes frais, ±5…84 h ou ±2…15 jours),
+tirés avec la graine **`sha256("F20_BASE_RETEST:" + call_id)`**, inscrite à l'appel ; **descriptifs seulement** (biais des
+placebos arrière, `PRICE_ACTION.md` § 5.5 et § 11.3). Bougies encore manquantes 2 jours après la fenêtre : `TROU`.
+
+**Telegram.** Boîte `state/price_action_single_outbox.json`, même format et même expiration (6 h) que celle de F19,
+identifiants `ps:F20:…`, servie par `GET /assistant/outbox` (fusion des trois boîtes) et marquée par
+`POST /assistant/sent` ; en-tête « Price action CSI (F20, test séparé) ». Un appel **identique à un appel de F19**
+(même paire, même configuration, même clôture, déjà inscrit par F19 au moment où F20 évalue) n'y est **pas** déposé,
+ni sa résolution : il est noté `aussi_dans_F19: true` au journal.
+
+**Paramètres** (figés dans le code, `price_action/detect.py`, `manage.py`, `forward/f19.py` et `forward/pa_single.py`,
+énumérés dans `forward/f20.py`) : ceux de F19 ; 300 jours lus ; retard maximal 30 min ; **5 appels par jour,
+propres au test** ; minimum **30 appels résolus** sur **10 jours** pour conclure ; intervalle de décision du R net au
+niveau 1 − 0,05/5 et IC95, par blocs de 7 jours (10 000 tirages, graine 20261010) ; trou constaté 2 jours après la
+fenêtre. Gel : modules `forward/f20`, `forward/pa_single`, `forward/f19` (sa discipline, ses mesures et son
+verdict sont réutilisés tels quels), `price_action` (paquet), `price_action/detect`, `manage`, `evaluate`, `state`,
+`outbox`, `forward/costs`, `registry`, `journal` ; fonctions `day_block_ci95`, `day_block_ci`, `f15.figure_store`,
+`indicators.ema`, `primitives.atr/true_range`, `analysis.round_tick`, `CandleStore` ; configuration
+`data.assumed_availability_latency_seconds`. Le pas de cotation (`data.tick_size`) n'est pas gelé.
+
+**Métrique.** **R net moyen** des appels résolus (central et défavorable), intervalle 1 − 0,05/5 et IC95 par blocs de 7
+jours. Descriptif : excès global et « avant » sur les placebos, évaluations, tardives, candidats, appels par semaine,
+appels aussi faits par F19, taux de TP1 et d'objectif, part gagnante, pire série, refus par raison, trous, en attente,
+part du R par paire. `n_trials` = 1 en FORWARD.
+
+**Seuil de décision** (à la date d'évaluation, tous les appels résolus ; `forward/f19.verdict`, sur le **R net seul**) :
+`INSUFFISANT` (moins de 30 appels résolus ou de 10 jours, ou intervalle non calculable : il exige au moins 8 blocs de 7
+jours, soit **au moins 50 jours distincts avec des appels résolus** ; c'est le vrai seuil) ; `SUPERIEUR_A_ZERO`
+(intervalle 1 − 0,05/5 du R net moyen entièrement au-dessus de 0, en central ET en défavorable) ; `INFERIEUR_A_ZERO`
+(IC95 entièrement sous 0 dans les deux scénarios) ; sinon `NON_DEMONTRE`. **Le correctif de 5 tests est gardé** : la
+famille reste celle des cinq configurations (F20 à F24 mesurent les mêmes cinq hypothèses que F19, autrement). Les
+placebos ne décident de rien. `SUPERIEUR_A_ZERO` ne dit pas « mieux qu'une entrée au hasard » : la dérive du marché y
+entre.
+
+**Date d'évaluation.** Fin du recueil 84 jours après le démarrage ; revue intermédiaire à 42 jours (descriptive,
+aucun changement de règle) ; verdict une fois le dernier appel résolu (au plus tard vers 84 + 14 jours après le
+démarrage : un appel se résout au plus tard à t + 84 h + 10 jours, puis 2 jours pour constater un trou).
+
+**Nombre d'appels attendu.** Comptages à blanc de `docs/PRICE_ACTION.md` § 9 (16 paires du magasin local, 61 jours,
+sans discipline ni quota, comptes seulement) : `BASE_RETEST` 0,67 candidat par jour (41 en 61 jours, au plus 6 un même jour). Extrapolé aux 166 paires (× 10 environ,
+grossier : les 16 paires locales ne ressemblent pas forcément aux autres), ≈ 7 candidats par jour, soit
+**de l'ordre de 100 à 150 appels par mois (le quota de 5 par jour sera souvent atteint)**, soit ≈ 280 à 420 appels sur 84 jours ; à ± un facteur 2.
+
+**Puissance attendue (honnête).** Calcul approché, pas une simulation : écart-type du R de 1 à 1,5 R (contrôle H0 n° 2,
+`PRICE_ACTION.md` § 11.6), intervalle à 99 %, scénario défavorable exigé, corrélation entre appels d'un même jour
+ignorée (elle réduit encore la puissance). Au contrôle positif du § 11.6, +0,15 R net central vaut +0,150 / +0,033 R
+(central / défavorable) pour `BASE_RETEST`. Probabilité de conclure `SUPERIEUR_A_ZERO` si l'effet vrai était de +0,15 R
+net : **≈ 1 à 3 % : à +0,15 R net central, le scénario défavorable ne laisse que ≈ +0,03 R (stop serré, frais lourds en R), presque jamais au-dessus de zéro à 99 % ; il faudrait de l'ordre de +0,3 R net en central pour avoir une chance raisonnable**. `INSUFFISANT` : peu probable (plusieurs candidats par jour). Sur un marché sans information, le R net moyen vaut −0,18 R net central, −0,30 R défavorable
+(frais seuls, § 11.6) : `INFERIEUR_A_ZERO` peut sortir sans qu'aucune configuration « perde » autrement que par ses frais.
+
+**Chevauchement avec F19.** Mêmes données, même détecteur, mêmes clôtures : un appel `BASE_RETEST` de F19 est presque
+toujours aussi un appel de F20 (sauf discipline différente : F20 a pu prendre une position que F19, limité par
+son quota commun, n'a pas prise, et réciproquement) ; quand le quota commun de F19 est atteint, une part de l'ordre d'un
+tiers à la moitié des appels de F20 sont aussi dans F19 (comptée au journal, `aussi_dans_F19`). Les verdicts de F19
+pour `BASE_RETEST` et de F20 sont donc **fortement corrélés** : deux `SUPERIEUR_A_ZERO` ne valent pas deux
+confirmations.
+
+**Multiplicité.** Avec F20 à F24, **23 tests en direct** sont pré-inscrits (F1 à F16, F18, F19, F20 à F24 ; F17
+réservé), chacun compté **1 essai FORWARD** (5 essais de plus). Aucune correction au-delà de 1 − 0,05/5 n'est ajoutée :
+F20 à F24 ne sont pas de nouvelles hypothèses. Un verdict isolé ne se lit jamais seul : parmi 23 tests, un
+`SUPERIEUR_A_ZERO` par hasard est attendu de temps en temps.
+
+**Biais des `TROU`.** Un appel dont les bougies manquent encore 2 jours après sa fenêtre (paire retirée de la cote,
+trou durable du magasin) est `TROU`, hors mesure : si les paires qui finissent mal sont plus souvent retirées, le R
+mesuré est trop flatteur. Le nombre de `TROU` est rapporté, ainsi que la part du R par paire.
+
+**Limites déclarées.** Celles de F19 : entrée au prix de clôture (glissement taker compté, aucun prix réel
+d'exécution) ; liste halal figée de F15 choisie en 2026 (biais des survivantes) ; appels corrélés entre paires ;
+placebos voisins qui partagent le régime ; 12 semaines ne valident rien ; `INSUFFISANT` est une réponse acceptable.
+
+**Choix faits là où la demande était ambiguë (option la plus prudente).** (1) Un appel est « aussi dans F19 » s'il est
+déjà au journal de F19 quand F20 évalue (F19 passe juste avant dans le même passage) ; si F19 évaluait la même
+clôture plus tard (panne), un message en double resterait possible, la mesure n'en dépend pas. (2) Pas de message de
+résolution pour un appel aussi fait par F19 (F19 l'annonce déjà). (3) `forward/f19` est gelé aussi par ce test, puisque
+sa discipline, ses mesures et son verdict sont réutilisés. (4) La lecture partagée est faite à l'heure du premier test
+qui évalue la clôture (causal pour les suivants), et le retard de chaque test reste mesuré à sa propre heure. (5) Le
+« verdict courant » affiché avant la date d'évaluation est `EN_COURS` (aucune lecture provisoire présentée comme un
+résultat).
+
+## F21_SQUEEZE : la configuration `SQUEEZE` seule (sortie de compression), quota propre, contre placebos
+
+Demande du propriétaire du 2026-10-10 : en plus de F19_PRICE_ACTION, qui reste tel quel, **cinq tests séparés**, un par
+configuration (F20 à F24). Celui-ci mesure `SQUEEZE` (4 h) **seule**, avec **son propre quota**. Règles,
+gestion, frais, placebos et verdict : **ceux de F19** (section `F19_PRICE_ACTION` ci-dessus) et de `docs/PRICE_ACTION.md`
+(§ 2, § 3 et § 11), sans aucun changement ; code commun `forward/pa_single.py`, module du test `forward/f21.py`.
+CSI ne passe aucun ordre ; aucun gain n'est annoncé ni démontré. Attendu : `NON_DEMONTRE` ou `INSUFFISANT` (ou
+`INFERIEUR_A_ZERO`, voir plus bas).
+
+**Hypothèse.** Un appel `SQUEEZE`, géré avec les règles communes de F19 (stop à la clôture de son unité, stop de
+secours à −1,5 R, moitié à +1 R puis l'autre moitié à l'objectif, 10 jours en 4 h ou 30 jours en journalier), rapporte
+en moyenne un **R net > 0 après frais**. Les 20 placebos de même géométrie sont rapportés en descriptif seulement.
+
+**Univers et données.** Ceux de F19 : paires de la liste halal **figée au DEMARRAGE de F15** (sans journal F15, repli
+sur la liste figée de F21, source inscrite) ; bougies 1 h du magasin de F15 (`forward_figures/data`, lecture seule,
+tenu à jour par la surveillance après la fin de F15 tant que F18, F19 ou l'un de F20 à F24 est en cours ou en résolution,
+`forward/runner.refresh_figure_store`) ; 300 jours lus ; BTCUSDT du même magasin (sinon de celui de la surveillance).
+Évaluation à **chaque clôture 4 h UTC** (la clôture journalière est celle de 00:00), une fois, jamais après coup, dès
+que la bougie 1 h de clôture de BTCUSDT est en magasin. **Une seule détection par clôture et par passage pour F20 à
+F24** : la lecture du magasin et le détecteur partagé (`scan_pair`, `force_events`, `force_pair`) sont faits une fois,
+paire par paire, gardés en mémoire du processus (clé : heure de clôture + empreinte des paires + magasins) et libérés à
+la fin du passage ; la lecture est faite à l'heure réelle du premier des cinq tests qui évalue : les suivants évaluent
+plus tard, donc rien qui leur était inconnu n'y entre (lecture causale). Retard mesuré sur l'**horloge réelle** au
+moment où F21 évalue : **au-delà de 30 min**, l'évaluation est inscrite `late` et aucun appel n'est émis. Journal
+propre `forward/F21_SQUEEZE.jsonl` ; rien n'est écrit dans `SignalRegistry`, `signals/` ni `state/assistant*`.
+
+**Règles** (celles de F19 pour la seule configuration `SQUEEZE`, `docs/PRICE_ACTION.md` § 2 et § 3) : tendance haussière journalière (clôture > EMA50, EMA20 > EMA50) ; Bollinger (20, 2) dans Keltner (EMA20 ± 1,5 ATR20) pendant au moins 6 bougies 4 h ; première clôture au-dessus de la Bollinger haute avec un volume > 1,5 × la moyenne ; stop = plus bas des 6 bougies ; objectif +2 R.
+Même enchaînement que `price_action/evaluate.evaluate` (détecteur, discipline, retard, arrondi au pas de cotation,
+ordre « les plus récents d'abord » puis l'identifiant sha256 de l'appel), vérifié par un test : mêmes candidats que F19
+avant quota, à discipline égale. **Discipline** : une position active par paire ; 48 h de repos après la sortie (scénario
+central) ; elle est lue dans le journal de F21 seulement. **Quota propre : 5 appels par jour UTC pour `SQUEEZE`
+seule**, indépendant de F19 et des quatre autres tests séparés. Identifiant d'appel : celui de F19
+(`sha256("PRICE_ACTION:<configuration>:<paire>:<clôture>")`), ce qui fait reconnaître un appel aussi fait par F19.
+**Gestion** : identique à F19 (frais et glissement taker partout ; stop de secours intrabar en 1 h ; une bougie 1 h qui
+touche un objectif et le stop de secours compte le stop ; R = résultat net / (entrée − stop)).
+
+**Placebos.** Ceux de F19 (20 entrées au marché sur la même paire, même géométrie, mêmes frais, ±5…84 h ou ±2…15 jours),
+tirés avec la graine **`sha256("F21_SQUEEZE:" + call_id)`**, inscrite à l'appel ; **descriptifs seulement** (biais des
+placebos arrière, `PRICE_ACTION.md` § 5.5 et § 11.3). Bougies encore manquantes 2 jours après la fenêtre : `TROU`.
+
+**Telegram.** Boîte `state/price_action_single_outbox.json`, même format et même expiration (6 h) que celle de F19,
+identifiants `ps:F21:…`, servie par `GET /assistant/outbox` (fusion des trois boîtes) et marquée par
+`POST /assistant/sent` ; en-tête « Price action CSI (F21, test séparé) ». Un appel **identique à un appel de F19**
+(même paire, même configuration, même clôture, déjà inscrit par F19 au moment où F21 évalue) n'y est **pas** déposé,
+ni sa résolution : il est noté `aussi_dans_F19: true` au journal.
+
+**Paramètres** (figés dans le code, `price_action/detect.py`, `manage.py`, `forward/f19.py` et `forward/pa_single.py`,
+énumérés dans `forward/f21.py`) : ceux de F19 ; 300 jours lus ; retard maximal 30 min ; **5 appels par jour,
+propres au test** ; minimum **30 appels résolus** sur **10 jours** pour conclure ; intervalle de décision du R net au
+niveau 1 − 0,05/5 et IC95, par blocs de 7 jours (10 000 tirages, graine 20261010) ; trou constaté 2 jours après la
+fenêtre. Gel : modules `forward/f21`, `forward/pa_single`, `forward/f19` (sa discipline, ses mesures et son
+verdict sont réutilisés tels quels), `price_action` (paquet), `price_action/detect`, `manage`, `evaluate`, `state`,
+`outbox`, `forward/costs`, `registry`, `journal` ; fonctions `day_block_ci95`, `day_block_ci`, `f15.figure_store`,
+`indicators.ema`, `primitives.atr/true_range`, `analysis.round_tick`, `CandleStore` ; configuration
+`data.assumed_availability_latency_seconds`. Le pas de cotation (`data.tick_size`) n'est pas gelé.
+
+**Métrique.** **R net moyen** des appels résolus (central et défavorable), intervalle 1 − 0,05/5 et IC95 par blocs de 7
+jours. Descriptif : excès global et « avant » sur les placebos, évaluations, tardives, candidats, appels par semaine,
+appels aussi faits par F19, taux de TP1 et d'objectif, part gagnante, pire série, refus par raison, trous, en attente,
+part du R par paire. `n_trials` = 1 en FORWARD.
+
+**Seuil de décision** (à la date d'évaluation, tous les appels résolus ; `forward/f19.verdict`, sur le **R net seul**) :
+`INSUFFISANT` (moins de 30 appels résolus ou de 10 jours, ou intervalle non calculable : il exige au moins 8 blocs de 7
+jours, soit **au moins 50 jours distincts avec des appels résolus** ; c'est le vrai seuil) ; `SUPERIEUR_A_ZERO`
+(intervalle 1 − 0,05/5 du R net moyen entièrement au-dessus de 0, en central ET en défavorable) ; `INFERIEUR_A_ZERO`
+(IC95 entièrement sous 0 dans les deux scénarios) ; sinon `NON_DEMONTRE`. **Le correctif de 5 tests est gardé** : la
+famille reste celle des cinq configurations (F20 à F24 mesurent les mêmes cinq hypothèses que F19, autrement). Les
+placebos ne décident de rien. `SUPERIEUR_A_ZERO` ne dit pas « mieux qu'une entrée au hasard » : la dérive du marché y
+entre.
+
+**Date d'évaluation.** Fin du recueil 84 jours après le démarrage ; revue intermédiaire à 42 jours (descriptive,
+aucun changement de règle) ; verdict une fois le dernier appel résolu (au plus tard vers 84 + 14 jours après le
+démarrage : un appel se résout au plus tard à t + 84 h + 10 jours, puis 2 jours pour constater un trou).
+
+**Nombre d'appels attendu.** Comptages à blanc de `docs/PRICE_ACTION.md` § 9 (16 paires du magasin local, 61 jours,
+sans discipline ni quota, comptes seulement) : `SQUEEZE` 0,23 candidat par jour (14 en 61 jours, au plus 4 un même jour). Extrapolé aux 166 paires (× 10 environ,
+grossier : les 16 paires locales ne ressemblent pas forcément aux autres), ≈ 2,4 candidats par jour, soit
+**de l'ordre de 50 à 70 appels par mois (le quota de 5 par jour sera rarement atteint)**, soit ≈ 140 à 200 appels sur 84 jours ; à ± un facteur 2.
+
+**Puissance attendue (honnête).** Calcul approché, pas une simulation : écart-type du R de 1 à 1,5 R (contrôle H0 n° 2,
+`PRICE_ACTION.md` § 11.6), intervalle à 99 %, scénario défavorable exigé, corrélation entre appels d'un même jour
+ignorée (elle réduit encore la puissance). Au contrôle positif du § 11.6, +0,15 R net central vaut +0,154 / +0,114 R
+(central / défavorable) pour `SQUEEZE`. Probabilité de conclure `SUPERIEUR_A_ZERO` si l'effet vrai était de +0,15 R
+net : **≈ 5 à 10 % pour un effet vrai de +0,15 R net**. `INSUFFISANT` : possible (moins de 50 jours distincts avec des appels résolus si les candidats se groupent). Sur un marché sans information, le R net moyen vaut −0,02 R net central, −0,06 R défavorable
+(frais seuls, § 11.6) : `INFERIEUR_A_ZERO` peut sortir sans qu'aucune configuration « perde » autrement que par ses frais.
+
+**Chevauchement avec F19.** Mêmes données, même détecteur, mêmes clôtures : un appel `SQUEEZE` de F19 est presque
+toujours aussi un appel de F21 (sauf discipline différente : F21 a pu prendre une position que F19, limité par
+son quota commun, n'a pas prise, et réciproquement) ; quand le quota commun de F19 est atteint, une part de l'ordre d'un
+tiers à la moitié des appels de F21 sont aussi dans F19 (comptée au journal, `aussi_dans_F19`). Les verdicts de F19
+pour `SQUEEZE` et de F21 sont donc **fortement corrélés** : deux `SUPERIEUR_A_ZERO` ne valent pas deux
+confirmations.
+
+**Multiplicité.** Avec F20 à F24, **23 tests en direct** sont pré-inscrits (F1 à F16, F18, F19, F20 à F24 ; F17
+réservé), chacun compté **1 essai FORWARD** (5 essais de plus). Aucune correction au-delà de 1 − 0,05/5 n'est ajoutée :
+F20 à F24 ne sont pas de nouvelles hypothèses. Un verdict isolé ne se lit jamais seul : parmi 23 tests, un
+`SUPERIEUR_A_ZERO` par hasard est attendu de temps en temps.
+
+**Biais des `TROU`.** Un appel dont les bougies manquent encore 2 jours après sa fenêtre (paire retirée de la cote,
+trou durable du magasin) est `TROU`, hors mesure : si les paires qui finissent mal sont plus souvent retirées, le R
+mesuré est trop flatteur. Le nombre de `TROU` est rapporté, ainsi que la part du R par paire.
+
+**Limites déclarées.** Celles de F19 : entrée au prix de clôture (glissement taker compté, aucun prix réel
+d'exécution) ; liste halal figée de F15 choisie en 2026 (biais des survivantes) ; appels corrélés entre paires ;
+placebos voisins qui partagent le régime ; 12 semaines ne valident rien ; `INSUFFISANT` est une réponse acceptable.
+
+**Choix faits là où la demande était ambiguë (option la plus prudente).** (1) Un appel est « aussi dans F19 » s'il est
+déjà au journal de F19 quand F21 évalue (F19 passe juste avant dans le même passage) ; si F19 évaluait la même
+clôture plus tard (panne), un message en double resterait possible, la mesure n'en dépend pas. (2) Pas de message de
+résolution pour un appel aussi fait par F19 (F19 l'annonce déjà). (3) `forward/f19` est gelé aussi par ce test, puisque
+sa discipline, ses mesures et son verdict sont réutilisés. (4) La lecture partagée est faite à l'heure du premier test
+qui évalue la clôture (causal pour les suivants), et le retard de chaque test reste mesuré à sa propre heure. (5) Le
+« verdict courant » affiché avant la date d'évaluation est `EN_COURS` (aucune lecture provisoire présentée comme un
+résultat).
+
+## F22_FORCE_RELATIVE : la configuration `FORCE_RELATIVE` seule (force relative après une chute de BTC), quota propre, contre placebos
+
+Demande du propriétaire du 2026-10-10 : en plus de F19_PRICE_ACTION, qui reste tel quel, **cinq tests séparés**, un par
+configuration (F20 à F24). Celui-ci mesure `FORCE_RELATIVE` (4 h, marché entier) **seule**, avec **son propre quota**. Règles,
+gestion, frais, placebos et verdict : **ceux de F19** (section `F19_PRICE_ACTION` ci-dessus) et de `docs/PRICE_ACTION.md`
+(§ 2, § 3 et § 11), sans aucun changement ; code commun `forward/pa_single.py`, module du test `forward/f22.py`.
+CSI ne passe aucun ordre ; aucun gain n'est annoncé ni démontré. Attendu : `NON_DEMONTRE` ou `INSUFFISANT` (ou
+`INFERIEUR_A_ZERO`, voir plus bas).
+
+**Hypothèse.** Un appel `FORCE_RELATIVE`, géré avec les règles communes de F19 (stop à la clôture de son unité, stop de
+secours à −1,5 R, moitié à +1 R puis l'autre moitié à l'objectif, 10 jours en 4 h ou 30 jours en journalier), rapporte
+en moyenne un **R net > 0 après frais**. Les 20 placebos de même géométrie sont rapportés en descriptif seulement.
+
+**Univers et données.** Ceux de F19 : paires de la liste halal **figée au DEMARRAGE de F15** (sans journal F15, repli
+sur la liste figée de F22, source inscrite) ; bougies 1 h du magasin de F15 (`forward_figures/data`, lecture seule,
+tenu à jour par la surveillance après la fin de F15 tant que F18, F19 ou l'un de F20 à F24 est en cours ou en résolution,
+`forward/runner.refresh_figure_store`) ; 300 jours lus ; BTCUSDT du même magasin (sinon de celui de la surveillance).
+Évaluation à **chaque clôture 4 h UTC** (la clôture journalière est celle de 00:00), une fois, jamais après coup, dès
+que la bougie 1 h de clôture de BTCUSDT est en magasin. **Une seule détection par clôture et par passage pour F20 à
+F24** : la lecture du magasin et le détecteur partagé (`scan_pair`, `force_events`, `force_pair`) sont faits une fois,
+paire par paire, gardés en mémoire du processus (clé : heure de clôture + empreinte des paires + magasins) et libérés à
+la fin du passage ; la lecture est faite à l'heure réelle du premier des cinq tests qui évalue : les suivants évaluent
+plus tard, donc rien qui leur était inconnu n'y entre (lecture causale). Retard mesuré sur l'**horloge réelle** au
+moment où F22 évalue : **au-delà de 30 min**, l'évaluation est inscrite `late` et aucun appel n'est émis. Journal
+propre `forward/F22_FORCE_RELATIVE.jsonl` ; rien n'est écrit dans `SignalRegistry`, `signals/` ni `state/assistant*`.
+
+**Règles** (celles de F19 pour la seule configuration `FORCE_RELATIVE`, `docs/PRICE_ACTION.md` § 2 et § 3) : BTCUSDT perd ≥ 5 % sur 24 h glissantes ; paires qui n'ont pas clôturé en 4 h sous leur plus bas des 10 jours d'avant pendant la chute ; entrée à la stabilisation de BTC ; stop = plus bas de la chute − 0,25 ATR 4 h ; objectif +2 R ; au plus 3 paires par événement, les plus faibles baisses ; une paire bloquée par la discipline DE F22 est écartée avant le choix des 3 (la sélection peut donc différer de celle de F19).
+Même enchaînement que `price_action/evaluate.evaluate` (détecteur, discipline, retard, arrondi au pas de cotation,
+ordre « les plus récents d'abord » puis l'identifiant sha256 de l'appel), vérifié par un test : mêmes candidats que F19
+avant quota, à discipline égale. **Discipline** : une position active par paire ; 48 h de repos après la sortie (scénario
+central) ; elle est lue dans le journal de F22 seulement. **Quota propre : 5 appels par jour UTC pour `FORCE_RELATIVE`
+seule**, indépendant de F19 et des quatre autres tests séparés. Identifiant d'appel : celui de F19
+(`sha256("PRICE_ACTION:<configuration>:<paire>:<clôture>")`), ce qui fait reconnaître un appel aussi fait par F19.
+**Gestion** : identique à F19 (frais et glissement taker partout ; stop de secours intrabar en 1 h ; une bougie 1 h qui
+touche un objectif et le stop de secours compte le stop ; R = résultat net / (entrée − stop)).
+
+**Placebos.** Ceux de F19 (20 entrées au marché sur la même paire, même géométrie, mêmes frais, ±5…84 h ou ±2…15 jours),
+tirés avec la graine **`sha256("F22_FORCE_RELATIVE:" + call_id)`**, inscrite à l'appel ; **descriptifs seulement** (biais des
+placebos arrière, `PRICE_ACTION.md` § 5.5 et § 11.3). Bougies encore manquantes 2 jours après la fenêtre : `TROU`.
+
+**Telegram.** Boîte `state/price_action_single_outbox.json`, même format et même expiration (6 h) que celle de F19,
+identifiants `ps:F22:…`, servie par `GET /assistant/outbox` (fusion des trois boîtes) et marquée par
+`POST /assistant/sent` ; en-tête « Price action CSI (F22, test séparé) ». Un appel **identique à un appel de F19**
+(même paire, même configuration, même clôture, déjà inscrit par F19 au moment où F22 évalue) n'y est **pas** déposé,
+ni sa résolution : il est noté `aussi_dans_F19: true` au journal.
+
+**Paramètres** (figés dans le code, `price_action/detect.py`, `manage.py`, `forward/f19.py` et `forward/pa_single.py`,
+énumérés dans `forward/f22.py`) : ceux de F19 ; 300 jours lus ; retard maximal 30 min ; **5 appels par jour,
+propres au test** ; minimum **30 appels résolus** sur **10 jours** pour conclure ; intervalle de décision du R net au
+niveau 1 − 0,05/5 et IC95, par blocs de 7 jours (10 000 tirages, graine 20261010) ; trou constaté 2 jours après la
+fenêtre. Gel : modules `forward/f22`, `forward/pa_single`, `forward/f19` (sa discipline, ses mesures et son
+verdict sont réutilisés tels quels), `price_action` (paquet), `price_action/detect`, `manage`, `evaluate`, `state`,
+`outbox`, `forward/costs`, `registry`, `journal` ; fonctions `day_block_ci95`, `day_block_ci`, `f15.figure_store`,
+`indicators.ema`, `primitives.atr/true_range`, `analysis.round_tick`, `CandleStore` ; configuration
+`data.assumed_availability_latency_seconds`. Le pas de cotation (`data.tick_size`) n'est pas gelé.
+
+**Métrique.** **R net moyen** des appels résolus (central et défavorable), intervalle 1 − 0,05/5 et IC95 par blocs de 7
+jours. Descriptif : excès global et « avant » sur les placebos, évaluations, tardives, candidats, appels par semaine,
+appels aussi faits par F19, taux de TP1 et d'objectif, part gagnante, pire série, refus par raison, trous, en attente,
+part du R par paire. `n_trials` = 1 en FORWARD.
+
+**Seuil de décision** (à la date d'évaluation, tous les appels résolus ; `forward/f19.verdict`, sur le **R net seul**) :
+`INSUFFISANT` (moins de 30 appels résolus ou de 10 jours, ou intervalle non calculable : il exige au moins 8 blocs de 7
+jours, soit **au moins 50 jours distincts avec des appels résolus** ; c'est le vrai seuil) ; `SUPERIEUR_A_ZERO`
+(intervalle 1 − 0,05/5 du R net moyen entièrement au-dessus de 0, en central ET en défavorable) ; `INFERIEUR_A_ZERO`
+(IC95 entièrement sous 0 dans les deux scénarios) ; sinon `NON_DEMONTRE`. **Le correctif de 5 tests est gardé** : la
+famille reste celle des cinq configurations (F20 à F24 mesurent les mêmes cinq hypothèses que F19, autrement). Les
+placebos ne décident de rien. `SUPERIEUR_A_ZERO` ne dit pas « mieux qu'une entrée au hasard » : la dérive du marché y
+entre.
+
+**Date d'évaluation.** Fin du recueil 84 jours après le démarrage ; revue intermédiaire à 42 jours (descriptive,
+aucun changement de règle) ; verdict une fois le dernier appel résolu (au plus tard vers 84 + 14 jours après le
+démarrage : un appel se résout au plus tard à t + 84 h + 10 jours, puis 2 jours pour constater un trou).
+
+**Nombre d'appels attendu.** Comptages à blanc de `docs/PRICE_ACTION.md` § 9 (16 paires du magasin local, 61 jours,
+sans discipline ni quota, comptes seulement) : `FORCE_RELATIVE` 0 candidat (aucune chute de BTC de 5 % en 24 h dans la fenêtre). Extrapolé aux 166 paires (× 10 environ,
+grossier : les 16 paires locales ne ressemblent pas forcément aux autres), 0 hors chute de BTC candidats par jour, soit
+**de 0 à une dizaine d'appels par mois (au plus 3 par chute de BTC de 5 % en 24 h)**, soit de 0 à quelques dizaines appels sur 84 jours ; à ± un facteur 2.
+
+**Puissance attendue (honnête).** Calcul approché, pas une simulation : écart-type du R de 1 à 1,5 R (contrôle H0 n° 2,
+`PRICE_ACTION.md` § 11.6), intervalle à 99 %, scénario défavorable exigé, corrélation entre appels d'un même jour
+ignorée (elle réduit encore la puissance). Au contrôle positif du § 11.6, +0,15 R net central vaut +0,150 / +0,098 R
+(central / défavorable) pour `FORCE_RELATIVE`. Probabilité de conclure `SUPERIEUR_A_ZERO` si l'effet vrai était de +0,15 R
+net : **≈ 0 : le quota propre ne change rien (au plus 3 appels par événement, déjà sous 5)**. `INSUFFISANT` : quasi certain (il faudrait des chutes de BTC sur au moins 50 jours distincts). Sur un marché sans information, le R net moyen vaut −0,05 R net central, −0,10 R défavorable
+(frais seuls, § 11.6) : `INFERIEUR_A_ZERO` peut sortir sans qu'aucune configuration « perde » autrement que par ses frais.
+
+**Chevauchement avec F19.** Mêmes données, même détecteur, mêmes clôtures : un appel `FORCE_RELATIVE` de F19 est presque
+toujours aussi un appel de F22 (sauf discipline différente : F22 a pu prendre une position que F19, limité par
+son quota commun, n'a pas prise, et réciproquement) ; quand le quota commun de F19 est atteint, une part de l'ordre d'un
+tiers à la moitié des appels de F22 sont aussi dans F19 (comptée au journal, `aussi_dans_F19`). Les verdicts de F19
+pour `FORCE_RELATIVE` et de F22 sont donc **fortement corrélés** : deux `SUPERIEUR_A_ZERO` ne valent pas deux
+confirmations.
+
+**Multiplicité.** Avec F20 à F24, **23 tests en direct** sont pré-inscrits (F1 à F16, F18, F19, F20 à F24 ; F17
+réservé), chacun compté **1 essai FORWARD** (5 essais de plus). Aucune correction au-delà de 1 − 0,05/5 n'est ajoutée :
+F20 à F24 ne sont pas de nouvelles hypothèses. Un verdict isolé ne se lit jamais seul : parmi 23 tests, un
+`SUPERIEUR_A_ZERO` par hasard est attendu de temps en temps.
+
+**Biais des `TROU`.** Un appel dont les bougies manquent encore 2 jours après sa fenêtre (paire retirée de la cote,
+trou durable du magasin) est `TROU`, hors mesure : si les paires qui finissent mal sont plus souvent retirées, le R
+mesuré est trop flatteur. Le nombre de `TROU` est rapporté, ainsi que la part du R par paire.
+
+**Limites déclarées.** Celles de F19 : entrée au prix de clôture (glissement taker compté, aucun prix réel
+d'exécution) ; liste halal figée de F15 choisie en 2026 (biais des survivantes) ; appels corrélés entre paires ;
+placebos voisins qui partagent le régime ; 12 semaines ne valident rien ; `INSUFFISANT` est une réponse acceptable.
+
+**Choix faits là où la demande était ambiguë (option la plus prudente).** (1) Un appel est « aussi dans F19 » s'il est
+déjà au journal de F19 quand F22 évalue (F19 passe juste avant dans le même passage) ; si F19 évaluait la même
+clôture plus tard (panne), un message en double resterait possible, la mesure n'en dépend pas. (2) Pas de message de
+résolution pour un appel aussi fait par F19 (F19 l'annonce déjà). (3) `forward/f19` est gelé aussi par ce test, puisque
+sa discipline, ses mesures et son verdict sont réutilisés. (4) La lecture partagée est faite à l'heure du premier test
+qui évalue la clôture (causal pour les suivants), et le retard de chaque test reste mesuré à sa propre heure. (5) Le
+« verdict courant » affiché avant la date d'évaluation est `EN_COURS` (aucune lecture provisoire présentée comme un
+résultat).
+
+## F23_INSIDE_DAY : la configuration `INSIDE_DAY` seule (cassure d'une journée intérieure), quota propre, contre placebos
+
+Demande du propriétaire du 2026-10-10 : en plus de F19_PRICE_ACTION, qui reste tel quel, **cinq tests séparés**, un par
+configuration (F20 à F24). Celui-ci mesure `INSIDE_DAY` (1 jour) **seule**, avec **son propre quota**. Règles,
+gestion, frais, placebos et verdict : **ceux de F19** (section `F19_PRICE_ACTION` ci-dessus) et de `docs/PRICE_ACTION.md`
+(§ 2, § 3 et § 11), sans aucun changement ; code commun `forward/pa_single.py`, module du test `forward/f23.py`.
+CSI ne passe aucun ordre ; aucun gain n'est annoncé ni démontré. Attendu : `NON_DEMONTRE` ou `INSUFFISANT` (ou
+`INFERIEUR_A_ZERO`, voir plus bas).
+
+**Hypothèse.** Un appel `INSIDE_DAY`, géré avec les règles communes de F19 (stop à la clôture de son unité, stop de
+secours à −1,5 R, moitié à +1 R puis l'autre moitié à l'objectif, 10 jours en 4 h ou 30 jours en journalier), rapporte
+en moyenne un **R net > 0 après frais**. Les 20 placebos de même géométrie sont rapportés en descriptif seulement.
+
+**Univers et données.** Ceux de F19 : paires de la liste halal **figée au DEMARRAGE de F15** (sans journal F15, repli
+sur la liste figée de F23, source inscrite) ; bougies 1 h du magasin de F15 (`forward_figures/data`, lecture seule,
+tenu à jour par la surveillance après la fin de F15 tant que F18, F19 ou l'un de F20 à F24 est en cours ou en résolution,
+`forward/runner.refresh_figure_store`) ; 300 jours lus ; BTCUSDT du même magasin (sinon de celui de la surveillance).
+Évaluation à **chaque clôture 4 h UTC** (la clôture journalière est celle de 00:00), une fois, jamais après coup, dès
+que la bougie 1 h de clôture de BTCUSDT est en magasin. **Une seule détection par clôture et par passage pour F20 à
+F24** : la lecture du magasin et le détecteur partagé (`scan_pair`, `force_events`, `force_pair`) sont faits une fois,
+paire par paire, gardés en mémoire du processus (clé : heure de clôture + empreinte des paires + magasins) et libérés à
+la fin du passage ; la lecture est faite à l'heure réelle du premier des cinq tests qui évalue : les suivants évaluent
+plus tard, donc rien qui leur était inconnu n'y entre (lecture causale). Retard mesuré sur l'**horloge réelle** au
+moment où F23 évalue : **au-delà de 30 min**, l'évaluation est inscrite `late` et aucun appel n'est émis. Journal
+propre `forward/F23_INSIDE_DAY.jsonl` ; rien n'est écrit dans `SignalRegistry`, `signals/` ni `state/assistant*`.
+
+**Règles** (celles de F19 pour la seule configuration `INSIDE_DAY`, `docs/PRICE_ACTION.md` § 2 et § 3) : tendance haussière journalière ; journée intérieure ; entrée = première clôture 4 h au-dessus du haut de la mère dans les 48 h ; stop de clôture journalière = bas de la mère, refus au-delà de 3 ATR14 journalier ; objectif +2 R.
+Même enchaînement que `price_action/evaluate.evaluate` (détecteur, discipline, retard, arrondi au pas de cotation,
+ordre « les plus récents d'abord » puis l'identifiant sha256 de l'appel), vérifié par un test : mêmes candidats que F19
+avant quota, à discipline égale. **Discipline** : une position active par paire ; 48 h de repos après la sortie (scénario
+central) ; elle est lue dans le journal de F23 seulement. **Quota propre : 5 appels par jour UTC pour `INSIDE_DAY`
+seule**, indépendant de F19 et des quatre autres tests séparés. Identifiant d'appel : celui de F19
+(`sha256("PRICE_ACTION:<configuration>:<paire>:<clôture>")`), ce qui fait reconnaître un appel aussi fait par F19.
+**Gestion** : identique à F19 (frais et glissement taker partout ; stop de secours intrabar en 1 h ; une bougie 1 h qui
+touche un objectif et le stop de secours compte le stop ; R = résultat net / (entrée − stop)).
+
+**Placebos.** Ceux de F19 (20 entrées au marché sur la même paire, même géométrie, mêmes frais, ±5…84 h ou ±2…15 jours),
+tirés avec la graine **`sha256("F23_INSIDE_DAY:" + call_id)`**, inscrite à l'appel ; **descriptifs seulement** (biais des
+placebos arrière, `PRICE_ACTION.md` § 5.5 et § 11.3). Bougies encore manquantes 2 jours après la fenêtre : `TROU`.
+
+**Telegram.** Boîte `state/price_action_single_outbox.json`, même format et même expiration (6 h) que celle de F19,
+identifiants `ps:F23:…`, servie par `GET /assistant/outbox` (fusion des trois boîtes) et marquée par
+`POST /assistant/sent` ; en-tête « Price action CSI (F23, test séparé) ». Un appel **identique à un appel de F19**
+(même paire, même configuration, même clôture, déjà inscrit par F19 au moment où F23 évalue) n'y est **pas** déposé,
+ni sa résolution : il est noté `aussi_dans_F19: true` au journal.
+
+**Paramètres** (figés dans le code, `price_action/detect.py`, `manage.py`, `forward/f19.py` et `forward/pa_single.py`,
+énumérés dans `forward/f23.py`) : ceux de F19 ; 300 jours lus ; retard maximal 30 min ; **5 appels par jour,
+propres au test** ; minimum **30 appels résolus** sur **10 jours** pour conclure ; intervalle de décision du R net au
+niveau 1 − 0,05/5 et IC95, par blocs de 7 jours (10 000 tirages, graine 20261010) ; trou constaté 2 jours après la
+fenêtre. Gel : modules `forward/f23`, `forward/pa_single`, `forward/f19` (sa discipline, ses mesures et son
+verdict sont réutilisés tels quels), `price_action` (paquet), `price_action/detect`, `manage`, `evaluate`, `state`,
+`outbox`, `forward/costs`, `registry`, `journal` ; fonctions `day_block_ci95`, `day_block_ci`, `f15.figure_store`,
+`indicators.ema`, `primitives.atr/true_range`, `analysis.round_tick`, `CandleStore` ; configuration
+`data.assumed_availability_latency_seconds`. Le pas de cotation (`data.tick_size`) n'est pas gelé.
+
+**Métrique.** **R net moyen** des appels résolus (central et défavorable), intervalle 1 − 0,05/5 et IC95 par blocs de 7
+jours. Descriptif : excès global et « avant » sur les placebos, évaluations, tardives, candidats, appels par semaine,
+appels aussi faits par F19, taux de TP1 et d'objectif, part gagnante, pire série, refus par raison, trous, en attente,
+part du R par paire. `n_trials` = 1 en FORWARD.
+
+**Seuil de décision** (à la date d'évaluation, tous les appels résolus ; `forward/f19.verdict`, sur le **R net seul**) :
+`INSUFFISANT` (moins de 30 appels résolus ou de 10 jours, ou intervalle non calculable : il exige au moins 8 blocs de 7
+jours, soit **au moins 50 jours distincts avec des appels résolus** ; c'est le vrai seuil) ; `SUPERIEUR_A_ZERO`
+(intervalle 1 − 0,05/5 du R net moyen entièrement au-dessus de 0, en central ET en défavorable) ; `INFERIEUR_A_ZERO`
+(IC95 entièrement sous 0 dans les deux scénarios) ; sinon `NON_DEMONTRE`. **Le correctif de 5 tests est gardé** : la
+famille reste celle des cinq configurations (F20 à F24 mesurent les mêmes cinq hypothèses que F19, autrement). Les
+placebos ne décident de rien. `SUPERIEUR_A_ZERO` ne dit pas « mieux qu'une entrée au hasard » : la dérive du marché y
+entre.
+
+**Date d'évaluation.** Fin du recueil 84 jours après le démarrage ; revue intermédiaire à 42 jours (descriptive,
+aucun changement de règle) ; verdict une fois le dernier appel résolu (au plus tard vers 84 + 47 jours après le
+démarrage : un appel se résout au plus tard à t + 15 + 30 jours, puis 2 jours pour constater un trou).
+
+**Nombre d'appels attendu.** Comptages à blanc de `docs/PRICE_ACTION.md` § 9 (16 paires du magasin local, 61 jours,
+sans discipline ni quota, comptes seulement) : `INSIDE_DAY` 0,49 candidat par jour (30 en 61 jours, au plus 6 un même jour). Extrapolé aux 166 paires (× 10 environ,
+grossier : les 16 paires locales ne ressemblent pas forcément aux autres), ≈ 5 candidats par jour, soit
+**de l'ordre de 80 à 150 appels par mois (quota de 5 par jour atteint certains jours)**, soit ≈ 220 à 420 appels sur 84 jours ; à ± un facteur 2.
+
+**Puissance attendue (honnête).** Calcul approché, pas une simulation : écart-type du R de 1 à 1,5 R (contrôle H0 n° 2,
+`PRICE_ACTION.md` § 11.6), intervalle à 99 %, scénario défavorable exigé, corrélation entre appels d'un même jour
+ignorée (elle réduit encore la puissance). Au contrôle positif du § 11.6, +0,15 R net central vaut +0,151 / +0,121 R
+(central / défavorable) pour `INSIDE_DAY`. Probabilité de conclure `SUPERIEUR_A_ZERO` si l'effet vrai était de +0,15 R
+net : **≈ 10 à 20 % pour un effet vrai de +0,15 R net (la plus forte des cinq, et encore faible)**. `INSUFFISANT` : peu probable. Sur un marché sans information, le R net moyen vaut −0,04 R net central, −0,07 R défavorable
+(frais seuls, § 11.6) : `INFERIEUR_A_ZERO` peut sortir sans qu'aucune configuration « perde » autrement que par ses frais.
+
+**Chevauchement avec F19.** Mêmes données, même détecteur, mêmes clôtures : un appel `INSIDE_DAY` de F19 est presque
+toujours aussi un appel de F23 (sauf discipline différente : F23 a pu prendre une position que F19, limité par
+son quota commun, n'a pas prise, et réciproquement) ; quand le quota commun de F19 est atteint, une part de l'ordre d'un
+tiers à la moitié des appels de F23 sont aussi dans F19 (comptée au journal, `aussi_dans_F19`). Les verdicts de F19
+pour `INSIDE_DAY` et de F23 sont donc **fortement corrélés** : deux `SUPERIEUR_A_ZERO` ne valent pas deux
+confirmations.
+
+**Multiplicité.** Avec F20 à F24, **23 tests en direct** sont pré-inscrits (F1 à F16, F18, F19, F20 à F24 ; F17
+réservé), chacun compté **1 essai FORWARD** (5 essais de plus). Aucune correction au-delà de 1 − 0,05/5 n'est ajoutée :
+F20 à F24 ne sont pas de nouvelles hypothèses. Un verdict isolé ne se lit jamais seul : parmi 23 tests, un
+`SUPERIEUR_A_ZERO` par hasard est attendu de temps en temps.
+
+**Biais des `TROU`.** Un appel dont les bougies manquent encore 2 jours après sa fenêtre (paire retirée de la cote,
+trou durable du magasin) est `TROU`, hors mesure : si les paires qui finissent mal sont plus souvent retirées, le R
+mesuré est trop flatteur. Le nombre de `TROU` est rapporté, ainsi que la part du R par paire.
+
+**Limites déclarées.** Celles de F19 : entrée au prix de clôture (glissement taker compté, aucun prix réel
+d'exécution) ; liste halal figée de F15 choisie en 2026 (biais des survivantes) ; appels corrélés entre paires ;
+placebos voisins qui partagent le régime ; 12 semaines ne valident rien ; `INSUFFISANT` est une réponse acceptable.
+
+**Choix faits là où la demande était ambiguë (option la plus prudente).** (1) Un appel est « aussi dans F19 » s'il est
+déjà au journal de F19 quand F23 évalue (F19 passe juste avant dans le même passage) ; si F19 évaluait la même
+clôture plus tard (panne), un message en double resterait possible, la mesure n'en dépend pas. (2) Pas de message de
+résolution pour un appel aussi fait par F19 (F19 l'annonce déjà). (3) `forward/f19` est gelé aussi par ce test, puisque
+sa discipline, ses mesures et son verdict sont réutilisés. (4) La lecture partagée est faite à l'heure du premier test
+qui évalue la clôture (causal pour les suivants), et le retard de chaque test reste mesuré à sa propre heure. (5) Le
+« verdict courant » affiché avant la date d'évaluation est `EN_COURS` (aucune lecture provisoire présentée comme un
+résultat).
+
+## F24_SORTIE_BASE_LONGUE : la configuration `SORTIE_BASE_LONGUE` seule (sortie d'une base longue), quota propre, contre placebos
+
+Demande du propriétaire du 2026-10-10 : en plus de F19_PRICE_ACTION, qui reste tel quel, **cinq tests séparés**, un par
+configuration (F20 à F24). Celui-ci mesure `SORTIE_BASE_LONGUE` (1 jour) **seule**, avec **son propre quota**. Règles,
+gestion, frais, placebos et verdict : **ceux de F19** (section `F19_PRICE_ACTION` ci-dessus) et de `docs/PRICE_ACTION.md`
+(§ 2, § 3 et § 11), sans aucun changement ; code commun `forward/pa_single.py`, module du test `forward/f24.py`.
+CSI ne passe aucun ordre ; aucun gain n'est annoncé ni démontré. Attendu : `NON_DEMONTRE` ou `INSUFFISANT` (ou
+`INFERIEUR_A_ZERO`, voir plus bas).
+
+**Hypothèse.** Un appel `SORTIE_BASE_LONGUE`, géré avec les règles communes de F19 (stop à la clôture de son unité, stop de
+secours à −1,5 R, moitié à +1 R puis l'autre moitié à l'objectif, 10 jours en 4 h ou 30 jours en journalier), rapporte
+en moyenne un **R net > 0 après frais**. Les 20 placebos de même géométrie sont rapportés en descriptif seulement.
+
+**Univers et données.** Ceux de F19 : paires de la liste halal **figée au DEMARRAGE de F15** (sans journal F15, repli
+sur la liste figée de F24, source inscrite) ; bougies 1 h du magasin de F15 (`forward_figures/data`, lecture seule,
+tenu à jour par la surveillance après la fin de F15 tant que F18, F19 ou l'un de F20 à F24 est en cours ou en résolution,
+`forward/runner.refresh_figure_store`) ; 300 jours lus ; BTCUSDT du même magasin (sinon de celui de la surveillance).
+Évaluation à **chaque clôture 4 h UTC** (la clôture journalière est celle de 00:00), une fois, jamais après coup, dès
+que la bougie 1 h de clôture de BTCUSDT est en magasin. **Une seule détection par clôture et par passage pour F20 à
+F24** : la lecture du magasin et le détecteur partagé (`scan_pair`, `force_events`, `force_pair`) sont faits une fois,
+paire par paire, gardés en mémoire du processus (clé : heure de clôture + empreinte des paires + magasins) et libérés à
+la fin du passage ; la lecture est faite à l'heure réelle du premier des cinq tests qui évalue : les suivants évaluent
+plus tard, donc rien qui leur était inconnu n'y entre (lecture causale). Retard mesuré sur l'**horloge réelle** au
+moment où F24 évalue : **au-delà de 30 min**, l'évaluation est inscrite `late` et aucun appel n'est émis. Journal
+propre `forward/F24_SORTIE_BASE_LONGUE.jsonl` ; rien n'est écrit dans `SignalRegistry`, `signals/` ni `state/assistant*`.
+
+**Règles** (celles de F19 pour la seule configuration `SORTIE_BASE_LONGUE`, `docs/PRICE_ACTION.md` § 2 et § 3) : base d'au moins 30 jours de hauteur ≤ 25 % ; clôture journalière au-dessus du plus haut des 90 jours et du haut de base avec un volume > 1,5 × la moyenne de 20 jours ; stop = clôture sous le milieu de la base ; objectif = max(hauteur reportée, +2 R).
+Même enchaînement que `price_action/evaluate.evaluate` (détecteur, discipline, retard, arrondi au pas de cotation,
+ordre « les plus récents d'abord » puis l'identifiant sha256 de l'appel), vérifié par un test : mêmes candidats que F19
+avant quota, à discipline égale. **Discipline** : une position active par paire ; 48 h de repos après la sortie (scénario
+central) ; elle est lue dans le journal de F24 seulement. **Quota propre : 5 appels par jour UTC pour `SORTIE_BASE_LONGUE`
+seule**, indépendant de F19 et des quatre autres tests séparés. Identifiant d'appel : celui de F19
+(`sha256("PRICE_ACTION:<configuration>:<paire>:<clôture>")`), ce qui fait reconnaître un appel aussi fait par F19.
+**Gestion** : identique à F19 (frais et glissement taker partout ; stop de secours intrabar en 1 h ; une bougie 1 h qui
+touche un objectif et le stop de secours compte le stop ; R = résultat net / (entrée − stop)).
+
+**Placebos.** Ceux de F19 (20 entrées au marché sur la même paire, même géométrie, mêmes frais, ±5…84 h ou ±2…15 jours),
+tirés avec la graine **`sha256("F24_SORTIE_BASE_LONGUE:" + call_id)`**, inscrite à l'appel ; **descriptifs seulement** (biais des
+placebos arrière, `PRICE_ACTION.md` § 5.5 et § 11.3). Bougies encore manquantes 2 jours après la fenêtre : `TROU`.
+
+**Telegram.** Boîte `state/price_action_single_outbox.json`, même format et même expiration (6 h) que celle de F19,
+identifiants `ps:F24:…`, servie par `GET /assistant/outbox` (fusion des trois boîtes) et marquée par
+`POST /assistant/sent` ; en-tête « Price action CSI (F24, test séparé) ». Un appel **identique à un appel de F19**
+(même paire, même configuration, même clôture, déjà inscrit par F19 au moment où F24 évalue) n'y est **pas** déposé,
+ni sa résolution : il est noté `aussi_dans_F19: true` au journal.
+
+**Paramètres** (figés dans le code, `price_action/detect.py`, `manage.py`, `forward/f19.py` et `forward/pa_single.py`,
+énumérés dans `forward/f24.py`) : ceux de F19 ; 300 jours lus ; retard maximal 30 min ; **5 appels par jour,
+propres au test** ; minimum **30 appels résolus** sur **10 jours** pour conclure ; intervalle de décision du R net au
+niveau 1 − 0,05/5 et IC95, par blocs de 7 jours (10 000 tirages, graine 20261010) ; trou constaté 2 jours après la
+fenêtre. Gel : modules `forward/f24`, `forward/pa_single`, `forward/f19` (sa discipline, ses mesures et son
+verdict sont réutilisés tels quels), `price_action` (paquet), `price_action/detect`, `manage`, `evaluate`, `state`,
+`outbox`, `forward/costs`, `registry`, `journal` ; fonctions `day_block_ci95`, `day_block_ci`, `f15.figure_store`,
+`indicators.ema`, `primitives.atr/true_range`, `analysis.round_tick`, `CandleStore` ; configuration
+`data.assumed_availability_latency_seconds`. Le pas de cotation (`data.tick_size`) n'est pas gelé.
+
+**Métrique.** **R net moyen** des appels résolus (central et défavorable), intervalle 1 − 0,05/5 et IC95 par blocs de 7
+jours. Descriptif : excès global et « avant » sur les placebos, évaluations, tardives, candidats, appels par semaine,
+appels aussi faits par F19, taux de TP1 et d'objectif, part gagnante, pire série, refus par raison, trous, en attente,
+part du R par paire. `n_trials` = 1 en FORWARD.
+
+**Seuil de décision** (à la date d'évaluation, tous les appels résolus ; `forward/f19.verdict`, sur le **R net seul**) :
+`INSUFFISANT` (moins de 30 appels résolus ou de 10 jours, ou intervalle non calculable : il exige au moins 8 blocs de 7
+jours, soit **au moins 50 jours distincts avec des appels résolus** ; c'est le vrai seuil) ; `SUPERIEUR_A_ZERO`
+(intervalle 1 − 0,05/5 du R net moyen entièrement au-dessus de 0, en central ET en défavorable) ; `INFERIEUR_A_ZERO`
+(IC95 entièrement sous 0 dans les deux scénarios) ; sinon `NON_DEMONTRE`. **Le correctif de 5 tests est gardé** : la
+famille reste celle des cinq configurations (F20 à F24 mesurent les mêmes cinq hypothèses que F19, autrement). Les
+placebos ne décident de rien. `SUPERIEUR_A_ZERO` ne dit pas « mieux qu'une entrée au hasard » : la dérive du marché y
+entre.
+
+**Date d'évaluation.** Fin du recueil 84 jours après le démarrage ; revue intermédiaire à 42 jours (descriptive,
+aucun changement de règle) ; verdict une fois le dernier appel résolu (au plus tard vers 84 + 47 jours après le
+démarrage : un appel se résout au plus tard à t + 15 + 30 jours, puis 2 jours pour constater un trou).
+
+**Nombre d'appels attendu.** Comptages à blanc de `docs/PRICE_ACTION.md` § 9 (16 paires du magasin local, 61 jours,
+sans discipline ni quota, comptes seulement) : `SORTIE_BASE_LONGUE` 0,26 candidat par jour (16 en 61 jours, au plus 4 un même jour). Extrapolé aux 166 paires (× 10 environ,
+grossier : les 16 paires locales ne ressemblent pas forcément aux autres), ≈ 2,7 candidats par jour, soit
+**de l'ordre de 50 à 80 appels par mois, tous à la clôture de 00:00 UTC (moins avec la discipline : 30 jours de détention au plus)**, soit ≈ 140 à 220 appels sur 84 jours ; à ± un facteur 2.
+
+**Puissance attendue (honnête).** Calcul approché, pas une simulation : écart-type du R de 1 à 1,5 R (contrôle H0 n° 2,
+`PRICE_ACTION.md` § 11.6), intervalle à 99 %, scénario défavorable exigé, corrélation entre appels d'un même jour
+ignorée (elle réduit encore la puissance). Au contrôle positif du § 11.6, +0,15 R net central vaut +0,151 / +0,140 R
+(central / défavorable) pour `SORTIE_BASE_LONGUE`. Probabilité de conclure `SUPERIEUR_A_ZERO` si l'effet vrai était de +0,15 R
+net : **≈ 5 à 15 % pour un effet vrai de +0,15 R net**. `INSUFFISANT` : possible (une seule clôture par jour, discipline de 30 jours). Sur un marché sans information, le R net moyen vaut −0,002 R net central, −0,014 R défavorable
+(frais seuls, § 11.6) : `INFERIEUR_A_ZERO` peut sortir sans qu'aucune configuration « perde » autrement que par ses frais.
+
+**Chevauchement avec F19.** Mêmes données, même détecteur, mêmes clôtures : un appel `SORTIE_BASE_LONGUE` de F19 est presque
+toujours aussi un appel de F24 (sauf discipline différente : F24 a pu prendre une position que F19, limité par
+son quota commun, n'a pas prise, et réciproquement) ; quand le quota commun de F19 est atteint, une part de l'ordre d'un
+tiers à la moitié des appels de F24 sont aussi dans F19 (comptée au journal, `aussi_dans_F19`). Les verdicts de F19
+pour `SORTIE_BASE_LONGUE` et de F24 sont donc **fortement corrélés** : deux `SUPERIEUR_A_ZERO` ne valent pas deux
+confirmations.
+
+**Multiplicité.** Avec F20 à F24, **23 tests en direct** sont pré-inscrits (F1 à F16, F18, F19, F20 à F24 ; F17
+réservé), chacun compté **1 essai FORWARD** (5 essais de plus). Aucune correction au-delà de 1 − 0,05/5 n'est ajoutée :
+F20 à F24 ne sont pas de nouvelles hypothèses. Un verdict isolé ne se lit jamais seul : parmi 23 tests, un
+`SUPERIEUR_A_ZERO` par hasard est attendu de temps en temps.
+
+**Biais des `TROU`.** Un appel dont les bougies manquent encore 2 jours après sa fenêtre (paire retirée de la cote,
+trou durable du magasin) est `TROU`, hors mesure : si les paires qui finissent mal sont plus souvent retirées, le R
+mesuré est trop flatteur. Le nombre de `TROU` est rapporté, ainsi que la part du R par paire.
+
+**Limites déclarées.** Celles de F19 : entrée au prix de clôture (glissement taker compté, aucun prix réel
+d'exécution) ; liste halal figée de F15 choisie en 2026 (biais des survivantes) ; appels corrélés entre paires ;
+placebos voisins qui partagent le régime ; 12 semaines ne valident rien ; `INSUFFISANT` est une réponse acceptable.
+
+**Choix faits là où la demande était ambiguë (option la plus prudente).** (1) Un appel est « aussi dans F19 » s'il est
+déjà au journal de F19 quand F24 évalue (F19 passe juste avant dans le même passage) ; si F19 évaluait la même
+clôture plus tard (panne), un message en double resterait possible, la mesure n'en dépend pas. (2) Pas de message de
+résolution pour un appel aussi fait par F19 (F19 l'annonce déjà). (3) `forward/f19` est gelé aussi par ce test, puisque
+sa discipline, ses mesures et son verdict sont réutilisés. (4) La lecture partagée est faite à l'heure du premier test
+qui évalue la clôture (causal pour les suivants), et le retard de chaque test reste mesuré à sa propre heure. (5) Le
+« verdict courant » affiché avant la date d'évaluation est `EN_COURS` (aucune lecture provisoire présentée comme un
+résultat).
+
 ## LECTURE_TP_MAHWASHI : vendre surtout aux TP lointains sur AL-MAHWASHI (lecture déclarée le 2026-10-04)
 
 **Origine.** Analyse du 2026-10-04 du fichier `BotHistory.json` (robot d'un ami du propriétaire, 6-30 septembre 2026,

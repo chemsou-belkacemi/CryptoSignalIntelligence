@@ -555,6 +555,32 @@ executer` refuse (aucune configuration validée) ; l'étude historique n'est pas
 Pour qu'une piste à +0,15 R se voie, il faudrait plus de signaux, ou un effet plus grand ; ce n'est pas réglé ici (pas de
 seconde itération). La suite est une décision du propriétaire ou du coordinateur.
 
+## 12. Tests séparés F20 à F24 (demande du 2026-10-10, après le démarrage de F19)
+
+En plus de F19, qui reste tel quel, chaque configuration est mesurée **seule** par son propre test en direct :
+`F20_BASE_RETEST`, `F21_SQUEEZE`, `F22_FORCE_RELATIVE`, `F23_INSIDE_DAY`, `F24_SORTIE_BASE_LONGUE` (pré-inscriptions
+complètes dans `FORWARD_TESTS.md`, code `forward/pa_single.py` et `forward/f20.py` … `f24.py`).
+
+- **Mêmes règles que F19** : même détecteur, même enchaînement que `evaluate.evaluate` (vérifié par un test : mêmes
+  candidats que F19 avant quota, à discipline égale, y compris le choix des 3 de `FORCE_RELATIVE`), même gestion, mêmes
+  frais, mêmes placebos en descriptif, même verdict au R net seul (`f19.verdict`, correctif de 5 tests gardé), même
+  retard maximal de 30 min sur l'horloge réelle, même univers et même magasin.
+- **Seule différence : le quota.** 5 appels par jour UTC **par test**, pour sa seule configuration ; une position active
+  par paire ; discipline lue dans le journal du test.
+- **Placebos** : graine `sha256("<TEST_ID>:" + call_id)` ; l'identifiant d'appel est celui de F19, ce qui fait
+  reconnaître un appel aussi fait par F19 (`aussi_dans_F19: true`, pas de message Telegram en double).
+- **Une seule détection par clôture et par passage** pour les cinq tests, lue paire par paire puis gardée en mémoire
+  jusqu'à la fin du passage. Mesure du 2026-10-10 sur 166 paires synthétiques (440 jours de bougies 1 h au format du
+  magasin, clôture du 2026-10-10 04:00, processus neufs, RSS maximal) : F19 seul 303 Mo (+175 Mo au-dessus de
+  l'import), F20 à F24 seuls 229 Mo (+101 Mo), **F19 puis F20 à F24 dans le même passage : 303 Mo, soit +0 Mo sur
+  F19 seul** (la lecture paire par paire réutilise la mémoire déjà prise par F19) ; ≈ 4,5 s pour les cinq tests.
+- **Boîte Telegram** `state/price_action_single_outbox.json` (identifiants `ps:`), fusionnée avec celles de
+  l'assistant et de F19 par `GET /assistant/outbox` ; état court `state/price_action_single.json`, ligne par test dans
+  la carte « Price action » et dans `GET /price-action` (`separate_tests`), section commune dans le rapport quotidien.
+- **Ce que cela ne change pas** : les cinq hypothèses restent les mêmes (pas de nouvelle correction de multiplicité) ;
+  les verdicts de F19 et de F20 à F24 sont fortement corrélés (mêmes appels en partie) ; la puissance reste faible
+  (§ 11.6) ; 23 tests en direct sont pré-inscrits ; 5 essais FORWARD de plus au démarrage. Aucun gain démontré.
+
 ## Historique
 
 - 2026-10-10 : protocole déclaré avant tout calcul sur données réelles (seuls des comptes de candidats synthétiques ont
@@ -576,3 +602,5 @@ seconde itération). La suite est une décision du propriétaire ou du coordinat
   seulement) ; retard mesuré sur l'horloge réelle ; `pairs_with_close` inscrit ; seuil réel (50 jours) et biais des
   `TROU` déclarés dans la section F19 ; mémoire de la surveillance portée à 3 Gio. Détecteur, gestion et placebos
   inchangés (contrôles H0 toujours valables).
+- 2026-10-10 : tests séparés **F20 à F24** pré-inscrits (§ 12, `FORWARD_TESTS.md`) : une configuration par test, mêmes
+  règles que F19, quota propre de 5 appels par jour ; F19 inchangé ; non démarrés (relecture du propriétaire d'abord).
