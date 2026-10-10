@@ -121,7 +121,7 @@ seulement.
 | MR16 | Rejet ou rebond sur supports et résistances mécaniques, contre niveaux placebo | Osler (2000) | pivots ZigZag, barrières ±1 ATR | 1h, 4h | `TESTÉ` | `NIVEAUX.md` (`LEVELS-20261004T012546Z-a3b017`) : `RIEN` (pile ou face, ±1 pt) |
 | MR17 | Divergence RSI haussière | pratique | RSI 14, pivots fractals k = 2 | 1h, 4h, 1j | `TESTÉ` | `FIGURES_HISTORIQUE.md` (`FIGH-20261004T102820Z-479ac6`) : `INFERIEUR_AU_HASARD` (R −0,11) |
 | MR18 | Repli puis reprise en tendance, rejet du support en range (assistant) | demande du propriétaire | `ASSISTANT.md` § 2-3 | 4h | `EN_DIRECT` | F18_ASSISTANT (démarré le 2026-10-09) |
-| MR19 | IBS (« internal bar strength ») bas | Pagonidis (2014) | IBS = (C − L) / (H − L) < 0,2 ; tenue 1 bougie | 1j | `À_TESTER (zoo)` | — |
+| MR19 | IBS (« internal bar strength ») bas | Pagonidis (2014) | IBS = (C − L) / (H − L) < 0,2 ; entrée à la clôture de la 1re bougie 1 h qui s'ouvre après la disponibilité du signal, sortie 24 h plus tard | 1j (exécution 1h) | `À_TESTER (zoo)` | — |
 | MR20 | « Double 7s » | Connors et Alvarez (2009) | clôture > SMA 200 et clôture = plus bas des 7 dernières ; sortie quand la clôture = plus haut des 7 dernières | 1j | `À_TESTER (zoo)` | — |
 
 ## 3. Volatilité et range (VO)
@@ -242,7 +242,7 @@ contre l'univers à poids égaux. Le sens est celui de la référence citée ; i
 | XS21 | Primes coréenne et Coinbase des altcoins | pratique | niveau et saut, tiers haut − tiers bas | 1j | `TESTÉ` | `XSECTION_PRIMES.md` (`XPREM-20261004T092024Z-dff748`) : `RIEN` (×4) |
 | XS22 | Âge de cotation : offre nouvelle (veto) | pratique | cotée depuis 30 à 180 j | 1j | `TESTÉ` | `SCREENING.md` J3 : inverse d'un veto, inexploitable (survivance) |
 | XS23 | Distance aux moyennes mobiles (MAD) | Avramov, Kaplanski et Subrahmanyam (2021) | SMA 21 / SMA 200 des clôtures journalières, quintile haut, hebdomadaire | 1j | `À_TESTER (zoo)` | — |
-| XS24 | Retournement d'un jour en coupe | Jegadeesh (1990), Lehmann (1990), à la fréquence journalière | rendement de la journée, quintile bas, rééquilibrage quotidien | 1j | `À_TESTER (zoo)` | — |
+| XS24 | Retournement d'un jour en coupe | Jegadeesh (1990), Lehmann (1990), à la fréquence journalière | rendement de la journée, quintile bas ; achat à la clôture de la 1re bougie 1 h qui s'ouvre après la disponibilité du signal, vente 24 h plus tard | 1j (exécution 1h) | `À_TESTER (zoo)` | — |
 
 ## 8. Rotation et marché (RO)
 
@@ -284,8 +284,8 @@ priori ; un seul sens par marché.
 | CA06 | Ouverture américaine | pratique | 14:00 UTC, 4 h | 1h | `TESTÉ` | S6 : rien |
 | CA07 | Séance asiatique | pratique | 00:00 UTC, 8 h | 1h | `TESTÉ` | S7 : rien |
 | CA08 | Meilleure heure apprise de l'année passée | pratique | 365 j | 1h | `TESTÉ` | S8 : rien (ne se répète pas) |
-| CA09 | Dérive avant les décisions du FOMC | Lucca et Moench (2015) | achat de tous les membres 24 h avant le communiqué (14:00 New York), vente à la clôture de la bougie 1 h qui le contient ; réunions programmées seulement | 1h | `À_TESTER (zoo)` | `calendrier_macro` ; **date connue à l'avance** (calendrier publié l'année précédente) : hypothèse déclarée, car l'`available_at` du magasin est posé après l'événement |
-| CA10 | Publication de l'indice des prix (CPI) | pratique ; fenêtre de CA09 a priori | achat de tous les membres 24 h avant 08:30 New York, vente à la clôture de la bougie 1 h qui contient la publication | 1h | `À_TESTER (zoo)` | dates des millésimes ALFRED (`calendrier_macro`) ; date publiée à l'avance par le BLS : hypothèse déclarée |
+| CA09 | Dérive avant les décisions du FOMC | Lucca et Moench (2015) | achat de tous les membres à la clôture de la dernière bougie 1 h qui se termine au plus tard 24 h avant le communiqué (14:00 New York, `zoneinfo`), vente à la clôture de la dernière bougie 1 h qui se termine au plus tard à l'heure du communiqué ; réunions programmées seulement | 1h | `À_TESTER (zoo)` | `calendrier_macro` ; **date connue à l'avance** (calendrier publié l'année précédente) : hypothèse déclarée, car l'`available_at` du magasin est posé après l'événement |
+| CA10 | Publication de l'indice des prix (CPI) | pratique ; fenêtre de CA09 a priori | même fenêtre que CA09, publication à 08:30 New York ; dates contrôlées au comptage à blanc (jour de la semaine, écarts) | 1h | `À_TESTER (zoo)` | dates des millésimes ALFRED (`calendrier_macro`) ; date publiée à l'avance par le BLS : hypothèse déclarée |
 | CA11 | Publication de l'emploi (NFP) | idem | idem | 1h | `À_TESTER (zoo)` | idem |
 | CA12 | Halving de BTC | pratique | achat au halving | 1j | `IMPOSSIBLE` | raison 5 : deux événements dans DEVELOPMENT (2020-05, 2024-04 ; table `calendrier_crypto`) |
 | CA13 | Cycle lunaire | Yuan, Zheng et Zhu (2006) | achat à la clôture qui suit la nouvelle lune, vente à celle qui suit la pleine lune | 1j | `À_TESTER (zoo)` | phases de `calendrier_crypto` (calcul astronomique, connues à l'avance par construction) |
@@ -295,7 +295,7 @@ priori ; un seul sens par marché.
 
 | ID | Stratégie | Source | Paramètres standard publiés | Unités | Statut | Renvoi / raison |
 |---|---|---|---|---|---|---|
-| SE01 | Fear & Greed passe sous 25 (peur extrême) → achat | alternative.me ; pratique contrarienne | valeur du jour `d` − 1 (connue à `d` 02:00 UTC, `zoo_fear_greed`) passe sous 25 ; achat de tous les membres du top 40 ; tenue 30 jours (a priori) | 1j | `À_TESTER (zoo)` | historique depuis 2018-02 (`CONTEXTE.md`, « Données du zoo ») |
+| SE01 | Fear & Greed passe sous 25 (peur extrême) → achat | alternative.me ; pratique contrarienne | la dernière valeur dont l'`available_at` précède la décision (`zoo_fear_greed`) passe sous 25 ; achat de tous les membres du top 40 ; tenue 30 jours (a priori) | 1j | `À_TESTER (zoo)` | historique depuis 2018-02 (`CONTEXTE.md`, « Données du zoo ») ; limite : historique d'alternative.me lu tel que publié aujourd'hui |
 | SE02 | Fear & Greed au-dessus de 75 (avidité extrême) → USDT | idem | top 40 à poids égaux, sauf quand la dernière valeur connue dépasse 75 | 1j | `À_TESTER (zoo)` | idem |
 | SE03 | Attention du public (vues Wikipédia « Bitcoin ») | Liu et Tsyvinski (2021) | moyenne 7 j, tiers haut / bas | 1j | `TESTÉ` | `CONTEXTE_PREDICTION.md` : WIKI_ATTENTION `RIEN` |
 | SE04 | Attention par crypto (vues Wikipédia en coupe) | idem | quintile de la hausse des vues | 1j | `À_TESTER (attente)` | pages par crypto non téléchargées (API Wikimedia gratuite, correspondance crypto → article à construire) |
@@ -318,7 +318,7 @@ Lu comme information seulement : aucun contrat n'est jamais traité.
 | DE04 | Purge de l'intérêt ouvert | pratique | variation 24 h sous le 10e centile et spot en baisse | 1j | `TESTÉ` | `DERIVATIVES.md` : `AUCUNE_PISTE` ; F9 en direct |
 | DE05 | Comptes majoritairement vendeurs | pratique | ratio comptes sous le 10e centile | 1j | `TESTÉ` | `DERIVATIVES.md` : `AUCUNE_PISTE` |
 | DE06 | Positionnement des gros traders (BTC) | pratique | moyenne 7 j du ratio, tiers | 1j | `TESTÉ` | `CONTEXTE_PREDICTION.md` : TOP_TRADERS `RIEN` |
-| DE07 | Ratios des comptes et des gros traders des altcoins, en coupe | pratique | quintile | 1j | `À_TESTER (attente)` | **en direct seulement** (choix du 2026-10-11) : archive `metrics` en magasin pour les 16 paires de la configuration depuis 2021-12 ; aucune découverte sur 2019-2022 possible, et une découverte sur 2022 seul n'aurait aucune puissance (`ZOO.md` § 13) |
+| DE07 | Ratios des comptes et des gros traders des altcoins, en coupe | pratique | quintile | 1j | `À_TESTER (attente)` | **en direct seulement** (choix du 2026-10-11) : archive `metrics` en magasin pour les 16 paires de la configuration depuis 2021-12 ; aucune découverte sur 2019-2022 possible, et une découverte sur 2022 seul n'aurait aucune puissance (`ZOO.md` § 13) ; **déjà vu** : cousin de DE05 et DE06 ; une étude historique séparée sur 2022-01 → 2025-06 reste possible plus tard, comptée à part |
 | DE08 | Ratio acheteurs / vendeurs agressifs du perpétuel | pratique | quintile | 1j | `À_TESTER (attente)` | idem DE07 |
 | DE09 | Base trimestrielle spot / à terme | pratique | base annualisée basse | 1j | `À_TESTER (attente)` | bougies des contrats trimestriels à télécharger (magasin : 500 jours seulement) |
 | DE10 | Cascade de liquidations | pratique | F25 | 1h | `IMPOSSIBLE` | raison 4 : aucun historique gratuit ; F25 pré-inscrit, non démarré |
@@ -347,7 +347,7 @@ Lu comme information seulement : aucun contrat n'est jamais traité.
 | ID | Stratégie | Source | Paramètres standard publiés | Unités | Statut | Renvoi / raison |
 |---|---|---|---|---|---|---|
 | EV01 | Annonce de listing chez Upbit ou Coinbase | pratique | achat au premier prix, 24 h et 7 j | 10 min | `EN_DIRECT` | F7_LISTINGS |
-| EV02 | Annonce de cotation spot sur Binance | pratique | annonces `COTATION_SPOT` (`annonces_binance`, connues à la publication + 10 min) ; achat de la paire USDT annoncée à la clôture suivant sa 1re journée complète de cotation ; tenue 30 jours | 1j | `À_TESTER (zoo)` | univers d'exception : toutes les paires USDT du recensement (exclusions structurelles et haram), bougies journalières de `data/pit/daily.parquet` (clôtures) ; les renommages n'ont pas d'annonce `COTATION_SPOT` |
+| EV02 | Annonce de cotation spot sur Binance | pratique | annonces `COTATION_SPOT` (`annonces_binance`, connues à la publication + 10 min) ; achat de la paire USDT annoncée à la clôture suivant sa 1re journée complète de cotation ; tenue 30 jours | 1j | `À_TESTER (zoo)` | univers d'exception : toutes les paires USDT du recensement (exclusions structurelles et haram), bougies journalières de `data/pit/daily.parquet` (clôtures) ; les renommages n'ont pas d'annonce `COTATION_SPOT` ; référence : paires cotées depuis plus de 180 jours, le même jour ; **descriptif seulement dans F31** (pas de relevé halal au moment de l'annonce) |
 | EV03 | Annonce de retrait de la cote (veto) | pratique | — | 1j | `À_TESTER (attente)` | archive des annonces de Binance non collectée |
 | EV04 | Déblocages de jetons | pratique | — | — | `IMPOSSIBLE` | raison 2 : sources payantes ou fermées (`FORWARD_TESTS.md`, « Calendrier des unlocks : non fait ») |
 | EV05 | « Airdrops » | pratique | — | — | `IMPOSSIBLE` | raison 4 : aucun historique gratuit fiable |
@@ -517,3 +517,7 @@ première version est retiré : c'est un recensement, auquel la relecture a déj
   `IMPOSSIBLE` ; doublons marqués « déjà vu » (TR12, TR13, TR33 à TR35, ST11, VO08, XS20) ; XS17 exige 365 jours de
   cotation ; données du zoo fusionnées sur `main` (`ce65673`, `CONTEXTE.md`, « Données du zoo ») : SE01, SE02, AM06,
   AM07, AM08, CA09, CA10, CA11 et EV02 passent au zoo ; AM05 (M2 révisé) retiré ; DE07 et DE08 en direct seulement.
+- 2026-10-11 (deuxième relecture, aucun résultat vu) : exécution de MR19 et XS24 à la 1re bougie 1 h après le signal ;
+  fenêtres de CA09 à CA11 bornées par l'heure de publication ; formulation unique de SE01 et limite de l'historique
+  d'alternative.me ; EV02 : référence des paires cotées depuis plus de 180 jours, descriptif seulement dans F31 ; DE07
+  cousin déjà vu de DE05 et DE06. Comptes inchangés (292 stratégies, 257 tests).

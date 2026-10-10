@@ -73,8 +73,8 @@ jamais « aucune n'a d'avantage ».
 | DGS10 (FRED H.15) | AM04 | lendemain 16:15 New York + 2 h (plus tardif que `d` + 1 12:00 UTC : retenu) |
 | VIXCLS (FRED) | AM08 | 16:15 New York + 2 h |
 | DXY_BCE (`zoo_dollar_bce`) | AM07 | 16:00 Francfort + 1 h |
-| Fear & Greed (`zoo_fear_greed`, depuis 2018-02) | SE01, SE02 | jour `J` 00:00 UTC + 2 h |
-| FOMC, CPI, NFP (`evenements/calendrier_macro`) | CA09, CA10, CA11 | **dates connues à l'avance** (calendriers publiés l'année précédente) : hypothèse déclarée ici, car l'`available_at` du magasin est posé après l'événement |
+| Fear & Greed (`zoo_fear_greed`, depuis 2018-02) | SE01, SE02 | jour `J` 00:00 UTC + 2 h ; on lit la dernière valeur dont l'`available_at` précède la décision. **Limite** : l'historique d'alternative.me est lu tel que publié aujourd'hui (aucune preuve qu'il n'a pas été recalculé) |
+| FOMC, CPI, NFP (`evenements/calendrier_macro`) | CA09, CA10, CA11 | heures de New York converties avec `zoneinfo` ; **dates connues à l'avance** (calendriers publiés l'année précédente) : hypothèse déclarée ici, car l'`available_at` du magasin est posé après l'événement |
 | Nouvelles et pleines lunes (`evenements/calendrier_crypto`) | CA13 | calculables à l'avance par construction |
 | Annonces de cotation (`evenements/annonces_binance`, catégorie `COTATION_SPOT`) | EV02 | publication + 10 min |
 
@@ -128,18 +128,23 @@ défavorable ; aucun retard n'est ajouté.
   est ignoré (compté).
 - **Mise égale** par position, aucun levier, le reste en USDT sans rendement.
 - **Rendements** : chaque position est valorisée à chaque clôture 1 h ; pour chaque position `i` et chaque journée UTC
-  `d`, `r(i, d)` = variation nette de la valeur de la position sur la journée **rapportée à la mise initiale de la
-  transaction** (frais d'entrée le jour de l'entrée, frais de sortie le jour de la sortie), et `e(i, d)` = fraction de
-  la journée détenue.
+  `d`, `e(i, d)` = fraction de la journée détenue et `r(i, d)` = rendement simple net de la position sur la journée,
+  **rapporté à sa valeur au début de la journée** (au prix d'entrée le jour de l'entrée), multiplié par `e(i, d)` pour
+  une journée partielle ; frais d'entrée et de sortie rapportés à la valeur de la position à ce moment. `Σ r / Σ e` est
+  ainsi la moyenne des rendements quotidiens par jour d'exposition, dans la même unité que `m(p)`. Le rendement composé
+  par transaction reste descriptif. **Test exigé** : sous une dérive constante sans bruit, `μ* = 0` à 1e-12 près pour
+  une règle d'état tenue 300 jours (frais nuls).
 - **Statistique de décision : excès net par jour d'exposition sur la dérive de la même paire** (convention D à K de
   `SCREENING.md` ; « achat − inconditionnel » de Brock, Lakonishok et LeBaron, 1992). Pour chaque paire `p` et chaque
   étape, `m(p)` = moyenne des rendements simples quotidiens **bruts** de `p` sur les journées UTC où `p` est membre du
   top 40 dans l'étape (moins de 90 journées de membre : moyenne de l'univers à poids égaux de l'étape) ;
   `μ* = Σ_{i,d} [r(i, d) − e(i, d) × m(p(i))] / Σ e`. `m(p)` est une mesure du résultat, calculée après coup sur
   l'étape, et n'entre dans aucun signal ; un achat au hasard de même durée, même paire et même étape a un excès
-  d'espérance nulle (avant frais). Pour EV02, dont les paires ne sont pas membres, `m(p)` est la moyenne des rendements
-  quotidiens bruts de `p` sur l'étape, à partir de sa 1re journée complète de cotation (moins de 90 journées : moyenne
-  de l'univers d'exception à poids égaux).
+  d'espérance nulle (avant frais). **Pour EV02**, dont les paires ne sont pas membres, la référence n'est pas `m(p)` :
+  c'est, **le même jour**, le rendement brut de l'univers à poids égaux des paires USDT du recensement **cotées depuis
+  plus de 180 jours**, `R180(d)` ; `μ*(EV02) = Σ [r(i, d) − e(i, d) × R180(d)] / Σ e`.
+- **VO11** (dernière heure de la journée) : `m(p)` = moyenne du rendement brut de la bougie 23:00–24:00 de la paire sur
+  ses journées de membre de l'étape (même unité que la position, tenue une heure).
 - **Intervalle** : blocs de **7 jours calendaires** consécutifs, sur la série quotidienne `Σ_i [r(i, d) − e(i, d) × m]`
   et l'exposition `Σ_i e(i, d)` ; variance du ratio par la formule de `research/intervals.calendar_mean_ci`
   (covariance entre blocs voisins ajoutée quand elle est positive, jamais retranchée), le nombre d'événements étant
@@ -164,15 +169,21 @@ défavorable ; aucun retard n'est ajouté.
 - **Portefeuille long seulement**, rééquilibré à la fréquence standard de la stratégie (§ 12) : **hebdomadaire** pour
   les facteurs et les règles de marché (décision le lundi 00:00 UTC sur les clôtures journalières jusqu'au dimanche,
   échanges à la **clôture du lundi**, tenue jusqu'à la clôture du lundi suivant, comme `XSECTION.md`) ; **quotidienne**
-  pour AM01 à AM08 et XS24 (décision à 00:00 UTC, échange à la clôture du jour) ; **mensuelle** pour PF05 à PF09
+  pour AM01 à AM08 (décision à 00:00 UTC, échange à la clôture du jour) et XS24 (voir ci-dessous) ; **mensuelle** pour PF05 à PF09
   (premier lundi du mois).
+- **Exception d'exécution pour MR19 (forme (a)) et XS24** : pour un effet d'un jour, attendre la clôture journalière
+  suivante le déplacerait d'une journée entière ; l'entrée se fait donc à la **clôture de la première bougie 1 h dont
+  l'ouverture suit l'`available_at` du signal** (la bougie de 01:00 à 02:00 UTC pour un signal de clôture journalière),
+  et la sortie **24 h plus tard** (clôture de la bougie 1 h de même heure le lendemain).
 - **Facteurs** (XS) : parmi les membres pour lesquels la variable est calculable, le **quintile** du côté de la
   publication citée (⌊n / 5⌋ paires, au moins 3, soit 8 sur 40), à poids égaux.
 - **Référence** :
-  - **stratégies toujours investies** (XS, RO02, RO03, PF) : l'**univers à poids égaux** de la stratégie, rééquilibré à
-    la même fréquence, mêmes frais : les mêmes membres éligibles pour un facteur ; BTC et ETH à parts égales pour RO02 ;
-    le top 40 du moment pour RO03, PF06, PF07 et PF09 ; pour PF05, qui **est** l'univers à poids égaux, le même panier
+  - **stratégies toujours investies** (XS, PF) : l'**univers à poids égaux** de la stratégie, rééquilibré à la même
+    fréquence, mêmes frais : les mêmes membres éligibles pour un facteur ; le top 40 du moment pour PF06, PF07 et PF09 ; pour PF05, qui **est** l'univers à poids égaux, le même panier
     laissé flotter (acheté à poids égaux au premier lundi de chaque trimestre, sans rééquilibrage jusqu'au suivant) ;
+  - **rotations entre deux actifs** (RO02 : ETH ou BTC ; RO03 : altcoins à poids égaux ou BTC) : un portefeuille **de
+    même composition moyenne**, `f̄ × A + (1 − f̄) × B`, où `f̄` est la part moyenne du temps passée dans `A` (ETH ;
+    altcoins) sur l'étape, mesurée après coup, rééquilibré à la même fréquence et avec les mêmes frais ;
   - **règles d'exposition variable** (TR37, TR40, RO04, RO05, RG02, AM01 à AM04, AM06 à AM08, SE02) : la **référence
     d'exposition égale** `f̄ × U + (1 − f̄) × USDT`, où `U` est l'univers de la règle (top 40 à poids égaux, ou BTC pour
     les AM) et `f̄` l'**exposition moyenne de la règle mesurée après coup sur l'étape** (et dans chaque scénario),
@@ -261,8 +272,8 @@ rôle de l'achat au hasard de même paire et même étape.
   (connus à la bougie de confirmation, `INDICATEURS.md` § 1), jamais le point extrême en cours.
 - **Ichimoku** (TR22, TR23) : le nuage applicable à `t` est fait des Senkou calculées à `t − 26` (`INDICATEURS.md`
   § 10.4) ; la Chikou n'est **jamais** utilisée.
-- **RG06** (ondelettes) et **CH21** (Renko) sont recalculés à chaque décision sur le **passé seulement** (aucun
-  filtrage à deux côtés, aucune brique révisée après coup) ; la boîte Renko du mois est l'ATR 14 journalier connu au
+- **RG06** (ondelettes), **CH21** (Renko) et **TR48** (point et figure) sont recalculés à chaque décision sur le
+  **passé seulement** (aucun filtrage à deux côtés, aucune brique ni colonne révisée après coup) ; la boîte Renko du mois est l'ATR 14 journalier connu au
   1er du mois.
 - **AM04** : valeur du jour `d` connue au plus tôt à `d` + 1 12:00 UTC ; l'`available_at` de DGS10, plus tardif, est
   retenu. **AM05** (M2, révisé après coup) est **retiré** du zoo.
@@ -271,7 +282,13 @@ rôle de l'achat au hasard de même paire et même étape.
 - **Code commité exigé** ; empreintes SHA-256 des données lues inscrites ; une seule exécution par étape.
 - **Relecture** `leak-auditor` avant le contrôle sous H0.
 - **Comptages à blanc** sur la découverte réelle (nombre de signaux par test, **aucun rendement**) : un test qui n'a
-  pas 100 transactions possibles ou 20 blocs est retiré `INSUFFISANT_PAR_CONSTRUCTION`, **0 essai**.
+  pas 100 transactions possibles ou 20 blocs est retiré `INSUFFISANT_PAR_CONSTRUCTION`, **0 essai**. Publiés en plus,
+  avant toute lecture de rendement :
+  - **EV02** : (i) les nouvelles paires USDT du recensement sans annonce `COTATION_SPOT` et (ii) les annonces
+    `COTATION_SPOT` sans paire USDT correspondante ; tout taux supérieur à 5 % est déclaré ici, avec sa cause ;
+  - **CA10, CA11** : contrôle des dates CPI et NFP (jour de la semaine, écart entre deux publications) ; les exceptions
+    (publication un autre jour que d'habitude, mois manquant ou doublé, comme l'arrêt de l'administration en 2025)
+    sont listées ici.
 
 ## 8. Contrôle sous H0 (obligatoire, lancé une fois, avant toute exécution sur données réelles)
 
@@ -306,7 +323,9 @@ rôle de l'achat au hasard de même paire et même étape.
 - **Top 40 à date** : la fonction `pit_universe.membership`, inchangée, sur les journées synthétiques.
 - **Séries et calendriers externes** (AM, SE, CA09 à CA13) : les **vraies** séries du magasin, inchangées. Elles ne
   portent aucune information sur des cryptos synthétiques indépendantes : la nulle reste exacte, et leur calendrier et
-  leur persistance sont réels. **EV02** : une annonce synthétique 24 h avant la cotation de chaque altcoin synthétique.
+  leur persistance sont réels. **EV02** : un jeu de paires synthétiques supplémentaire, une
+  par paire USDT du recensement, **cotée à la date réelle de sa première bougie**, l'annonce à l'heure réelle de son
+  annonce `COTATION_SPOT` quand elle existe (sinon 24 h avant) : calendrier réel, prix synthétiques.
 - Le **pipeline complet du zoo**, sans aucune différence (signaux, appartenance, formes, `m(p)`, `f̄`, intervalles,
   Benjamini-Hochberg, garde-fous), tourne sur chaque réplique, découverte puis validation.
 
@@ -372,8 +391,8 @@ et sur H0-b**, avec la statistique de décision (`μ*` pour la forme (a), excès
 ## 10. Après la validation
 
 Les mêmes statistiques qu'en découverte et en validation : `μ*` (avec `m(p)` calculé sur la période lue) et la
-condition jointe pour la forme (a) ; excès sur la référence (d'exposition égale, `f̄` mesuré sur la période lue) pour la
-forme (b).
+condition jointe pour la forme (a) ; excès sur la référence (d'exposition égale ou de même composition moyenne, `f̄` mesuré sur la période lue) pour
+la forme (b).
 
 **Paires éligibles à F31.** En découverte, en validation et sur la période réservée, chaque résultat est **aussi**
 rapporté restreint aux paires éligibles à F31 (top 40 à date **et** admises par le filtre halal du projet, sans les
@@ -391,7 +410,9 @@ rapporté restreint aux paires éligibles à F31 (top 40 à date **et** admises 
 
 ### 10.2 Test en direct unique `F31_ZOO`
 
-- Toutes les `VALIDÉE` non `INFIRMÉE`, **ensemble**, dans un seul test pré-inscrit dans `FORWARD_TESTS.md` par le
+- **EV02 n'y est que descriptif**, même `VALIDÉE` : une nouvelle cotation n'a pas de relevé halal au moment de
+  l'annonce, et F31 ne mesure que des paires admises ; ses résultats en direct sont rapportés sans verdict.
+- Toutes les autres `VALIDÉE` non `INFIRMÉE`, **ensemble**, dans un seul test pré-inscrit dans `FORWARD_TESTS.md` par le
   chantier de code avant son démarrage, conforme au cadre commun (gel des empreintes, journal chaîné, frais de
   `forward/costs.py`, aucun message, aucun ordre).
 - Univers : top 40 à date **et** liste halal figée au démarrage (les paires `NON_RELEVE` en sont exclues).
@@ -523,7 +544,7 @@ regards passés.
 | MR09 | 1h | événement | écart relatif à la VWAP du jour < −2 écarts-types (168 bougies précédentes) | clôture ≥ VWAP du jour, ou dernière bougie de la journée UTC | 24 |
 | MR11 | 1h, 4h, 1j | événement | rendement de `t` < −2 × écart-type des 20 rendements précédents | aucune | 10 |
 | MR12 | 1j | événement | 3 clôtures consécutives en baisse et clôture > SMA 200 | clôture > SMA 5 | 20 |
-| MR19 | 1j | événement | IBS = (C − L) / (H − L) < 0,2 | aucune | 1 |
+| MR19 | 1j (exécution 1h) | événement | IBS = (C − L) / (H − L) < 0,2 ; entrée à la clôture de la 1re bougie 1 h qui s'ouvre après l'`available_at` du signal | 24 h après l'entrée | 24 h |
 | MR20 | 1j | événement | clôture > SMA 200 et clôture = plus bas des 7 dernières | clôture = plus haut des 7 dernières | 20 |
 | VO01 | 1j (exécution 1h) | événement | 1re clôture 1 h du jour > ouverture du jour + 0,5 × (plus haut − plus bas de la veille) | clôture de la dernière bougie 1 h de la journée UTC | 24 h |
 | VO02 | 1j (exécution 1h) | événement | 1re clôture 1 h > ouverture du jour + 0,5 × amplitude Dual Thrust (N = 4) | idem | 24 h |
@@ -554,9 +575,9 @@ regards passés.
 | VF05 | 1h, 4h, 1j | événement | volume > 5 × moyenne des 20 précédentes et clôture > ouverture | aucune | 10 |
 | VF16 | 1h, 4h, 1j | état | Elder Force Index (EMA 13) > 0 | ≤ 0 | — |
 | VF17 | 1h, 4h, 1j | événement | Klinger (34, 55) croise au-dessus de son signal 13 | croisement inverse | — |
-| SE01 | 1j | événement | Fear & Greed connu à la décision passe sous 25 : achat de chaque membre du top 40 | aucune | 30 |
-| CA09 | 1h | événement | bougie 1 h qui se termine 25 h avant le communiqué du FOMC (date connue à l'avance) : achat de chaque membre à la clôture suivante | clôture de la bougie 1 h qui contient le communiqué | 25 |
-| CA10, CA11 | 1h | événement | idem, 25 h avant 08:30 New York le jour du CPI (du NFP) | clôture de la bougie 1 h qui contient la publication | 25 |
+| SE01 | 1j | événement | la dernière valeur du Fear & Greed dont l'`available_at` précède la décision passe sous 25 : achat de chaque membre du top 40 | aucune | 30 |
+| CA09 | 1h | événement | date connue à l'avance : achat de chaque membre à la clôture de la **dernière bougie 1 h qui se termine au plus tard 24 h avant** le communiqué du FOMC (14:00 New York, converti en UTC avec `zoneinfo`, heure d'été comprise) ; exception déclarée à la « clôture suivante » | clôture de la **dernière bougie 1 h qui se termine au plus tard à l'heure de publication** | — |
+| CA10, CA11 | 1h | événement | idem, publication du CPI (du NFP) à 08:30 New York | idem | — |
 | CA13 | 1j | événement | 1re clôture journalière après une nouvelle lune | 1re clôture après la pleine lune suivante | — |
 | EV02 | 1j | événement | 1re journée complète de cotation d'une paire annoncée (`COTATION_SPOT`, annonce connue avant la clôture de cette journée) | aucune | 30 |
 | RG03 | 1j | état | pente filtrée (Kalman, tendance locale linéaire du log-prix, variances estimées chaque mois sur le passé) > 0 | pente ≤ 0 | — |
@@ -579,9 +600,9 @@ Total forme (a) : 81 (TR) ; 23 (MR) ; 14 (VO) ; 44 (CH) ; 22 (ST) ; 21 (VF) ; 1 
 | TR37 | hebdomadaire | chaque membre à 1/n si son rendement sur 7 j > 0, sinon sa part en USDT | exposition égale (top 40) |
 | TR40 | hebdomadaire | idem sur 84 j | exposition égale (top 40) |
 | XS01, XS09, XS10, XS11, XS12, XS14, XS15, XS17, XS18, XS19, XS20, XS23 | hebdomadaire | quintile du côté publié (recensement § 7) | membres éligibles à poids égaux |
-| XS24 | quotidienne | quintile des plus fortes baisses de la veille | membres éligibles à poids égaux |
-| RO02 | hebdomadaire | 100 % ETH si ETHBTC > SMA 50 journalière, sinon 100 % BTC | BTC et ETH à parts égales |
-| RO03 | hebdomadaire | altcoins membres à poids égaux si ≥ 75 % d'entre eux battent BTC sur 90 j, sinon 100 % BTC | top 40 à poids égaux |
+| XS24 | quotidienne (exécution 1h) | quintile des plus fortes baisses de la veille ; achat à la clôture de la 1re bougie 1 h qui s'ouvre après l'`available_at` du signal, vente 24 h plus tard | membres éligibles à poids égaux |
+| RO02 | hebdomadaire | 100 % ETH si ETHBTC > SMA 50 journalière, sinon 100 % BTC | même composition moyenne : `f̄` ETH + (1 − `f̄`) BTC |
+| RO03 | hebdomadaire | altcoins membres à poids égaux si ≥ 75 % d'entre eux battent BTC sur 90 j, sinon 100 % BTC | même composition moyenne : `f̄` altcoins + (1 − `f̄`) BTC |
 | RO04 | hebdomadaire | top 40 à poids égaux si plus de la moitié clôture au-dessus de sa SMA 50, sinon USDT | exposition égale (top 40) |
 | RO05 | hebdomadaire | top 40 à poids égaux si la corrélation moyenne sur 30 j est sous sa médiane des 365 j précédents, sinon USDT | exposition égale (top 40) |
 | RG02 | hebdomadaire | top 40 à poids égaux sauf si la probabilité filtrée de l'état le plus volatil (3 états, BTC, réestimation mensuelle comme `FACTORS.md`) dépasse 0,5 | exposition égale (top 40) |
@@ -592,7 +613,7 @@ Total forme (a) : 81 (TR) ; 23 (MR) ; 14 (VO) ; 44 (CH) ; 22 (ST) ; 21 (VF) ; 1 
 | PF07 | mensuelle | minimum de variance long seul (covariance 90 j rétrécie de Ledoit-Wolf) | top 40 à poids égaux |
 | PF09 | mensuelle | 60 % BTC, 40 % ETH | top 40 à poids égaux |
 
-Total forme (b) : 2 + 13 + 4 + 1 + 1 + 7 + 4 = **32 tests** (13 d'exposition variable, 19 toujours investis).
+Total forme (b) : 2 + 13 + 4 + 1 + 1 + 7 + 4 = **32 tests** (13 d'exposition variable, 2 rotations entre deux actifs, 17 toujours investis).
 
 ## 13. En attente de données, ou en direct seulement (14 lignes du recensement)
 
@@ -603,7 +624,7 @@ périodes si l'historique est plus court que 2019-2025, **avant** tout télécha
 |---|---|
 | SE04 | vues Wikipédia par crypto (table crypto → article à construire) |
 | AM05 | M2 point-in-time (millésimes ALFRED) : retiré du zoo, la série du magasin est révisée après coup |
-| DE07, DE08 | **en direct seulement** (choix du 2026-10-11) : archive `metrics` pour les 16 paires de la configuration depuis 2021-12. Une découverte sur 2022 seul, parmi 257 tests, demanderait ≈ 3 %/semaine (52 semaines, quintile de 3 paires sur 16, écart-type de l'excès ≈ 5 %/semaine, erreur type ≈ 0,7 %) : sans objet. En direct sur 52 semaines, seul dans sa famille : effet vu à 80 % ≈ 2 %/semaine, faible aussi (déclaré) |
+| DE07, DE08 | **en direct seulement** (choix du 2026-10-11) : archive `metrics` pour les 16 paires de la configuration depuis 2021-12. Une découverte sur 2022 seul, parmi 257 tests, demanderait ≈ 3 %/semaine (52 semaines, quintile de 3 paires sur 16, écart-type de l'excès ≈ 5 %/semaine, erreur type ≈ 0,7 %) : sans objet. En direct sur 52 semaines, seul dans sa famille : effet vu à 80 % ≈ 2 %/semaine, faible aussi (déclaré). DE07 est un **cousin déjà vu** de DE05 et DE06 (`DERIVATIVES.md`, `CONTEXTE_PREDICTION.md`). Une étude historique séparée sur 2022-01 → 2025-06 reste possible plus tard, pré-inscrite et **comptée à part** |
 | OC07, OC08 | séries communautaires de CoinMetrics (offre dormante, adresses actives, NVT) |
 | EV03, EV06 | archive des annonces de retrait de la cote (la catégorie lue ne contient que les cotations), historique des piratages |
 | VF13, VF14, VF15, DE13 | journaux du collecteur (F26 à F29, décision du 2026-10-10 : nouvelle pré-inscription quand la puissance atteindra 50 %) |
@@ -645,3 +666,11 @@ périodes si l'historique est plus court que 2019-2025, **avant** tout télécha
   résultats aussi restreints aux paires éligibles à F31 ; données du zoo fusionnées sur `main` (`ce65673`) branchées :
   257 tests au lieu de 247 (8 familles ajoutées, 9 lignes venues de l'attente, CH06, CH07, CH09, CA14 et AM05 retirés) ;
   comptage FINAL_TEST (10 essais) ajouté.
+- 2026-10-11 (deuxième relecture, aucun résultat vu) : unité de `μ*` précisée (rendement quotidien rapporté à la valeur
+  de début de journée, test exigé sous dérive constante) ; RO02 et RO03 comparés à un portefeuille de même composition
+  moyenne ; MR19 et XS24 exécutés à la 1re bougie 1 h après le signal, sortie 24 h plus tard ; EV02 : référence des
+  paires cotées depuis plus de 180 jours le même jour, contrôles de correspondance des annonces au comptage à blanc,
+  calendrier réel dans le contrôle H0, descriptif seulement dans F31 ; CA09 à CA11 : entrée et sortie bornées par
+  l'heure de publication (`zoneinfo`), contrôle des dates au comptage à blanc ; `m` de VO11 sur la bougie 23:00-24:00 ;
+  formulation unique pour SE01 et limite de l'historique d'alternative.me ; TR48 calculé sur le passé seulement ;
+  DE07 marqué cousin de DE05 et DE06.
