@@ -59,6 +59,61 @@ Primes calculées (`context/views.py`) :
 - Historique de la dominance, des secteurs et des options : payant (CoinGecko Analyst 129 $/mois, Tardis options
   700 $/mois au 2026-10-04) ; à reconsidérer seulement si un test sur données gratuites montre un effet.
 
+## Données du zoo (2026-10)
+
+Ajout du 2026-10-10 pour le programme « zoo des stratégies » : les données **gratuites et publiques** qui
+manquaient. Code : `context/zoo.py` (lecteurs, `available_at`, magasin, qualité), `context/calendrier.py` (règles
+pures : FOMC, millésimes, halvings, lunes, annonces), `context/zoo_net.py` (**liste fermée dédiée**, sur le modèle de
+`collect/net.py` : préfixes exacts, refus avant tout appel réseau, mots interdits, pause de 2 s exigée par le
+robots.txt de FRED). Ni `data/http.py` ni la liste du relevé quotidien (`forward/sources.ALLOWED`) ne sont élargis.
+Commandes : `csi zoo-download [--series …]` (une série par option, toutes par défaut) et `csi zoo-status`
+(profondeur, doublons, jours manquants, plus long trou, bornes d'unité, `available_at`, recoupement avec le
+calendrier figé de `forward/light.py`, lu et jamais modifié). Tests : `tests/test_zoo.py` (aucun réseau).
+
+**Information seulement**, comme le reste de ce document : rien n'entre dans un test en cours, une décision ou un
+signal ; aucun rendement n'a été lu ni calculé (téléchargement et contrôle de qualité seulement).
+
+Magasins : séries numériques dans `data/context/<série>.parquet` (format long, lignes HISTORIQUE, plus une colonne
+**`available_at`**) ; événements dans `data/context/evenements/<nom>.parquet` (une ligne par événement :
+`event_time`, `available_at`, `scheduled`, `detail`, `category`, `tickers`). Les séries de marché et le calendrier
+sont re-téléchargeables en entier : aucun relevé quotidien n'est ajouté à la surveillance.
+
+| Source | Série (magasin) | Clés | Historique obtenu le 2026-10-10 | `available_at` (latence prudente) | Statut |
+|---|---|---|---|---|---|
+| FRED, CSV public `fredgraph.csv` sans clé | `zoo_marches` | SP500, NASDAQ100, NASDAQCOM | 2017-01-03 → 2026-10-09 (≈ 2 457 jours ouvrés) | clôture 16:00 New York + 2 h (heure d'été comprise) | MARCHE (SP500 : 10 ans au plus, licence S&P) |
+| FRED | `zoo_marches` | VIXCLS | 2017-01-03 → 2026-10-08 | 16:15 New York + 2 h | MARCHE |
+| FRED (H.15) | `zoo_marches` | DGS10 (taux à 10 ans, % par an) | 2017-01-03 → 2026-10-08 | lendemain 16:15 New York + 2 h | MARCHE |
+| FRED (H.10, hebdomadaire) | `zoo_marches` | DTWEXBGS (dollar large), DTWEXAFEGS (dollar contre économies avancées) | 2017-01-03 → 2026-10-02 | mardi de la semaine suivante, 16:15 New York + 2 h | MARCHE |
+| Nasdaq public (client existant `forward/sources`) | `zoo_marches` | GLD (ETF or, approximation de l'or) | 2017-01-03 → 2026-10-09 | clôture 16:00 New York + 2 h | MARCHE |
+| BCE, taux de référence | `zoo_dollar_bce` | DXY_BCE (indice dollar recalculé, formule ICE), USD, JPY, GBP, CAD, SEK, CHF | 2017-01-02 → 2026-10-09 (2 501 jours ouvrés BCE) | 16:00 Francfort + 1 h | MARCHE (approximation : taux de 14:15 CET, pas la cotation ICE) |
+| alternative.me | `zoo_fear_greed` | fear_greed (0-100) | 2018-02-01 → 2026-10-10 (3 170 jours, 4 jours absents chez la source) | J 00:00 UTC + 2 h | MARCHE (déjà lu en direct par `forward/sources`, pas encore en historique) |
+| CoinMetrics community | `zoo_capitalisations` | btc, eth (capitalisation en dollars) | BTC 2010-07-18, ETH 2015-08-08 → 2026-10-09, sans trou | J + 2 jours 00:00 UTC | MARCHE |
+| CoinGecko public | — | capitalisation totale, dominance BTC | `/coins/{id}/market_chart` : **365 jours** au plus (« Public API users are limited to … the past 365 days ») ; `/global/market_cap_chart` : réservé aux abonnés | — | NON_DISPONIBLE en historique ; relevé quotidien déjà en service depuis le 2026-10-04 (`market_global` : total, dominances BTC/ETH/USDT, TOTAL2, TOTAL3) |
+| CoinPaprika public | — | capitalisation totale, dominance BTC | `/v1/global` : instantané seulement ; historique journalier refusé avant J−365 (« not allowed in this plan ») | — | NON_DISPONIBLE (doublon du relevé CoinGecko) |
+| Binance futures, routes publiques `/futures/data/*` | — | ratios comptes (tous, gros traders), positions des gros traders, intérêt ouvert, ratio des volumes takers | API : **30 jours** (`startTime` à J−60 refusé, `-1130`) | — | inutile : tout est dans l'archive officielle `metrics` déjà téléchargée |
+| Archives publiques Binance `data/futures/um/daily/metrics` (existant, `csi download-derivatives --dataset metrics`) | `data/derivatives/binance_um/metrics` | `oi`, `oi_value`, `top_accounts_ratio` (= topLongShortAccountRatio), `top_positions_ratio`, `accounts_ratio`, `taker_ratio` ; pas de 5 min | 16 paires de la configuration : 2021-12-01 → 2026-10-09 (BTC depuis 2021-01 en magasin, archive depuis 2020-09) ; mis à jour le 2026-10-10 | horodatage + 10 min + 2 s (docs/DERIVATIVES.md) | MARCHE (archive publiée chaque jour : aucun relevé supplémentaire nécessaire ; `data/http.py` non modifié) |
+| Fed, pages publiques du calendrier FOMC | `evenements/calendrier_macro` | FOMC | 2017-02-01 → 2027-12-08 (97 : réunions programmées, non programmées, votes par notation ; réunions annulées écartées ; dates futures = calendrier officiel) | communiqué 14:00 New York + 1 h ; non programmé : 23:59 New York + 1 h | MARCHE |
+| ALFRED (millésimes publics de FRED), séries CPIAUCNS et PAYEMS | `evenements/calendrier_macro` | CPI, NFP | CPI 2017-01-18 → 2026-09-11 (116) ; NFP 2017-01-06 → 2026-10-02 (117) ; 2025 : 11 publications chacun (arrêt de l'administration) | 08:30 New York + 1 h | MARCHE (millésime = jour de publication ; une correction à moins de 7 jours est écartée : NFP 2020-05-11) |
+| BLS (calendriers officiels) | — | CPI, NFP | — | — | NON_DISPONIBLE : HTTP 403 pour tout robot (y compris avec un User-Agent identifié) ; calendrier FRED : depuis 2025 seulement ; API FRED : clé |
+| Blocs Bitcoin (vérifiés sur mempool.space, table figée dans le code) | `evenements/calendrier_crypto` | HALVING | 4 halvings : 2012-11-28, 2016-07-09, 2020-05-11, 2024-04-20 (heure du bloc) | heure du bloc + 1 h | MARCHE |
+| Calcul astronomique local (Meeus, chapitre 49), sans réseau | `evenements/calendrier_crypto` | NOUVELLE_LUNE, PLEINE_LUNE | 2017-01 → 2027-12 (136 + 136), écart < 1 min sur les éclipses de 2017, 2024 et 2025 | instant de la phase (calculable d'avance : un test qui s'en sert à l'avance le déclare) | MARCHE |
+| Binance, liste publique des annonces (catégorie 48 « New Cryptocurrency Listing ») | `evenements/annonces_binance` | une ligne par annonce : titre, heure, catégorie (COTATION_SPOT, NOUVELLES_PAIRES, FUTURES, PROGRAMME, MARGE_COLLATERAL, AUTRE), symboles entre parenthèses | 2017-07-21 → 2026-10-07 (2 279 annonces) | heure de publication + 10 min | MARCHE (titres seulement ; classement par règle fixe, testée) |
+| Stooq (CSV) | — | indices, or | — | — | NON_DISPONIBLE : défi JavaScript anti-robot (preuve de travail), pas de contournement |
+| FRED, cotation LBMA de l'or (GOLDAMGBD228NLBM, GOLDPMGBD228NLBM) | — | or | — | — | NON_DISPONIBLE : séries retirées (HTTP 404) ; remplacées par GLD et PAXGUSDT (`binance_daily`) |
+| Déblocages de jetons (DefiLlama « emissions », Tokenomist) | — | calendriers de déblocage | — | — | NON_DISPONIBLE : API réservée aux abonnés (`api.llama.fi/emissions` : HTTP 402 ; Tokenomist : clé) ; les fichiers du site de DefiLlama ne sont pas une API publique, et leur calendrier est réécrit après coup (pas point-in-time) |
+
+Remarques de causalité :
+- **Marchés fermés le week-end** : la clôture du vendredi n'est connue qu'après 16:00 New York + 2 h ; une jointure
+  « au plus tard » sur `available_at` reprend ensuite cette valeur pendant le samedi et le dimanche (testé).
+- **Calendriers** : les dates des réunions FOMC et des publications du BLS sont annoncées l'année précédente, mais
+  les sources lues ne prouvent pas à quelle heure ; `available_at` est donc posé APRÈS l'événement. Un test qui veut
+  « FOMC demain » doit déclarer l'hypothèse du calendrier publié à l'avance dans son pré-enregistrement.
+- **Valeurs HISTORIQUE** telles que publiées aujourd'hui : les indices et les taux ne sont pas révisés ; le dollar
+  large de la Fed peut l'être (révisions rares) ; CoinMetrics peut l'être (déjà déclaré plus haut).
+- **FRED « muet »** depuis le 2026-10-02 : c'est le User-Agent du relevé quotidien que FRED coupe, pas le service
+  (constaté le 2026-10-10). La liste fermée du zoo utilise un User-Agent identifié avec l'adresse du projet, accepté.
+  Le relevé quotidien n'est pas modifié (son remplaçant Trésor / Fed / Nasdaq reste en service).
+
 ## Historique
 
 - 2026-10-04 : module, magasin, relevé quotidien et téléchargement de l'historique ; sources validées par le
@@ -66,4 +121,6 @@ Primes calculées (`context/views.py`) :
 - 2026-10-04 : FRED muet (`fredgraph.csv`) ; remplacé, sur accord du propriétaire, par le Trésor américain (taux à
   10 ans), la Fed (M2, publication H.6, mêmes valeurs que FRED vérifiées) et l'ETF SPY sur Nasdaq ; verrou
   d'écriture du magasin (le téléchargement de l'historique avait écrasé le journal du relevé du jour).
-
+- 2026-10-10 : « Données du zoo » : marchés traditionnels (FRED, GLD), indice dollar recalculé (BCE), Fear & Greed,
+  capitalisations BTC et ETH, calendrier FOMC / CPI / NFP / halvings / lunes, annonces de cotation Binance ; liste
+  fermée dédiée ; archive `metrics` du marché à terme mise à jour (aucune route ajoutée à `data/http.py`).

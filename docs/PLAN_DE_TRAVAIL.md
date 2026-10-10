@@ -43,6 +43,7 @@ refusé (aucune donnée payante) ; points 6 à 10 en attente (voir § 5).
 | Phase 10.1, volatilité réalisée sur bougies de 1 minute (v5, 6 comparaisons) | `AUCUNE_AMELIORATION` : estimations favorables aux minutes (C5 à 3 j : 7 années sur 7), non démontrées | `VOLATILITY.md` § 20 |
 | Phases 1.4 et 11 — bibliothèque d'indicateurs et détecteur de figures | F15 démarré le 2026-10-03 (figures classiques comprises) ; bibliothèque § 10 (niveaux, sessions, indicateurs classiques, flux, ICT avancé), utilisée par aucun test | `INDICATEURS.md`, `FORWARD_TESTS.md` |
 | Phase 1.3, ajout du 2026-10-03 — données de contexte gratuites | sources validées le 2026-10-04 ; historique téléchargé, relevé quotidien en service | `CONTEXTE.md` |
+| Données du zoo (2026-10-10) — marchés traditionnels, dollar, Fear & Greed, capitalisations, calendriers, annonces Binance | historique téléchargé avec `available_at` ; dominance historique, calendriers BLS, déblocages : NON_DISPONIBLE (branche `feat/donnees-zoo`) | `CONTEXTE.md` § Données du zoo |
 | Tableau de bord — signaux des stratégies de CSI | tous consultables (pages de 20, filtre par stratégie) | — |
 | Carte d'analyse technique (onglet Marché) | supports, résistances, structure, figures, zones, plan indicatif ; information seulement | `ANALYSE_TECHNIQUE.md` |
 | **Prédiction, 2026-10-04** — supports et résistances contre niveaux placebo (4 essais) | RIEN : pile ou face comme un niveau au hasard (±1 pt) | `NIVEAUX.md` |
