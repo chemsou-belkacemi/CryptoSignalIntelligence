@@ -104,6 +104,10 @@ Contrôle sous H0 n° 1 sur marché synthétique : **échec sur l'excès** (plac
 **puissance < 0,5 pour les cinq** (`INSTRUMENT_TROP_FAIBLE`) → **0 essai historique, exécution refusée**. Direct : test **F19_PRICE_ACTION** pré-inscrit (`FORWARD_TESTS.md`), **non démarré** (verdict au R net seul ; il mesure les cinq
 configurations malgré la faible puissance ; démarrage après la relecture) ; boîte Telegram séparée servie par `GET /assistant/outbox`, carte « Price action ». **Aucun gain démontré** ; attendu : `RIEN`,
 `PERTE` ou `INSUFFISANT`.
+Tests séparés **F20 à F24** (branche `feat/f20-f24`, 2026-10-10) : une configuration par test, mêmes règles que F19,
+**quota propre** de 5 appels par jour ; pré-inscrits (`FORWARD_TESTS.md`, `PRICE_ACTION.md` § 12), **non démarrés**
+(relecture et démarrage par le propriétaire) ; une seule détection par clôture pour les cinq ; boîte Telegram `ps:` sans
+doublon avec F19.
 
 **Feu de protection du marché** (demande du propriétaire du 2026-10-08, `METEO_PROTECTION.md`) : VERT / ORANGE /
 ROUGE / INCONNU d'après la volatilité prévue de BTC (rang sur 365 jours), BTC contre son EMA50 et la largeur ;

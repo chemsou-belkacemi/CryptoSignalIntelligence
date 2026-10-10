@@ -46,13 +46,15 @@ demande de clé Binance. Pages : `/` (application : analyser une paire, évaluer
                                state/assistant.json (dernière évaluation, feu, BTC, régimes, appels actifs, refus,
                                prochaine évaluation, `resume` de 5 lignes) ; shadow, aucun ordre, aucun gain démontré
     GET  /assistant/outbox     {"messages": [{"id", "created_at", "text"}]} : messages Telegram EN_ATTENTE de
-                               l'assistant (F18) ET du test « price action » (F19, identifiants préfixés `pa:`),
-                               fusionnés du plus ancien au plus récent, 20 au plus (lus par le service relais)
+                               l'assistant (F18), du test « price action » (F19, identifiants préfixés `pa:`) et des
+                               tests séparés F20 à F24 (identifiants préfixés `ps:`), fusionnés du plus ancien au plus
+                               récent, 20 au plus (lus par le service relais)
     POST /assistant/sent       {"ids": [...]} → {"marked": n} : messages passés ENVOYE par le relais, chacun dans sa
                                boîte selon son identifiant (jeton requis)
     GET  /price-action         test en direct F19 (docs/PRICE_ACTION.md) : contenu de state/price_action.json
-                               (dernière évaluation, candidats par configuration, appels actifs, refus) ; shadow,
-                               aucun ordre, aucun gain démontré
+                               (dernière évaluation, candidats par configuration, appels actifs, refus), et
+                               `separate_tests` : état des tests séparés F20 à F24 (une configuration chacun, quota
+                               propre : appels actifs, résolus, verdict) ; shadow, aucun ordre, aucun gain démontré
     GET  /collecte             état du collecteur en shadow (docs/COLLECTE.md) : `state/C_ETAT.json` (dernier message
                                et dernière entrée par source, compteurs, erreurs) et taille des journaux du mois ;
                                information seulement, aucune influence sur les tests, les avis ou BSM
@@ -368,35 +370,64 @@ class CsiApi:
         return state.read(self.settings)
 
     def assistant_outbox(self) -> dict:
-        """Messages Telegram EN_ATTENTE de l'assistant (F18) et du test « price action » (F19, identifiants `pa:`),
-        fusionnés par ordre chronologique, 20 au plus ; ceux de plus de 6 h sont passés EXPIRE. Contrat consommé par
-        le service relais (inchangé : une seule liste)."""
+        """Messages Telegram EN_ATTENTE de l'assistant (F18), du test « price action » (F19, identifiants `pa:`) et des
+        tests séparés F20 à F24 (identifiants `ps:`), fusionnés par ordre chronologique, 20 au plus ; ceux de plus de
+        6 h sont passés EXPIRE. Contrat consommé par le service relais (inchangé : une seule liste)."""
         from ..assistant import outbox
+        from ..forward import pa_single
         from ..price_action import outbox as pa_outbox
         now = self.now()
-        merged = outbox.pending(self.settings, now=now) + pa_outbox.pending(self.settings, now=now)
+        merged = (outbox.pending(self.settings, now=now) + pa_outbox.pending(self.settings, now=now)
+                  + pa_single.pending(self.settings, now=now))
         merged.sort(key=lambda m: (str(m["created_at"]), str(m["id"])))
         return {"messages": merged[:outbox.MAX_PENDING_RETURNED]}
 
     def assistant_sent(self, payload: dict) -> dict:
         """`{"ids": [...]}` → `{"marked": n}` : le relais confirme l'envoi (jeton requis : la route écrit l'état) ;
-        un identifiant `pa:` est marqué dans la boîte de F19, les autres dans celle de l'assistant."""
+        un identifiant `pa:` est marqué dans la boîte de F19, un identifiant `ps:` dans celle des tests séparés F20 à
+        F24, les autres dans celle de l'assistant."""
         from ..assistant import outbox
+        from ..forward import pa_single
         from ..price_action import outbox as pa_outbox
         self._require_token("confirmation d'envoi de l'assistant")
         ids = payload.get("ids")
         if not isinstance(ids, list) or not all(isinstance(i, str) and i for i in ids) or len(ids) > 500:
             raise ApiError(HTTPStatus.BAD_REQUEST, "champ « ids » : liste de textes (500 au plus)")
         mine = [i for i in ids if i.startswith(pa_outbox.PREFIX)]
-        others = [i for i in ids if not i.startswith(pa_outbox.PREFIX)]
-        marked = (outbox.mark_sent(self.settings, others) if others else 0) + (pa_outbox.mark_sent(self.settings, mine) if mine else 0)
+        single = [i for i in ids if i.startswith(pa_single.PREFIX)]
+        others = [i for i in ids if not i.startswith((pa_outbox.PREFIX, pa_single.PREFIX))]
+        marked = ((outbox.mark_sent(self.settings, others) if others else 0)
+                  + (pa_outbox.mark_sent(self.settings, mine) if mine else 0)
+                  + (pa_single.mark_sent(self.settings, single) if single else 0))
         return {"marked": marked}
 
     def price_action(self) -> dict:
         """Test en direct F19 « price action » (docs/PRICE_ACTION.md) : état écrit par la surveillance à chaque clôture
-        4 h. Lecture seule ; shadow, aucun ordre, aucun gain démontré."""
+        4 h, plus `separate_tests` (F20 à F24, une configuration chacun avec son propre quota). Lecture seule ; shadow,
+        aucun ordre, aucun gain démontré."""
         from ..price_action import state
-        return state.read(self.settings)
+        return state.read(self.settings) | {"separate_tests": self._price_action_single()}
+
+    def _price_action_single(self) -> list[dict]:
+        """Une ligne par test séparé F20 à F24 : état du registre (journal) et dernière ligne écrite par la surveillance
+        (`state/price_action_single.json` : appels actifs, résolus, verdict inscrit ou EN_COURS)."""
+        from ..forward import pa_single
+        from ..forward.registry import status
+        from ..forward.tests import BY_ID
+        written = pa_single.read_state(self.settings).get("tests") or {}
+        rows = []
+        for test_id in pa_single.TEST_IDS:
+            row = {"test_id": test_id, "short": pa_single.SHORT[test_id], "config": pa_single.CONFIG_OF[test_id],
+                   "state": status(self.settings, BY_ID[test_id][0], now=self.now())["state"] if test_id in BY_ID else "INCONNU",
+                   "active": 0, "resolved": 0, "calls": 0, "also_in_f19": 0, "verdict": None, "last_at": None}
+            line = written.get(test_id) or {}
+            if line:
+                row |= {"active": len(line.get("active_calls") or []), "resolved": line.get("resolved", 0),
+                        "calls": line.get("calls", 0), "also_in_f19": line.get("also_in_f19", 0),
+                        "gaps": line.get("gaps", 0), "verdict": line.get("verdict"), "last_at": line.get("last_at"),
+                        "active_calls": line.get("active_calls") or []}
+            rows.append(row)
+        return rows
 
     def telegram_relay_status(self) -> dict:
         """État du relais Telegram vu par CSI : messages déposés (dossier lu par F4), le dernier, et le nombre par

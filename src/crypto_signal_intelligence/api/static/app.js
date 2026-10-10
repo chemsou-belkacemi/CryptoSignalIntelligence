@@ -455,6 +455,23 @@ async function loadAssistant() {
 // F19 contre des placebos ; aucun ordre, aucun gain démontré. État écrit par la surveillance à chaque clôture 4 h.
 const PRICE_ACTION_HONESTY = "Price action en shadow : CSI ne passe aucun ordre. Les appels sont mesurés en direct par le test F19_PRICE_ACTION contre des placebos ; aucun gain démontré.";
 
+// Tests séparés F20 à F24 (une configuration chacun, quota propre de 5 appels par jour) : une ligne par test.
+const PRICE_ACTION_SINGLE_HONESTY = "Tests séparés F20 à F24 : mêmes règles que F19, une configuration chacun avec son propre quota ; une partie des appels sont les mêmes que ceux de F19 (non renvoyés sur Telegram). Shadow, aucun ordre, aucun gain démontré.";
+
+function priceActionSingle(d) {
+  const rows = (d.separate_tests || []).map((t) => [
+    { node: el("strong", { text: t.short || t.test_id }) }, t.config, t.state,
+    t.last_at ? when(t.last_at) : "–", fmt(t.active || 0, 0), fmt(t.resolved || 0, 0),
+    `${fmt(t.calls || 0, 0)} (dont ${fmt(t.also_in_f19 || 0, 0)} aussi dans F19)`, t.verdict || "–",
+  ]);
+  return [
+    el("h3", { text: "Tests séparés (F20 à F24, quota propre)" }),
+    table(["Test", "Configuration", "État", "Dernière évaluation", { label: "Appels actifs", num: true },
+           { label: "Résolus", num: true }, "Appels", "Verdict courant"], rows, "aucun test séparé"),
+    el("p", { class: "small", text: PRICE_ACTION_SINGLE_HONESTY }),
+  ];
+}
+
 async function loadPriceAction() {
   const target = document.getElementById("price-action-result");
   if (!target) return;
@@ -464,7 +481,8 @@ async function loadPriceAction() {
     if (!d.available) {
       target.replaceChildren(card("Price action (shadow, test F19)",
         el("p", { class: "muted", text: d.reason || "aucune évaluation" }),
-        el("p", { class: "small", text: PRICE_ACTION_HONESTY })));
+        el("p", { class: "small", text: PRICE_ACTION_HONESTY }),
+        ...priceActionSingle(d)));
       return;
     }
     const cands = d.candidates || {};
@@ -490,7 +508,8 @@ async function loadPriceAction() {
       el("h3", { text: "Derniers refus" }),
       table(["Clôture", "Paire", "Configuration", "Raison", "Détail"], refusals, "aucun refus enregistré"),
       el("pre", { class: "small", text: d.resume || "" }),
-      el("p", { class: "small", text: PRICE_ACTION_HONESTY })));
+      el("p", { class: "small", text: PRICE_ACTION_HONESTY }),
+      ...priceActionSingle(d)));
   } catch (error) {
     showError(target, error);
   }
