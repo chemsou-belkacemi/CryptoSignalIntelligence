@@ -65,6 +65,9 @@ STARTED = {
     "F18_ASSISTANT": {"doc": "90ee4a3b41e3739346bfd9640a7e8e34",
                       "params": "dbd26ce915d32d1d08ab5e174b5fc675",
                       "code": "bab922fe1708ad816f18ce769db23cbb"},
+    "F19_PRICE_ACTION": {"doc": "24dead3319416f74b1a9cab34d4d113f",
+                         "params": "dde0c227e5cb7214d787d55904a4de2f",
+                         "code": "8022a222e41ecbd083132e07514108fb"},
 }
 
 
