@@ -68,6 +68,21 @@ STARTED = {
     "F19_PRICE_ACTION": {"doc": "24dead3319416f74b1a9cab34d4d113f",
                          "params": "dde0c227e5cb7214d787d55904a4de2f",
                          "code": "8022a222e41ecbd083132e07514108fb"},
+    "F20_BASE_RETEST": {"doc": "c5af27d7d7d6ab7aff10766d32fdb8eb",
+                       "params": "b9327c0f42a964c17d05ebcbc77145d2",
+                       "code": "c44c044f0c240600c27827268ce38f6c"},
+    "F21_SQUEEZE": {"doc": "07da970b5342fc32303273f2a5dbe2ed",
+                   "params": "0c09a3a938959c4d67a3e75870e1c1cb",
+                   "code": "ca72241ad7ceb1d3b9353816293b22f8"},
+    "F22_FORCE_RELATIVE": {"doc": "4c743ff9a619a86bbeb6c66648fe8330",
+                          "params": "cb10cf3d47f3cd80bf479d3886bd1f1c",
+                          "code": "ba735a82185a279c4905219df25d12a4"},
+    "F23_INSIDE_DAY": {"doc": "24aebcd680404867d443aa5906f547fb",
+                      "params": "5c203098f102d1b9d69fbc878ef85815",
+                      "code": "bd2ac7c55d9c1eae01e722013519ced3"},
+    "F24_SORTIE_BASE_LONGUE": {"doc": "f2fc1960a23e83c33fc7628353e60a39",
+                              "params": "82fac497593f26bde942b4214a1532b0",
+                              "code": "b3be43f74c1455900358eea2b74dcc46"},
 }
 
 
