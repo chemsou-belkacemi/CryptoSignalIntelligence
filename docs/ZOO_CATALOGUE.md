@@ -1,6 +1,6 @@
-# Zoo des stratégies : catalogue exhaustif (rédigé le 2026-10-10, avant tout code et toute exécution)
+# Zoo des stratégies : recensement des stratégies (rédigé le 2026-10-10, révisé le 2026-10-11, avant tout code et toute exécution)
 
-Programme « zoo des stratégies » : avoir mesuré d'ici 2027 **toutes** les stratégies connues et réalisables par CSI
+Programme « zoo des stratégies » : avoir mesuré d'ici 2027 les stratégies connues et réalisables par CSI
 (Binance Spot, achat seul, cadre halal), avec une seule méthode fixée d'avance. Ce catalogue recense les stratégies,
 leurs paramètres standard publiés et leur statut ; le protocole pré-inscrit de celles qui restent à mesurer est
 [ZOO.md](ZOO.md).
@@ -19,7 +19,7 @@ colonne « Renvoi ») :
 | `TESTÉ` | mesuré sur l'historique par un protocole déclaré d'avance ; document et verdict cités |
 | `EN_DIRECT` | pas de mesure historique, mais un test en direct pré-inscrit et démarré (`FORWARD_TESTS.md`) |
 | `À_TESTER (zoo)` | ne demande que des bougies Binance ou des données déjà en magasin : mesuré par [ZOO.md](ZOO.md) |
-| `À_TESTER (attente)` | données manquantes, ou test en direct pré-inscrit mais non démarré : branché par un autre chantier |
+| `À_TESTER (attente)` | données manquantes, test en direct pré-inscrit mais non démarré, ou mesure en direct seulement (historique trop court) : branché par un autre chantier |
 | `À_TESTER (hors moteur)` | données disponibles, mais la mesure exige un protocole propre (coût du contrôle sous H0, pré-inscription déjà faite ailleurs) |
 | `IMPOSSIBLE` | raison donnée (liste ci-dessous) |
 
@@ -61,8 +61,8 @@ seulement.
 | TR09 | Prix au-dessus de sa SMA 50 (par paire) | BLL (1992), règle VMA (1, 50) | clôture > SMA 50 | 1h, 4h, 1j | `À_TESTER (zoo)` | — |
 | TR10 | Prix au-dessus de sa SMA 200 (par paire) | BLL (1992), VMA (1, 200) ; Faber (2007), moyenne de 10 mois | clôture > SMA 200 | 1h, 4h, 1j | `À_TESTER (zoo)` | — |
 | TR11 | Régime de marché : BTC au-dessus de sa SMA 200 (ou 100) → panier investi, sinon USDT | Faber (2007) appliqué au marché | SMA 200 et SMA 100 journalières de BTC, décision hebdomadaire | 1j | `TESTÉ` | `FACTORS.md` § 10 (`FACT-20261001T192318Z-2ff650`) : REGIME_SMA200 et REGIME_SMA100 `AUCUNE_PISTE` |
-| TR12 | Donchian 20/10 (Turtle, système 1) | Donchian ; règles des Turtles publiées par Faith (2003) | entrée : clôture > plus haut 20 bougies ; sortie : clôture < plus bas 10 bougies | 1h, 4h, 1j | `À_TESTER (zoo)` | voisin testé : stratégie A (15 min, + volume) REJECTED |
-| TR13 | Donchian 55/20 (Turtle, système 2) | idem | entrée 55, sortie 20 | 4h, 1j | `À_TESTER (zoo)` | — |
+| TR12 | Donchian 20/10 (Turtle, système 1) | Donchian ; règles des Turtles publiées par Faith (2003) | entrée : clôture > plus haut 20 bougies ; sortie : clôture < plus bas 10 bougies | 1h, 4h, 1j | `À_TESTER (zoo)` | **déjà vu** : en 1j, c'est le canal 20 de l'ensemble TR14 (même entrée, même sortie à 10) ; voisin testé : stratégie A (15 min, + volume) REJECTED |
+| TR13 | Donchian 55/20 (Turtle, système 2) | idem | entrée 55, sortie 20 | 4h, 1j | `À_TESTER (zoo)` | **déjà vu** : en 1j, cousin du canal 50 / sortie 25 de TR14 |
 | TR14 | Ensemble de Donchian 20/50/100, avec et sans ciblage de volatilité | Zarattini et al. (2025) | canaux 20/50/100 j, sorties L/2, 10 paires les plus liquides, cible 50 % | 1j | `TESTÉ` | `TREND_DAILY.md` § 8 (`TREND-20261002T162611Z-1c66eb`) : `NON_INTERESSANT` (×2) |
 | TR15 | Cassure du plus haut 20 bougies avec volume 1,5 × (stratégie A) | fiche `strategies/DONCHIAN_VOLUME_BREAKOUT.md` | grille de recalibrage de 18 combinaisons | 15 min | `TESTÉ` | `PROTOCOL.md` (walk-forward, 16 paires) : REJECTED ; `ML.md` : méta-filtre `NOT_USEFUL` |
 | TR16 | Cassure puis retest (D) | pratique | plus haut 20 bougies, retest ≤ +0,1 % dans 8 bougies | 15 min | `TESTÉ` | `SCREENING.md` (`SCREEN-20260930T093435Z-2874e7`, `SCREEN-20261001T015122Z-8aa8f6`) : rien ne passe |
@@ -82,9 +82,9 @@ seulement.
 | TR30 | Moyenne de Hull : la pente devient positive | Hull (2005) | HMA 20 (a priori : pas de standard unique) | 1h, 4h, 1j | `À_TESTER (zoo)` | — |
 | TR31 | Règle de filtre 5 % | Alexander (1961) ; Fama et Blume (1966) | achat après +5 % depuis le dernier creux, sortie après −5 % depuis le dernier sommet (clôtures) | 1j | `À_TESTER (zoo)` | — |
 | TR32 | Règle de filtre 10 % | idem | x = 10 % | 1j | `À_TESTER (zoo)` | — |
-| TR33 | Cassure de support-résistance (TRB) 50 jours | BLL (1992) | clôture > plus haut des 50 jours précédents, tenue 10 jours | 1j | `À_TESTER (zoo)` | — |
-| TR34 | TRB 150 jours | BLL (1992) | 150, tenue 10 jours | 1j | `À_TESTER (zoo)` | — |
-| TR35 | TRB 200 jours | BLL (1992) | 200, tenue 10 jours | 1j | `À_TESTER (zoo)` | — |
+| TR33 | Cassure de support-résistance (TRB) 50 jours | BLL (1992) | clôture > plus haut des 50 jours précédents, tenue 10 jours | 1j | `À_TESTER (zoo)` | **déjà vu** : cousin de K2 (TR17), F10 et F13 (cassure d'un plus haut en 1j) |
+| TR34 | TRB 150 jours | BLL (1992) | 150, tenue 10 jours | 1j | `À_TESTER (zoo)` | **déjà vu** : idem TR33 |
+| TR35 | TRB 200 jours | BLL (1992) | 200, tenue 10 jours | 1j | `À_TESTER (zoo)` | **déjà vu** : idem TR33 |
 | TR36 | Cassure de canal étroit | Sullivan, Timmermann et White (1999) | n = 20 j, largeur (plus haut − plus bas) ≤ 10 % ; a priori dans la grille de STW (pas de standard unique) | 1j | `À_TESTER (zoo)` | — |
 | TR37 | Momentum temporel 1 semaine (par paire, long ou USDT) | Moskowitz, Ooi et Pedersen (2012) ; Liu et Tsyvinski (2021) | rendement 7 j > 0 | 1j | `À_TESTER (zoo)` | — |
 | TR38 | Momentum temporel 4 semaines | idem | 28 j | 1j | `TESTÉ` | `FACTORS.md` § 10 : TSMOM_L28 `AUCUNE_PISTE` |
@@ -97,6 +97,7 @@ seulement.
 | TR45 | Repli sur EMA 20 en tendance (stratégie B) | fiche `strategies/EMA_PULLBACK_CONTINUATION.md` | grille de 12 combinaisons | 15 min | `TESTÉ` | `PROTOCOL.md` : REJECTED ; `ML.md` : `NOT_USEFUL` |
 | TR46 | Cassure d'une ligne de tendance descendante | pratique des analystes ; détecteur de F15 | `INDICATEURS.md` § 9.3 | 1h (4h, 1j) | `TESTÉ` | `FIGURES_HISTORIQUE.md` : `NON_DEMONTRE` ; `LIGNES_DE_TENDANCE.md` : `PISTE_CONFIRMEE` sur 214 paires puis **`NON_CONFIRMEE`** sur la période réservée ; F15 en direct |
 | TR47 | Compression de Bollinger puis cassure (F) | pratique | largeur BB 20 dans le quintile bas des 500 bougies | 15 min | `TESTÉ` | `SCREENING.md` : rien ne passe (excès négatif à 24 h) |
+| TR48 | Point et figure : cassure d'un double sommet | Dorsey (2007) | boîte de 1 % (échelle logarithmique), retournement de 3 boîtes, sur les clôtures ; achat à la cassure d'un double sommet, sortie à la cassure d'un double creux | 1j | `À_TESTER (zoo)` | — |
 
 ## 2. Retour à la moyenne (MR)
 
@@ -120,6 +121,8 @@ seulement.
 | MR16 | Rejet ou rebond sur supports et résistances mécaniques, contre niveaux placebo | Osler (2000) | pivots ZigZag, barrières ±1 ATR | 1h, 4h | `TESTÉ` | `NIVEAUX.md` (`LEVELS-20261004T012546Z-a3b017`) : `RIEN` (pile ou face, ±1 pt) |
 | MR17 | Divergence RSI haussière | pratique | RSI 14, pivots fractals k = 2 | 1h, 4h, 1j | `TESTÉ` | `FIGURES_HISTORIQUE.md` (`FIGH-20261004T102820Z-479ac6`) : `INFERIEUR_AU_HASARD` (R −0,11) |
 | MR18 | Repli puis reprise en tendance, rejet du support en range (assistant) | demande du propriétaire | `ASSISTANT.md` § 2-3 | 4h | `EN_DIRECT` | F18_ASSISTANT (démarré le 2026-10-09) |
+| MR19 | IBS (« internal bar strength ») bas | Pagonidis (2014) | IBS = (C − L) / (H − L) < 0,2 ; tenue 1 bougie | 1j | `À_TESTER (zoo)` | — |
+| MR20 | « Double 7s » | Connors et Alvarez (2009) | clôture > SMA 200 et clôture = plus bas des 7 dernières ; sortie quand la clôture = plus haut des 7 dernières | 1j | `À_TESTER (zoo)` | — |
 
 ## 3. Volatilité et range (VO)
 
@@ -132,9 +135,10 @@ seulement.
 | VO05 | Cassure de la première heure, séance de New York | idem | 13:00–22:00 UTC | 1h | `À_TESTER (zoo)` | — |
 | VO06 | NR4 : cassure de la journée la plus étroite des 4 | Crabel (1990) | amplitude minimale des 4 derniers jours | 1j | `À_TESTER (zoo)` | — |
 | VO07 | NR7 | Crabel (1990) | 7 jours | 1j | `À_TESTER (zoo)` | — |
-| VO08 | Compression TTM (« squeeze ») | Carter (2005) | BB 20/2 à l'intérieur de KC 20/1,5, puis sortie avec momentum > 0 | 1h, 4h, 1j | `À_TESTER (zoo)` | voisins : F (15 min) testé, `SQUEEZE` 4h en direct (F21) |
+| VO08 | Compression TTM (« squeeze ») | Carter (2005) | BB 20/2 à l'intérieur de KC 20/1,5, puis sortie avec momentum > 0 | 1h, 4h, 1j | `À_TESTER (zoo)` | **déjà vu** : en 4h, voisin de `SQUEEZE` mesuré en direct (F21) ; F (15 min) testé |
 | VO09 | Cassure de l'ATR | Wilder (1978) | clôture > clôture précédente + 1 × ATR 14 | 1h, 4h, 1j | `À_TESTER (zoo)` | — |
 | VO10 | Cinq configurations « price action » (base et retest, compression, force relative, journée intérieure, base longue) | demande du propriétaire | `PRICE_ACTION.md` § 2 | 4h, 1j | `EN_DIRECT` | historique : `INSTRUMENT_TROP_FAIBLE`, 0 essai (`PRICE_ACTION.md` § 11.6) ; F19 et F20 à F24 démarrés le 2026-10-10 |
+| VO11 | Momentum intrajournalier | Gao, Han, Li et Zhou (2018) ; version crypto Wen et al. (2022) | rendement de 00:00 à 22:00 UTC > 0 → achat pour la dernière heure de la journée (adapté : l'entrée à la clôture suivante impose 23:00 → 24:00) | 1h | `À_TESTER (zoo)` | — |
 
 ## 4. Chandeliers japonais (CH)
 
@@ -149,10 +153,10 @@ Young et Rose, 2006) ; pour les figures de continuation (CH10, CH15), tendance p
 | CH03 | Avalement haussier | idem | `CDLENGULFING` > 0 | 1h, 4h, 1j | `À_TESTER (zoo)` | — |
 | CH04 | Harami haussier | idem | `CDLHARAMI` > 0 | 1h, 4h, 1j | `À_TESTER (zoo)` | — |
 | CH05 | Harami en croix | idem | `CDLHARAMICROSS` > 0 | 1h, 4h, 1j | `À_TESTER (zoo)` | — |
-| CH06 | Étoile du matin | idem | `CDLMORNINGSTAR`, pénétration 0,3 | 1h, 4h, 1j | `À_TESTER (zoo)` | écart entre corps exigé par TA-Lib : rare en marché continu, comptage à blanc d'abord |
-| CH07 | Étoile du matin doji | idem | `CDLMORNINGDOJISTAR`, pénétration 0,3 | 1h, 4h, 1j | `À_TESTER (zoo)` | idem |
+| CH06 | Étoile du matin | idem | `CDLMORNINGSTAR`, pénétration 0,3 | — | `IMPOSSIBLE` | raison 7 : TA-Lib exige un écart entre le corps de la 1re bougie et celui de l'étoile ; l'ouverture étant la clôture précédente en 24/7, l'écart n'existe pas (le marché sous H0, où l'ouverture est la clôture précédente, n'en produirait aucune) |
+| CH07 | Étoile du matin doji | idem | `CDLMORNINGDOJISTAR`, pénétration 0,3 | — | `IMPOSSIBLE` | raison 7 : idem CH06 |
 | CH08 | Doji libellule | idem | `CDLDRAGONFLYDOJI` | 1h, 4h, 1j | `À_TESTER (zoo)` | — |
-| CH09 | Ligne pénétrante | idem | `CDLPIERCING` | 1h, 4h, 1j | `À_TESTER (zoo)` | — |
+| CH09 | Ligne pénétrante | idem | `CDLPIERCING` | — | `IMPOSSIBLE` | raison 7 : la 2e bougie doit ouvrir sous le plus bas de la 1re, impossible quand l'ouverture est la clôture précédente (aucune sous H0 non plus) |
 | CH10 | Trois soldats blancs | idem | `CDL3WHITESOLDIERS` | 1h, 4h, 1j | `À_TESTER (zoo)` | — |
 | CH11 | Trois intérieurs haussiers | idem | `CDL3INSIDE` > 0 | 1h, 4h, 1j | `À_TESTER (zoo)` | — |
 | CH12 | Trois extérieurs haussiers | idem | `CDL3OUTSIDE` > 0 | 1h, 4h, 1j | `À_TESTER (zoo)` | — |
@@ -180,7 +184,7 @@ Young et Rose, 2006) ; pour les figures de continuation (CH10, CH15), tendance p
 | ST08 | Camarilla : rebond sur L3 | N. Scott (1989) | L3 = C − 1,1 × (H − L) / 4 ; sortie à H3 | 1h | `À_TESTER (zoo)` | — |
 | ST09 | Camarilla : cassure de H4 | idem | H4 = C + 1,1 × (H − L) / 2 ; sortie à la fin de la journée | 1h | `À_TESTER (zoo)` | — |
 | ST10 | Pivots de Woodie : rebond sur S1 | K. Wood | P = (H + L + 2 × C) / 4, S1 = 2P − H ; sortie à P | 1h | `À_TESTER (zoo)` | — |
-| ST11 | Cassure du plus haut de 52 semaines | George et Hwang (2004), version par paire | clôture > plus haut des 365 jours précédents ; tenue 20 jours | 1j | `À_TESTER (zoo)` | — |
+| ST11 | Cassure du plus haut de 52 semaines | George et Hwang (2004), version par paire | clôture > plus haut des 365 jours précédents ; tenue 20 jours | 1j | `À_TESTER (zoo)` | **déjà vu** : cousin de K2 (TR17), F10 et F13 |
 | ST12 | Nouveau plus haut historique | pratique | clôture > plus haut de toute l'histoire Binance de la paire (au moins 365 jours) ; tenue 20 jours | 1j | `À_TESTER (zoo)` | — |
 | ST13 | Chiffres ronds : clôture au-dessus d'un niveau majeur | Osler (2003) | niveaux majeurs `INDICATEURS.md` § 10.3 ; tenue 10 bougies | 1h, 4h | `À_TESTER (zoo)` | — |
 | ST14 | Cassure du plus haut de la veille | pratique | PDH (`INDICATEURS.md` § 10.1) ; sortie à la fin de la journée | 1h | `À_TESTER (zoo)` | — |
@@ -205,6 +209,8 @@ Young et Rose, 2006) ; pour les figures de continuation (CH10, CH15), tendance p
 | VF13 | Baleines : solde des gros ordres au marché sur 1 h | pratique | `FORWARD_TESTS.md` F28 | flux | `À_TESTER (attente)` | F28 pré-inscrit, non démarré (puissance 0 à 4 %), journaux du collecteur |
 | VF14 | Mur d'acheteurs dans le carnet | pratique | F26 | carnet | `À_TESTER (attente)` | F26 pré-inscrit, non démarré ; carnet sans historique gratuit |
 | VF15 | Retrait de la liquidité acheteuse (veto) | pratique | F27 | carnet | `À_TESTER (attente)` | F27 : contrôle H0 **en échec**, non démarrable |
+| VF16 | Elder Force Index passe au-dessus de 0 | Elder (1993) | EMA 13 de (C − C₋₁) × volume ; sortie sous 0 | 1h, 4h, 1j | `À_TESTER (zoo)` | — |
+| VF17 | Oscillateur de Klinger croise sa ligne de signal | Klinger (1997) | 34 / 55, signal 13 | 1h, 4h, 1j | `À_TESTER (zoo)` | — |
 
 ## 7. Facteurs en coupe (XS)
 
@@ -220,7 +226,7 @@ contre l'univers à poids égaux. Le sens est celui de la référence citée ; i
 | XS05 | Retournement 1 semaine (perdants) | Jegadeesh (1990) ; Bianchi, Babiak et Dickerson (2022) | 7 j, quintile bas | 1j | `TESTÉ` | `FACTORS.md` : REVERSAL_K5 fait **moins bien** que l'univers (IC < 0) |
 | XS06 | Force relative ajustée de la volatilité (G) | pratique | top 3 sur 7 j, toutes les 4 h | 1h | `TESTÉ` | `SCREENING.md` : rien ne passe |
 | XS07 | Momentum résiduel (I) | Blitz, Huij et Martens (2011) | top 3, bêta 30 j | 1h | `TESTÉ` | `SCREENING.md` : rien ne passe |
-| XS08 | Taille (capitalisation) | LTW (2022) | quintile des plus petites capitalisations | — | `IMPOSSIBLE` | raison 2 : capitalisation historique par crypto payante (`CONTEXTE.md`, « Reporté ») ; le volume (XS09) est la seule approximation gratuite |
+| XS08 | Taille (capitalisation) | LTW (2022) | quintile des plus petites capitalisations | — | `IMPOSSIBLE` | raison 2 : capitalisation historique par crypto payante (CoinGecko : 365 jours au plus ; `CONTEXTE.md`, « Données du zoo ») ; CoinMetrics gratuit pour BTC et ETH seulement ; les instantanés historiques de CoinMarketCap demanderaient de racler des pages web, ce que le projet ne fait pas ; le volume (XS09) est la seule approximation gratuite |
 | XS09 | Volume en dollars faible | LTW (2022) | volume des 28 j, quintile bas | 1j | `À_TESTER (zoo)` | — |
 | XS10 | Illiquidité d'Amihud | Amihud (2002) | moyenne de abs(rendement) / volume en dollars sur 28 j, quintile haut | 1j | `À_TESTER (zoo)` | — |
 | XS11 | MAX faible (anti-loterie) | Bali, Cakici et Whitelaw (2011) ; Grobys et Junttila (2021) | plus fort rendement journalier des 28 j, quintile bas | 1j | `À_TESTER (zoo)` | — |
@@ -229,18 +235,20 @@ contre l'univers à poids égaux. Le sens est celui de la référence citée ; i
 | XS14 | Bêta faible à BTC (« betting against beta », achat seul) | Frazzini et Pedersen (2014) | bêta des rendements journaliers sur BTC, 90 j, quintile bas | 1j | `À_TESTER (zoo)` | — |
 | XS15 | Asymétrie faible | Harvey et Siddique (2000) ; Amaya et al. (2015) | asymétrie des rendements journaliers sur 28 j, quintile bas | 1j | `À_TESTER (zoo)` | — |
 | XS16 | NVT (valeur du réseau / transactions) | Kalichkin, Woo | quintile bas | — | `IMPOSSIBLE` | raison 2 : données on-chain par crypto payantes ; gratuites pour BTC et ETH seulement (voir OC08) |
-| XS17 | Proximité du plus haut historique | analogue crypto de George et Hwang (2004) | clôture / plus haut de toute l'histoire, quintile haut | 1j | `À_TESTER (zoo)` | — |
+| XS17 | Proximité du plus haut historique | analogue crypto de George et Hwang (2004) | clôture / plus haut de toute l'histoire, quintile haut ; **paires cotées depuis au moins 365 jours** seulement | 1j | `À_TESTER (zoo)` | — |
 | XS18 | Proximité du plus haut de 52 semaines | George et Hwang (2004) | clôture / plus haut 365 j, quintile haut | 1j | `À_TESTER (zoo)` | — |
 | XS19 | Choc de volume hebdomadaire | Gervais, Kaniel et Mingelgrin (2001) | volume de la semaine / moyenne des 10 semaines précédentes, quintile haut | 1j | `À_TESTER (zoo)` | — |
-| XS20 | Flux acheteur hebdomadaire | pratique (piste de l'étude du 2026-10-02) | part des achats au marché sur 7 j, quintile haut (a priori) | 1j | `À_TESTER (zoo)` | J1 (même variable, par paire et par jour) n'a rien donné |
+| XS20 | Flux acheteur hebdomadaire | pratique (piste de l'étude du 2026-10-02) | part des achats au marché sur 7 j, quintile haut | 1j | `À_TESTER (zoo)` | **déjà vu** : même variable que J1 et J2 (`SCREENING.md`, par paire et par jour). Le sens « acheter le flux acheteur » vient de l'hypothèse de J1, déclarée avant le criblage J ; J2 (vu après coup : pression vendeuse → moins bien) va dans le même sens : sens contaminé, déclaré |
 | XS21 | Primes coréenne et Coinbase des altcoins | pratique | niveau et saut, tiers haut − tiers bas | 1j | `TESTÉ` | `XSECTION_PRIMES.md` (`XPREM-20261004T092024Z-dff748`) : `RIEN` (×4) |
 | XS22 | Âge de cotation : offre nouvelle (veto) | pratique | cotée depuis 30 à 180 j | 1j | `TESTÉ` | `SCREENING.md` J3 : inverse d'un veto, inexploitable (survivance) |
+| XS23 | Distance aux moyennes mobiles (MAD) | Avramov, Kaplanski et Subrahmanyam (2021) | SMA 21 / SMA 200 des clôtures journalières, quintile haut, hebdomadaire | 1j | `À_TESTER (zoo)` | — |
+| XS24 | Retournement d'un jour en coupe | Jegadeesh (1990), Lehmann (1990), à la fréquence journalière | rendement de la journée, quintile bas, rééquilibrage quotidien | 1j | `À_TESTER (zoo)` | — |
 
 ## 8. Rotation et marché (RO)
 
 | ID | Stratégie | Source | Paramètres standard publiés | Unités | Statut | Renvoi / raison |
 |---|---|---|---|---|---|---|
-| RO01 | Dominance de BTC | pratique | seuils de dominance | — | `IMPOSSIBLE` | raison 2 : historique payant ; relevé seulement depuis le 2026-10-04 (`CONTEXTE.md`) |
+| RO01 | Dominance de BTC | pratique | seuils de dominance | — | `IMPOSSIBLE` | raison 2 : historique payant (CoinGecko : 365 jours, `/global/market_cap_chart` réservé aux abonnés ; CoinPaprika : instantané seulement) ; racler les instantanés de CoinMarketCap n'est pas fait ; relevé depuis le 2026-10-04 |
 | RO02 | Rotation ETH / BTC | pratique | ETH si ETHBTC > SMA 50 journalière, sinon BTC | 1j | `À_TESTER (zoo)` | — |
 | RO03 | Indice « altseason » | blockchaincenter.net | altcoins à poids égaux si au moins 75 % du top (hors BTC) bat BTC sur 90 j, sinon BTC ; adapté du top 50 au top 40 | 1j | `À_TESTER (zoo)` | — |
 | RO04 | Largeur du marché | pratique ; composante `LARGEUR` de `METEO_MARCHE.md` | investi (univers à poids égaux) si plus de la moitié du top 40 clôture au-dessus de sa SMA 50, sinon USDT | 1j | `À_TESTER (zoo)` | jamais mesurée seule (étude météo abandonnée, 0 essai) |
@@ -254,14 +262,14 @@ priori ; un seul sens par marché.
 
 | ID | Stratégie | Source | Paramètres standard publiés | Unités | Statut | Renvoi / raison |
 |---|---|---|---|---|---|---|
-| AM01 | S&P 500 en tendance → BTC détenu | pratique | rendement de SPY sur 20 séances > 0 | 1j | `À_TESTER (zoo)` | SPY en magasin (`CONTEXTE.md`, série `macro`) |
-| AM02 | S&P 500 la veille → BTC le lendemain | pratique | rendement de SPY de la dernière séance close > 0 | 1j | `À_TESTER (zoo)` | idem |
-| AM03 | Or en hausse → BTC détenu | récit « or numérique » | rendement de GLD sur 20 séances > 0 | 1j | `À_TESTER (zoo)` | GLD en magasin |
-| AM04 | Taux à 10 ans américain en baisse → BTC détenu | pratique | variation du taux à 10 ans sur 20 séances < 0 | 1j | `À_TESTER (zoo)` | taux en magasin |
-| AM05 | Masse monétaire M2 en hausse → BTC détenu | « liquidité mondiale », pratique | croissance de M2SL sur 3 mois > 0, publication supposée 45 jours après la fin du mois | 1j | `À_TESTER (zoo)` | M2 en magasin ; peu de régimes indépendants |
-| AM06 | Nasdaq 100 en tendance → BTC | pratique | 20 séances | 1j | `À_TESTER (attente)` | historique non en magasin (FRED muet depuis le 2026-10-02 ; relevé F0_DONNEES seulement) |
-| AM07 | Dollar (DXY) en baisse → BTC | pratique | 20 séances | 1j | `À_TESTER (attente)` | DXY à recalculer : il manque 5 des 6 taux BCE (EUR/JPY/GBP/CAD/SEK/CHF) au magasin |
-| AM08 | VIX bas ou en baisse → BTC | pratique | VIX < médiane 365 j | 1j | `À_TESTER (attente)` | historique du VIX non en magasin (source gratuite à vérifier) |
+| AM01 | S&P 500 en tendance → BTC détenu | pratique | rendement de l'indice SP500 sur 20 séances > 0 (FRED, `zoo_marches`, connu à 16:00 New York + 2 h) | 1j | `À_TESTER (zoo)` | `CONTEXTE.md`, « Données du zoo » |
+| AM02 | S&P 500 la veille → BTC le lendemain | pratique | rendement de SP500 de la dernière séance connue > 0 | 1j | `À_TESTER (zoo)` | idem |
+| AM03 | Or en hausse → BTC détenu | récit « or numérique » | rendement de GLD sur 20 séances > 0 (`zoo_marches`, 16:00 New York + 2 h) | 1j | `À_TESTER (zoo)` | idem |
+| AM04 | Taux à 10 ans américain en baisse → BTC détenu | pratique | variation de DGS10 sur 20 séances < 0 ; valeur du jour `d` connue au plus tôt à `d` + 1 12:00 UTC ; l'`available_at` de DGS10 (`d` + 1, 16:15 New York + 2 h), plus tardif, est retenu | 1j | `À_TESTER (zoo)` | idem |
+| AM05 | Masse monétaire M2 en hausse → BTC détenu | « liquidité mondiale », pratique | croissance de M2SL sur 3 mois > 0 | 1j | `À_TESTER (attente)` | **retiré du zoo** (relecture du 2026-10-11) : M2 est révisé après coup et le magasin n'a que les valeurs d'aujourd'hui ; une version point-in-time exige les millésimes ALFRED |
+| AM06 | Nasdaq 100 en tendance → BTC | pratique | rendement de NASDAQ100 (FRED, 16:00 New York + 2 h) sur 20 séances > 0 | 1j | `À_TESTER (zoo)` | `CONTEXTE.md`, « Données du zoo » |
+| AM07 | Dollar en baisse → BTC | pratique | variation de l'indice dollar recalculé DXY_BCE (`zoo_dollar_bce`, 16:00 Francfort + 1 h) sur 20 jours ouvrés < 0 | 1j | `À_TESTER (zoo)` | idem (approximation de la cotation ICE, déclarée) |
+| AM08 | VIX bas → BTC | pratique | VIXCLS (FRED, 16:15 New York + 2 h) sous sa médiane des 365 jours précédents | 1j | `À_TESTER (zoo)` | idem |
 | AM09 | Données de contexte contre la direction de BTC et ETH (flux, primes, stablecoins, top traders, Wikipédia) | pratique | `CONTEXTE_PREDICTION.md` | 1j | `TESTÉ` | `CONTEXTE_PREDICTION.md` (`CTXP-20261004T015026Z-30e516`) : `RIEN` (×21) |
 
 ## 10. Calendrier (CA)
@@ -276,19 +284,19 @@ priori ; un seul sens par marché.
 | CA06 | Ouverture américaine | pratique | 14:00 UTC, 4 h | 1h | `TESTÉ` | S6 : rien |
 | CA07 | Séance asiatique | pratique | 00:00 UTC, 8 h | 1h | `TESTÉ` | S7 : rien |
 | CA08 | Meilleure heure apprise de l'année passée | pratique | 365 j | 1h | `TESTÉ` | S8 : rien (ne se répète pas) |
-| CA09 | Dérive avant les décisions du FOMC | Lucca et Moench (2015) | achat 24 h avant l'annonce, vente à l'annonce | 1h | `À_TESTER (attente)` | calendrier historique des réunions à constituer (source publique de la Fed) |
-| CA10 | Publication de l'indice des prix (CPI) | pratique | autour de 12:30 UTC le jour de publication | 1h | `À_TESTER (attente)` | calendrier du BLS refusé aux clients automatisés (403, `DELIVERY_STATUS.md`) |
-| CA11 | Publication de l'emploi (NFP) | pratique | idem | 1h | `À_TESTER (attente)` | idem |
-| CA12 | Halving de BTC | pratique | achat au halving | 1j | `IMPOSSIBLE` | raison 5 : deux événements dans DEVELOPMENT (2020-05, 2024-04) |
-| CA13 | Cycle lunaire | Yuan, Zheng et Zhu (2006) | achat à la clôture qui suit la nouvelle lune, vente à celle qui suit la pleine lune (éphémérides calculées, aucune donnée) | 1j | `À_TESTER (zoo)` | — |
-| CA14 | « Halloween » (investi de novembre à avril) | Bouman et Jacobsen (2002) | univers investi du 1er novembre au 30 avril, USDT sinon | 1j | `À_TESTER (zoo)` | quatre cycles seulement en découverte (puissance très faible) |
+| CA09 | Dérive avant les décisions du FOMC | Lucca et Moench (2015) | achat de tous les membres 24 h avant le communiqué (14:00 New York), vente à la clôture de la bougie 1 h qui le contient ; réunions programmées seulement | 1h | `À_TESTER (zoo)` | `calendrier_macro` ; **date connue à l'avance** (calendrier publié l'année précédente) : hypothèse déclarée, car l'`available_at` du magasin est posé après l'événement |
+| CA10 | Publication de l'indice des prix (CPI) | pratique ; fenêtre de CA09 a priori | achat de tous les membres 24 h avant 08:30 New York, vente à la clôture de la bougie 1 h qui contient la publication | 1h | `À_TESTER (zoo)` | dates des millésimes ALFRED (`calendrier_macro`) ; date publiée à l'avance par le BLS : hypothèse déclarée |
+| CA11 | Publication de l'emploi (NFP) | idem | idem | 1h | `À_TESTER (zoo)` | idem |
+| CA12 | Halving de BTC | pratique | achat au halving | 1j | `IMPOSSIBLE` | raison 5 : deux événements dans DEVELOPMENT (2020-05, 2024-04 ; table `calendrier_crypto`) |
+| CA13 | Cycle lunaire | Yuan, Zheng et Zhu (2006) | achat à la clôture qui suit la nouvelle lune, vente à celle qui suit la pleine lune | 1j | `À_TESTER (zoo)` | phases de `calendrier_crypto` (calcul astronomique, connues à l'avance par construction) |
+| CA14 | « Halloween » (investi de novembre à avril) | Bouman et Jacobsen (2002) | univers investi du 1er novembre au 30 avril, USDT sinon | 1j | `IMPOSSIBLE` | raison 5 : quatre cycles semestriels en découverte, deux et demi en validation |
 
 ## 11. Sentiment et attention (SE)
 
 | ID | Stratégie | Source | Paramètres standard publiés | Unités | Statut | Renvoi / raison |
 |---|---|---|---|---|---|---|
-| SE01 | Fear & Greed en peur extrême → achat de BTC | alternative.me ; pratique | valeur < 25 | 1j | `À_TESTER (attente)` | historique à télécharger (une requête ; jamais fait, l'étude météo a été abandonnée) ; relevé F0_DONNEES depuis le 2026-10-02 |
-| SE02 | Fear & Greed en avidité extrême → veto | idem | valeur > 75 | 1j | `À_TESTER (attente)` | idem |
+| SE01 | Fear & Greed passe sous 25 (peur extrême) → achat | alternative.me ; pratique contrarienne | valeur du jour `d` − 1 (connue à `d` 02:00 UTC, `zoo_fear_greed`) passe sous 25 ; achat de tous les membres du top 40 ; tenue 30 jours (a priori) | 1j | `À_TESTER (zoo)` | historique depuis 2018-02 (`CONTEXTE.md`, « Données du zoo ») |
+| SE02 | Fear & Greed au-dessus de 75 (avidité extrême) → USDT | idem | top 40 à poids égaux, sauf quand la dernière valeur connue dépasse 75 | 1j | `À_TESTER (zoo)` | idem |
 | SE03 | Attention du public (vues Wikipédia « Bitcoin ») | Liu et Tsyvinski (2021) | moyenne 7 j, tiers haut / bas | 1j | `TESTÉ` | `CONTEXTE_PREDICTION.md` : WIKI_ATTENTION `RIEN` |
 | SE04 | Attention par crypto (vues Wikipédia en coupe) | idem | quintile de la hausse des vues | 1j | `À_TESTER (attente)` | pages par crypto non téléchargées (API Wikimedia gratuite, correspondance crypto → article à construire) |
 | SE05 | Entrée dans les « trending » de CoinGecko | pratique | F30 | 1h | `IMPOSSIBLE` | raison 4 : relevé depuis le 2026-10-09 seulement ; F30 pré-inscrit, contrôle H0 en échec |
@@ -310,8 +318,8 @@ Lu comme information seulement : aucun contrat n'est jamais traité.
 | DE04 | Purge de l'intérêt ouvert | pratique | variation 24 h sous le 10e centile et spot en baisse | 1j | `TESTÉ` | `DERIVATIVES.md` : `AUCUNE_PISTE` ; F9 en direct |
 | DE05 | Comptes majoritairement vendeurs | pratique | ratio comptes sous le 10e centile | 1j | `TESTÉ` | `DERIVATIVES.md` : `AUCUNE_PISTE` |
 | DE06 | Positionnement des gros traders (BTC) | pratique | moyenne 7 j du ratio, tiers | 1j | `TESTÉ` | `CONTEXTE_PREDICTION.md` : TOP_TRADERS `RIEN` |
-| DE07 | Ratios des comptes et des gros traders des altcoins, en coupe | pratique | quintile | 1j | `À_TESTER (attente)` | archives « metrics » des membres du top 40 non téléchargées ; historique depuis 2021-12 seulement |
-| DE08 | Ratio acheteurs / vendeurs agressifs du perpétuel | pratique | quintile | 1j | `À_TESTER (attente)` | idem |
+| DE07 | Ratios des comptes et des gros traders des altcoins, en coupe | pratique | quintile | 1j | `À_TESTER (attente)` | **en direct seulement** (choix du 2026-10-11) : archive `metrics` en magasin pour les 16 paires de la configuration depuis 2021-12 ; aucune découverte sur 2019-2022 possible, et une découverte sur 2022 seul n'aurait aucune puissance (`ZOO.md` § 13) |
+| DE08 | Ratio acheteurs / vendeurs agressifs du perpétuel | pratique | quintile | 1j | `À_TESTER (attente)` | idem DE07 |
 | DE09 | Base trimestrielle spot / à terme | pratique | base annualisée basse | 1j | `À_TESTER (attente)` | bougies des contrats trimestriels à télécharger (magasin : 500 jours seulement) |
 | DE10 | Cascade de liquidations | pratique | F25 | 1h | `IMPOSSIBLE` | raison 4 : aucun historique gratuit ; F25 pré-inscrit, non démarré |
 | DE11 | Capitulation du marché à levier | pratique | F6 | 1j | `EN_DIRECT` | F6_CAPITULATION (≈ 0,2 événement par 12 semaines) |
@@ -339,7 +347,7 @@ Lu comme information seulement : aucun contrat n'est jamais traité.
 | ID | Stratégie | Source | Paramètres standard publiés | Unités | Statut | Renvoi / raison |
 |---|---|---|---|---|---|---|
 | EV01 | Annonce de listing chez Upbit ou Coinbase | pratique | achat au premier prix, 24 h et 7 j | 10 min | `EN_DIRECT` | F7_LISTINGS |
-| EV02 | Nouvelle cotation sur Binance | pratique | achat à la 2e clôture journalière, tenue 30 j | 1j | `À_TESTER (attente)` | table des renommages (MATIC → POL…) à construire ; univers hors top 40 |
+| EV02 | Annonce de cotation spot sur Binance | pratique | annonces `COTATION_SPOT` (`annonces_binance`, connues à la publication + 10 min) ; achat de la paire USDT annoncée à la clôture suivant sa 1re journée complète de cotation ; tenue 30 jours | 1j | `À_TESTER (zoo)` | univers d'exception : toutes les paires USDT du recensement (exclusions structurelles et haram), bougies journalières de `data/pit/daily.parquet` (clôtures) ; les renommages n'ont pas d'annonce `COTATION_SPOT` |
 | EV03 | Annonce de retrait de la cote (veto) | pratique | — | 1j | `À_TESTER (attente)` | archive des annonces de Binance non collectée |
 | EV04 | Déblocages de jetons | pratique | — | — | `IMPOSSIBLE` | raison 2 : sources payantes ou fermées (`FORWARD_TESTS.md`, « Calendrier des unlocks : non fait ») |
 | EV05 | « Airdrops » | pratique | — | — | `IMPOSSIBLE` | raison 4 : aucun historique gratuit fiable |
@@ -451,39 +459,40 @@ Lu comme information seulement : aucun contrat n'est jamais traité.
 
 ## Comptes
 
-Comptés sur les tableaux ci-dessus (une ligne = une stratégie, ses unités de temps comprises) :
+Comptés sur les tableaux ci-dessus (une ligne = une stratégie, ses unités de temps comprises), après la révision
+du 2026-10-11 :
 
 | Statut | Stratégies |
 |---|---|
 | `TESTÉ` | 89 |
 | `EN_DIRECT` | 10 |
-| `À_TESTER (zoo)` | 124 |
-| `À_TESTER (attente)` | 22 |
+| `À_TESTER (zoo)` | 136 |
+| `À_TESTER (attente)` | 14 |
 | `À_TESTER (hors moteur)` | 3 |
-| `IMPOSSIBLE` | 36 |
-| **Total** | **284** |
+| `IMPOSSIBLE` | 40 |
+| **Total** | **292** |
 
-`À_TESTER` en tout : 149. Les 124 stratégies `À_TESTER (zoo)` donnent **247 tests** (une stratégie × une unité de
-temps), protocole dans [ZOO.md](ZOO.md).
+`À_TESTER` en tout : 153. Les 136 stratégies `À_TESTER (zoo)` donnent **257 tests** (une stratégie × une unité
+de temps), protocole dans [ZOO.md](ZOO.md).
 
 Par famille (T = `TESTÉ`, D = `EN_DIRECT`, Z = zoo, A = attente, H = hors moteur, I = `IMPOSSIBLE`) :
 
 | Famille | Total | T | D | Z | A | H | I | Tests du zoo |
 |---|---|---|---|---|---|---|---|---|
-| 1. Tendance et cassures (TR) | 47 | 14 | 0 | 33 | 0 | 0 | 0 | 82 |
-| 2. Retour à la moyenne (MR) | 18 | 7 | 1 | 9 | 0 | 0 | 1 | 21 |
-| 3. Volatilité et range (VO) | 10 | 0 | 1 | 9 | 0 | 0 | 0 | 13 |
-| 4. Chandeliers (CH) | 21 | 0 | 0 | 18 | 0 | 0 | 3 | 53 |
+| 1. Tendance et cassures (TR) | 48 | 14 | 0 | 34 | 0 | 0 | 0 | 83 |
+| 2. Retour à la moyenne (MR) | 20 | 7 | 1 | 11 | 0 | 0 | 1 | 23 |
+| 3. Volatilité et range (VO) | 11 | 0 | 1 | 10 | 0 | 0 | 0 | 14 |
+| 4. Chandeliers (CH) | 21 | 0 | 0 | 15 | 0 | 0 | 6 | 44 |
 | 5. Structure (ST) | 15 | 1 | 0 | 14 | 0 | 0 | 0 | 22 |
-| 6. Volume et flux (VF) | 15 | 7 | 0 | 5 | 3 | 0 | 0 | 15 |
-| 7. Facteurs en coupe (XS) | 22 | 9 | 0 | 11 | 0 | 0 | 2 | 11 |
+| 6. Volume et flux (VF) | 17 | 7 | 0 | 7 | 3 | 0 | 0 | 21 |
+| 7. Facteurs en coupe (XS) | 24 | 9 | 0 | 13 | 0 | 0 | 2 | 13 |
 | 8. Rotation et marché (RO) | 6 | 0 | 0 | 4 | 0 | 0 | 2 | 4 |
-| 9. Autres marchés (AM) | 9 | 1 | 0 | 5 | 3 | 0 | 0 | 5 |
-| 10. Calendrier (CA) | 14 | 8 | 0 | 2 | 3 | 0 | 1 | 2 |
-| 11. Sentiment et attention (SE) | 10 | 1 | 1 | 0 | 3 | 0 | 5 | 0 |
+| 9. Autres marchés (AM) | 9 | 1 | 0 | 7 | 1 | 0 | 0 | 7 |
+| 10. Calendrier (CA) | 14 | 8 | 0 | 4 | 0 | 0 | 2 | 4 |
+| 11. Sentiment et attention (SE) | 10 | 1 | 1 | 2 | 1 | 0 | 5 | 2 |
 | 12. Marché à terme public (DE) | 15 | 6 | 1 | 0 | 4 | 1 | 3 | 0 |
 | 13. On-chain gratuit (OC) | 9 | 5 | 1 | 0 | 2 | 0 | 1 | 0 |
-| 14. Événements (EV) | 7 | 0 | 2 | 0 | 3 | 0 | 2 | 0 |
+| 14. Événements (EV) | 7 | 0 | 2 | 1 | 2 | 0 | 2 | 1 |
 | 15. Régimes et modèles (RG) | 10 | 3 | 0 | 6 | 1 | 0 | 0 | 7 |
 | 16. Apprentissage (ML) | 11 | 7 | 0 | 0 | 0 | 2 | 2 | 0 |
 | 17. Portefeuille (PF) | 10 | 5 | 0 | 4 | 0 | 0 | 1 | 4 |
@@ -491,13 +500,20 @@ Par famille (T = `TESTÉ`, D = `EN_DIRECT`, Z = zoo, A = attente, H = hors moteu
 | 19. Méthodes d'analystes (AN) | 16 | 9 | 0 | 4 | 0 | 0 | 3 | 8 |
 | 20. Signaux de tiers (TI) | 5 | 2 | 1 | 0 | 0 | 0 | 2 | 0 |
 | 21. Hors cadre (HC) | 6 | 0 | 0 | 0 | 0 | 0 | 6 | 0 |
-| **Total** | **284** | **89** | **10** | **124** | **22** | **3** | **36** | **247** |
+| **Total** | **292** | **89** | **10** | **136** | **14** | **3** | **40** | **257** |
 
-Lecture : sur 284 stratégies recensées, 89 ont déjà un verdict historique (aucune n'a d'avantage démontré après frais ;
-seule la prévision de volatilité, RG09, qui ne dit pas le sens, est confirmée), 10 sont mesurées seulement en direct,
-36 sont hors de portée et 149 restent à mesurer, dont 124 par le zoo.
+Lecture : sur 292 stratégies recensées, 89 ont déjà un verdict historique (aucune n'a d'avantage démontré après
+frais ; seule la prévision de volatilité, RG09, qui ne dit pas le sens, est confirmée), 10 sont mesurées seulement
+en direct, 40 sont hors de portée et 153 restent à mesurer, dont 136 par le zoo. Le mot « exhaustif » de la
+première version est retiré : c'est un recensement, auquel la relecture a déjà ajouté huit familles oubliées.
 
 ## Historique
 
 - 2026-10-10 : catalogue rédigé avant tout code et toute exécution (branche `recherche/zoo`), à partir des verdicts
   inscrits dans les documents cités ; aucun calcul.
+- 2026-10-11 : relecture leak-auditor, aucun résultat vu. « Exhaustif » retiré ; ajouts : point et figure (TR48), IBS
+  (MR19), Double 7s (MR20), momentum intrajournalier (VO11), Elder Force Index (VF16), oscillateur de Klinger (VF17),
+  distance aux moyennes mobiles (XS23), retournement d'un jour en coupe (XS24) ; CH06, CH07, CH09 et CA14 passent
+  `IMPOSSIBLE` ; doublons marqués « déjà vu » (TR12, TR13, TR33 à TR35, ST11, VO08, XS20) ; XS17 exige 365 jours de
+  cotation ; données du zoo fusionnées sur `main` (`ce65673`, `CONTEXTE.md`, « Données du zoo ») : SE01, SE02, AM06,
+  AM07, AM08, CA09, CA10, CA11 et EV02 passent au zoo ; AM05 (M2 révisé) retiré ; DE07 et DE08 en direct seulement.
