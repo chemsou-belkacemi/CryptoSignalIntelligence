@@ -2173,7 +2173,9 @@ sa propre section ; code commun `forward/collecte_events.py`).
   changement de règle) ; verdict une fois le dernier événement résolu, au plus tard vers 84 + 12 jours (entrée + 7 j + 72 h,
   puis 2 jours pour constater un trou).
 - **Essai de chronométrage déclaré** (2026-10-10, avant le contrôle sous H0) : 3 répliques par test, 2 000 tirages ;
-  verdicts vus (tous `NON_DEMONTRE`, sauf F29 `INSUFFISANT`) ; générateur non modifié ensuite.
+  verdicts vus (tous `NON_DEMONTRE`, sauf F29 `INSUFFISANT`) ; générateur non modifié ensuite. La relecture
+  `leak-auditor` (pendant le passage) a aussi lancé 2 répliques synthétiques par test (graine [7, i], 300 tirages) et en a
+  vu les verdicts, sans rien modifier ; aucune donnée réelle lue.
 
 **Métrique.** Rendement moyen à 24 h (brut, net central, net défavorable), intervalle de décision et IC95, part
 positive, jours distincts ; descriptif : 4 h et 72 h, moyenne et excès des placebos, événements par paire, fenêtres
@@ -2283,7 +2285,9 @@ sa propre section ; code commun `forward/collecte_events.py`).
   changement de règle) ; verdict une fois le dernier événement résolu, au plus tard vers 84 + 12 jours (entrée + 7 j + 72 h,
   puis 2 jours pour constater un trou).
 - **Essai de chronométrage déclaré** (2026-10-10, avant le contrôle sous H0) : 3 répliques par test, 2 000 tirages ;
-  verdicts vus (tous `NON_DEMONTRE`, sauf F29 `INSUFFISANT`) ; générateur non modifié ensuite.
+  verdicts vus (tous `NON_DEMONTRE`, sauf F29 `INSUFFISANT`) ; générateur non modifié ensuite. La relecture
+  `leak-auditor` (pendant le passage) a aussi lancé 2 répliques synthétiques par test (graine [7, i], 300 tirages) et en a
+  vu les verdicts, sans rien modifier ; aucune donnée réelle lue.
 
 **Métrique.** Rendement moyen à 24 h (brut, net central, net défavorable), intervalle de décision et IC95, part
 positive, jours distincts ; descriptif : 4 h et 72 h, moyenne et excès des placebos, événements par paire, fenêtres
@@ -2394,7 +2398,9 @@ sa propre section ; code commun `forward/collecte_events.py`).
   changement de règle) ; verdict une fois le dernier événement résolu, au plus tard vers 84 + 12 jours (entrée + 7 j + 72 h,
   puis 2 jours pour constater un trou).
 - **Essai de chronométrage déclaré** (2026-10-10, avant le contrôle sous H0) : 3 répliques par test, 2 000 tirages ;
-  verdicts vus (tous `NON_DEMONTRE`, sauf F29 `INSUFFISANT`) ; générateur non modifié ensuite.
+  verdicts vus (tous `NON_DEMONTRE`, sauf F29 `INSUFFISANT`) ; générateur non modifié ensuite. La relecture
+  `leak-auditor` (pendant le passage) a aussi lancé 2 répliques synthétiques par test (graine [7, i], 300 tirages) et en a
+  vu les verdicts, sans rien modifier ; aucune donnée réelle lue.
 
 **Métrique.** Rendement moyen à 24 h (brut, net central, net défavorable), intervalle de décision et IC95, part
 positive, jours distincts ; descriptif : 4 h et 72 h, moyenne et excès des placebos, événements par paire, fenêtres
@@ -2505,7 +2511,9 @@ sa propre section ; code commun `forward/collecte_events.py`).
   changement de règle) ; verdict une fois le dernier événement résolu, au plus tard vers 84 + 12 jours (entrée + 7 j + 72 h,
   puis 2 jours pour constater un trou).
 - **Essai de chronométrage déclaré** (2026-10-10, avant le contrôle sous H0) : 3 répliques par test, 2 000 tirages ;
-  verdicts vus (tous `NON_DEMONTRE`, sauf F29 `INSUFFISANT`) ; générateur non modifié ensuite.
+  verdicts vus (tous `NON_DEMONTRE`, sauf F29 `INSUFFISANT`) ; générateur non modifié ensuite. La relecture
+  `leak-auditor` (pendant le passage) a aussi lancé 2 répliques synthétiques par test (graine [7, i], 300 tirages) et en a
+  vu les verdicts, sans rien modifier ; aucune donnée réelle lue.
 
 **Métrique.** Rendement moyen à 24 h (brut, net central, net défavorable), intervalle de décision et IC95, part
 positive, jours distincts ; descriptif : 4 h et 72 h, moyenne et excès des placebos, événements par paire, fenêtres
@@ -2615,7 +2623,9 @@ sa propre section ; code commun `forward/collecte_events.py`).
   changement de règle) ; verdict une fois le dernier événement résolu, au plus tard vers 84 + 12 jours (entrée + 7 j + 72 h,
   puis 2 jours pour constater un trou).
 - **Essai de chronométrage déclaré** (2026-10-10, avant le contrôle sous H0) : 3 répliques par test, 2 000 tirages ;
-  verdicts vus (tous `NON_DEMONTRE`, sauf F29 `INSUFFISANT`) ; générateur non modifié ensuite.
+  verdicts vus (tous `NON_DEMONTRE`, sauf F29 `INSUFFISANT`) ; générateur non modifié ensuite. La relecture
+  `leak-auditor` (pendant le passage) a aussi lancé 2 répliques synthétiques par test (graine [7, i], 300 tirages) et en a
+  vu les verdicts, sans rien modifier ; aucune donnée réelle lue.
 
 **Métrique.** Rendement moyen à 24 h (brut, net central, net défavorable), intervalle de décision et IC95, part
 positive, jours distincts ; descriptif : 4 h et 72 h, moyenne et excès des placebos, événements par paire, fenêtres
@@ -2725,7 +2735,9 @@ sa propre section ; code commun `forward/collecte_events.py`).
   changement de règle) ; verdict une fois le dernier événement résolu, au plus tard vers 84 + 12 jours (entrée + 7 j + 72 h,
   puis 2 jours pour constater un trou).
 - **Essai de chronométrage déclaré** (2026-10-10, avant le contrôle sous H0) : 3 répliques par test, 2 000 tirages ;
-  verdicts vus (tous `NON_DEMONTRE`, sauf F29 `INSUFFISANT`) ; générateur non modifié ensuite.
+  verdicts vus (tous `NON_DEMONTRE`, sauf F29 `INSUFFISANT`) ; générateur non modifié ensuite. La relecture
+  `leak-auditor` (pendant le passage) a aussi lancé 2 répliques synthétiques par test (graine [7, i], 300 tirages) et en a
+  vu les verdicts, sans rien modifier ; aucune donnée réelle lue.
 
 **Métrique.** Rendement moyen à 24 h (brut, net central, net défavorable), intervalle de décision et IC95, part
 positive, jours distincts ; descriptif : 4 h et 72 h, moyenne et excès des placebos, événements par paire, fenêtres

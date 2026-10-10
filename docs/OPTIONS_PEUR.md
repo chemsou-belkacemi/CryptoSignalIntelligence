@@ -76,7 +76,8 @@ en descriptif. Brut, net central et net défavorable avec les frais de `forward/
 direct F25 à F30 (3 répliques par test, 2 000 tirages ; verdicts vus : tous `NON_DEMONTRE` sauf F29 `INSUFFISANT` ;
 générateur non modifié ensuite). Pour cette étude-ci, aucun passage préalable : seuls les tests rapides de
 `tests/test_options_peur.py` ont tourné (déterminisme du marché synthétique, nombre d'événements > 30), sans décision
-regardée ; générateur non modifié ensuite.
+regardée ; générateur non modifié ensuite. La relecture `leak-auditor` (pendant le contrôle de F25 à F30) a lancé 4 marchés
+synthétiques de cette étude (graine 99, 500 tirages) et en a vu les décisions, sans rien modifier ; aucune donnée réelle lue.
 
 ## 7. Garde d'exécution
 
@@ -121,3 +122,5 @@ seule période ; une `PISTE` historique ne vaut pas validation (le direct F29 tr
 ## Historique
 
 - 2026-10-10 : pré-inscription, code et tests (aucune donnée réelle hors de la sonde de format du DVOL de 2021).
+- 2026-10-10 : contrôle sous H0 lancé une fois (commit `e4ef59b`) : 0 faux `PISTE`, puissance 0,005 →
+  **`INSTRUMENT_TROP_FAIBLE`**, étude non exécutée, 0 essai (§ 9).

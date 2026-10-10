@@ -90,9 +90,11 @@ liquidité acheteuse (F27, veto), baleines (F28), peur sur les options BTC (F29)
 Seuils auto-calibrés de façon causale (quantile des 7 ou 30 jours précédents), 7 jours de rodage, un événement par paire
 et par 24 h, entrée à la clôture 15 min suivante, mesure à 24 h sur les bougies 15 min publiques, décision au rendement
 seul (net, ou brut pour les vetos), famille de 6 au niveau 1 − 0,05/6 ; mesure seulement (aucun message, aucun ordre).
-Contrôle sous H0 synthétique lancé une fois (sections des tests). **Pré-inscrits, NON démarrés** (relecture du
-coordinateur, puis démarrage). Étude historique liée (DVOL, `OPTIONS_PEUR.md`) : pré-inscrite, contrôle H0 fait,
-**exécution réelle non lancée** (relecture d'abord). Aucun gain démontré.
+Contrôle sous H0 synthétique lancé une fois (commit e4ef59b) : F25, F26, F28, F29 passent (0 faux positif ; puissance
+à +0,5 % de 0 à 0,04 : seul un effet d'environ 1 % net à 24 h serait vu ; F29 toujours `INSUFFISANT`) ; **F27 et F30
+échouent** (faux `INFERIEUR_A_ZERO` 0,030 et 0,040 > 0,0167) : **non démarrables**. **Pré-inscrits, NON démarrés**
+(relecture du coordinateur). Étude historique liée (DVOL, `OPTIONS_PEUR.md`) : contrôle H0 **`INSTRUMENT_TROP_FAIBLE`**
+(puissance 0,005) : non exécutée, 0 essai. Aucun gain démontré.
 
 **Assistant de marché** (demande du propriétaire du 2026-10-09, `ASSISTANT.md`) : à chaque clôture 4 h UTC, lecture du
 marché (feu, BTC), du régime journalier de chaque paire halal suivie par F15, d'une configuration (repli puis reprise
