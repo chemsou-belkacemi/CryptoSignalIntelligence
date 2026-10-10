@@ -2082,6 +2082,668 @@ qui évalue la clôture (causal pour les suivants), et le retard de chaque test 
 « verdict courant » affiché avant la date d'évaluation est `EN_COURS` (aucune lecture provisoire présentée comme un
 résultat).
 
+## F25_LIQ_CASCADE : cascade de liquidations de positions longues sur une paire, achat Spot ensuite
+
+Demande du 2026-10-10 : premiers tests en direct sur les journaux du collecteur. Les liquidations sont reçues depuis le 2026-10-10 19:58 UTC (nouvelle adresse Binance « /market/ws »). Mesure seulement : CSI ne passe aucun ordre, aucun appel n'est envoyé, aucun gain n'est annoncé ni
+démontré. Module `forward/f25.py` (mince) et `forward/collecte_events.py` (commun).
+
+**Hypothèse** (positive). Après une heure où les **liquidations de positions longues** d'une paire (marché à terme USDⓈ-M, lu comme information seulement) dépassent le quantile 0,99 de ses 7 jours précédents **et** 250 000 USDT, un achat Spot de la paire à la clôture 15 min suivante rapporte en moyenne un **rendement net > 0 à 24 h** (central et défavorable). Idée testée : la vente forcée pousse le prix sous sa valeur, puis il revient. Attendu : `NON_DEMONTRE` ou `INSUFFISANT`.
+
+**Règles.** Grandeur : somme des longs liquidés de la paire (`LIQ_MINUTE`, champ « longs liquidés » de `pairs`) sur [E − 1 h ; E), pour chaque fin E au pas de **15 min**. Événement si la valeur est **> quantile 0,99** des 672 fenêtres précédentes (7 jours, au moins 538 évaluables) **et ≥ 250 000 USDT**. Délai de connaissance : 2 min après E. Une paire sans aucune liquidation lue vaut 0 (fenêtre évaluable).
+
+**Univers.** Paires de la liste halal **figée au DEMARRAGE de F15** (166 paires ; sans journal F15, liste figée du test, source inscrite), cotées sur Binance Spot ; le symbole du marché à terme doit être **identique** à celui du Spot (`1000PEPEUSDT` ≠ `PEPEUSDT` : non retenu, choix prudent).
+
+**Source et gel propres au test.** `C_LIQUIDATIONS` (`LIQ_MINUTE`) ; gel : `collect/liquidations.parse`, `MinuteAggregator`, `collect/base.minute_floor`, `iso_ms` ; paramètres : `FIELDS`, `TOP_PAIRS` (10), `FLUSH_GRACE_MS`.
+
+**Paramètres** (figés dans le code, `forward/collecte_events.SPECS["F25_LIQ_CASCADE"]`, énumérés dans `TEST.params`) :
+
+| Paramètre figé | Valeur |
+|---|---|
+| Pas de la grille | 15 min |
+| Fenêtre | 1 h glissante |
+| Référence | 7 jours (672 fenêtres, ≥ 538) |
+| Seuil | > quantile 0,99 ET ≥ 250 000 USDT |
+| Délai de connaissance | 2 min |
+| Univers | liste halal figée de F15 |
+| Rodage | 7 jours sans décision |
+| Un événement | par paire et par 24 h au plus |
+| Entrée | 1re clôture 15 min Binance Spot après l'instant connu |
+| Horizon de décision | 24 h (4 h et 72 h descriptifs) |
+| Intervalle de décision | 1 − 0,05/6, blocs de 7 jours avec événements, 10 000 tirages, graine 20261011 |
+| Minimum pour conclure | 30 événements résolus et 50 jours distincts |
+
+**Règles communes à F25 … F30** (répétées dans chaque section : l'empreinte d'un test ne couvre que le « Cadre commun » et
+sa propre section ; code commun `forward/collecte_events.py`).
+- **Données** : journaux du collecteur `C_<SOURCE>-AAAA-MM.jsonl` (`docs/COLLECTE.md`), lus en **lecture seule** par
+  `collecte_events.read_entries` jusqu'à l'instant du passage ; aucune écriture, aucun appel au collecteur. Une entrée
+  n'est retenue que si elle a été écrite au plus tard **2 min** après la fin de sa minute (`LIQ_MINUTE`, `FLUX_MINUTE`,
+  `FLUX_GROS`), **5 min** après la fin de son heure (`CARNET_RESUME`) ou **10 min** après son créneau (`OPTIONS_15M`,
+  `ATTENTION_TRENDING_H`). Cette règle porte sur chaque entrée, pas sur l'heure du passage : un passage en retard (surveillance
+  arrêtée) trouve exactement les mêmes événements (vérifié par un test).
+- **Trous du collecteur** : une fenêtre est **non évaluable** (aucun événement possible, comptée au journal) si elle touche
+  **10 minutes consécutives sans entrée de minute** (source muette `MUET`, service arrêté, flux coupé : la suite est
+  comptée de son début jusqu'à la minute considérée, jamais au-delà de la fin de fenêtre), si le résumé horaire du carnet
+  manque, est tardif ou compte moins de **50/60** du nombre d'échantillons d'une heure pleine de la paire (le plus grand
+  des 24 heures précédentes, 720 à défaut : plus de 10 minutes sans carnet), ou si le relevé du créneau manque. L'état
+  `C_ETAT.json` n'est pas lu (il ne garde que le présent) : les trous se lisent dans les journaux eux-mêmes.
+- **Seuil auto-calibré de façon causale** : quantile (interpolation linéaire) ou médiane des valeurs de la même grandeur,
+  même paire, sur les fenêtres **strictement antérieures** de la référence, avec au moins **80 %** de fenêtres évaluables
+  (sinon « référence insuffisante », comptée). La référence peut contenir des journaux d'avant le démarrage : ils sont
+  passés, personne n'y a regardé de rendement.
+- **Rodage** : aucune décision pour les fenêtres finies avant **démarrage + 7 jours** (contrôles inscrits quand même).
+- **Un événement au plus par paire et par 24 h** : un déclenchement compte s'il finit au moins 24 h après le précédent
+  événement RETENU de la paire (une vague n'est comptée qu'une fois).
+- **Entrée** (pas de regard en avant) : l'événement est connu à la fin de sa fenêtre plus le délai ci-dessus ; l'entrée est
+  la **première clôture 15 min Binance Spot strictement après** cet instant. Ex. : fenêtre finie à 10:15, connue à 10:17,
+  entrée à la clôture de 10:30.
+- **Mesure** : rendement de la paire entre la clôture d'entrée et la clôture **24 h** plus tard (horizon de décision) ;
+  4 h et 72 h en descriptif. Brut, et net des frais taker aller-retour de `forward/costs` (0,075 % par ordre plus 0,02 %
+  d'écart et de glissement par côté pour BTC et ETH, 0,05 % pour les autres ; défavorable : 0,10 % et écart doublé).
+- **Prix** : bougies **15 min** publiques de Binance Spot, `GET /api/v3/klines` par `data/http.py` (liste blanche
+  inchangée : les bougies y sont déjà), une demande par événement (961 bougies au plus), une fois **entrée + 7 j + 72 h +
+  30 min** passée ; les clôtures utilisées et leur empreinte sont inscrites à la RESOLUTION. Choix le plus sûr : le magasin
+  1 h de F15 ne donne pas les clôtures 15 min ; aucune dépendance au magasin (`runner.STORE_READERS` inchangé).
+  Rendement à 24 h de l'événement toujours introuvable 2 jours plus tard : `TROU` (hors mesure, compté).
+- **Placebos, descriptifs seulement** : 20 entrées de la même paire à des clôtures 15 min tirées sans remise dans
+  [entrée + 1 h ; entrée + 7 j] (**placebos « avant » seulement**, leçon de `PRICE_ACTION.md` § 5.5 et § 11.3), graine
+  `sha256("<F2x>:" + identifiant de l'événement)` ; moyenne et excès rapportés, ils ne décident de rien.
+- **Journal** `forward/<ID>.jsonl` : `CONTROLE` par heure (fenêtres, évaluables, trous, références insuffisantes,
+  déclenchements, événements, rodage), `EVENEMENT` (valeur, seuil, référence, instant connu, entrée, placebos),
+  `RESOLUTION`, `VERDICT`, `CLOTURE`. Passage à chaque heure (orchestration `forward/runner.py`), 72 heures au plus par
+  passage. Rien n'est écrit dans `signals/`, `SignalRegistry` ni `state/assistant*` ; **aucun message Telegram** (ces tests
+  mesurent des événements, ce ne sont pas des appels à suivre) ; carte « Événements de marché (collecteur) » dans l'onglet
+  Suivi, route `GET /evenements` (jeton), section commune du rapport quotidien.
+- **Gel** : modules `forward/<f2x>`, `forward/collecte_events`, `forward/costs`, `forward/registry`, `forward/journal` ;
+  fonctions `backtest.metrics.day_block_ci` et `day_block_ci95` ; **fonctions pures d'agrégation du collecteur** qui
+  fabriquent la grandeur (ci-dessous) ; les **constantes du collecteur** dont elle dépend entrent dans les paramètres.
+  Ne sont **pas** gelés : les adresses des flux et le superviseur du collecteur (`collect/net.py`, constantes `URL`,
+  `collect/service.py`) ; Binance a déjà changé une adresse le 2026-10-10 (« /ws » devenu « /market/ws ») et il faut pouvoir
+  la corriger sans arrêter les tests. Une correction d'adresse laisse un trou, compté, jamais comblé.
+- **Famille « données du collecteur »** : six tests (F25 à F30), intervalle de décision au niveau **1 − 0,05/6** ; un essai
+  FORWARD par test (six de plus au registre) ; avec F1 à F24, 29 tests en direct.
+- **Seuil de décision commun** (rendement à 24 h SEUL, leçon « R net seul » de `PRICE_ACTION.md` § 11 : sous une martingale,
+  l'espérance vaut moins les frais) : `INSUFFISANT` sous **30 événements résolus** ou **50 jours distincts** avec des
+  événements résolus (l'intervalle exige 8 blocs de 7 jours avec événements, comme F19), ou intervalle non calculable ;
+  hypothèse **positive** : `SUPERIEUR_A_ZERO` si l'intervalle 1 − 0,05/6 du rendement **net** moyen est entièrement > 0 en
+  central **ET** en défavorable ; hypothèse **négative** : `INFERIEUR_A_ZERO` si l'intervalle 1 − 0,05/6 du rendement
+  **brut** moyen est entièrement < 0 (le net ferait passer le test par les seuls frais) ; sinon `NON_DEMONTRE`.
+  Intervalle par blocs de 7 jours avec événements (`day_block_ci`, 10 000 tirages, graine 20261011, au moins 8 blocs).
+  `SUPERIEUR_A_ZERO` ne dit pas « mieux qu'une entrée au hasard » : la dérive du marché y entre.
+- **Date d'évaluation** : fin du recueil **84 jours** après le démarrage (revue intermédiaire à 42 jours, descriptive, aucun
+  changement de règle) ; verdict une fois le dernier événement résolu, au plus tard vers 84 + 12 jours (entrée + 7 j + 72 h,
+  puis 2 jours pour constater un trou).
+- **Essai de chronométrage déclaré** (2026-10-10, avant le contrôle sous H0) : 3 répliques par test, 2 000 tirages ;
+  verdicts vus (tous `NON_DEMONTRE`, sauf F29 `INSUFFISANT`) ; générateur non modifié ensuite.
+
+**Métrique.** Rendement moyen à 24 h (brut, net central, net défavorable), intervalle de décision et IC95, part
+positive, jours distincts ; descriptif : 4 h et 72 h, moyenne et excès des placebos, événements par paire, fenêtres
+évaluables, trous, références insuffisantes, déclenchements écartés (rodage, 24 h), `TROU`, en attente.
+
+**Seuil de décision.** Celui des règles communes, hypothèse **positive** : `SUPERIEUR_A_ZERO` (intervalle 1 − 0,05/6 du rendement NET à 24 h > 0 en central ET en défavorable),
+sinon `NON_DEMONTRE` ; `INSUFFISANT` sous 30 événements résolus ou 50 jours distincts.
+
+**Date d'évaluation.** 84 jours après le démarrage (revue intermédiaire à 42 jours) ; verdict une fois le dernier
+événement résolu.
+
+**Nombre d'événements attendu (honnête).** **Inconnu à ce jour** : 28 minutes de liquidations lues le 2026-10-10 (le flux était muet avant 19:58 UTC) ; 22 paires de F15 liquidées dans ces minutes, aucune à 250 000 USDT sur 1 h. Ordre de grandeur supposé (non mesuré) : 1 à 3 événements par jour les jours agités, souvent groupés le même jour sur plusieurs paires, **30 à 100 par mois**, moins de jours distincts que d'événements. À mesurer pendant le rodage (carte).
+
+**Contrôle sous H0** (`research/collecte_h0.py`, `tests/test_collecte_h0.py`, marqué `slow`, lancé une fois avant le démarrage) : résultats à inscrire ici AVANT le démarrage.
+
+**Limites déclarées.** Binance ne publie qu'**un ordre par seconde et par paire** (le plus gros) : notionnel **minimum** ; seules les **10 paires** les plus liquidées de chaque minute sont nommées, le reste est agrégé sans paire ; une minute sans aucune liquidation sur tout le marché ressemble à un trou (10 de suite : fenêtre non évaluable, prudent) ; événements groupés (cascades de marché) ; univers choisi en 2026 (survivantes). Communes : collecteur sur le PC du propriétaire (coupures, redémarrages :
+trous comptés, jamais comblés) ; 12 semaines ne valident rien ; `INSUFFISANT` est une réponse acceptable.
+
+## F26_MUR_ACHETEURS : mur d'acheteurs dans le carnet deux heures de suite, achat ensuite
+
+Demande du 2026-10-10 : tests en direct sur les journaux du collecteur. Mesure seulement : CSI ne passe aucun ordre, aucun appel n'est envoyé, aucun gain n'est annoncé ni
+démontré. Module `forward/f26.py` (mince) et `forward/collecte_events.py` (commun).
+
+**Hypothèse** (positive). Après **deux heures consécutives** où le déséquilibre moyen du carnet à ±1 % du milieu ((achats − ventes) / (achats + ventes), `imb_1`) d'une paire dépasse le quantile 0,95 de ses 7 jours précédents, un achat Spot à la clôture 15 min suivante rapporte en moyenne un **rendement net > 0 à 24 h** (central et défavorable). Attendu : `NON_DEMONTRE` ou `INSUFFISANT`.
+
+**Règles.** Grandeur : moyenne horaire de `imb_1` (`CARNET_RESUME`, `stats.imb_1.mean`, tous les échantillons de 5 s de l'heure), rangée à la fin de l'heure E. Une heure est « haute » si sa valeur est **> quantile 0,95** des 168 heures précédentes (7 jours, au moins 135 évaluables) ; **événement à la fin de la 2e heure haute consécutive** (les deux heures évaluables, chacune avec sa propre référence). Délai : 5 min après E.
+
+**Univers.** Paires du carnet **prises dans la configuration** (`data.symbols`, 16 paires, historique continu) admises par la liste halal figée du test ; les paires ajoutées au carnet par les appels de l'assistant (présence intermittente) ne sont pas retenues (choix prudent).
+
+**Source et gel propres au test.** `C_CARNET` (`CARNET_RESUME`) ; gel : `collect/carnet.book_sample`, `PairTracker`, `parse`, `BookCollector.sample_all`, `collect/base.iso_ms` ; paramètres : `BANDS`, `SAMPLE_SECONDS`, `STALE_SECONDS`, `RESUME_FIELDS`.
+
+**Paramètres** (figés dans le code, `forward/collecte_events.SPECS["F26_MUR_ACHETEURS"]`, énumérés dans `TEST.params`) :
+
+| Paramètre figé | Valeur |
+|---|---|
+| Pas de la grille | 1 h |
+| Grandeur | moyenne horaire de imb_1 |
+| Référence | 7 jours (168 h, ≥ 135) |
+| Seuil | > quantile 0,95, deux heures consécutives |
+| Délai de connaissance | 5 min |
+| Univers | data.symbols ∩ liste halal figée |
+| Rodage | 7 jours sans décision |
+| Un événement | par paire et par 24 h au plus |
+| Entrée | 1re clôture 15 min Binance Spot après l'instant connu |
+| Horizon de décision | 24 h (4 h et 72 h descriptifs) |
+| Intervalle de décision | 1 − 0,05/6, blocs de 7 jours avec événements, 10 000 tirages, graine 20261011 |
+| Minimum pour conclure | 30 événements résolus et 50 jours distincts |
+
+**Règles communes à F25 … F30** (répétées dans chaque section : l'empreinte d'un test ne couvre que le « Cadre commun » et
+sa propre section ; code commun `forward/collecte_events.py`).
+- **Données** : journaux du collecteur `C_<SOURCE>-AAAA-MM.jsonl` (`docs/COLLECTE.md`), lus en **lecture seule** par
+  `collecte_events.read_entries` jusqu'à l'instant du passage ; aucune écriture, aucun appel au collecteur. Une entrée
+  n'est retenue que si elle a été écrite au plus tard **2 min** après la fin de sa minute (`LIQ_MINUTE`, `FLUX_MINUTE`,
+  `FLUX_GROS`), **5 min** après la fin de son heure (`CARNET_RESUME`) ou **10 min** après son créneau (`OPTIONS_15M`,
+  `ATTENTION_TRENDING_H`). Cette règle porte sur chaque entrée, pas sur l'heure du passage : un passage en retard (surveillance
+  arrêtée) trouve exactement les mêmes événements (vérifié par un test).
+- **Trous du collecteur** : une fenêtre est **non évaluable** (aucun événement possible, comptée au journal) si elle touche
+  **10 minutes consécutives sans entrée de minute** (source muette `MUET`, service arrêté, flux coupé : la suite est
+  comptée de son début jusqu'à la minute considérée, jamais au-delà de la fin de fenêtre), si le résumé horaire du carnet
+  manque, est tardif ou compte moins de **50/60** du nombre d'échantillons d'une heure pleine de la paire (le plus grand
+  des 24 heures précédentes, 720 à défaut : plus de 10 minutes sans carnet), ou si le relevé du créneau manque. L'état
+  `C_ETAT.json` n'est pas lu (il ne garde que le présent) : les trous se lisent dans les journaux eux-mêmes.
+- **Seuil auto-calibré de façon causale** : quantile (interpolation linéaire) ou médiane des valeurs de la même grandeur,
+  même paire, sur les fenêtres **strictement antérieures** de la référence, avec au moins **80 %** de fenêtres évaluables
+  (sinon « référence insuffisante », comptée). La référence peut contenir des journaux d'avant le démarrage : ils sont
+  passés, personne n'y a regardé de rendement.
+- **Rodage** : aucune décision pour les fenêtres finies avant **démarrage + 7 jours** (contrôles inscrits quand même).
+- **Un événement au plus par paire et par 24 h** : un déclenchement compte s'il finit au moins 24 h après le précédent
+  événement RETENU de la paire (une vague n'est comptée qu'une fois).
+- **Entrée** (pas de regard en avant) : l'événement est connu à la fin de sa fenêtre plus le délai ci-dessus ; l'entrée est
+  la **première clôture 15 min Binance Spot strictement après** cet instant. Ex. : fenêtre finie à 10:15, connue à 10:17,
+  entrée à la clôture de 10:30.
+- **Mesure** : rendement de la paire entre la clôture d'entrée et la clôture **24 h** plus tard (horizon de décision) ;
+  4 h et 72 h en descriptif. Brut, et net des frais taker aller-retour de `forward/costs` (0,075 % par ordre plus 0,02 %
+  d'écart et de glissement par côté pour BTC et ETH, 0,05 % pour les autres ; défavorable : 0,10 % et écart doublé).
+- **Prix** : bougies **15 min** publiques de Binance Spot, `GET /api/v3/klines` par `data/http.py` (liste blanche
+  inchangée : les bougies y sont déjà), une demande par événement (961 bougies au plus), une fois **entrée + 7 j + 72 h +
+  30 min** passée ; les clôtures utilisées et leur empreinte sont inscrites à la RESOLUTION. Choix le plus sûr : le magasin
+  1 h de F15 ne donne pas les clôtures 15 min ; aucune dépendance au magasin (`runner.STORE_READERS` inchangé).
+  Rendement à 24 h de l'événement toujours introuvable 2 jours plus tard : `TROU` (hors mesure, compté).
+- **Placebos, descriptifs seulement** : 20 entrées de la même paire à des clôtures 15 min tirées sans remise dans
+  [entrée + 1 h ; entrée + 7 j] (**placebos « avant » seulement**, leçon de `PRICE_ACTION.md` § 5.5 et § 11.3), graine
+  `sha256("<F2x>:" + identifiant de l'événement)` ; moyenne et excès rapportés, ils ne décident de rien.
+- **Journal** `forward/<ID>.jsonl` : `CONTROLE` par heure (fenêtres, évaluables, trous, références insuffisantes,
+  déclenchements, événements, rodage), `EVENEMENT` (valeur, seuil, référence, instant connu, entrée, placebos),
+  `RESOLUTION`, `VERDICT`, `CLOTURE`. Passage à chaque heure (orchestration `forward/runner.py`), 72 heures au plus par
+  passage. Rien n'est écrit dans `signals/`, `SignalRegistry` ni `state/assistant*` ; **aucun message Telegram** (ces tests
+  mesurent des événements, ce ne sont pas des appels à suivre) ; carte « Événements de marché (collecteur) » dans l'onglet
+  Suivi, route `GET /evenements` (jeton), section commune du rapport quotidien.
+- **Gel** : modules `forward/<f2x>`, `forward/collecte_events`, `forward/costs`, `forward/registry`, `forward/journal` ;
+  fonctions `backtest.metrics.day_block_ci` et `day_block_ci95` ; **fonctions pures d'agrégation du collecteur** qui
+  fabriquent la grandeur (ci-dessous) ; les **constantes du collecteur** dont elle dépend entrent dans les paramètres.
+  Ne sont **pas** gelés : les adresses des flux et le superviseur du collecteur (`collect/net.py`, constantes `URL`,
+  `collect/service.py`) ; Binance a déjà changé une adresse le 2026-10-10 (« /ws » devenu « /market/ws ») et il faut pouvoir
+  la corriger sans arrêter les tests. Une correction d'adresse laisse un trou, compté, jamais comblé.
+- **Famille « données du collecteur »** : six tests (F25 à F30), intervalle de décision au niveau **1 − 0,05/6** ; un essai
+  FORWARD par test (six de plus au registre) ; avec F1 à F24, 29 tests en direct.
+- **Seuil de décision commun** (rendement à 24 h SEUL, leçon « R net seul » de `PRICE_ACTION.md` § 11 : sous une martingale,
+  l'espérance vaut moins les frais) : `INSUFFISANT` sous **30 événements résolus** ou **50 jours distincts** avec des
+  événements résolus (l'intervalle exige 8 blocs de 7 jours avec événements, comme F19), ou intervalle non calculable ;
+  hypothèse **positive** : `SUPERIEUR_A_ZERO` si l'intervalle 1 − 0,05/6 du rendement **net** moyen est entièrement > 0 en
+  central **ET** en défavorable ; hypothèse **négative** : `INFERIEUR_A_ZERO` si l'intervalle 1 − 0,05/6 du rendement
+  **brut** moyen est entièrement < 0 (le net ferait passer le test par les seuls frais) ; sinon `NON_DEMONTRE`.
+  Intervalle par blocs de 7 jours avec événements (`day_block_ci`, 10 000 tirages, graine 20261011, au moins 8 blocs).
+  `SUPERIEUR_A_ZERO` ne dit pas « mieux qu'une entrée au hasard » : la dérive du marché y entre.
+- **Date d'évaluation** : fin du recueil **84 jours** après le démarrage (revue intermédiaire à 42 jours, descriptive, aucun
+  changement de règle) ; verdict une fois le dernier événement résolu, au plus tard vers 84 + 12 jours (entrée + 7 j + 72 h,
+  puis 2 jours pour constater un trou).
+- **Essai de chronométrage déclaré** (2026-10-10, avant le contrôle sous H0) : 3 répliques par test, 2 000 tirages ;
+  verdicts vus (tous `NON_DEMONTRE`, sauf F29 `INSUFFISANT`) ; générateur non modifié ensuite.
+
+**Métrique.** Rendement moyen à 24 h (brut, net central, net défavorable), intervalle de décision et IC95, part
+positive, jours distincts ; descriptif : 4 h et 72 h, moyenne et excès des placebos, événements par paire, fenêtres
+évaluables, trous, références insuffisantes, déclenchements écartés (rodage, 24 h), `TROU`, en attente.
+
+**Seuil de décision.** Celui des règles communes, hypothèse **positive** : `SUPERIEUR_A_ZERO` (intervalle 1 − 0,05/6 du rendement NET à 24 h > 0 en central ET en défavorable),
+sinon `NON_DEMONTRE` ; `INSUFFISANT` sous 30 événements résolus ou 50 jours distincts.
+
+**Date d'évaluation.** 84 jours après le démarrage (revue intermédiaire à 42 jours) ; verdict une fois le dernier
+événement résolu.
+
+**Nombre d'événements attendu (honnête).** Estimation (comptes seulement, 25 h de journaux, aucun prix regardé) : autocorrélation horaire de `imb_1` médiane 0,44 (de −0,06 à 0,69 selon la paire) ; pour un processus AR(1) de cette persistance (calcul théorique, pas les données), deux heures de suite au-dessus du quantile 0,95 arrivent 1,1 % des heures, soit ≈ 0,2 début de série par paire et par jour ; avec un événement par paire et par 24 h, **≈ 2 à 4 par jour sur 16 paires, ≈ 60 à 120 par mois**, presque tous les jours.
+
+**Contrôle sous H0** (`research/collecte_h0.py`, `tests/test_collecte_h0.py`, marqué `slow`, lancé une fois avant le démarrage) : résultats à inscrire ici AVANT le démarrage.
+
+**Limites déclarées.** depth20 ne couvre que 20 niveaux : pour BTC et ETH, ±1 % dépasse presque toujours ces niveaux (profondeur **minimum**, `truncated`) ; un mur affiché peut être retiré (« spoofing ») ; carnet d'une seule bourse ; les heures de redémarrage du collecteur (résumé partiel) sont des trous. Communes : collecteur sur le PC du propriétaire (coupures, redémarrages :
+trous comptés, jamais comblés) ; 12 semaines ne valident rien ; `INSUFFISANT` est une réponse acceptable.
+
+## F27_RETRAIT_LIQUIDITE : retrait de la liquidité acheteuse (hypothèse négative, veto)
+
+Demande du 2026-10-10 : tests en direct sur les journaux du collecteur. **Hypothèse négative.** Mesure seulement : CSI ne passe aucun ordre, aucun appel n'est envoyé, aucun gain n'est annoncé ni
+démontré. Module `forward/f27.py` (mince) et `forward/collecte_events.py` (commun).
+
+**Hypothèse** (négative). Après une heure où la **profondeur acheteuse** moyenne à −1 % du milieu (`bid_1`, USDT) d'une paire tombe **sous 50 % de sa médiane des 24 heures précédentes**, le **rendement brut à 24 h** d'un achat à la clôture 15 min suivante est en moyenne **< 0**. S'il l'était, ce serait un veto (ne pas acheter). Attendu : `NON_DEMONTRE` ou `INSUFFISANT`.
+
+**Règles.** Grandeur : moyenne horaire de `bid_1` (`CARNET_RESUME`, `stats.bid_1.mean`), à la fin de l'heure E. Événement si la valeur est **strictement < 0,5 × médiane** des 24 heures précédentes (au moins 20 évaluables). Délai : 5 min après E.
+
+**Univers.** Comme F26 : `data.symbols` ∩ liste halal figée du test (16 paires).
+
+**Source et gel propres au test.** Comme F26 (`C_CARNET`, `CARNET_RESUME`, mêmes fonctions et constantes gelées).
+
+**Paramètres** (figés dans le code, `forward/collecte_events.SPECS["F27_RETRAIT_LIQUIDITE"]`, énumérés dans `TEST.params`) :
+
+| Paramètre figé | Valeur |
+|---|---|
+| Pas de la grille | 1 h |
+| Grandeur | moyenne horaire de bid_1 |
+| Référence | médiane des 24 h (≥ 20) |
+| Seuil | < 0,5 × médiane |
+| Délai de connaissance | 5 min |
+| Décision | rendement BRUT à 24 h < 0 |
+| Univers | data.symbols ∩ liste halal figée |
+| Rodage | 7 jours sans décision |
+| Un événement | par paire et par 24 h au plus |
+| Entrée | 1re clôture 15 min Binance Spot après l'instant connu |
+| Horizon de décision | 24 h (4 h et 72 h descriptifs) |
+| Intervalle de décision | 1 − 0,05/6, blocs de 7 jours avec événements, 10 000 tirages, graine 20261011 |
+| Minimum pour conclure | 30 événements résolus et 50 jours distincts |
+
+**Règles communes à F25 … F30** (répétées dans chaque section : l'empreinte d'un test ne couvre que le « Cadre commun » et
+sa propre section ; code commun `forward/collecte_events.py`).
+- **Données** : journaux du collecteur `C_<SOURCE>-AAAA-MM.jsonl` (`docs/COLLECTE.md`), lus en **lecture seule** par
+  `collecte_events.read_entries` jusqu'à l'instant du passage ; aucune écriture, aucun appel au collecteur. Une entrée
+  n'est retenue que si elle a été écrite au plus tard **2 min** après la fin de sa minute (`LIQ_MINUTE`, `FLUX_MINUTE`,
+  `FLUX_GROS`), **5 min** après la fin de son heure (`CARNET_RESUME`) ou **10 min** après son créneau (`OPTIONS_15M`,
+  `ATTENTION_TRENDING_H`). Cette règle porte sur chaque entrée, pas sur l'heure du passage : un passage en retard (surveillance
+  arrêtée) trouve exactement les mêmes événements (vérifié par un test).
+- **Trous du collecteur** : une fenêtre est **non évaluable** (aucun événement possible, comptée au journal) si elle touche
+  **10 minutes consécutives sans entrée de minute** (source muette `MUET`, service arrêté, flux coupé : la suite est
+  comptée de son début jusqu'à la minute considérée, jamais au-delà de la fin de fenêtre), si le résumé horaire du carnet
+  manque, est tardif ou compte moins de **50/60** du nombre d'échantillons d'une heure pleine de la paire (le plus grand
+  des 24 heures précédentes, 720 à défaut : plus de 10 minutes sans carnet), ou si le relevé du créneau manque. L'état
+  `C_ETAT.json` n'est pas lu (il ne garde que le présent) : les trous se lisent dans les journaux eux-mêmes.
+- **Seuil auto-calibré de façon causale** : quantile (interpolation linéaire) ou médiane des valeurs de la même grandeur,
+  même paire, sur les fenêtres **strictement antérieures** de la référence, avec au moins **80 %** de fenêtres évaluables
+  (sinon « référence insuffisante », comptée). La référence peut contenir des journaux d'avant le démarrage : ils sont
+  passés, personne n'y a regardé de rendement.
+- **Rodage** : aucune décision pour les fenêtres finies avant **démarrage + 7 jours** (contrôles inscrits quand même).
+- **Un événement au plus par paire et par 24 h** : un déclenchement compte s'il finit au moins 24 h après le précédent
+  événement RETENU de la paire (une vague n'est comptée qu'une fois).
+- **Entrée** (pas de regard en avant) : l'événement est connu à la fin de sa fenêtre plus le délai ci-dessus ; l'entrée est
+  la **première clôture 15 min Binance Spot strictement après** cet instant. Ex. : fenêtre finie à 10:15, connue à 10:17,
+  entrée à la clôture de 10:30.
+- **Mesure** : rendement de la paire entre la clôture d'entrée et la clôture **24 h** plus tard (horizon de décision) ;
+  4 h et 72 h en descriptif. Brut, et net des frais taker aller-retour de `forward/costs` (0,075 % par ordre plus 0,02 %
+  d'écart et de glissement par côté pour BTC et ETH, 0,05 % pour les autres ; défavorable : 0,10 % et écart doublé).
+- **Prix** : bougies **15 min** publiques de Binance Spot, `GET /api/v3/klines` par `data/http.py` (liste blanche
+  inchangée : les bougies y sont déjà), une demande par événement (961 bougies au plus), une fois **entrée + 7 j + 72 h +
+  30 min** passée ; les clôtures utilisées et leur empreinte sont inscrites à la RESOLUTION. Choix le plus sûr : le magasin
+  1 h de F15 ne donne pas les clôtures 15 min ; aucune dépendance au magasin (`runner.STORE_READERS` inchangé).
+  Rendement à 24 h de l'événement toujours introuvable 2 jours plus tard : `TROU` (hors mesure, compté).
+- **Placebos, descriptifs seulement** : 20 entrées de la même paire à des clôtures 15 min tirées sans remise dans
+  [entrée + 1 h ; entrée + 7 j] (**placebos « avant » seulement**, leçon de `PRICE_ACTION.md` § 5.5 et § 11.3), graine
+  `sha256("<F2x>:" + identifiant de l'événement)` ; moyenne et excès rapportés, ils ne décident de rien.
+- **Journal** `forward/<ID>.jsonl` : `CONTROLE` par heure (fenêtres, évaluables, trous, références insuffisantes,
+  déclenchements, événements, rodage), `EVENEMENT` (valeur, seuil, référence, instant connu, entrée, placebos),
+  `RESOLUTION`, `VERDICT`, `CLOTURE`. Passage à chaque heure (orchestration `forward/runner.py`), 72 heures au plus par
+  passage. Rien n'est écrit dans `signals/`, `SignalRegistry` ni `state/assistant*` ; **aucun message Telegram** (ces tests
+  mesurent des événements, ce ne sont pas des appels à suivre) ; carte « Événements de marché (collecteur) » dans l'onglet
+  Suivi, route `GET /evenements` (jeton), section commune du rapport quotidien.
+- **Gel** : modules `forward/<f2x>`, `forward/collecte_events`, `forward/costs`, `forward/registry`, `forward/journal` ;
+  fonctions `backtest.metrics.day_block_ci` et `day_block_ci95` ; **fonctions pures d'agrégation du collecteur** qui
+  fabriquent la grandeur (ci-dessous) ; les **constantes du collecteur** dont elle dépend entrent dans les paramètres.
+  Ne sont **pas** gelés : les adresses des flux et le superviseur du collecteur (`collect/net.py`, constantes `URL`,
+  `collect/service.py`) ; Binance a déjà changé une adresse le 2026-10-10 (« /ws » devenu « /market/ws ») et il faut pouvoir
+  la corriger sans arrêter les tests. Une correction d'adresse laisse un trou, compté, jamais comblé.
+- **Famille « données du collecteur »** : six tests (F25 à F30), intervalle de décision au niveau **1 − 0,05/6** ; un essai
+  FORWARD par test (six de plus au registre) ; avec F1 à F24, 29 tests en direct.
+- **Seuil de décision commun** (rendement à 24 h SEUL, leçon « R net seul » de `PRICE_ACTION.md` § 11 : sous une martingale,
+  l'espérance vaut moins les frais) : `INSUFFISANT` sous **30 événements résolus** ou **50 jours distincts** avec des
+  événements résolus (l'intervalle exige 8 blocs de 7 jours avec événements, comme F19), ou intervalle non calculable ;
+  hypothèse **positive** : `SUPERIEUR_A_ZERO` si l'intervalle 1 − 0,05/6 du rendement **net** moyen est entièrement > 0 en
+  central **ET** en défavorable ; hypothèse **négative** : `INFERIEUR_A_ZERO` si l'intervalle 1 − 0,05/6 du rendement
+  **brut** moyen est entièrement < 0 (le net ferait passer le test par les seuls frais) ; sinon `NON_DEMONTRE`.
+  Intervalle par blocs de 7 jours avec événements (`day_block_ci`, 10 000 tirages, graine 20261011, au moins 8 blocs).
+  `SUPERIEUR_A_ZERO` ne dit pas « mieux qu'une entrée au hasard » : la dérive du marché y entre.
+- **Date d'évaluation** : fin du recueil **84 jours** après le démarrage (revue intermédiaire à 42 jours, descriptive, aucun
+  changement de règle) ; verdict une fois le dernier événement résolu, au plus tard vers 84 + 12 jours (entrée + 7 j + 72 h,
+  puis 2 jours pour constater un trou).
+- **Essai de chronométrage déclaré** (2026-10-10, avant le contrôle sous H0) : 3 répliques par test, 2 000 tirages ;
+  verdicts vus (tous `NON_DEMONTRE`, sauf F29 `INSUFFISANT`) ; générateur non modifié ensuite.
+
+**Métrique.** Rendement moyen à 24 h (brut, net central, net défavorable), intervalle de décision et IC95, part
+positive, jours distincts ; descriptif : 4 h et 72 h, moyenne et excès des placebos, événements par paire, fenêtres
+évaluables, trous, références insuffisantes, déclenchements écartés (rodage, 24 h), `TROU`, en attente.
+
+**Seuil de décision.** Celui des règles communes, hypothèse **négative** : `INFERIEUR_A_ZERO` (intervalle 1 − 0,05/6 du rendement BRUT à 24 h < 0),
+sinon `NON_DEMONTRE` ; `INSUFFISANT` sous 30 événements résolus ou 50 jours distincts.
+
+**Date d'évaluation.** 84 jours après le démarrage (revue intermédiaire à 42 jours) ; verdict une fois le dernier
+événement résolu.
+
+**Nombre d'événements attendu (honnête).** Estimation (comptes seulement) : **aucune** heure sous 50 % de la médiane dans les 144 heures-paires testables des 25 premières heures (rapport heure / médiane : 1 % le plus bas à 0,81, 5 % à 0,88). L'événement est **rare** : de l'ordre de **0 à 20 par mois** (estimation grossière). **`INSUFFISANT` est l'issue la plus probable** ; le test est inscrit tel quel (paramètres de la demande), rien n'est réglé après coup.
+
+**Contrôle sous H0** (`research/collecte_h0.py`, `tests/test_collecte_h0.py`, marqué `slow`, lancé une fois avant le démarrage) : résultats à inscrire ici AVANT le démarrage.
+
+**Limites déclarées.** Profondeur **minimum** (depth20 tronqué sur BTC et ETH : la baisse peut n'être qu'un effet de troncature) ; un retrait de liquidité accompagne souvent un mouvement rapide (déjà dans le prix d'entrée) ; rare. Communes : collecteur sur le PC du propriétaire (coupures, redémarrages :
+trous comptés, jamais comblés) ; 12 semaines ne valident rien ; `INSUFFISANT` est une réponse acceptable.
+
+## F28_BALEINES : baleines : solde des gros ordres au marché sur 1 h, achat ensuite
+
+Demande du 2026-10-10 : tests en direct sur les journaux du collecteur. Mesure seulement : CSI ne passe aucun ordre, aucun appel n'est envoyé, aucun gain n'est annoncé ni
+démontré. Module `forward/f28.py` (mince) et `forward/collecte_events.py` (commun).
+
+**Hypothèse** (positive). Après une heure où le **solde des gros ordres au marché** (gros achats taker − grosses ventes taker, en USDT) d'une paire dépasse le quantile 0,99 de ses 7 jours précédents, un achat Spot à la clôture 15 min suivante rapporte en moyenne un **rendement net > 0 à 24 h** (central et défavorable). Attendu : `NON_DEMONTRE` ou `INSUFFISANT`.
+
+**Règles.** Grandeur : somme signée des `FLUX_GROS` de la paire (côté du taker, notionnel) sur [E − 1 h ; E), au pas de **15 min** ; couverture lue sur `FLUX_MINUTE` (une entrée par minute). Événement si la valeur est **> quantile 0,99** des 672 fenêtres précédentes (7 jours, ≥ 538) **et > 0**. Délai : 2 min après E.
+
+**Univers.** `data.symbols` ∩ liste halal figée du test (les 16 paires du flux).
+
+**Source et gel propres au test.** `C_FLUX` (`FLUX_MINUTE`, `FLUX_GROS`) ; gel : `collect/flux.parse`, `MinuteAggregator`, `large_usdt`, `imbalance`, `collect/base.minute_floor`, `iso_ms` ; paramètres : `FIELDS`, `LARGE_USDT` (50 000), `LARGE_USDT_BY_PAIR` (BTC, ETH : 100 000), `MAX_LARGE_PER_MINUTE` (3), `FLUSH_GRACE_MS`.
+
+**Paramètres** (figés dans le code, `forward/collecte_events.SPECS["F28_BALEINES"]`, énumérés dans `TEST.params`) :
+
+| Paramètre figé | Valeur |
+|---|---|
+| Pas de la grille | 15 min |
+| Fenêtre | 1 h glissante |
+| Gros ordre | ≥ 100 000 USDT (BTC, ETH), ≥ 50 000 ailleurs |
+| Référence | 7 jours (672 fenêtres, ≥ 538) |
+| Seuil | > quantile 0,99 ET > 0 |
+| Délai de connaissance | 2 min |
+| Univers | data.symbols ∩ liste halal figée |
+| Rodage | 7 jours sans décision |
+| Un événement | par paire et par 24 h au plus |
+| Entrée | 1re clôture 15 min Binance Spot après l'instant connu |
+| Horizon de décision | 24 h (4 h et 72 h descriptifs) |
+| Intervalle de décision | 1 − 0,05/6, blocs de 7 jours avec événements, 10 000 tirages, graine 20261011 |
+| Minimum pour conclure | 30 événements résolus et 50 jours distincts |
+
+**Règles communes à F25 … F30** (répétées dans chaque section : l'empreinte d'un test ne couvre que le « Cadre commun » et
+sa propre section ; code commun `forward/collecte_events.py`).
+- **Données** : journaux du collecteur `C_<SOURCE>-AAAA-MM.jsonl` (`docs/COLLECTE.md`), lus en **lecture seule** par
+  `collecte_events.read_entries` jusqu'à l'instant du passage ; aucune écriture, aucun appel au collecteur. Une entrée
+  n'est retenue que si elle a été écrite au plus tard **2 min** après la fin de sa minute (`LIQ_MINUTE`, `FLUX_MINUTE`,
+  `FLUX_GROS`), **5 min** après la fin de son heure (`CARNET_RESUME`) ou **10 min** après son créneau (`OPTIONS_15M`,
+  `ATTENTION_TRENDING_H`). Cette règle porte sur chaque entrée, pas sur l'heure du passage : un passage en retard (surveillance
+  arrêtée) trouve exactement les mêmes événements (vérifié par un test).
+- **Trous du collecteur** : une fenêtre est **non évaluable** (aucun événement possible, comptée au journal) si elle touche
+  **10 minutes consécutives sans entrée de minute** (source muette `MUET`, service arrêté, flux coupé : la suite est
+  comptée de son début jusqu'à la minute considérée, jamais au-delà de la fin de fenêtre), si le résumé horaire du carnet
+  manque, est tardif ou compte moins de **50/60** du nombre d'échantillons d'une heure pleine de la paire (le plus grand
+  des 24 heures précédentes, 720 à défaut : plus de 10 minutes sans carnet), ou si le relevé du créneau manque. L'état
+  `C_ETAT.json` n'est pas lu (il ne garde que le présent) : les trous se lisent dans les journaux eux-mêmes.
+- **Seuil auto-calibré de façon causale** : quantile (interpolation linéaire) ou médiane des valeurs de la même grandeur,
+  même paire, sur les fenêtres **strictement antérieures** de la référence, avec au moins **80 %** de fenêtres évaluables
+  (sinon « référence insuffisante », comptée). La référence peut contenir des journaux d'avant le démarrage : ils sont
+  passés, personne n'y a regardé de rendement.
+- **Rodage** : aucune décision pour les fenêtres finies avant **démarrage + 7 jours** (contrôles inscrits quand même).
+- **Un événement au plus par paire et par 24 h** : un déclenchement compte s'il finit au moins 24 h après le précédent
+  événement RETENU de la paire (une vague n'est comptée qu'une fois).
+- **Entrée** (pas de regard en avant) : l'événement est connu à la fin de sa fenêtre plus le délai ci-dessus ; l'entrée est
+  la **première clôture 15 min Binance Spot strictement après** cet instant. Ex. : fenêtre finie à 10:15, connue à 10:17,
+  entrée à la clôture de 10:30.
+- **Mesure** : rendement de la paire entre la clôture d'entrée et la clôture **24 h** plus tard (horizon de décision) ;
+  4 h et 72 h en descriptif. Brut, et net des frais taker aller-retour de `forward/costs` (0,075 % par ordre plus 0,02 %
+  d'écart et de glissement par côté pour BTC et ETH, 0,05 % pour les autres ; défavorable : 0,10 % et écart doublé).
+- **Prix** : bougies **15 min** publiques de Binance Spot, `GET /api/v3/klines` par `data/http.py` (liste blanche
+  inchangée : les bougies y sont déjà), une demande par événement (961 bougies au plus), une fois **entrée + 7 j + 72 h +
+  30 min** passée ; les clôtures utilisées et leur empreinte sont inscrites à la RESOLUTION. Choix le plus sûr : le magasin
+  1 h de F15 ne donne pas les clôtures 15 min ; aucune dépendance au magasin (`runner.STORE_READERS` inchangé).
+  Rendement à 24 h de l'événement toujours introuvable 2 jours plus tard : `TROU` (hors mesure, compté).
+- **Placebos, descriptifs seulement** : 20 entrées de la même paire à des clôtures 15 min tirées sans remise dans
+  [entrée + 1 h ; entrée + 7 j] (**placebos « avant » seulement**, leçon de `PRICE_ACTION.md` § 5.5 et § 11.3), graine
+  `sha256("<F2x>:" + identifiant de l'événement)` ; moyenne et excès rapportés, ils ne décident de rien.
+- **Journal** `forward/<ID>.jsonl` : `CONTROLE` par heure (fenêtres, évaluables, trous, références insuffisantes,
+  déclenchements, événements, rodage), `EVENEMENT` (valeur, seuil, référence, instant connu, entrée, placebos),
+  `RESOLUTION`, `VERDICT`, `CLOTURE`. Passage à chaque heure (orchestration `forward/runner.py`), 72 heures au plus par
+  passage. Rien n'est écrit dans `signals/`, `SignalRegistry` ni `state/assistant*` ; **aucun message Telegram** (ces tests
+  mesurent des événements, ce ne sont pas des appels à suivre) ; carte « Événements de marché (collecteur) » dans l'onglet
+  Suivi, route `GET /evenements` (jeton), section commune du rapport quotidien.
+- **Gel** : modules `forward/<f2x>`, `forward/collecte_events`, `forward/costs`, `forward/registry`, `forward/journal` ;
+  fonctions `backtest.metrics.day_block_ci` et `day_block_ci95` ; **fonctions pures d'agrégation du collecteur** qui
+  fabriquent la grandeur (ci-dessous) ; les **constantes du collecteur** dont elle dépend entrent dans les paramètres.
+  Ne sont **pas** gelés : les adresses des flux et le superviseur du collecteur (`collect/net.py`, constantes `URL`,
+  `collect/service.py`) ; Binance a déjà changé une adresse le 2026-10-10 (« /ws » devenu « /market/ws ») et il faut pouvoir
+  la corriger sans arrêter les tests. Une correction d'adresse laisse un trou, compté, jamais comblé.
+- **Famille « données du collecteur »** : six tests (F25 à F30), intervalle de décision au niveau **1 − 0,05/6** ; un essai
+  FORWARD par test (six de plus au registre) ; avec F1 à F24, 29 tests en direct.
+- **Seuil de décision commun** (rendement à 24 h SEUL, leçon « R net seul » de `PRICE_ACTION.md` § 11 : sous une martingale,
+  l'espérance vaut moins les frais) : `INSUFFISANT` sous **30 événements résolus** ou **50 jours distincts** avec des
+  événements résolus (l'intervalle exige 8 blocs de 7 jours avec événements, comme F19), ou intervalle non calculable ;
+  hypothèse **positive** : `SUPERIEUR_A_ZERO` si l'intervalle 1 − 0,05/6 du rendement **net** moyen est entièrement > 0 en
+  central **ET** en défavorable ; hypothèse **négative** : `INFERIEUR_A_ZERO` si l'intervalle 1 − 0,05/6 du rendement
+  **brut** moyen est entièrement < 0 (le net ferait passer le test par les seuls frais) ; sinon `NON_DEMONTRE`.
+  Intervalle par blocs de 7 jours avec événements (`day_block_ci`, 10 000 tirages, graine 20261011, au moins 8 blocs).
+  `SUPERIEUR_A_ZERO` ne dit pas « mieux qu'une entrée au hasard » : la dérive du marché y entre.
+- **Date d'évaluation** : fin du recueil **84 jours** après le démarrage (revue intermédiaire à 42 jours, descriptive, aucun
+  changement de règle) ; verdict une fois le dernier événement résolu, au plus tard vers 84 + 12 jours (entrée + 7 j + 72 h,
+  puis 2 jours pour constater un trou).
+- **Essai de chronométrage déclaré** (2026-10-10, avant le contrôle sous H0) : 3 répliques par test, 2 000 tirages ;
+  verdicts vus (tous `NON_DEMONTRE`, sauf F29 `INSUFFISANT`) ; générateur non modifié ensuite.
+
+**Métrique.** Rendement moyen à 24 h (brut, net central, net défavorable), intervalle de décision et IC95, part
+positive, jours distincts ; descriptif : 4 h et 72 h, moyenne et excès des placebos, événements par paire, fenêtres
+évaluables, trous, références insuffisantes, déclenchements écartés (rodage, 24 h), `TROU`, en attente.
+
+**Seuil de décision.** Celui des règles communes, hypothèse **positive** : `SUPERIEUR_A_ZERO` (intervalle 1 − 0,05/6 du rendement NET à 24 h > 0 en central ET en défavorable),
+sinon `NON_DEMONTRE` ; `INSUFFISANT` sous 30 événements résolus ou 50 jours distincts.
+
+**Date d'évaluation.** 84 jours après le démarrage (revue intermédiaire à 42 jours) ; verdict une fois le dernier
+événement résolu.
+
+**Nombre d'événements attendu (honnête).** Estimation (comptes seulement, 25,6 h) : gros ordres lus BTC 640, ETH 226, SOL 112, NEAR 36, XRP 26, ADA 21, TRX 17, LINK 6, FIL 4, AVAX 3, ATOM 2, rien pour DOT, HBAR, XLM, ALGO, ETC. Pour les paires où les gros ordres sont rares, le quantile 0,99 vaut 0 et **un seul gros achat** déclenche ; ailleurs, un dépassement du quantile 0,99 sur des fenêtres de 1 h qui se chevauchent donne ≈ 0,2 épisode par jour et par paire ; avec un événement par paire et par 24 h : **≈ 1 à 4 par jour, ≈ 40 à 120 par mois**, la plupart des jours.
+
+**Contrôle sous H0** (`research/collecte_h0.py`, `tests/test_collecte_h0.py`, marqué `slow`, lancé une fois avant le démarrage) : résultats à inscrire ici AVANT le démarrage.
+
+**Limites déclarées.** Le collecteur n'écrit que **3 gros ordres par paire et par minute** avec leur côté : au-delà, ils ne sont comptés que sans côté (solde **minimum**) ; sur les paires peu liquides, le seuil est souvent 0 et l'événement est « un gros achat » ; une transaction agrégée n'est pas forcément un seul acteur. Communes : collecteur sur le PC du propriétaire (coupures, redémarrages :
+trous comptés, jamais comblés) ; 12 semaines ne valident rien ; `INSUFFISANT` est une réponse acceptable.
+
+## F29_PEUR_OPTIONS : peur sur les options BTC (asymétrie 25-delta), achat de BTCUSDT
+
+Demande du 2026-10-10 : tests en direct sur les journaux du collecteur. Étude historique liée, sur le DVOL seulement : `docs/OPTIONS_PEUR.md` (pré-inscrite, non exécutée). Mesure seulement : CSI ne passe aucun ordre, aucun appel n'est envoyé, aucun gain n'est annoncé ni
+démontré. Module `forward/f29.py` (mince) et `forward/collecte_events.py` (commun).
+
+**Hypothèse** (positive). Quand l'**asymétrie 25-delta** (volatilité implicite du put − celle du call, même échéance ~30 jours) des options BTC de Deribit dépasse le quantile 0,95 de ses 30 jours précédents, un achat de **BTCUSDT** à la clôture 15 min suivante rapporte en moyenne un **rendement net > 0 à 24 h** (central et défavorable). Attendu : `INSUFFISANT` ou `NON_DEMONTRE`.
+
+**Règles.** Grandeur : `skew_25d.skew_pts` des relevés `OPTIONS_15M` de BTC (créneau = début du quart d'heure du relevé). Événement si la valeur est **> quantile 0,95** des 2 880 créneaux précédents (30 jours, au moins 2 304 évaluables). **Repli déclaré** : si l'asymétrie du créneau manque ou que sa référence est insuffisante, la même règle sur le **DVOL** du relevé (`dvol.value`, quantile 0,95 de 30 jours) ; la mesure utilisée est inscrite à l'événement (`ASYMETRIE_25D` ou `DVOL_REPLI`). Délai : 10 min après le créneau (entrée à la clôture du quart d'heure suivant).
+
+**Univers.** BTCUSDT seul (s'il est admis par la liste halal figée du test).
+
+**Source et gel propres au test.** `C_OPTIONS` (`OPTIONS_15M`) ; gel : `collect/options.summarize`, `bs_delta`, `_norm_cdf`, `parse_instrument` ; paramètres : `TARGET_DAYS` (30), `DELTA_TARGET` (0,25), `EVERY`, `OFFSET`. La lecture du DVOL dans `options.snapshot` (appel réseau) n'est **pas** gelée : déclaré.
+
+**Paramètres** (figés dans le code, `forward/collecte_events.SPECS["F29_PEUR_OPTIONS"]`, énumérés dans `TEST.params`) :
+
+| Paramètre figé | Valeur |
+|---|---|
+| Pas de la grille | 15 min |
+| Grandeur | asymétrie 25-delta BTC (repli : DVOL) |
+| Référence | 30 jours (2 880 créneaux, ≥ 2 304) |
+| Seuil | > quantile 0,95 |
+| Délai de connaissance | 10 min |
+| Paire mesurée | BTCUSDT |
+| Rodage | 7 jours sans décision |
+| Un événement | par paire et par 24 h au plus |
+| Entrée | 1re clôture 15 min Binance Spot après l'instant connu |
+| Horizon de décision | 24 h (4 h et 72 h descriptifs) |
+| Intervalle de décision | 1 − 0,05/6, blocs de 7 jours avec événements, 10 000 tirages, graine 20261011 |
+| Minimum pour conclure | 30 événements résolus et 50 jours distincts |
+
+**Règles communes à F25 … F30** (répétées dans chaque section : l'empreinte d'un test ne couvre que le « Cadre commun » et
+sa propre section ; code commun `forward/collecte_events.py`).
+- **Données** : journaux du collecteur `C_<SOURCE>-AAAA-MM.jsonl` (`docs/COLLECTE.md`), lus en **lecture seule** par
+  `collecte_events.read_entries` jusqu'à l'instant du passage ; aucune écriture, aucun appel au collecteur. Une entrée
+  n'est retenue que si elle a été écrite au plus tard **2 min** après la fin de sa minute (`LIQ_MINUTE`, `FLUX_MINUTE`,
+  `FLUX_GROS`), **5 min** après la fin de son heure (`CARNET_RESUME`) ou **10 min** après son créneau (`OPTIONS_15M`,
+  `ATTENTION_TRENDING_H`). Cette règle porte sur chaque entrée, pas sur l'heure du passage : un passage en retard (surveillance
+  arrêtée) trouve exactement les mêmes événements (vérifié par un test).
+- **Trous du collecteur** : une fenêtre est **non évaluable** (aucun événement possible, comptée au journal) si elle touche
+  **10 minutes consécutives sans entrée de minute** (source muette `MUET`, service arrêté, flux coupé : la suite est
+  comptée de son début jusqu'à la minute considérée, jamais au-delà de la fin de fenêtre), si le résumé horaire du carnet
+  manque, est tardif ou compte moins de **50/60** du nombre d'échantillons d'une heure pleine de la paire (le plus grand
+  des 24 heures précédentes, 720 à défaut : plus de 10 minutes sans carnet), ou si le relevé du créneau manque. L'état
+  `C_ETAT.json` n'est pas lu (il ne garde que le présent) : les trous se lisent dans les journaux eux-mêmes.
+- **Seuil auto-calibré de façon causale** : quantile (interpolation linéaire) ou médiane des valeurs de la même grandeur,
+  même paire, sur les fenêtres **strictement antérieures** de la référence, avec au moins **80 %** de fenêtres évaluables
+  (sinon « référence insuffisante », comptée). La référence peut contenir des journaux d'avant le démarrage : ils sont
+  passés, personne n'y a regardé de rendement.
+- **Rodage** : aucune décision pour les fenêtres finies avant **démarrage + 7 jours** (contrôles inscrits quand même).
+- **Un événement au plus par paire et par 24 h** : un déclenchement compte s'il finit au moins 24 h après le précédent
+  événement RETENU de la paire (une vague n'est comptée qu'une fois).
+- **Entrée** (pas de regard en avant) : l'événement est connu à la fin de sa fenêtre plus le délai ci-dessus ; l'entrée est
+  la **première clôture 15 min Binance Spot strictement après** cet instant. Ex. : fenêtre finie à 10:15, connue à 10:17,
+  entrée à la clôture de 10:30.
+- **Mesure** : rendement de la paire entre la clôture d'entrée et la clôture **24 h** plus tard (horizon de décision) ;
+  4 h et 72 h en descriptif. Brut, et net des frais taker aller-retour de `forward/costs` (0,075 % par ordre plus 0,02 %
+  d'écart et de glissement par côté pour BTC et ETH, 0,05 % pour les autres ; défavorable : 0,10 % et écart doublé).
+- **Prix** : bougies **15 min** publiques de Binance Spot, `GET /api/v3/klines` par `data/http.py` (liste blanche
+  inchangée : les bougies y sont déjà), une demande par événement (961 bougies au plus), une fois **entrée + 7 j + 72 h +
+  30 min** passée ; les clôtures utilisées et leur empreinte sont inscrites à la RESOLUTION. Choix le plus sûr : le magasin
+  1 h de F15 ne donne pas les clôtures 15 min ; aucune dépendance au magasin (`runner.STORE_READERS` inchangé).
+  Rendement à 24 h de l'événement toujours introuvable 2 jours plus tard : `TROU` (hors mesure, compté).
+- **Placebos, descriptifs seulement** : 20 entrées de la même paire à des clôtures 15 min tirées sans remise dans
+  [entrée + 1 h ; entrée + 7 j] (**placebos « avant » seulement**, leçon de `PRICE_ACTION.md` § 5.5 et § 11.3), graine
+  `sha256("<F2x>:" + identifiant de l'événement)` ; moyenne et excès rapportés, ils ne décident de rien.
+- **Journal** `forward/<ID>.jsonl` : `CONTROLE` par heure (fenêtres, évaluables, trous, références insuffisantes,
+  déclenchements, événements, rodage), `EVENEMENT` (valeur, seuil, référence, instant connu, entrée, placebos),
+  `RESOLUTION`, `VERDICT`, `CLOTURE`. Passage à chaque heure (orchestration `forward/runner.py`), 72 heures au plus par
+  passage. Rien n'est écrit dans `signals/`, `SignalRegistry` ni `state/assistant*` ; **aucun message Telegram** (ces tests
+  mesurent des événements, ce ne sont pas des appels à suivre) ; carte « Événements de marché (collecteur) » dans l'onglet
+  Suivi, route `GET /evenements` (jeton), section commune du rapport quotidien.
+- **Gel** : modules `forward/<f2x>`, `forward/collecte_events`, `forward/costs`, `forward/registry`, `forward/journal` ;
+  fonctions `backtest.metrics.day_block_ci` et `day_block_ci95` ; **fonctions pures d'agrégation du collecteur** qui
+  fabriquent la grandeur (ci-dessous) ; les **constantes du collecteur** dont elle dépend entrent dans les paramètres.
+  Ne sont **pas** gelés : les adresses des flux et le superviseur du collecteur (`collect/net.py`, constantes `URL`,
+  `collect/service.py`) ; Binance a déjà changé une adresse le 2026-10-10 (« /ws » devenu « /market/ws ») et il faut pouvoir
+  la corriger sans arrêter les tests. Une correction d'adresse laisse un trou, compté, jamais comblé.
+- **Famille « données du collecteur »** : six tests (F25 à F30), intervalle de décision au niveau **1 − 0,05/6** ; un essai
+  FORWARD par test (six de plus au registre) ; avec F1 à F24, 29 tests en direct.
+- **Seuil de décision commun** (rendement à 24 h SEUL, leçon « R net seul » de `PRICE_ACTION.md` § 11 : sous une martingale,
+  l'espérance vaut moins les frais) : `INSUFFISANT` sous **30 événements résolus** ou **50 jours distincts** avec des
+  événements résolus (l'intervalle exige 8 blocs de 7 jours avec événements, comme F19), ou intervalle non calculable ;
+  hypothèse **positive** : `SUPERIEUR_A_ZERO` si l'intervalle 1 − 0,05/6 du rendement **net** moyen est entièrement > 0 en
+  central **ET** en défavorable ; hypothèse **négative** : `INFERIEUR_A_ZERO` si l'intervalle 1 − 0,05/6 du rendement
+  **brut** moyen est entièrement < 0 (le net ferait passer le test par les seuls frais) ; sinon `NON_DEMONTRE`.
+  Intervalle par blocs de 7 jours avec événements (`day_block_ci`, 10 000 tirages, graine 20261011, au moins 8 blocs).
+  `SUPERIEUR_A_ZERO` ne dit pas « mieux qu'une entrée au hasard » : la dérive du marché y entre.
+- **Date d'évaluation** : fin du recueil **84 jours** après le démarrage (revue intermédiaire à 42 jours, descriptive, aucun
+  changement de règle) ; verdict une fois le dernier événement résolu, au plus tard vers 84 + 12 jours (entrée + 7 j + 72 h,
+  puis 2 jours pour constater un trou).
+- **Essai de chronométrage déclaré** (2026-10-10, avant le contrôle sous H0) : 3 répliques par test, 2 000 tirages ;
+  verdicts vus (tous `NON_DEMONTRE`, sauf F29 `INSUFFISANT`) ; générateur non modifié ensuite.
+
+**Métrique.** Rendement moyen à 24 h (brut, net central, net défavorable), intervalle de décision et IC95, part
+positive, jours distincts ; descriptif : 4 h et 72 h, moyenne et excès des placebos, événements par paire, fenêtres
+évaluables, trous, références insuffisantes, déclenchements écartés (rodage, 24 h), `TROU`, en attente.
+
+**Seuil de décision.** Celui des règles communes, hypothèse **positive** : `SUPERIEUR_A_ZERO` (intervalle 1 − 0,05/6 du rendement NET à 24 h > 0 en central ET en défavorable),
+sinon `NON_DEMONTRE` ; `INSUFFISANT` sous 30 événements résolus ou 50 jours distincts.
+
+**Date d'évaluation.** 84 jours après le démarrage (revue intermédiaire à 42 jours) ; verdict une fois le dernier
+événement résolu.
+
+**Nombre d'événements attendu (honnête).** Estimation (comptes seulement, 102 relevés) : asymétrie présente à chaque relevé, de 1,86 à 3,15 points (médiane 2,44), **autocorrélation à 15 min 0,62** seulement (le delta est approché : la série est bruitée) : le quantile 0,95 serait dépassé presque chaque jour, et avec un événement par 24 h au plus, **≈ 20 à 30 par mois**. Mais la référence de 30 jours exige 2 304 créneaux évaluables : les journaux d'options commencent le 2026-10-09 19:00 UTC, donc **pas d'événement avant ≈ 2026-11-02** ; il reste ≈ 55 à 60 jours de recueil. Il faut **50 jours distincts** : **`INSUFFISANT` est probable** (au mieux de justesse).
+
+**Contrôle sous H0** (`research/collecte_h0.py`, `tests/test_collecte_h0.py`, marqué `slow`, lancé une fois avant le démarrage) : résultats à inscrire ici AVANT le démarrage.
+
+**Limites déclarées.** Une seule bourse d'options (Deribit), delta **approché** par Black-Scholes (taux 0) : l'asymétrie est bruitée ; BTC seul ; la volatilité implicite haute va avec les baisses récentes (pas de regard en avant : connue au relevé) ; peu d'événements. Communes : collecteur sur le PC du propriétaire (coupures, redémarrages :
+trous comptés, jamais comblés) ; 12 semaines ne valident rien ; `INSUFFISANT` est une réponse acceptable.
+
+## F30_TRENDING : entrée dans les « trending » de CoinGecko (hypothèse négative, veto)
+
+Demande du 2026-10-10 : tests en direct sur les journaux du collecteur. **Hypothèse négative.** Mesure seulement : CSI ne passe aucun ordre, aucun appel n'est envoyé, aucun gain n'est annoncé ni
+démontré. Module `forward/f30.py` (mince) et `forward/collecte_events.py` (commun).
+
+**Hypothèse** (négative). Quand une paire de l'univers **entre** dans les pièces « trending » de CoinGecko (présente au relevé d'une heure, absente du relevé de l'heure précédente), le **rendement brut à 24 h** d'un achat à la clôture 15 min suivante est en moyenne **< 0** (euphorie : on arrive tard). S'il l'était, ce serait un veto. Attendu : `NON_DEMONTRE`.
+
+**Règles.** Grandeur : présence du symbole CoinGecko + « USDT » dans `coins` (`ATTENTION_TRENDING_H`, 15 pièces au plus). Événement à l'heure h si la paire est présente à h et absente à h − 1, **les deux relevés existant** (sinon non évaluable). Délai : 10 min après l'heure du relevé (relevé à hh:02, entrée à la clôture de hh:15).
+
+**Univers.** Paires de la liste halal **figée au DEMARRAGE de F15** (166 paires). Le rapprochement se fait par le **symbole** : deux jetons différents peuvent partager un symbole (risque déclaré, rare parmi les paires cotées sur Binance).
+
+**Source et gel propres au test.** `C_ATTENTION` (`ATTENTION_TRENDING_H`) ; gel : `collect/attention.parse_trending` ; paramètre : `MAX_TRENDING` (15).
+
+**Paramètres** (figés dans le code, `forward/collecte_events.SPECS["F30_TRENDING"]`, énumérés dans `TEST.params`) :
+
+| Paramètre figé | Valeur |
+|---|---|
+| Pas de la grille | 1 h |
+| Grandeur | présence dans les trending CoinGecko |
+| Événement | présente à h, absente à h − 1 |
+| Délai de connaissance | 10 min |
+| Décision | rendement BRUT à 24 h < 0 |
+| Univers | liste halal figée de F15 |
+| Rodage | 7 jours sans décision |
+| Un événement | par paire et par 24 h au plus |
+| Entrée | 1re clôture 15 min Binance Spot après l'instant connu |
+| Horizon de décision | 24 h (4 h et 72 h descriptifs) |
+| Intervalle de décision | 1 − 0,05/6, blocs de 7 jours avec événements, 10 000 tirages, graine 20261011 |
+| Minimum pour conclure | 30 événements résolus et 50 jours distincts |
+
+**Règles communes à F25 … F30** (répétées dans chaque section : l'empreinte d'un test ne couvre que le « Cadre commun » et
+sa propre section ; code commun `forward/collecte_events.py`).
+- **Données** : journaux du collecteur `C_<SOURCE>-AAAA-MM.jsonl` (`docs/COLLECTE.md`), lus en **lecture seule** par
+  `collecte_events.read_entries` jusqu'à l'instant du passage ; aucune écriture, aucun appel au collecteur. Une entrée
+  n'est retenue que si elle a été écrite au plus tard **2 min** après la fin de sa minute (`LIQ_MINUTE`, `FLUX_MINUTE`,
+  `FLUX_GROS`), **5 min** après la fin de son heure (`CARNET_RESUME`) ou **10 min** après son créneau (`OPTIONS_15M`,
+  `ATTENTION_TRENDING_H`). Cette règle porte sur chaque entrée, pas sur l'heure du passage : un passage en retard (surveillance
+  arrêtée) trouve exactement les mêmes événements (vérifié par un test).
+- **Trous du collecteur** : une fenêtre est **non évaluable** (aucun événement possible, comptée au journal) si elle touche
+  **10 minutes consécutives sans entrée de minute** (source muette `MUET`, service arrêté, flux coupé : la suite est
+  comptée de son début jusqu'à la minute considérée, jamais au-delà de la fin de fenêtre), si le résumé horaire du carnet
+  manque, est tardif ou compte moins de **50/60** du nombre d'échantillons d'une heure pleine de la paire (le plus grand
+  des 24 heures précédentes, 720 à défaut : plus de 10 minutes sans carnet), ou si le relevé du créneau manque. L'état
+  `C_ETAT.json` n'est pas lu (il ne garde que le présent) : les trous se lisent dans les journaux eux-mêmes.
+- **Seuil auto-calibré de façon causale** : quantile (interpolation linéaire) ou médiane des valeurs de la même grandeur,
+  même paire, sur les fenêtres **strictement antérieures** de la référence, avec au moins **80 %** de fenêtres évaluables
+  (sinon « référence insuffisante », comptée). La référence peut contenir des journaux d'avant le démarrage : ils sont
+  passés, personne n'y a regardé de rendement.
+- **Rodage** : aucune décision pour les fenêtres finies avant **démarrage + 7 jours** (contrôles inscrits quand même).
+- **Un événement au plus par paire et par 24 h** : un déclenchement compte s'il finit au moins 24 h après le précédent
+  événement RETENU de la paire (une vague n'est comptée qu'une fois).
+- **Entrée** (pas de regard en avant) : l'événement est connu à la fin de sa fenêtre plus le délai ci-dessus ; l'entrée est
+  la **première clôture 15 min Binance Spot strictement après** cet instant. Ex. : fenêtre finie à 10:15, connue à 10:17,
+  entrée à la clôture de 10:30.
+- **Mesure** : rendement de la paire entre la clôture d'entrée et la clôture **24 h** plus tard (horizon de décision) ;
+  4 h et 72 h en descriptif. Brut, et net des frais taker aller-retour de `forward/costs` (0,075 % par ordre plus 0,02 %
+  d'écart et de glissement par côté pour BTC et ETH, 0,05 % pour les autres ; défavorable : 0,10 % et écart doublé).
+- **Prix** : bougies **15 min** publiques de Binance Spot, `GET /api/v3/klines` par `data/http.py` (liste blanche
+  inchangée : les bougies y sont déjà), une demande par événement (961 bougies au plus), une fois **entrée + 7 j + 72 h +
+  30 min** passée ; les clôtures utilisées et leur empreinte sont inscrites à la RESOLUTION. Choix le plus sûr : le magasin
+  1 h de F15 ne donne pas les clôtures 15 min ; aucune dépendance au magasin (`runner.STORE_READERS` inchangé).
+  Rendement à 24 h de l'événement toujours introuvable 2 jours plus tard : `TROU` (hors mesure, compté).
+- **Placebos, descriptifs seulement** : 20 entrées de la même paire à des clôtures 15 min tirées sans remise dans
+  [entrée + 1 h ; entrée + 7 j] (**placebos « avant » seulement**, leçon de `PRICE_ACTION.md` § 5.5 et § 11.3), graine
+  `sha256("<F2x>:" + identifiant de l'événement)` ; moyenne et excès rapportés, ils ne décident de rien.
+- **Journal** `forward/<ID>.jsonl` : `CONTROLE` par heure (fenêtres, évaluables, trous, références insuffisantes,
+  déclenchements, événements, rodage), `EVENEMENT` (valeur, seuil, référence, instant connu, entrée, placebos),
+  `RESOLUTION`, `VERDICT`, `CLOTURE`. Passage à chaque heure (orchestration `forward/runner.py`), 72 heures au plus par
+  passage. Rien n'est écrit dans `signals/`, `SignalRegistry` ni `state/assistant*` ; **aucun message Telegram** (ces tests
+  mesurent des événements, ce ne sont pas des appels à suivre) ; carte « Événements de marché (collecteur) » dans l'onglet
+  Suivi, route `GET /evenements` (jeton), section commune du rapport quotidien.
+- **Gel** : modules `forward/<f2x>`, `forward/collecte_events`, `forward/costs`, `forward/registry`, `forward/journal` ;
+  fonctions `backtest.metrics.day_block_ci` et `day_block_ci95` ; **fonctions pures d'agrégation du collecteur** qui
+  fabriquent la grandeur (ci-dessous) ; les **constantes du collecteur** dont elle dépend entrent dans les paramètres.
+  Ne sont **pas** gelés : les adresses des flux et le superviseur du collecteur (`collect/net.py`, constantes `URL`,
+  `collect/service.py`) ; Binance a déjà changé une adresse le 2026-10-10 (« /ws » devenu « /market/ws ») et il faut pouvoir
+  la corriger sans arrêter les tests. Une correction d'adresse laisse un trou, compté, jamais comblé.
+- **Famille « données du collecteur »** : six tests (F25 à F30), intervalle de décision au niveau **1 − 0,05/6** ; un essai
+  FORWARD par test (six de plus au registre) ; avec F1 à F24, 29 tests en direct.
+- **Seuil de décision commun** (rendement à 24 h SEUL, leçon « R net seul » de `PRICE_ACTION.md` § 11 : sous une martingale,
+  l'espérance vaut moins les frais) : `INSUFFISANT` sous **30 événements résolus** ou **50 jours distincts** avec des
+  événements résolus (l'intervalle exige 8 blocs de 7 jours avec événements, comme F19), ou intervalle non calculable ;
+  hypothèse **positive** : `SUPERIEUR_A_ZERO` si l'intervalle 1 − 0,05/6 du rendement **net** moyen est entièrement > 0 en
+  central **ET** en défavorable ; hypothèse **négative** : `INFERIEUR_A_ZERO` si l'intervalle 1 − 0,05/6 du rendement
+  **brut** moyen est entièrement < 0 (le net ferait passer le test par les seuls frais) ; sinon `NON_DEMONTRE`.
+  Intervalle par blocs de 7 jours avec événements (`day_block_ci`, 10 000 tirages, graine 20261011, au moins 8 blocs).
+  `SUPERIEUR_A_ZERO` ne dit pas « mieux qu'une entrée au hasard » : la dérive du marché y entre.
+- **Date d'évaluation** : fin du recueil **84 jours** après le démarrage (revue intermédiaire à 42 jours, descriptive, aucun
+  changement de règle) ; verdict une fois le dernier événement résolu, au plus tard vers 84 + 12 jours (entrée + 7 j + 72 h,
+  puis 2 jours pour constater un trou).
+- **Essai de chronométrage déclaré** (2026-10-10, avant le contrôle sous H0) : 3 répliques par test, 2 000 tirages ;
+  verdicts vus (tous `NON_DEMONTRE`, sauf F29 `INSUFFISANT`) ; générateur non modifié ensuite.
+
+**Métrique.** Rendement moyen à 24 h (brut, net central, net défavorable), intervalle de décision et IC95, part
+positive, jours distincts ; descriptif : 4 h et 72 h, moyenne et excès des placebos, événements par paire, fenêtres
+évaluables, trous, références insuffisantes, déclenchements écartés (rodage, 24 h), `TROU`, en attente.
+
+**Seuil de décision.** Celui des règles communes, hypothèse **négative** : `INFERIEUR_A_ZERO` (intervalle 1 − 0,05/6 du rendement BRUT à 24 h < 0),
+sinon `NON_DEMONTRE` ; `INSUFFISANT` sous 30 événements résolus ou 50 jours distincts.
+
+**Date d'évaluation.** 84 jours après le démarrage (revue intermédiaire à 42 jours) ; verdict une fois le dernier
+événement résolu.
+
+**Nombre d'événements attendu (honnête).** Mesuré (comptes seulement, 24 h de relevés) : **65 entrées** de paires de F15, **24 après la règle « une par paire et par 24 h »** (24 paires distinctes) : **≈ 500 à 700 par mois**, tous les jours. C'est le test le plus fourni de la famille.
+
+**Contrôle sous H0** (`research/collecte_h0.py`, `tests/test_collecte_h0.py`, marqué `slow`, lancé une fois avant le démarrage) : résultats à inscrire ici AVANT le démarrage.
+
+**Limites déclarées.** Liste « trending » d'un seul site, sans clé, opaque (recherches sur CoinGecko) ; rapprochement par symbole ; événements très corrélés entre eux (mêmes heures de marché) ; un relevé horaire manqué rend deux heures non évaluables. Communes : collecteur sur le PC du propriétaire (coupures, redémarrages :
+trous comptés, jamais comblés) ; 12 semaines ne valident rien ; `INSUFFISANT` est une réponse acceptable.
+
 ## LECTURE_TP_MAHWASHI : vendre surtout aux TP lointains sur AL-MAHWASHI (lecture déclarée le 2026-10-04)
 
 **Origine.** Analyse du 2026-10-04 du fichier `BotHistory.json` (robot d'un ami du propriétaire, 6-30 septembre 2026,

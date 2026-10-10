@@ -58,6 +58,10 @@ demande de clé Binance. Pages : `/` (application : analyser une paire, évaluer
     GET  /collecte             état du collecteur en shadow (docs/COLLECTE.md) : `state/C_ETAT.json` (dernier message
                                et dernière entrée par source, compteurs, erreurs) et taille des journaux du mois ;
                                information seulement, aucune influence sur les tests, les avis ou BSM
+    GET  /evenements           tests en direct F25 à F30 (événements de marché lus dans les journaux du collecteur,
+                               docs/FORWARD_TESTS.md) : état, rodage, fenêtres évaluables et trous, nombre
+                               d'événements, derniers événements, verdict inscrit ou EN_COURS ; lecture seule des
+                               journaux F25 à F30 ; mesure seulement, aucun appel à suivre, aucun ordre
 
 Sécurité :
 - écoute sur 127.0.0.1 par défaut ; dans Docker, le port n'est publié que sur 127.0.0.1 de l'hôte ;
@@ -481,6 +485,13 @@ class CsiApi:
         now = self.now()
         state["journal_bytes_month"] = {s: month_bytes(self.settings, s, now) for s in SOURCES}
         return state
+
+    def evenements(self) -> dict:
+        """Tests en direct F25 à F30 (forward/collecte_events.py) : une ligne par test, lecture seule de leurs journaux."""
+        from ..forward import collecte_events as C
+        now = self.now()
+        return {"tests": [C.summary(C.SPECS[t], self.settings, now=now) for t in C.TEST_IDS], "note": C.NOTE,
+                "places_orders": False}
 
     def plans_live(self) -> dict:
         """Suivi EN DIRECT des plans indicatifs : bilan par horizon et état au moment de l'enregistrement."""
@@ -1188,7 +1199,7 @@ class CsiApi:
                 "/liquidity": lambda: self.liquidity(query.get("size", ["500"])[0], query.get("limit", ["20"])[0]),
                 "/assistant": self.assistant, "/assistant/outbox": self.assistant_outbox,
                 "/price-action": self.price_action,
-                "/collecte": self.collecte,
+                "/collecte": self.collecte, "/evenements": self.evenements,
                 "/images/pending": self.images_pending, "/sources/exports": self.sources_exports,
                 "/sources/exports/audit": lambda: self.sources_exports_result(query.get("folder", [""])[0]),
             }

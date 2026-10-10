@@ -106,10 +106,44 @@ def _singles_section(items: list[dict]) -> list[str]:
     return lines
 
 
+COLLECT_IDS = ("F25_LIQ_CASCADE", "F26_MUR_ACHETEURS", "F27_RETRAIT_LIQUIDITE", "F28_BALEINES", "F29_PEUR_OPTIONS",
+               "F30_TRENDING")
+
+
+def _collect_section(items: list[dict]) -> list[str]:
+    """Une seule section pour F25 à F30 (événements de marché lus dans les journaux du collecteur) : une ligne par test."""
+    lines = ["## F25 à F30 : événements de marché lus dans les journaux du collecteur", "",
+             "| Test | État | Journal | Hypothèse | Rodage jusqu'au | Fenêtres évaluables / trous | Événements | Résolus | "
+             "Trous | En attente | Rendement 24 h (central) | Intervalle de décision | Brut 24 h | Verdict |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    for item in items:
+        journal = "intègre" if item["journal"]["ok"] else "ROMPU"
+        stats = item.get("stats")
+        if not stats or not stats.get("collecte_events"):
+            lines.append(f"| {item['test_id']} | {item['state']} | {journal} | — | — | — | — | — | — | — | — | — | — | — |")
+            continue
+        c = stats["measures"].get("central", {}).get("24h", {})
+        g = stats["measures"].get("brut", {}).get("24h", {})
+        lines.append(f"| {item['test_id']} | {item['state']} | {journal} | {stats['hypothesis']} | {stats['rodage_until'][:10]} | "
+                     f"{stats['evaluable']} / {stats['trou']} | {stats['events']} | {stats['resolved']} | {stats['gaps']} | "
+                     f"{stats['pending']} | {_fmt(c.get('mean'), True)} | {c.get('ci_decision') or '—'} | {_fmt(g.get('mean'), True)} | "
+                     f"{stats['verdict']} |")
+    lines += ["", "Mesure seulement : aucun appel à suivre, aucun message, aucun ordre ; aucun gain démontré. Verdict au "
+              "rendement à 24 h seul (net en central et défavorable pour F25, F26, F28, F29 ; brut pour F27 et F30, "
+              "hypothèses négatives), intervalle 1 − 0,05/6, `INSUFFISANT` sous 30 événements résolus ou 50 jours "
+              "distincts ; placebos descriptifs.", ""]
+    return lines
+
+
 def markdown(report: dict) -> str:
     lines = [f"# Tests en direct : rapport du {report['generated_at'][:10]}", "", f"> {report['warning']}", ""]
     singles = [item for item in report["tests"] if item["test_id"] in SINGLE_IDS]
+    collected = [item for item in report["tests"] if item["test_id"] in COLLECT_IDS]
     for item in report["tests"]:
+        if item["test_id"] in COLLECT_IDS:                    # F25 à F30 : une section pour les six
+            if item is collected[0]:
+                lines += _collect_section(collected)
+            continue
         if item["test_id"] in SINGLE_IDS:                     # F20 à F24 : une section pour les cinq
             if item is singles[0]:
                 lines += _singles_section(singles)

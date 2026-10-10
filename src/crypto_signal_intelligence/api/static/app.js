@@ -1243,6 +1243,14 @@ function forwardCard(report) {
     const main = (h["24h"] || {}).observe || {};
     const sc = ((t.stats || {}).scenarios || {}).central;
     const st = t.stats || {};
+    if (st.collecte_events) {
+      const m = ((st.measures || {}).central || {})["24h"] || {};
+      rows.push([t.test_id, t.state, t.started_at ? when(t.started_at) : "–", t.final_at ? when(t.final_at) : "–",
+        t.journal && t.journal.ok ? `intègre (${t.journal.entries})` : { node: el("span", { class: "bad", text: "ROMPU" }) },
+        `${st.events} événement(s), ${st.resolved} résolu(s), ${st.pending} en attente ; rendement net 24 h ${isNum(m.mean) ? fmt(m.mean * 100, 2, true) + " %" : "–"} (${m.n || 0})`,
+        st.verdict || "–"]);
+      continue;
+    }
     const onchain = st.mints !== undefined ? st : null;
     const providers = st.providers ? st.providers : null;
     const followA = st.light_share ? st : null;
@@ -1284,11 +1292,11 @@ async function loadFollow(force = false) {
   if (state.followLoaded && !force) return;
   busy(target, "Chargement…");
   try {
-    const [health, models, recent, sources, generated, universe, admissions, history, plans, forward, relay, liquidity, collecte] = await Promise.all([
+    const [health, models, recent, sources, generated, universe, admissions, history, plans, forward, relay, liquidity, collecte, evenements] = await Promise.all([
       api("/health"), api("/models"), api("/signals/recent?limit=15"), api("/sources"), api(`/signals/generated?limit=${GENERATED_PAGE}`), api("/universe"),
       refreshAdmissions(), api("/sources/history"), api("/plans/live"), api("/forward").catch(() => null),
       api("/telegram/relay").catch(() => null), api(`/liquidity?size=${LIQUIDITY_SIZE}&limit=15`).catch(() => null),
-      api("/collecte").catch(() => null),
+      api("/collecte").catch(() => null), api("/evenements").catch(() => null),
     ]);
     state.followLoaded = true;
     state.models = models;
@@ -1321,6 +1329,7 @@ async function loadFollow(force = false) {
       relayCard(relay),
       liquidityCard(liquidity),
       collecteCard(collecte),
+      evenementsCard(evenements),
       forwardCard(forward),
       card("Signaux évalués récemment", table(["Reçu", "Source", "Paire", "Entrée · stop · TP1", "Avis", "Issue", "R"],
         (recent.signals || []).map((x) => [when(x.received_at), x.source, pair(x.symbol), `${price(x.entry)} · ${price(x.stop)} · ${price(x.tp1)}`,
@@ -1420,6 +1429,26 @@ function collecteCard(c) {
       : null,
     table(["Source", "État", "Dernier message", "Dernière entrée", { label: "Entrées", num: true }, { label: "Journal du mois", num: true }, { label: "Erreurs", num: true }],
       rows, "aucune source"));
+}
+
+// Tests en direct F25 à F30 : événements de marché lus dans les journaux du collecteur (mesure seulement).
+const EVENT_KINDS = { LIQ_CASCADE: "Cascade de liquidations (longs)", MUR_ACHETEURS: "Mur d'acheteurs (carnet ±1 %)",
+  RETRAIT_LIQUIDITE: "Retrait de liquidité acheteuse (veto)", BALEINES: "Baleines (gros ordres au marché)",
+  PEUR_OPTIONS: "Peur sur les options BTC", TRENDING: "Entrée dans les « trending » (veto)" };
+
+function evenementsCard(data) {
+  if (!data) return card("Événements de marché (collecteur)", el("p", { class: "muted", text: "indisponible" }));
+  const rows = (data.tests || []).map((t) => {
+    const started = t.state !== "NON_DEMARRE";
+    const rodage = !started ? "–" : (t.in_rodage ? `en rodage jusqu'au ${when(t.rodage_until)}` : `fini le ${when(t.rodage_until)}`);
+    const last = (t.last_events || []).map((e) => `${pair(e.symbol)} ${when(e.window_end)}`).join(" · ") || "–";
+    return [t.test_id, EVENT_KINDS[t.kind] || t.kind, t.state, rodage,
+      started ? `${t.evaluable || 0} / ${t.trou || 0}` : "–", started ? `${t.events || 0}` + (isNum(t.events_per_month) ? ` (${fmt(t.events_per_month, 1)}/mois)` : "") : "–",
+      started ? `${t.resolved || 0} résolu(s), ${t.pending || 0} en attente` : "–", last, t.verdict || "–"];
+  });
+  return card("Événements de marché (collecteur)",
+    el("p", { class: "muted small", text: `${data.note} Rodage de 7 jours sans décision ; un événement au plus par paire et par 24 h ; fenêtres touchées par un trou du collecteur non évaluables.` }),
+    table(["Test", "Événement", "État", "Rodage", "Fenêtres évaluables / trous", "Événements", "Mesure", "Derniers événements", "Verdict"], rows, "aucun test"));
 }
 
 function groupsCard(history) {
