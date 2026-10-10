@@ -1416,7 +1416,7 @@ function collecteCard(c) {
     el("p", { class: "muted small", text: `${c.note} Journaux C_<SOURCE>-${c.month || "AAAA-MM"}.jsonl en ajout seul.` }),
     el("p", { class: stale ? "warn" : "muted small", text: (stale ? "État figé : " : "") + `état écrit ${when(c.written_at)} ; démarré ${when(c.started_at)}.` }),
     Object.values(c.sources || {}).some((s) => s.status === "MUET")
-      ? el("p", { class: "warn", text: "Une source est MUETTE : connectée mais aucune donnée en 5 min. Les flux de produits dérivés de Binance sont bloqués depuis ce réseau (constaté le 2026-10-09) ; réessai toutes les heures, à vérifier sur le VPS. Ni panne ni donnée : le journal reste vide." })
+      ? el("p", { class: "warn", text: "Une source est MUETTE : connectée mais aucune donnée en 5 min. Le plus probable : Binance a changé l'adresse du flux (déjà arrivé le 2026-10-10, « /ws » devenu « /market/ws »). Réessai toutes les heures ; ni panne ni donnée : le journal reste vide." })
       : null,
     table(["Source", "État", "Dernier message", "Dernière entrée", { label: "Entrées", num: true }, { label: "Journal du mois", num: true }, { label: "Erreurs", num: true }],
       rows, "aucune source"));

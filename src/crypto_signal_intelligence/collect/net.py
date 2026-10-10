@@ -6,7 +6,7 @@ aucune route vers un endpoint privé, un compte ou un ordre ; aucun en-tête d'a
 
 Adresses autorisées (préfixes exacts, schéma compris) :
 - wss://stream.binance.com:9443/      flux publics Spot (carnet, transactions agrégées) ;
-- wss://fstream.binance.com/          flux publics du marché à terme (liquidations) ;
+- wss://fstream.binance.com/          flux publics du marché à terme (liquidations, chemin `/market/ws/`) ;
 - https://www.deribit.com/api/v2/public/   API publique de Deribit (options, DVOL, indice) ;
 - https://wikimedia.org/api/rest_v1/metrics/pageviews/   pages vues de Wikipédia (API REST publique) ;
 - https://api.coingecko.com/api/v3/search/trending       pièces « trending » de CoinGecko (sans clé ; rien d'autre).

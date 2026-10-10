@@ -87,8 +87,8 @@ async def supervise(name: str, ctx: Context, runner: Callable, *, max_runs: int 
             source = ctx.state.sources[name]
             source["silences"] = source.get("silences", 0) + 1
             ctx.state.touch(name, status=MUTE, last_silence_at=utc_iso(ctx.clock()), next_retry_s=SILENCE_RETRY_SECONDS,
-                            detail=f"{exc} : flux dérivés probablement bloqués depuis ce réseau (à vérifier sur le VPS) ; "
-                                   f"réessai toutes les heures")
+                            detail=f"{exc} : adresse du flux peut-être changée par Binance (déjà arrivé le 2026-10-10 : « /ws » → "
+                                   f"« /market/ws ») ; réessai toutes les heures")
             ctx.state.write(force=True)
             await ctx.pause(SILENCE_RETRY_SECONDS)
             continue

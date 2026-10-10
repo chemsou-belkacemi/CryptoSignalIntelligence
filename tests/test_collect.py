@@ -86,7 +86,7 @@ def context(settings, clock: FakeClock, *, stream=None, http=None, sleep=None) -
 
 # --- liste fermée d'adresses ------------------------------------------------------------------------------------
 @pytest.mark.parametrize("url", [
-    "wss://fstream.binance.com/ws/!forceOrder@arr",
+    "wss://fstream.binance.com/market/ws/!forceOrder@arr",
     "wss://stream.binance.com:9443/stream?streams=btcusdt@depth20@1000ms/ethusdt@aggTrade",
     "https://www.deribit.com/api/v2/public/get_index_price",
     "https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia/all-access/user/Bitcoin/daily/20261008/20261008",
@@ -578,7 +578,7 @@ def test_stop_cancels_blocked_streams_and_waits_quickly(settings):
 
 
 def test_silent_liquidation_stream_goes_mute_after_five_minutes_and_retries_hourly(settings):
-    """Flux connecté mais muet (flux dérivés bloqués depuis ce réseau) : MUET après 5 min d'horloge fictive, pas une
+    """Flux connecté mais muet (adresse du flux changée par Binance) : MUET après 5 min d'horloge fictive, pas une
     erreur, réessai une fois par heure (pas la boucle 1 → 60 s)."""
     clock = FakeClock()
     calls = []
@@ -604,7 +604,7 @@ def test_silent_liquidation_stream_goes_mute_after_five_minutes_and_retries_hour
     status = ctx.state.sources[base.LIQUIDATIONS]
     assert status["status"] == base.MUTE and status["silences"] == 3 and status["errors"] == 0 and status["reconnections"] == 0
     assert "aucune donnée en 5 min" in status["detail"] and "réessai toutes les heures" in status["detail"]
-    assert "bloqués depuis ce réseau" in status["detail"] and status["next_retry_s"] == 3600
+    assert "adresse du flux" in status["detail"] and status["next_retry_s"] == 3600
     assert not base.journal_path(settings, base.LIQUIDATIONS, NOW).exists()          # rien écrit
     state = base.read_state(settings)
     assert state["sources"]["LIQUIDATIONS"]["status"] == base.MUTE
