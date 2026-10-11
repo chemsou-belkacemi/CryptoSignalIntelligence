@@ -52,7 +52,7 @@ Les autres idées du 2026-10-11 sont **déjà mesurées** et ne sont pas refaite
    défavorable ;
 2. idem **sans sa meilleure année** (2023, 2024, 2025-S1), 12 blocs au moins ;
 3. au moins **2 années sur 3** avec un excès central > 0 ;
-4. XS17 : **aucune paire ne fait plus de 60 %** du gain net central (sans objet pour TR37, règle de marché).
+4. XS17 : **aucune paire ne fait plus de 60 %** de la contribution brute positive à l'excès (voir ci-dessous) (sans objet pour TR37, règle de marché).
 
 Sinon `NON_VALIDÉE` (ou `INSUFFISANT` sous 20 blocs de 28 jours, `ZOO.md` § 4.2 ; **33 blocs attendus** : 130
 semaines du 2023-01-03 au 2025-07-01, le dernier bloc partiel). Aucune autre lecture ne décide.
@@ -84,6 +84,12 @@ pourquoi seule une période qu'ils n'ont pas vue peut décider, et pourquoi l'es
   détails n'est pas celui de la décision.
 - **Placebos de forme (b)** (1 000 portefeuilles au hasard, `ZOO.md` § 6) : jamais codés, ni au zoo ni ici ; ils ne
   décidaient de rien. Écart au protocole du zoo déclaré.
+- **Incident d'exécution** (procédure déclarée) : un dossier `reports/ZOO-CONFIRMATION-*` sans `summary.json` bloque
+  toute relance ; il est examiné à la main, et les **2 essais sont comptés** au registre même si l'exécution s'est
+  arrêtée, dès lors qu'une mesure a pu commencer. Le résumé de la découverte est lu sous la racine du dépôt :
+  l'exécution se fait depuis le dépôt principal, où `CSI_ROOT` et la racine coïncident.
+- La part de BTC et d'ETH (descriptif) compte aussi la dernière décision de l'étape (2025-06-29), exécutée à la fin
+  de l'étape et ignorée par la mesure : écart négligeable, déclaré.
 
 ## 4. Puissance attendue (hypothèses déclarées, aucune donnée lue)
 

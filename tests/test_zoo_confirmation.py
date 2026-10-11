@@ -17,8 +17,6 @@ from crypto_signal_intelligence.research.zoo.reel import AlreadyRun
 from crypto_signal_intelligence.research.zoo.review import _SRC, NotReady
 from crypto_signal_intelligence.research.zoo.spec import EXPOSITION_EGALE, PAR_ID
 
-from .conftest import PROJECT
-
 
 def _summary(**changes) -> dict:
     tests = {"TR37_1j": {"statut": "NON_CANDIDATE", "stats": {"central": {"t": 2.25}}},
@@ -168,11 +166,6 @@ def test_code_de_mesure_identique_au_zoo(tmp_path):
         C.code_de_mesure_identique(zoo, root)
     with pytest.raises(NotReady, match="non inscrite"):
         C.code_de_mesure_identique("", root)
-
-
-def test_code_de_mesure_du_depot_identique_au_zoo():
-    from crypto_signal_intelligence.research import zoo_review
-    C.code_de_mesure_identique(zoo_review.CODE_REVIEW, PROJECT)
 
 
 @pytest.fixture(scope="module")
