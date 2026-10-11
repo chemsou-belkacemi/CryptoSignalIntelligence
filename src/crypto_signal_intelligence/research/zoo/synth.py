@@ -267,7 +267,9 @@ def generer_ev02(commun: Commun, marche: str, cotations: dict[str, pd.Timestamp]
     n = len(commun.u)
     for k, (sym, first) in enumerate(sorted(cotations.items())):
         rng = graine(commun.replique, 2, k)
-        start = max(0, heure(pd.Timestamp(first).floor("D")) - DEBUT_H)
+        # cotation à une heure tirée dans la journée réelle (1 h à 23 h) : la journée de cotation est partielle,
+        # l'agrégation l'écarte, la 1re bougie journalière est la 1re journée complète (même règle qu'en réel)
+        start = max(0, heure(pd.Timestamp(first).floor("D")) - DEBUT_H + int(rng.integers(1, 24)))
         if start >= n - 48:
             continue
         lam = float(rng.uniform(*LAMBDA_ALT))
@@ -288,13 +290,16 @@ def generer_ev02(commun: Commun, marche: str, cotations: dict[str, pd.Timestamp]
 
 
 def annonces_ev02(annonces: pd.DataFrame, cotations: dict[str, pd.Timestamp]) -> pd.DataFrame:
-    """Calendrier réel des annonces `COTATION_SPOT` (même correspondance annonce → paire que la stratégie EV02,
-    `strategies.events.annonces_de`) ; une paire sans annonce reçoit une annonce 24 h avant sa cotation (§ 8.1).
+    """Calendrier réel des annonces `COTATION_SPOT` (même correspondance annonce → paire et même fenêtre de 30 jours
+    que la stratégie EV02, `strategies.events`) ; une paire sans annonce dans la fenêtre reçoit une annonce 24 h avant
+    sa cotation (§ 8.1).
     Colonnes : symbol, event_time, available_at (publication + 10 min), reelle."""
-    from .strategies.events import annonces_de
+    from .strategies.events import FENETRE_JOURS, annonces_de
     rows = []
     for sym, first in cotations.items():
         known = annonces_de(annonces, sym, "COTATION_SPOT") if len(annonces) else np.zeros(0, dtype=np.int64)
+        complete = pd.Timestamp(first).floor("D") + pd.Timedelta(days=1)          # 1re journée complète
+        known = known[known >= (complete - pd.Timedelta(days=FENETRE_JOURS)).value]  # fenêtre de 30 jours
         if len(known):
             available = pd.Timestamp(int(known[0]), tz="UTC")
             rows.append({"symbol": sym, "event_time": available - pd.Timedelta(minutes=10), "available_at": available,

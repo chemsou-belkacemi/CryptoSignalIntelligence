@@ -84,8 +84,10 @@ def causalite(settings: Settings | None, tests: list[Test], source: Source, *, o
         picks = sorted(rng.choice(listed, size=min(3 * n_paires, len(listed)), replace=False).tolist()) if listed else []
         census_pairs = [p for p in (source.paire_recensement(s) for s in picks) if p is not None]
         out["paires_recensement"] = [p.symbole for p in census_pairs]
-    for test in tests:
-        say(test.id)
+    import time
+    started = time.perf_counter()
+    for number, test in enumerate(tests, start=1):
+        say(f"{number}/{len(tests)} {test.id} ({time.perf_counter() - started:.0f} s)")
         if test.forme == FORME_A and test.univers == "recensement":
             fn = test.strategie_fonction()
             total = Rapport(test.id)

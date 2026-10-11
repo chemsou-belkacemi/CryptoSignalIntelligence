@@ -107,7 +107,8 @@ def test_cotations_ev02_aux_dates_reelles_et_annonces():
     commun = S.Commun.tirer(5)
     cotations = {"XXXUSDT": pd.Timestamp("2020-05-03", tz="UTC"), "YYYUSDT": pd.Timestamp("2022-01-10", tz="UTC")}
     daily = S.generer_ev02(commun, "H0a", cotations)
-    assert daily["XXXUSDT"].ouverture_h[0] == S.heure(pd.Timestamp("2020-05-03", tz="UTC"))
+    # cotation en cours de journée le 3 mai : la 1re bougie journalière est la 1re journée complète, le 4 mai
+    assert daily["XXXUSDT"].ouverture_h[0] == S.heure(pd.Timestamp("2020-05-04", tz="UTC"))
     assert (daily["YYYUSDT"].cloture > 0).all()
     ann = pd.DataFrame({"category": ["COTATION_SPOT"], "tickers": ["XXX"], "detail": ["Binance Will List X (XXX)"],
                         "event_time": [pd.Timestamp("2020-05-01 10:00", tz="UTC")],

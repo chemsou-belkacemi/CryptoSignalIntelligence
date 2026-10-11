@@ -5,9 +5,14 @@ Règle du registre : signal à la clôture de la **1re journée complète de cot
 étant connue AVANT la clôture de cette journée ; le moteur achète à la clôture suivante (catalogue : « achat de la paire
 USDT annoncée à la clôture suivant sa 1re journée complète de cotation ») ; aucune sortie, tenue 30 jours.
 
-Lectures déclarées :
-- 1re journée complète = 1re bougie journalière de la paire (le moteur n'agrège que des journées complètes de 24
-  bougies 1 h) ;
+Lectures déclarées (décision de mise en œuvre du 2026-10-11, avant tout résultat) :
+- **1re journée UTC complète** (24 bougies 1 h), jamais la journée partielle de la cotation : c'est la 1re bougie du
+  cadre, car le moteur n'agrège que des journées complètes et, pour l'univers du recensement (clôtures journalières
+  de l'API), la 1re journée de la paire, réputée partielle, est écartée par la couche de données
+  (`data.quotidien_recensement_bougies`) ;
+- **fenêtre de 30 jours** : l'annonce `COTATION_SPOT` doit être connue au plus tôt 30 jours avant le début de cette
+  1re journée complète (prudent : la 1re bougie de la paire tombe au plus 24 h plus tôt) ; une annonce plus ancienne
+  (cotation contre BTC des années avant, par exemple) ne donne aucun signal ;
 - « annonce connue avant la clôture » : `available_at` STRICTEMENT antérieur à l'instant de décision de cette
   journée (même règle que `data.joindre`) ;
 - correspondance annonce → paire : base de la paire (symbole sans `USDT`) parmi les tickers entre parenthèses du titre
@@ -31,6 +36,8 @@ IMPLEMENTEES: frozenset[str] = frozenset({"cotation_binance"})
 DEPENDENT_ETAPE: frozenset[str] = frozenset()
 
 ANNONCES = "annonces_binance"
+FENETRE_JOURS = 30
+DAY_NS = 24 * 3_600_000_000_000
 _MOT = re.compile(r"\b[A-Z0-9]{2,12}\b")
 
 
@@ -61,5 +68,7 @@ def cotation_binance(frame: Bougies, ctx: Contexte) -> Signaux:
     if n == 0:
         return Signaux(entry, None)
     known = annonces_de(ctx.evenements.get(ANNONCES), ctx.symbole, ctx.params["categorie"])
-    entry[0] = bool(len(known)) and bool(known[0] < frame.disponible[0])
+    first_day_ns = int(frame.ouverture_h[0]) * 3_600_000_000_000
+    window = known[(known >= first_day_ns - FENETRE_JOURS * DAY_NS) & (known < frame.disponible[0])]
+    entry[0] = bool(len(window))
     return Signaux(entry, None)

@@ -57,6 +57,16 @@ EFFETS_A = (0.0010, 0.0025, 0.0050)          # par jour d'exposition
 EFFETS_B = (0.0025, 0.0050, 0.0100, 0.0200)  # par semaine
 SEUIL_TEST, SEUIL_GLOBAL, SEUIL_AVEUGLE = 0.05, 0.10, 0.10
 MAX_WORKERS = 4
+#: Descriptif du rapport H0 (relecture du 2026-10-11) : puissances à lire avec réserve.
+NOTES_PUISSANCE = {
+    "PF05": "non comparable : la référence (même panier laissé flotter) est identique à la stratégie au début de chaque "
+            "trimestre, l'excès varie très peu",
+    "PF06": "non comparable : poids proches de la référence à poids égaux une partie du temps (volatilités voisines)",
+    "EV02": "puissance optimiste : la volatilité des premiers jours de cotation n'est pas modélisée par le marché "
+            "synthétique (paramètres d'altcoin ordinaires)",
+}
+#: Tests à sortie unique dont un signal ignoré pendant une position peut déplacer les niveaux de sortie (README, 17).
+SORTIE_UNIQUE = frozenset({"ST03", "ST04", "ST05", "AN06", "AN09"})
 
 
 class SourceSynthetique(Source):
@@ -140,7 +150,10 @@ def resumer_marche(mesures: dict, tests: list[Test], marche: str) -> dict:
         md, mv = mesures[(test.id, DECOUVERTE.nom)], mesures[(test.id, VALIDATION.nom)]
         entry: dict[str, Any] = {"nul": {"d": _decouverte(md, NULS), "v": _validation(mv, NULS)},
                  "reel": {"d": _decouverte(md, DECISION), "v": _validation(mv, DECISION)},
-                 "transactions": {"d": md.n_transactions, "v": mv.n_transactions}}
+                 "transactions": {"d": md.n_transactions, "v": mv.n_transactions},
+                 "ignores_position": {"d": int(md.compteurs.get("ignores_position_ouverte", 0)),
+                                      "v": int(mv.compteurs.get("ignores_position_ouverte", 0))}
+                 if test.forme == FORME_A else None}
         if marche == "H0b":
             entry["ancienne_stat_p"] = p_decision(md, NULS, contre_zero=True)[0]
         if marche == "H0a":
@@ -283,6 +296,20 @@ def criteres(resumes: list[dict], test_ids: list[str]) -> dict:
             status = "RETENU"
         per_test[t]["statut"] = status
         per_test[t]["passes"] = status == "RETENU"
+        note = NOTES_PUISSANCE.get(PAR_ID[t].strategie)
+        if note:
+            per_test[t]["note_puissance"] = note
+        if PAR_ID[t].strategie in SORTIE_UNIQUE:
+            ignored = [r["marches"]["H0a"][t].get("ignores_position") for r in resumes if "H0a" in r["marches"]]
+            ignored = [x["d"] for x in ignored if x]
+            per_test[t]["signaux_ignores_pendant_une_position_moyenne_h0a"] = \
+                round(float(np.mean(ignored)), 1) if ignored else None
+    retained = [t for t, v in per_test.items() if v["passes"]]
+    for marche in ("H0a", "H0b", "H0c"):
+        rows = [r["marches"][marche] for r in resumes if marche in r["marches"]]
+        if rows and marche in global_:
+            global_[marche]["part_au_moins_une_candidate_sur_tests_retenus_descriptif"] = round(float(np.mean(
+                [bool(_candidates(entries, retained, "nul")) for entries in rows])), 4)
     return {"tests": per_test, "global": global_, "passe_global": passes_global,
             "issue": "RETENU" if passes_global else INSTRUMENT_NON_VALIDE,
             "retenus": sorted(t for t, v in per_test.items() if v["passes"]),
@@ -320,6 +347,17 @@ def executer(out_dir: Path, test_ids: list[str], *, repliques: int = REPLIQUES, 
     final = out_dir / "criteres.json"
     if final.exists():
         raise FileExistsError(f"contrôle sous H0 déjà conclu ({final}) : lancé une seule fois")
+    if not mini:
+        for other in sorted(out_dir.parent.glob("ZOO-H0-*/plan.json")):
+            if other.parent.resolve() == out_dir.resolve():
+                continue
+            try:
+                started_before = not json.loads(other.read_text(encoding="utf-8")).get("mini", True)
+            except (OSError, ValueError):
+                started_before = True
+            if started_before:
+                raise FileExistsError(f"un contrôle sous H0 complet a déjà commencé ({other.parent}) : lancé une seule "
+                                      "fois, quel que soit le commit")
     (out_dir / "repliques").mkdir(parents=True, exist_ok=True)
     plan = {"study": STUDY, "control": CONTROL_KIND, "commit": commit, "mini": mini, "repliques": repliques,
             "marches": list(marches), "tests": test_ids, "n_paires": n_paires}
@@ -345,6 +383,7 @@ def executer(out_dir: Path, test_ids: list[str], *, repliques: int = REPLIQUES, 
               "secondes_par_replique": {m: round(float(np.mean([r["secondes"][m] for r in resumes])), 1)
                                         for m in marches},
               "memoire_pic_mo": max(int(r.get("memoire_pic_mo") or 0) for r in resumes),
+              "repliques_par_marche": {m: sum(m in r["marches"] for r in resumes) for m in marches},
               **criteres(resumes, test_ids)}
     final.write_text(json.dumps(report, indent=2, ensure_ascii=False, default=float), encoding="utf-8")
     report["path"] = str(final)

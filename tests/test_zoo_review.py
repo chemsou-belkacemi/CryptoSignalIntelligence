@@ -100,8 +100,14 @@ def _inscrire(path, payload) -> str:
 
 def test_controle_h0_inscrit(tmp_path):
     full = {"study": "ZOO", "control": "H0_ZOO_V1", "mini": False, "tests": [t.id for t in S.TESTS], "repliques": 200,
-            "commit": "HEAD", "passe_global": True, "retenus": [], "retires": {}}
+            "commit": "HEAD", "passe_global": True, "retenus": [], "retires": {}, "marches": ["H0a", "H0b", "H0c"],
+            "repliques_par_marche": {"H0a": 200, "H0b": 200, "H0c": 200}}
     assert R.controle_inscrit(_inscrire(tmp_path / "ok.json", full), root=PROJECT)["repliques"] == 200
+    with pytest.raises(R.NotReady, match="H0c"):
+        R.controle_inscrit(_inscrire(tmp_path / "noc.json", full | {"marches": ["H0a", "H0b"]}), root=PROJECT)
+    with pytest.raises(R.NotReady, match="H0c"):
+        R.controle_inscrit(_inscrire(tmp_path / "fewc.json", full | {"repliques_par_marche": {
+            "H0a": 200, "H0b": 200, "H0c": 40}}), root=PROJECT)
     with pytest.raises(R.NotReady, match="mini"):
         R.controle_inscrit(_inscrire(tmp_path / "mini.json", full | {"mini": True}), root=PROJECT)
     with pytest.raises(R.NotReady, match="incomplet"):
@@ -119,10 +125,24 @@ def test_controle_h0_inscrit(tmp_path):
 
 
 def test_comptage_inscrit_et_tests_codes(tmp_path, monkeypatch):
-    ok = {"study": "ZOO", "etape": "decouverte"}
-    assert R.comptage_inscrit(_inscrire(tmp_path / "c.json", ok))["etape"] == "decouverte"
-    with pytest.raises(R.NotReady):
-        R.comptage_inscrit(_inscrire(tmp_path / "v.json", ok | {"etape": "validation"}))
+    ok = {"study": "ZOO", "etape": "decouverte", "commit": "HEAD", "partiel": False, "tests_comptes": len(S.TESTS),
+          "tests": {t.id: {} for t in S.TESTS}}
+    assert R.comptage_inscrit(_inscrire(tmp_path / "c.json", ok), root=PROJECT)["etape"] == "decouverte"
+    with pytest.raises(R.NotReady, match="autre étape"):
+        R.comptage_inscrit(_inscrire(tmp_path / "v.json", ok | {"etape": "validation"}), root=PROJECT)
+    with pytest.raises(R.NotReady, match="non commité"):
+        R.comptage_inscrit(_inscrire(tmp_path / "d.json", ok | {"commit": "abc+DIRTY"}), root=PROJECT)
+    with pytest.raises(R.NotReady, match="introuvable"):
+        R.comptage_inscrit(_inscrire(tmp_path / "x.json", ok | {"commit": "0" * 40}), root=PROJECT)
+    with pytest.raises(R.NotReady, match="partiel"):
+        R.comptage_inscrit(_inscrire(tmp_path / "p.json", ok | {"partiel": True}), root=PROJECT)
+    with pytest.raises(R.NotReady, match="partiel"):
+        R.comptage_inscrit(_inscrire(tmp_path / "n.json", ok | {"tests_comptes": 83}), root=PROJECT)
+    a = {"TR01_1h": {"compteurs": {"transactions": 5}, "blocs_avec_exposition": 30},
+         "TR37_1j": {"echanges": 208, "blocs": 53, "echanges_investis": 190}}
+    assert R.comptages_differents(a, a) == []
+    assert R.comptages_differents(a, a | {"TR37_1j": a["TR37_1j"] | {"blocs": 52}}) == ["TR37_1j"]
+    assert R.comptages_differents(a, {"TR01_1h": a["TR01_1h"]}) == ["TR37_1j"]
     R.exiger_codes(["TR01_1h", "TR37_1j"])
     with pytest.raises(R.NotReady, match="non codés"):
         R.exiger_codes(["TR01_1h", _un_test_non_code(monkeypatch)])

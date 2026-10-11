@@ -224,3 +224,75 @@ def test_causalite_portefeuille_coupe_series_et_tous_les_champs():
     assert C.verifier_portefeuille(weights, board, ctx, taus).ok
     assert not C.verifier_portefeuille(lambda f, c: weights(f, c, leak="serie"), board, ctx, taus).ok
     assert not C.verifier_portefeuille(lambda f, c: weights(f, c, leak="volume"), board, ctx, taus).ok
+
+
+# --- Relecture du 2026-10-11 : EV02 (1re journée complète, fenêtre de 30 jours), calendriers non programmés, H0 --------
+
+def _annonce(when: str, base: str = "FOO") -> pd.DataFrame:
+    return pd.DataFrame({"category": ["COTATION_SPOT"], "tickers": [base], "detail": [f"Binance Will List ({base})"],
+                         "available_at": [pd.Timestamp(when, tz="UTC")]})
+
+
+def test_ev02_premiere_ligne_partielle_puis_premiere_journee_complete():
+    from crypto_signal_intelligence.research.zoo.data import quotidien_recensement_bougies
+    daily = pd.DataFrame({"day": pd.date_range("2021-05-11", periods=6, freq="D", tz="UTC"), "symbol": "FOOUSDT",
+                          "close": np.arange(6, dtype=float) + 1, "quote_volume": 1.0})
+    bars = quotidien_recensement_bougies(daily)["FOOUSDT"]
+    assert pd.Timestamp(int(bars.ouverture_h[0]) * HOUR_NS, tz="UTC") == pd.Timestamp("2021-05-12", tz="UTC")
+    ctx = Contexte("FOOUSDT", DAY_H, PAR_ID["EV02_1j"].params, 0,
+                   evenements=MappingProxyType({"annonces_binance": _annonce("2021-05-10 09:00")}))
+    sig = PAR_ID["EV02_1j"].strategie_fonction()(bars, ctx)
+    assert sig.entree.tolist()[:2] == [True, False]          # signal à la clôture du 12 mai, 1re journée complète
+
+
+def test_ev02_annonce_900_jours_avant_ne_donne_aucun_signal():
+    p = paire(np.ones(24 * 10) * 2.0, start="2021-05-11 10:00", symbole="FOOUSDT")
+    old = pd.Timestamp("2021-05-11", tz="UTC") - pd.Timedelta(days=900)
+    for when, expected in ((str(old), False), ("2021-04-13 00:00", True), ("2021-04-11 23:00", False)):
+        ctx = Contexte("FOOUSDT", DAY_H, PAR_ID["EV02_1j"].params, 0,
+                       evenements=MappingProxyType({"annonces_binance": _annonce(when)}))
+        assert bool(PAR_ID["EV02_1j"].strategie_fonction()(p.unite(DAY_H), ctx).entree[0]) is expected, when
+    table = annonces_ev02(_annonce(str(old)), {"FOOUSDT": pd.Timestamp("2021-05-11", tz="UTC")})
+    assert not table["reelle"].iloc[0]                       # même fenêtre dans le marché synthétique
+
+
+def test_cotation_synthetique_a_une_journee_partielle():
+    from crypto_signal_intelligence.research.zoo.synth import Commun, generer_ev02
+    daily = generer_ev02(Commun.tirer(1), "H0a", {"XUSDT": pd.Timestamp("2020-05-03", tz="UTC")})["XUSDT"]
+    assert pd.Timestamp(int(daily.ouverture_h[0]) * HOUR_NS, tz="UTC") == pd.Timestamp("2020-05-04", tz="UTC")
+
+
+def test_mutation_sans_filtre_scheduled_detectee():
+    from dataclasses import replace
+
+    from crypto_signal_intelligence.research.zoo.strategies import calendrier as CA
+    p = paire(np.linspace(100, 120, 24 * 60), start="2019-03-01", mecha=0.0)
+    ny = "America/New_York"
+    rows = []
+    for k, day in enumerate(pd.date_range("2019-03-05", periods=7, freq="7D")):
+        scheduled = k % 2 == 0
+        when = (pd.Timestamp(day.date()).tz_localize(ny) + pd.Timedelta(hours=14 if scheduled else 23, minutes=0 if
+                scheduled else 59)).tz_convert("UTC")
+        rows.append({"event": "FOMC", "key": str(day.date()), "event_time": when,
+                     "available_at": when + pd.Timedelta(hours=1), "scheduled": scheduled})
+    table = pd.DataFrame(rows)
+    ctx = Contexte(p.symbole, 1, PAR_ID["CA09_1h"].params, 0, evenements=MappingProxyType({CA.MACRO: table}))
+
+    def sans_filtre(frame, ctx):                            # MUTATION : réunions non programmées lues d'avance
+        return CA.veille_publication(frame, replace(ctx, evenements={
+            CA.MACRO: ctx.evenements[CA.MACRO].assign(scheduled=True)}))
+
+    frame = p.unite(1)
+    entries = frame.disponible[CA.veille_publication(frame, ctx).entree | sans_filtre(frame, ctx).entree]
+    taus = np.unique(np.r_[entries, entries + HOUR_NS])
+    assert C.verifier(CA.veille_publication, p.h1, 1, ctx, taus).ok
+    assert not C.verifier(sans_filtre, p.h1, 1, ctx, taus).ok
+
+
+def test_controle_h0_complet_lance_une_seule_fois(tmp_path):
+    import json
+    other = tmp_path / "ZOO-H0-abcdef"
+    other.mkdir()
+    (other / "plan.json").write_text(json.dumps({"mini": False}), encoding="utf-8")
+    with pytest.raises(FileExistsError, match="une seule"):
+        h0.executer(tmp_path / "ZOO-H0-123456", ["TR10_1j"], repliques=1, workers=1, n_paires=4, commit="x")

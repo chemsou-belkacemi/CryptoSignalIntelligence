@@ -141,7 +141,8 @@ def test_ev02_causale_avec_annonces_coupees_et_mutation_detectee():
         assert verifier_annonces(EV.cotation_binance, pair, DAY_H, ctx, taus) == []
 
     def mutation(frame, ctx):                                     # MUTATION : annonce lue sans son available_at
-        table = ctx.evenements[EV.ANNONCES].assign(available_at=pd.Timestamp("2000-01-01", tz="UTC"))
+        # (antidatée à la veille de la cotation : dans la fenêtre de 30 jours, mais avant sa publication réelle)
+        table = ctx.evenements[EV.ANNONCES].assign(available_at=pd.Timestamp("2019-04-01", tz="UTC"))
         return EV.cotation_binance(frame, replace(ctx, evenements={**ctx.evenements, EV.ANNONCES: table}))
 
     bars = agreger(late.h1, DAY_H)

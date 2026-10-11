@@ -2736,9 +2736,8 @@ def zoo_causality(familles: str = typer.Option("TR", "--familles", help="Famille
         source = reel.SourceMagasin(settings, DECOUVERTE, tests)
     commit = code_state()
     out_dir = settings.reports_dir / f"ZOO-CAUSALITE-{commit[:12]}{'-DIRTY' if commit.endswith('+DIRTY') else ''}"
-    with console.status("causalité…") as status:
-        report = commandes.causalite(settings, tests, source, out_dir=out_dir, now=_now(), n_paires=paires,
-                                     progress=lambda text: status.update(f"causalité : {text}"))
+    report = commandes.causalite(settings, tests, source, out_dir=out_dir, now=_now(), n_paires=paires,
+                                 progress=lambda text: console.print(f"causalité : {text}"))
     table = Table("Test", "Instants", "dont signaux", "Écarts tronqué", "Écarts falsifié", "OK")
     for test_id, r in report["tests"].items():
         table.add_row(test_id, str(r["instants"]), str(r["instants_signal"]), str(r["ecarts_tronque"]),

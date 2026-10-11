@@ -329,11 +329,15 @@ def charger_quotidien_recensement(settings: Settings, fin_exclusive: pd.Timestam
 
 def quotidien_recensement_bougies(daily: pd.DataFrame) -> dict[str, Bougies]:
     """Lignes (day, symbol, close, quote_volume) → bougies journalières (unité 24 h) par paire : clôtures seulement
-    (ouverture = plus haut = plus bas = clôture), disponibles à minuit suivant + latence. Univers d'exception d'EV02."""
+    (ouverture = plus haut = plus bas = clôture), disponibles à minuit suivant + latence. Univers d'exception d'EV02.
+    La 1re journée de chaque paire (journée de la cotation, ouverte en cours de journée) est réputée PARTIELLE et
+    écartée, comme l'agrégation 1 h n'en garde que des complètes : la 1re bougie rendue est la 1re journée complète."""
     out = {}
     frame = daily.assign(day=pd.to_datetime(daily["day"], utc=True)).sort_values(["symbol", "day"])
     for symbol, part in frame.groupby("symbol"):
-        part = part.drop_duplicates("day", keep="last")
+        part = part.drop_duplicates("day", keep="last").iloc[1:]
+        if part.empty:
+            continue
         open_h = (en_ns(part["day"]) // HOUR_NS).astype(np.int64)
         close = part["close"].to_numpy(np.float64)
         volume = part["quote_volume"].to_numpy(np.float64)

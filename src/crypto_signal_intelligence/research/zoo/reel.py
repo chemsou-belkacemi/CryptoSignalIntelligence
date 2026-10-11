@@ -34,6 +34,7 @@ from .data import (
     charger_serie,
     charger_univers,
     eligibles_f31,
+    empreinte_fichier,
     mois_de,
     quotidien_recensement_bougies,
     recensement,
@@ -108,6 +109,33 @@ def externes_pour(settings: Settings, tests: list[Test], fin: pd.Timestamp) -> t
     if "EV" in families:
         events["annonces_binance"] = charger_evenements(settings, "annonces_binance", fin)
     return series, events
+
+
+def empreintes_donnees(settings: Settings, source: SourceMagasin) -> dict[str, str]:
+    """Empreintes SHA-256 des données lues en plus des bougies 1 h : appartenance à date, recensement, clôtures
+    journalières du recensement, fichiers du magasin de contexte (séries, calendriers, annonces) et valeurs
+    effectivement lues (coupées) de chaque série et table."""
+    import hashlib
+
+    from ...context.store import context_dir
+    from ..pit_universe import pit_dir
+    out: dict[str, str] = {}
+    for name in ("membership.parquet", "census.csv", "daily.parquet"):
+        path = pit_dir(settings) / name
+        if path.exists():
+            out[f"pit/{name}"] = empreinte_fichier(path)
+    folder = context_dir(settings)
+    for path in sorted(folder.glob("zoo_*.parquet")) + sorted((folder / "evenements").glob("*.parquet")):
+        out[f"context/{path.relative_to(folder)}"] = empreinte_fichier(path)
+    for key, serie in source.externes.items():
+        digest = hashlib.sha256()
+        for arr in (serie.disponible, serie.date, serie.valeur):
+            digest.update(np.ascontiguousarray(arr).tobytes())
+        out[f"lu/{key}"] = digest.hexdigest()
+    for key, table in source.evenements.items():
+        out[f"lu/{key}"] = hashlib.sha256(pd.util.hash_pandas_object(table.astype(str), index=False)
+                                          .to_numpy().tobytes()).hexdigest()
+    return out
 
 
 # --- Contrôles publiés avec le comptage ---------------------------------------------------------------------------
@@ -246,15 +274,16 @@ def executer_decouverte(settings: Settings, *, now: datetime, progress: Callable
         raise NotReady("comptage inscrit partiel : toutes les familles doivent être comptées")
     withdrawn = set(counted["insuffisants_par_construction"])
     kept = [t for t in control["retenus"] if t not in withdrawn]
-    exiger_codes(kept)
+    exiger_codes([t.id for t in TESTS])
     tests = [PAR_ID[t] for t in kept]
-    source = SourceMagasin(settings, DECOUVERTE, tests)
-    recount = compter(tests, source, DECOUVERTE, progress=say)
-    differ = [t for t in kept if recount[t].get("compteurs", {}).get("transactions") !=
-              counted["tests"][t].get("compteurs", {}).get("transactions")]
-    if differ:
-        from .review import NotReady
+    # recomptage de TOUS les tests (retirés compris, blocs de la forme b compris) avant toute lecture de rendement
+    every = list(TESTS)
+    recount = compter(every, SourceMagasin(settings, DECOUVERTE, every), DECOUVERTE, progress=say)
+    from .review import NotReady, comptages_differents
+    differ = comptages_differents(json.loads(json.dumps(counted["tests"])), json.loads(json.dumps(recount, default=str)))
+    if differ or sorted(t for t, c in recount.items() if c["insuffisant_par_construction"]) != sorted(withdrawn):
         raise NotReady(f"comptage différent de celui inscrit ({', '.join(differ[:5])}) : aucun rendement calculé")
+    source = SourceMagasin(settings, DECOUVERTE, tests)
     measured, refs, positions = mesurer_tout_detail(tests, source, [DECOUVERTE], garder_positions=True, progress=say)
     mesures: dict[str, MesureA | MesureB] = {t: m for (t, _), m in measured.items()}
     decisions, summary = decouverte(mesures)
@@ -282,7 +311,7 @@ def executer_decouverte(settings: Settings, *, now: datetime, progress: Callable
                     hypothesis="zoo des stratégies : découverte (Benjamini-Hochberg à 10 %, docs/ZOO.md)",
                     strategy=STRATEGIES["decouverte"], strategy_version=1, variant="exécution unique",
                     params={"tests": kept}, period_label="DEVELOPMENT", period_start=str(DECOUVERTE.debut),
-                    period_end=str(DECOUVERTE.fin), universe=source.symboles, data_hashes=refs.empreintes,
+                    period_end=str(DECOUVERTE.fin), universe=source.symboles, data_hashes=refs.empreintes | empreintes_donnees(settings, source),
                     git_commit=state, dependencies=dependency_versions(), seed=20261012,
                     cost_scenario="central+defavorable", simulation_rules={"doc": "docs/ZOO.md § 4"},
                     metrics={"n_trials": n_trials, "program_trials": program, "candidates": summary["candidates"]},
@@ -331,7 +360,7 @@ def executer_validation(settings: Settings, *, now: datetime, progress: Callable
                     hypothesis="zoo des stratégies : validation des CANDIDATE (docs/ZOO.md § 5.2)",
                     strategy=STRATEGIES["validation"], strategy_version=1, variant="exécution unique",
                     params={"candidates": candidates}, period_label="DEVELOPMENT", period_start=str(VALIDATION.debut),
-                    period_end=str(VALIDATION.fin), universe=source.symboles, data_hashes=refs.empreintes,
+                    period_end=str(VALIDATION.fin), universe=source.symboles, data_hashes=refs.empreintes | empreintes_donnees(settings, source),
                     git_commit=state, dependencies=dependency_versions(), seed=20261012,
                     cost_scenario="central+defavorable", simulation_rules={"doc": "docs/ZOO.md § 5.2"},
                     metrics={"n_trials": m, "program_trials": program, "validees": result["validees"]},

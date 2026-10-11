@@ -105,7 +105,12 @@ def _connu_le(name: str, table: pd.DataFrame) -> np.ndarray | None:
     if len(table) == 0:
         return None
     if name in CALENDRIERS_CONNUS and "event_time" in table:
-        return en_ns(table["event_time"]) - HORIZON_CALENDRIERS_NS
+        ahead = en_ns(table["event_time"]) - HORIZON_CALENDRIERS_NS
+        if "scheduled" in table and "available_at" in table:
+            # réunion non programmée, communiqué isolé : connu seulement à sa publication (`available_at`)
+            unscheduled = ~table["scheduled"].astype(bool).to_numpy()
+            ahead = np.where(unscheduled, en_ns(table["available_at"]), ahead)
+        return ahead
     if "available_at" in table:
         return en_ns(table["available_at"])
     if "event_time" in table:

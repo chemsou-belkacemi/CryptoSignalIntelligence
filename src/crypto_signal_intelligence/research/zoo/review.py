@@ -132,6 +132,10 @@ def controle_inscrit(inscription: str | None = None, *, root: Path | None = None
         raise NotReady(f"contrôle sous H0 incomplet : les {len(TESTS)} tests doivent y passer")
     if report.get("repliques", 0) < max(MIN_REPLIQUES["H0a"], MIN_REPLIQUES["H0b"]):
         raise NotReady("contrôle sous H0 sous 100 répliques : refusé (§ 8.4)")
+    per_market = report.get("repliques_par_marche") or {}
+    for marche, minimum in MIN_REPLIQUES.items():
+        if marche not in report.get("marches", []) or int(per_market.get(marche, 0)) < minimum:
+            raise NotReady(f"contrôle sous H0 sans {marche} ou sous {minimum} répliques sur ce marché (§ 8.4)")
     commit = str(report.get("commit", ""))
     if not commit or commit.endswith("+DIRTY"):
         raise NotReady("contrôle sous H0 lancé sur du code non commité")
@@ -141,12 +145,36 @@ def controle_inscrit(inscription: str | None = None, *, root: Path | None = None
     return report
 
 
-def comptage_inscrit(inscription: str | None = None) -> dict:
+def comptage_inscrit(inscription: str | None = None, *, root: Path | None = None) -> dict:
+    """Comptage à blanc inscrit : découverte du zoo, COMPLET (tous les tests du registre), sur du code commité et
+    identique, sur les chemins relus, au code courant."""
     from .. import zoo_review
     report = _fichier_inscrit(zoo_review.COMPTAGE if inscription is None else inscription, "COMPTAGE")
     if report.get("etape") != "decouverte" or report.get("study") != STUDY:
         raise NotReady("comptage inscrit d'une autre étape ou d'une autre étude")
+    commit = str(report.get("commit", ""))
+    if not commit or commit.endswith("+DIRTY") or commit == "NO_GIT_COMMIT":
+        raise NotReady("comptage inscrit fait sur du code non commité : refusé")
+    _diff_vide(commit, root or racine())
+    if report.get("partiel", True) or report.get("tests_comptes") != len(TESTS) or \
+            set(report.get("tests", {})) != {t.id for t in TESTS}:
+        raise NotReady(f"comptage inscrit partiel : les {len(TESTS)} tests du registre doivent y être comptés")
     return report
+
+
+#: Champs d'un test qui doivent être identiques entre le comptage inscrit et le recomptage de l'exécution.
+CHAMPS_COMPTAGE = ("compteurs", "blocs_avec_exposition", "insuffisant_par_construction", "echanges",
+                   "echanges_investis", "blocs")
+
+
+def comptages_differents(inscrit: dict, recompte: dict) -> list[str]:
+    """Tests dont le recomptage diffère du comptage inscrit (compteurs, blocs, retraits ; tous les tests)."""
+    out = []
+    for test_id in sorted(set(inscrit) | set(recompte)):
+        a, b = inscrit.get(test_id), recompte.get(test_id)
+        if a is None or b is None or any(a.get(k) != b.get(k) for k in CHAMPS_COMPTAGE):
+            out.append(test_id)
+    return out
 
 
 def exiger_codes(test_ids: list[str]) -> None:
