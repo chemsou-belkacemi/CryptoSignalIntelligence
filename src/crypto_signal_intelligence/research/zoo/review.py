@@ -31,7 +31,7 @@ REVIEWED_PATHS: tuple[str, ...] = (
     f"{_SRC}/forward/costs.py", f"{_SRC}/features/loader.py", f"{_SRC}/data/store.py", f"{_SRC}/context/store.py",
     f"{_SRC}/context/zoo.py", f"{_SRC}/config.py", f"{_SRC}/cli.py", "config/default.toml",
 )
-INSCRIPTIONS = ("CODE_REVIEW", "CONFIG_FINGERPRINT", "CONTROLE_H0", "COMPTAGE")
+INSCRIPTIONS = ("CODE_REVIEW", "CONFIG_FINGERPRINT", "CONTROLE_H0", "COMPTAGE", "CONFIRMATION_REVIEW")
 CONFIG_SECTIONS = ("data", "protocol")
 MIN_REPLIQUES = {"H0a": 100, "H0b": 100, "H0c": 50}
 
