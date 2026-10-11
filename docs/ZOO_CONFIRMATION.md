@@ -135,7 +135,26 @@ Avec la malédiction du gagnant parmi 166 tests corrélés, la ligne « la moiti
 
 ## 7. Résultats
 
-(à remplir après l'exécution unique)
+Exécution unique `ZOO-CONFIRMATION-20261011T100833Z-1be8bf` (code relu `2089826`, inscription `987c645`), 33 blocs
+de 28 jours, 2 essais au registre (programme : **1 041**). **Aucune `VALIDÉE`** : les deux font **moins bien** que leur
+référence sur 2023 → 2025-06, le contraire de la découverte.
+
+| Test | Excès hebdomadaire central [IC 97,5 %] | t (central ; défavorable) | Années > 0 | Verdict |
+|---|---|---|---|---|
+| TR37_1j (rotation hebdomadaire) | **−0,38 %** [−1,05 ; +0,29] | −1,33 ; −1,43 | 0 sur 3 (2023 −0,14 %, 2024 −0,37 %, 2025-S1 −0,88 %) | `NON_VALIDÉE` |
+| XS17_1j (proches du plus haut) | **−0,13 %** [−1,38 ; +1,12] | −0,25 ; −0,26 | 1 sur 3 (2023 −0,18 %, 2024 −0,39 %, 2025-S1 +0,51 %) | `NON_VALIDÉE` |
+
+Descriptifs (ne décident de rien) :
+- **TR37** : exposition moyenne 46 %, rendement net −0,09 %/semaine (la stratégie **perd de l'argent** en valeur
+  absolue sur l'étape), perte maximale −50 % ; sans le premier bloc, excès −0,49 % (t = −1,84).
+- **XS17** : rendement net +0,78 %/semaine, mais −0,13 % sous les membres éligibles à poids égaux ; perte maximale
+  −44 % ; part moyenne de BTC et d'ETH dans le portefeuille : 27 % ; paire la plus contributive TRX (15 % des
+  contributions positives) ; sans le premier bloc, excès +0,04 % (t = 0,07).
+
+**Lecture.** Les deux meilleures du zoo en 2019-2022 étaient très probablement la part de chance attendue parmi 166
+tests (malédiction du gagnant) : sur une période qu'elles n'avaient pas vue, l'excès change de signe. Le test était
+peu puissant (§ 4), mais les estimations ne sont même pas positives. La rotation et le facteur « plus haut »
+rejoignent les résultats nuls ; **aucun test en direct** (§ 6).
 
 ## Historique
 
@@ -145,3 +164,4 @@ Avec la malédiction du gagnant parmi 166 tests corrélés, la ligne « la moiti
   marquée avant la mesure, intervalle au niveau de décision, limites (voisines déjà vues, régime connu, chevauchement,
   placebos non codés) et puissance recalculée en défavorable ; descriptifs déclarés : part de BTC et d'ETH dans XS17,
   sans le premier bloc.
+- 2026-10-11 : exécution unique, aucune `VALIDÉE` (TR37 −0,38 %/semaine, XS17 −0,13 %/semaine) ; F31/F32 sans objet.
