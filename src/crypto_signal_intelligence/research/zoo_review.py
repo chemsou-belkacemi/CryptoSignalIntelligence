@@ -16,5 +16,5 @@ from __future__ import annotations
 
 CODE_REVIEW: str | None = "fb02f9a61ea0ecccc96ac9d97f6302dcc046ebab"
 CONFIG_FINGERPRINT: str | None = "998eb70cac4ab74e4e07b4503c078780d04293d03edc4dbac522699552ee632e"
-CONTROLE_H0: str | None = None
+CONTROLE_H0: str | None = "/home/chamsou-blk/BinanceSpotManager/CryptoSignalIntelligence/reports/ZOO-H0-50090007fe2e/criteres.json#5cd82d72797aa5ff66349aa2cfae7bc32c5e5374f93046db8157a9fc4d8428b5"
 COMPTAGE: str | None = "/home/chamsou-blk/BinanceSpotManager/CryptoSignalIntelligence/reports/ZOO-COMPTAGE-fb02f9a61ea0/comptage.json#d47af1d330b4465730e32b88e4a575aaef000b34a7f39f137f1245de4a81102a"
