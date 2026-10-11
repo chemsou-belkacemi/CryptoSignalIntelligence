@@ -694,6 +694,33 @@ périodes si l'historique est plus court que 2019-2025, **avant** tout télécha
 
 `DELIVERY_STATUS.md` et `PLAN_DE_TRAVAIL.md` seront mis à jour par le chantier qui codera le moteur.
 
+## 16. Résultats (2026-10-11)
+
+**Contrôle sous H0** (`reports/ZOO-H0-50090007fe2e/criteres.json`, sha256 `5cd82d72…`, 200 répliques × 3 marchés, code
+relu `fb02f9a`) : `RETENU`. Part des répliques avec au moins une fausse candidate : 0,5 % (H0-b) et 1 % (H0-c) ; l'ancienne
+statistique « contre zéro » en aurait produit une dans **44,5 %** des répliques H0-b (dérive constante) : la
+correction de la relecture était nécessaire. **166 tests retenus, 73 retirés `INSTRUMENT_AVEUGLE`** (surtout des
+règles 1 h à forte rotation, que les frais rendent aveugles), aucun `MESURE_NON_VALIDE`. Le premier lancement a été
+interrompu après quelques secondes, avant tout calcul (dossier vide hormis `plan.json`), et repris dans le même
+dossier au même commit : un seul contrôle.
+
+**Découverte 2019-01-01 → 2022-12-31** (`reports/ZOO-DECOUVERTE-20261011T055846Z-bcf9e6/summary.json`, exécution
+unique) : **aucune `CANDIDATE`** (Benjamini-Hochberg à 10 % sur 166 tests : 0 rejet ; Benjamini-Yekutieli : 0).
+- 40 tests sur 166 ont un excès estimé positif ; 2 seulement ont t > 2 (TR37_1j t = 2,25, p = 0,029 ; XS17_1j t = 2,06,
+  p = 0,044), loin du seuil BH (le premier rejet exigerait p ≤ 0,1/166 ≈ 0,0006).
+- **114 tests sur 166 ont t < −2** : leur choix des moments fait nettement **moins bien que garder la même paire** sur
+  l'étape, après frais. Le t médian est négatif pour les familles Tendance (−5,1), Volume (−5,4), Régimes (−4,8),
+  Volatilité (−4,5), Analystes (−4,2), Structure (−4,2), Chandeliers (−3,5) ; proche de zéro pour Facteurs (+0,7),
+  Portefeuilles (+1,2), Retour à la moyenne (+0,6), Calendrier (+0,5), Sentiment (+0,4), Rotation (+0,1), Autres
+  marchés (−0,1).
+- **Verdict du zoo : `AUCUNE_CANDIDATE`.** La validation (2023 → 2025-06), la lecture de la période réservée et le test
+  `F31_ZOO` n'ont pas lieu (§ 10 : ils ne portent que sur des validées). Essais : 166 au registre DEVELOPMENT
+  (programme : 1 039).
+- Lecture honnête (§ 11.4) : le zoo est un filet à grosses mailles ; « aucune candidate » veut dire qu'aucune de ces
+  méthodes publiques, avec ses paramètres standard, n'a sur 2019-2022 un avantage de timing de la taille visible
+  (≈ 0,4 %/jour d'exposition en forme (a), ≈ 2 %/semaine en forme (b)) ; de petits effets ne sont pas exclus. Le
+  résultat le plus net est négatif : la plupart des règles de timing font perdre par rapport à garder la paire.
+
 ## Historique
 
 - 2026-10-10 : protocole déclaré avant tout code, tout comptage et toute exécution (branche `recherche/zoo`) ;
@@ -729,3 +756,4 @@ périodes si l'historique est plus court que 2019-2025, **avant** tout télécha
   signal) ; même règle dans le marché synthétique ; 159 signaux au comptage (237 avant). § 7 : taux d'annonces et
   exceptions CPI/NFP du comptage déclarés, couverture de la causalité déclarée, réunions non programmées connues à leur
   publication. § 4.1 : lecture de `r(i, d)` (pas de seconde multiplication par `e`).
+- 2026-10-11 : contrôle sous H0 `RETENU` (166 retenus, 73 aveugles) ; découverte exécutée une fois : aucune candidate ; zoo clos (`AUCUNE_CANDIDATE`), validation, lecture réservée et F31 sans objet.
