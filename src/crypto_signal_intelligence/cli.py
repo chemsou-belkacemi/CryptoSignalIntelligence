@@ -2829,3 +2829,29 @@ def zoo_execute(etape: str = typer.Option(..., "--etape", help="decouverte | val
         raise typer.Exit(3) from None
     keys = ("run_id", "n_trials", "program_trials", "candidates", "validees")
     console.print_json(json.dumps({k: summary[k] for k in keys if k in summary}, ensure_ascii=False, default=str))
+
+
+@zoo_app.command("confirmer")
+def zoo_confirm(executer: bool = typer.Option(False, "--executer", help="Exécution réelle UNIQUE de la confirmation"),
+                verbose: bool = False):
+    """Confirmation UNIQUE de TR37_1j et XS17_1j sur 2023-01 → 2025-06 (docs/ZOO_CONFIRMATION.md, m = 2, 2 essais).
+    Refusée sans --executer, sans code commité et relu (CONFIRMATION_REVIEW), sans configuration identique, sans la
+    sélection déclarée dans la découverte enregistrée, ou si elle a déjà été exécutée."""
+    from .research.factors import DirtyCode
+    from .research.zoo import confirmation, reel, review
+    if not executer:
+        console.print("[red]Exécution réelle unique : ajouter --executer (après relecture inscrite).[/red]")
+        raise typer.Exit(2)
+    settings = _settings(verbose)
+    try:
+        _heavy_job(settings)
+        with console.status("zoo, confirmation, exécution unique…") as status:
+            summary = confirmation.executer_confirmation(settings, now=_now(),
+                                                         progress=lambda text: status.update(f"zoo : {text}"))
+    except (DirtyCode, review.NotReady, reel.AlreadyRun, FileNotFoundError) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    keys = ("run_id", "n_trials", "program_trials", "validees")
+    console.print_json(json.dumps({k: summary[k] for k in keys}, ensure_ascii=False, default=str))
+    for test_id, entry in summary["tests"].items():
+        console.print(f"{test_id} : {entry['statut']}")
