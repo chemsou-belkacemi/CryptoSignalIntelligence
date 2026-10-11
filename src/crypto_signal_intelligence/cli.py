@@ -2657,3 +2657,175 @@ def options_peur_execute(executer: bool = typer.Option(False, "--executer", help
         console.print(f"[red]Aucun calcul :[/red] {exc}")
         raise typer.Exit(3) from None
     console.print_json(json.dumps(summary, ensure_ascii=False, default=str))
+
+
+zoo_app = typer.Typer(no_args_is_help=True,
+                      help="Zoo des stratégies (docs/ZOO.md) : 239 tests pré-inscrits, une seule méthode ; comptage à "
+                           "blanc, contrôle sous H0, causalité, exécution unique gardée. Aucun ordre, aucun gain "
+                           "démontré.")
+app.add_typer(zoo_app, name="zoo")
+
+
+def _zoo_tests(familles: str | None, tests: str | None = None):
+    from .research.zoo import spec
+    fam = [f.strip().upper() for f in familles.split(",")] if familles else None
+    ids = [t.strip() for t in tests.split(",")] if tests else None
+    return spec.tests_de(fam, ids)
+
+
+@zoo_app.command("liste")
+def zoo_list(familles: str = typer.Option(None, "--familles", help="Familles (TR,MR,…) ; défaut : toutes")):
+    """Registre des tests : identifiant, forme, unité d'exécution, référence, plafond N, état du code."""
+    from .research.zoo import spec
+    spec.verifier_registre()
+    table = Table("Test", "Forme", "Type", "Exécution", "Référence", "N", "Code")
+    for t in _zoo_tests(familles):
+        table.add_row(t.id, t.forme, t.type, t.execution, t.reference, str(t.n_max or "—"), t.etat_code)
+    console.print(table)
+
+
+@zoo_app.command("comptage")
+def zoo_count(familles: str = typer.Option(None, "--familles", help="Familles ; défaut : toutes (seuls les tests "
+                                                                     "codés sont comptés)"),
+              verbose: bool = False):
+    """Comptage À BLANC sur la découverte réelle (2019-2022) : signaux, transactions, exposition, blocs par test, plus
+    les contrôles de dates CPI/NFP et d'annonces (EV02). AUCUN rendement. Écrit `reports/ZOO-COMPTAGE-…/`."""
+    from .research.experiments import code_state
+    from .research.zoo import reel
+    settings = _settings(verbose)
+    commit = code_state()
+    out_dir = settings.reports_dir / f"ZOO-COMPTAGE-{commit[:12]}{'-DIRTY' if commit.endswith('+DIRTY') else ''}"
+    with console.status("comptage à blanc…") as status:
+        report = reel.comptage(settings, _zoo_tests(familles), out_dir=out_dir, now=_now(),
+                               progress=lambda text: status.update(f"comptage : {text}"))
+    table = Table("Test", "Signaux", "Transactions", "Jours d'exposition", "Blocs", "Insuffisant")
+    for test_id, c in report["tests"].items():
+        if c["forme"] == "a":
+            table.add_row(test_id, str(c["compteurs"].get("signaux", 0)), str(c["compteurs"].get("transactions", 0)),
+                          str(c["jours_exposition"]), str(c["blocs_avec_exposition"]),
+                          "oui" if c["insuffisant_par_construction"] else "")
+        else:
+            table.add_row(test_id, str(c["echanges"]), str(c["echanges_investis"]), f"expo {c['exposition_moyenne']}",
+                          str(c["blocs"]), "oui" if c["insuffisant_par_construction"] else "")
+    console.print(table)
+    console.print(f"Fichier : {report['path']}" + (" (PARTIEL : familles non codées)" if report["partiel"] else
+                                                   f"\nInscription : COMPTAGE = \"{report['path']}#{report['sha256']}\""))
+    console.print(f"[dim]{reel.NOTE}[/dim]")
+
+
+@zoo_app.command("causalite")
+def zoo_causality(familles: str = typer.Option("TR", "--familles", help="Familles à contrôler (tests codés)"),
+                  synthetique: bool = typer.Option(False, "--synthetique", help="Marché synthétique (réplique 0) au "
+                                                                                 "lieu du magasin réel"),
+                  paires: int = typer.Option(12, "--paires", help="Paires tirées pour les 50 instants"),
+                  verbose: bool = False):
+    """Causalité des tests codés (§ 7) : recalcul tronqué et futur falsifié à ≥ 50 instants au hasard et à tous les
+    instants de signal de 3 paires × 1 an, puis les quatre mutations exigées. Signaux seulement, aucun rendement."""
+    from .research.experiments import code_state
+    from .research.zoo import commandes, reel
+    from .research.zoo.data import DECOUVERTE
+    from .research.zoo.run import tests_codes
+    settings = _settings(verbose)
+    tests = tests_codes(_zoo_tests(familles))[0]
+    from .research.zoo.run import Source
+    source: Source
+    if synthetique:
+        from .research.zoo.h0 import SourceSynthetique
+        source = SourceSynthetique(0, "H0a")
+    else:
+        source = reel.SourceMagasin(settings, DECOUVERTE, tests)
+    commit = code_state()
+    out_dir = settings.reports_dir / f"ZOO-CAUSALITE-{commit[:12]}{'-DIRTY' if commit.endswith('+DIRTY') else ''}"
+    report = commandes.causalite(settings, tests, source, out_dir=out_dir, now=_now(), n_paires=paires,
+                                 progress=lambda text: console.print(f"causalité : {text}"))
+    table = Table("Test", "Instants", "dont signaux", "Écarts tronqué", "Écarts falsifié", "OK")
+    for test_id, r in report["tests"].items():
+        table.add_row(test_id, str(r["instants"]), str(r["instants_signal"]), str(r["ecarts_tronque"]),
+                      str(r["ecarts_falsifie"]), "oui" if r["ok"] else "[red]NON[/red]")
+    console.print(table)
+    for name, m in report["mutations"].items():
+        console.print(f"mutation {name} : témoin {'correct' if m['temoin_ok'] else 'EN ÉCHEC'}, "
+                      f"mutation {'détectée' if m['mutation_detectee'] else 'NON DÉTECTÉE'}")
+    console.print(f"Fichier : {report['path']} ; {'tout est causal' if report['ok'] else '[red]ÉCHEC[/red]'}")
+    if not report["ok"]:
+        raise typer.Exit(4)
+
+
+@zoo_app.command("controle-h0")
+def zoo_h0(workers: int = typer.Option(2, "--workers", help="Processus (4 au plus)"),
+           repliques: int = typer.Option(200, "--repliques", help="Répliques (200 ; réduction déclarée AVANT : 100 au "
+                                                                   "moins)"),
+           mini: int = typer.Option(0, "--mini", help="Mini-contrôle de fonctionnement : nombre de répliques (jamais "
+                                                      "inscriptible)"),
+           familles: str = typer.Option(None, "--familles", help="Familles du mini-contrôle"),
+           verbose: bool = False):
+    """Contrôle sous H0 (§ 8) : le pipeline complet sur des marchés synthétiques H0-a, H0-b, H0-c ; critères 1 à 4 ;
+    écrit `reports/ZOO-H0-<commit>/criteres.json` à inscrire (CONTROLE_H0). Lancé UNE fois, sur le code relu, quand
+    les 239 tests sont codés. `--mini N --familles TR` : vérification de fonctionnement seulement."""
+    from .research import zoo_review
+    from .research.experiments import code_state
+    from .research.factors import DirtyCode
+    from .research.zoo import commandes, h0, review
+    from .research.zoo.run import tests_codes
+    settings = _settings(verbose)
+    commit = code_state()
+    if mini:
+        tests = tests_codes(_zoo_tests(familles))[0]
+        count = mini
+    else:
+        tests = _zoo_tests(None)
+        count = repliques
+        try:
+            if zoo_review.CONTROLE_H0:
+                raise review.NotReady("contrôle sous H0 déjà inscrit : lancé une seule fois (§ 8.4)")
+            if repliques < 100:
+                raise review.NotReady("au moins 100 répliques (§ 8.4)")
+            review.exiger_codes([t.id for t in tests])
+            review.exiger_relecture(commit)
+        except (DirtyCode, review.NotReady) as exc:
+            console.print(f"[red]Aucun calcul :[/red] {exc}")
+            raise typer.Exit(3) from None
+    ids = [t.id for t in tests]
+    series, events, cotations = h0.externes_reels(settings, ids)
+    out_dir = commandes.dossier_h0(settings, commit, mini=mini, familles=[f.upper() for f in (familles or "").split(",")
+                                                                          if f] or None, now=_now())
+    _heavy_job(settings)
+    with console.status("contrôle sous H0…") as status:
+        report = h0.executer(out_dir, ids, repliques=count, workers=min(workers, 4), mini=bool(mini),
+                             externes=series, evenements=events, cotations=cotations, commit=commit, now=_now(),
+                             progress=lambda text: status.update(f"H0 : {text}"))
+    console.print_json(json.dumps({k: report[k] for k in ("repliques", "secondes_totales", "secondes_par_replique",
+                                                         "memoire_pic_mo", "global", "passe_global", "issue")},
+                                  ensure_ascii=False, default=float))
+    console.print(f"Retirés : {len(report['retires'])} ; retenus : {len(report['retenus'])}")
+    console.print(f"Fichier : {report['path']}" + ("" if mini else
+                                                   f"\nInscription : CONTROLE_H0 = \"{report['path']}#{report['sha256']}\""))
+
+
+@zoo_app.command("executer")
+def zoo_execute(etape: str = typer.Option(..., "--etape", help="decouverte | validation"),
+                executer: bool = typer.Option(False, "--executer", help="Exécution réelle UNIQUE de l'étape"),
+                verbose: bool = False):
+    """Exécution réelle UNIQUE d'une étape (§ 5, § 9). Refusée sans --executer, sans code commité et relu
+    (CODE_REVIEW), sans configuration identique (CONFIG_FINGERPRINT), sans contrôle H0 (CONTROLE_H0) et comptage
+    (COMPTAGE) inscrits, si un test retenu n'est pas codé, ou si l'étape a déjà été exécutée."""
+    from .research.factors import DirtyCode
+    from .research.zoo import reel, review
+    if etape not in ("decouverte", "validation"):
+        console.print("[red]--etape decouverte ou validation[/red]")
+        raise typer.Exit(2)
+    if not executer:
+        console.print("[red]Exécution réelle unique : ajouter --executer (après relecture, contrôle H0 et comptage "
+                      "inscrits).[/red]")
+        raise typer.Exit(2)
+    settings = _settings(verbose)
+    run = reel.executer_decouverte if etape == "decouverte" else reel.executer_validation
+    try:
+        _heavy_job(settings)
+        with console.status(f"zoo, {etape}, exécution unique…") as status:
+            summary = run(settings, now=_now(), progress=lambda text: status.update(f"zoo : {text}"))
+    except (DirtyCode, review.NotReady, reel.AlreadyRun, FileNotFoundError) as exc:
+        console.print(f"[red]Aucun résultat :[/red] {exc}")
+        raise typer.Exit(3) from None
+    keys = ("run_id", "n_trials", "program_trials", "candidates", "validees")
+    console.print_json(json.dumps({k: summary[k] for k in keys if k in summary}, ensure_ascii=False, default=str))
