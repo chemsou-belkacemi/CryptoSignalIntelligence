@@ -117,6 +117,9 @@ def causalite(settings: Settings | None, tests: list[Test], source: Source, *, o
     base = max(pairs, key=lambda p: len(p.h1))
     serie = serie_temoin(int(base.h1.ouverture_h[0]), int(base.h1.ouverture_h[-1]))
     out["mutations"] = controler_mutations(base.h1, serie, DECOUVERTE)
+    calendar = source.evenements.get("calendrier_macro")
+    if any(t.strategie == "CA09" for t in tests) and calendar is not None and len(calendar):
+        out["mutations"]["sans_filtre_scheduled"] = mutation_scheduled(base, calendar, rng)
     out["ok"] = all(v["ok"] for v in out["tests"].values()) and all(
         m["temoin_ok"] and m["mutation_detectee"] for m in out["mutations"].values())
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -125,6 +128,30 @@ def causalite(settings: Settings | None, tests: list[Test], source: Source, *, o
     out["path"] = str(path)
     out["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
     return out
+
+
+def mutation_scheduled(pair: Paire, calendar, rng: np.random.Generator) -> dict:
+    """CA09 lu SANS le filtre `scheduled` (réunions non programmées lues avant leur publication) : doit être détecté ;
+    le témoin (CA09 tel que codé) doit passer. Instants : chaque entrée des deux versions et l'heure suivante."""
+    from dataclasses import replace
+
+    from .spec import PAR_ID
+    from .strategies import calendrier as CA
+    ctx = Contexte(pair.symbole, 1, PAR_ID["CA09_1h"].params, DECOUVERTE.debut_ns,
+                   evenements=MappingProxyType({CA.MACRO: calendar}))
+
+    def sans_filtre(frame, ctx):
+        return CA.veille_publication(frame, replace(ctx, evenements={CA.MACRO: ctx.evenements[CA.MACRO]
+                                                                     .assign(scheduled=True)}))
+
+    frame = pair.unite(1)
+    keep = (frame.disponible >= DECOUVERTE.debut_ns) & (frame.disponible <= DECOUVERTE.fin_ns)
+    entries = frame.disponible[keep & (CA.veille_publication(frame, ctx).entree | sans_filtre(frame, ctx).entree)]
+    taus = np.unique(np.r_[entries, entries + 3_600_000_000_000])
+    good = verifier(CA.veille_publication, pair.h1, 1, ctx, taus, rng=rng, test_id="CA09")
+    bad = verifier(sans_filtre, pair.h1, 1, ctx, taus, rng=rng, test_id="CA09_sans_scheduled")
+    return {"temoin_ok": good.ok, "mutation_detectee": not bad.ok, "instants": int(len(taus)),
+            "ecarts_mutation": len(bad.ecarts_tronque) + len(bad.ecarts_falsifie)}
 
 
 def instant(text: str) -> pd.Timestamp:
