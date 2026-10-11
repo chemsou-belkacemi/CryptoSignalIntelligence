@@ -14,7 +14,7 @@ fichier relu. Il ne peut contenir que sa docstring, `from __future__ import anno
 """
 from __future__ import annotations
 
-CODE_REVIEW: str | None = None
-CONFIG_FINGERPRINT: str | None = None
+CODE_REVIEW: str | None = "fb02f9a61ea0ecccc96ac9d97f6302dcc046ebab"
+CONFIG_FINGERPRINT: str | None = "998eb70cac4ab74e4e07b4503c078780d04293d03edc4dbac522699552ee632e"
 CONTROLE_H0: str | None = None
-COMPTAGE: str | None = None
+COMPTAGE: str | None = "/home/chamsou-blk/BinanceSpotManager/CryptoSignalIntelligence/reports/ZOO-COMPTAGE-fb02f9a61ea0/comptage.json#d47af1d330b4465730e32b88e4a575aaef000b34a7f39f137f1245de4a81102a"
