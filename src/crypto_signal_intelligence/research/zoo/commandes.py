@@ -12,10 +12,19 @@ import numpy as np
 import pandas as pd
 
 from ...config import Settings
-from .causality import INSTANTS_MIN, controler_mutations, verifier_portefeuille, verifier_test
+from .causality import (
+    INSTANTS_MIN,
+    Rapport,
+    controler_mutations,
+    instants_aleatoires,
+    instants_de_signal,
+    verifier,
+    verifier_portefeuille,
+    verifier_test,
+)
 from .data import DAY_H, DECOUVERTE, HOUR_NS, Paire, SerieExterne
 from .run import Source, contexte, panneau
-from .spec import FORME_A, Contexte, Test
+from .spec import FORME_A, MENSUELLE, QUOTIDIENNE, Contexte, Test
 from .strategies.commun import decisions_hebdomadaires
 
 
@@ -37,28 +46,69 @@ def serie_temoin(debut_h: int, fin_h: int, graine: int = 7) -> SerieExterne:
     return SerieExterne("temoin", dates + 18 * HOUR_NS, dates, rng.normal(0, 1, len(days)))
 
 
+def _decisions_de(test: Test, board) -> np.ndarray:
+    """Instants de décision du calendrier du test (hebdomadaire, quotidien ou mensuel)."""
+    from .strategies.commun import decisions_mensuelles, decisions_quotidiennes
+    calendar = {QUOTIDIENNE: decisions_quotidiennes, MENSUELLE: decisions_mensuelles}.get(test.frequence or "",
+                                                                                       decisions_hebdomadaires)
+    return calendar(board)[1]
+
+
 def causalite(settings: Settings | None, tests: list[Test], source: Source, *, out_dir: Path, now: datetime,
               n_paires: int = 12, progress: Callable[[str], None] | None = None) -> dict:
     """Causalité de chaque test codé (§ 7) sur un échantillon de paires de la découverte, puis les quatre mutations
-    exigées. Aucun rendement : seuls des signaux sont recalculés."""
+    exigées. Forme (b) : panneau COMPLET de la source (toutes les paires, BTC et ETH compris), instants pris dans le
+    calendrier de décision du test. EV02 : paires du recensement cotées pendant l'étape, tous leurs instants de signal.
+    Aucun rendement : seuls des signaux et des poids sont recalculés."""
     say = progress or (lambda _t: None)
     rng = np.random.default_rng(20261012)
     symbols = list(source.symboles)
     chosen = sorted(rng.choice(symbols, size=min(n_paires, len(symbols)), replace=False).tolist())
     pairs = [p for p in (source.paire(s) for s in chosen) if p is not None]
     out: dict = {"date": now.isoformat(), "source": source.nom, "paires": [p.symbole for p in pairs], "tests": {}}
+    board = None
+    if any(t.forme != FORME_A for t in tests):
+        say("panneau complet")
+        daily = {}
+        for s in symbols:
+            pair = source.paire(s)
+            if pair is not None:
+                daily[s] = pair.unite(DAY_H)
+        board = panneau(daily, source.univers, jusqu_a_jour=DECOUVERTE.fin_jour)
+        out["panneau_paires"] = len(daily)
+    census_pairs: list[Paire] = []
+    if any(t.univers == "recensement" for t in tests):
+        census = source.quotidien_recensement()
+        listed = sorted(s for s, b in census.items() if len(b) and
+                        DECOUVERTE.debut_jour <= int(b.ouverture_h[0]) // DAY_H <= DECOUVERTE.fin_jour)
+        picks = sorted(rng.choice(listed, size=min(3 * n_paires, len(listed)), replace=False).tolist()) if listed else []
+        census_pairs = [p for p in (source.paire_recensement(s) for s in picks) if p is not None]
+        out["paires_recensement"] = [p.symbole for p in census_pairs]
     for test in tests:
         say(test.id)
-        if test.forme == FORME_A:
+        if test.forme == FORME_A and test.univers == "recensement":
+            fn = test.strategie_fonction()
+            total = Rapport(test.id)
+            for pair in census_pairs:
+                bars = pair.unite(test.execution_heures)
+                ctx = contexte(test, pair, DECOUVERTE, source)
+                taus = np.unique(np.r_[instants_aleatoires(bars, DECOUVERTE, 4, rng),
+                                       instants_de_signal(fn, bars, ctx, DECOUVERTE.debut_ns, DECOUVERTE.fin_ns)])
+                rep = verifier(fn, pair.h1, test.execution_heures, ctx, taus, rng=rng, test_id=test.id)
+                total.instants += rep.instants
+                total.instants_signal += int(len(taus))
+                total.ecarts_tronque += rep.ecarts_tronque
+                total.ecarts_falsifie += rep.ecarts_falsifie
+            out["tests"][test.id] = total.resume()
+        elif test.forme == FORME_A:
             def ctx_of(pair: Paire, test: Test = test) -> Contexte:
                 return contexte(test, pair, DECOUVERTE, source)
             out["tests"][test.id] = verifier_test(test, pairs, DECOUVERTE, ctx_of).resume()
         else:
-            daily = {p.symbole: p.unite(DAY_H) for p in pairs}
-            board = panneau(daily, source.univers, jusqu_a_jour=DECOUVERTE.fin_jour)
+            assert board is not None
             ctx = Contexte("", DAY_H, test.params, DECOUVERTE.debut_ns, externes=MappingProxyType(source.externes),
                            evenements=MappingProxyType(source.evenements), univers=source.univers)
-            _, decisions, _ = decisions_hebdomadaires(board)
+            decisions = _decisions_de(test, board)
             pool = decisions[(decisions >= DECOUVERTE.debut_ns) & (decisions <= DECOUVERTE.fin_ns)]
             taus = np.sort(rng.choice(pool, size=min(INSTANTS_MIN, len(pool)), replace=False))
             out["tests"][test.id] = verifier_portefeuille(test.strategie_fonction(), board, ctx, taus, test.id).resume()

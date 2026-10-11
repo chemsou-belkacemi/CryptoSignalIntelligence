@@ -291,6 +291,10 @@ class MesureA:
     def n_transactions(self) -> int:
         return int(sum(len(t) for t in self.transactions.values()))
 
+    def exposition_moyenne(self) -> float:
+        """L'effet planté est déjà par jour d'exposition (`δ × e`) : facteur 1."""
+        return 1.0
+
     def numerateur(self, scenario: str, delta: float = 0.0) -> np.ndarray:
         cost = self.c[scenario] if scenario != NUL else 0.0
         return self.g + delta * self.e - cost - self.ref
@@ -513,6 +517,19 @@ class MesureB:
     meilleure_paire: bool = False
     forme: str = "b"
     descriptif: dict = field(default_factory=dict)
+    #: exposition moyenne de la stratégie pendant chaque semaine (Σ des poids cibles, pondérée par la durée)
+    exposition_hebdo: np.ndarray | None = None
+
+    def exposition_moyenne(self) -> float:
+        return float(self.exposition_hebdo.mean()) if self.exposition_hebdo is not None and \
+            len(self.exposition_hebdo) else self.exposition
+
+    def _effet(self, delta: float) -> np.ndarray | float:
+        """Effet planté (contrôle de puissance) : `δ` par semaine d'exposition PLEINE, proportionnel à l'exposition de
+        la semaine (une stratégie jamais investie ne reçoit rien)."""
+        if delta == 0:
+            return 0.0
+        return delta * (self.exposition_hebdo if self.exposition_hebdo is not None else 1.0)
 
     @property
     def n_transactions(self) -> int:
@@ -522,7 +539,7 @@ class MesureB:
              sans_paire: str | None = None, niveau: float = 0.95, min_blocs: int = MIN_BLOCS,
              min_transactions: int = 0, contre_zero: bool = False) -> Stat | None:
         """Excès hebdomadaire moyen sur la référence (`contre_zero` sans effet : la forme (b) n'a pas changé)."""
-        x = self.exces[scenario] + delta
+        x = self.exces[scenario] + self._effet(delta)
         ones = np.ones(len(x))
         if garder is not None:
             x, ones = x * garder, ones * garder
@@ -543,7 +560,7 @@ class MesureB:
 
     def contributions_annees(self, scenario: str = CENTRAL, delta: float = 0.0) -> dict[int, float]:
         years = annee_du_jour(self.semaines)
-        x = self.exces[scenario] + delta
+        x = self.exces[scenario] + self._effet(delta)
         return {int(y): float(x[years == y].sum()) for y in np.unique(years)}
 
     def masque_sans_annee(self, annee: int) -> np.ndarray:
@@ -634,13 +651,27 @@ def mesurer_b(test: Test, poids: Poids, grilles: dict[str, Grille], etape: Etape
     diff = (a.poids_apres[:-1] - b.poids_apres[:-1]) * step
     diff[np.arange(len(times) - 1) < week_index[0]] = 0.0
     week_of = np.searchsorted(week_index, np.arange(len(times) - 1), side="right") - 1
+    current = np.zeros(len(times))
+    last_target = 0.0
+    sums = full_targets.sum(axis=1)
+    for k in range(len(times)):
+        if is_exec[k]:
+            last_target = float(sums[k])
+        current[k] = last_target
+    span = np.diff(times).astype(float)
+    step_week = np.clip(week_of, 0, len(weeks) - 1)
+    valid = np.arange(len(times) - 1) >= week_index[0]
+    weekly_time = np.bincount(step_week, weights=span * valid, minlength=len(weeks))[:len(weeks)]
+    weekly_expo = np.bincount(step_week, weights=current[:-1] * span * valid, minlength=len(weeks))[:len(weeks)]
+    exposition_hebdo = np.where(weekly_time > 0, weekly_expo / np.maximum(weekly_time, 1e-12), 0.0)
     contributions = {}
     for k, symbol in enumerate(poids.symboles):
         per_week = np.bincount(np.clip(week_of, 0, len(weeks) - 1), weights=diff[:, k], minlength=len(weeks))
         if np.abs(per_week).sum() > 0:
             contributions[symbol] = per_week[:len(weeks)]
     return MesureB(test.id, etape, weeks, excess, strategy, reference, contributions, exposure, sims[CENTRAL][0].rotation,
-                   test.meilleure_paire, descriptif={"exposition_moyenne": round(exposure, 4),
+                   test.meilleure_paire, exposition_hebdo=exposition_hebdo,
+                   descriptif={"exposition_moyenne": round(exposure, 4),
                                                      "part_a": share_a,
                                                      "rotation_par_echange": round(sims[CENTRAL][0].rotation /
                                                                                    max(len(exec_h), 1), 4)})
@@ -670,8 +701,8 @@ def placebos_a(mesure: MesureA, positions: dict[str, Positions], grilles: dict[s
     signal_net: list[np.ndarray] = []
     placebo_net: list[np.ndarray] = []
     for symbol, pos in positions.items():
-        if len(pos) == 0:
-            continue
+        if len(pos) == 0 or symbol not in grilles or symbol not in je.membre:
+            continue                      # univers d'exception (EV02) : pas de placebo de membre, déclaré
         grid = grilles[symbol]
         member_days = je.jours[je.membre.get(symbol, np.zeros(len(je.jours), bool))]
         if len(member_days) == 0:

@@ -288,16 +288,19 @@ def generer_ev02(commun: Commun, marche: str, cotations: dict[str, pd.Timestamp]
 
 
 def annonces_ev02(annonces: pd.DataFrame, cotations: dict[str, pd.Timestamp]) -> pd.DataFrame:
-    """Calendrier réel des annonces `COTATION_SPOT` ; une paire sans annonce reçoit une annonce 24 h avant sa
-    cotation (§ 8.1)."""
-    spot = annonces[annonces["category"] == "COTATION_SPOT"] if len(annonces) else annonces
+    """Calendrier réel des annonces `COTATION_SPOT` (même correspondance annonce → paire que la stratégie EV02,
+    `strategies.events.annonces_de`) ; une paire sans annonce reçoit une annonce 24 h avant sa cotation (§ 8.1).
+    Colonnes : symbol, event_time, available_at (publication + 10 min), reelle."""
+    from .strategies.events import annonces_de
     rows = []
     for sym, first in cotations.items():
-        base = sym.removesuffix("USDT")
-        hits = spot[spot["tickers"].fillna("").str.split(",").apply(lambda t, b=base: b in t)] if len(spot) else spot
-        when = pd.to_datetime(hits["event_time"], utc=True).min() if len(hits) else pd.NaT
-        if pd.isna(when):
+        known = annonces_de(annonces, sym, "COTATION_SPOT") if len(annonces) else np.zeros(0, dtype=np.int64)
+        if len(known):
+            available = pd.Timestamp(int(known[0]), tz="UTC")
+            rows.append({"symbol": sym, "event_time": available - pd.Timedelta(minutes=10), "available_at": available,
+                         "reelle": True})
+        else:
             when = pd.Timestamp(first).floor("D") - pd.Timedelta(hours=24)
-        rows.append({"symbol": sym, "event_time": when, "available_at": when + pd.Timedelta(minutes=10),
-                     "reelle": bool(len(hits))})
-    return pd.DataFrame(rows)
+            rows.append({"symbol": sym, "event_time": when, "available_at": when + pd.Timedelta(minutes=10),
+                         "reelle": False})
+    return pd.DataFrame(rows, columns=["symbol", "event_time", "available_at", "reelle"])

@@ -109,8 +109,9 @@ def test_cotations_ev02_aux_dates_reelles_et_annonces():
     daily = S.generer_ev02(commun, "H0a", cotations)
     assert daily["XXXUSDT"].ouverture_h[0] == S.heure(pd.Timestamp("2020-05-03", tz="UTC"))
     assert (daily["YYYUSDT"].cloture > 0).all()
-    ann = pd.DataFrame({"category": ["COTATION_SPOT"], "tickers": ["XXX"],
-                        "event_time": [pd.Timestamp("2020-05-01 10:00", tz="UTC")]})
+    ann = pd.DataFrame({"category": ["COTATION_SPOT"], "tickers": ["XXX"], "detail": ["Binance Will List X (XXX)"],
+                        "event_time": [pd.Timestamp("2020-05-01 10:00", tz="UTC")],
+                        "available_at": [pd.Timestamp("2020-05-01 10:10", tz="UTC")]})
     out = S.annonces_ev02(ann, cotations).set_index("symbol")
     assert out.loc["XXXUSDT", "reelle"] and out.loc["XXXUSDT", "event_time"] == pd.Timestamp("2020-05-01 10:00", tz="UTC")
     assert not out.loc["YYYUSDT", "reelle"]

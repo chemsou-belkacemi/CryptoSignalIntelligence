@@ -49,7 +49,7 @@ from .decide import (
 from .measure import NUL
 from .run import Source, mesurer_tout
 from .spec import FORME_A, PAR_ID, Test
-from .synth import MARCHES, SYMBOLES, Commun, generer_paire, univers_synthetique
+from .synth import MARCHES, SYMBOLES, Commun, generer_ev02, generer_paire, univers_synthetique
 
 STUDY, CONTROL_KIND = "ZOO", "H0_ZOO_V1"
 REPLIQUES = 200
@@ -66,8 +66,10 @@ class SourceSynthetique(Source):
 
     def __init__(self, replique: int, marche: str, *, externes: dict[str, SerieExterne] | None = None,
                  evenements: dict[str, pd.DataFrame] | None = None, n_paires: int | None = None,
-                 commun: Commun | None = None):
+                 commun: Commun | None = None, cotations: dict[str, pd.Timestamp] | None = None):
         self.replique, self.marche = replique, marche
+        self.cotations = cotations or {}
+        self._recensement: dict[str, Bougies] | None = None
         self.commun = commun or Commun.tirer(replique)
         self.externes = externes or {}
         self.evenements = evenements or {}
@@ -89,6 +91,13 @@ class SourceSynthetique(Source):
 
     def paire(self, symbole: str) -> Paire | None:
         return generer_paire(self.commun, self.marche, self._index[symbole])
+
+    def quotidien_recensement(self) -> dict[str, Bougies]:
+        """EV02 : une paire synthétique par paire USDT du recensement, cotée à la date réelle de sa première bougie
+        (`synth.generer_ev02`, bougies journalières seulement)."""
+        if self._recensement is None:
+            self._recensement = generer_ev02(self.commun, self.marche, self.cotations) if self.cotations else {}
+        return self._recensement
 
 
 # --- Une réplique ------------------------------------------------------------------------------------------------
@@ -114,10 +123,15 @@ def _validation(mesure, scenarios, delta: float = 0.0) -> dict:
 
 
 def _cout_moyen(mesure) -> float | None:
-    """Coût central moyen par jour d'exposition (forme a) ou par semaine (forme b) : statistique à frais nuls moins
-    statistique en central, sur la même réplique."""
+    """Coût central moyen par unité d'effet planté : par jour d'exposition (forme a) ; par semaine d'exposition PLEINE
+    (forme b : l'effet est planté proportionnellement à l'exposition de chaque semaine). Statistique à frais nuls
+    moins statistique en central, sur la même réplique, divisée par l'exposition moyenne. None : rien à planter
+    (stratégie jamais investie, ou insuffisante)."""
     a, b = mesure.stat(NUL, min_blocs=2, min_transactions=0), mesure.stat(CENTRAL, min_blocs=2, min_transactions=0)
-    return None if a is None or b is None else a.stat - b.stat
+    exposure = mesure.exposition_moyenne()
+    if a is None or b is None or exposure <= 1e-9:
+        return None
+    return (a.stat - b.stat) / exposure
 
 
 def resumer_marche(mesures: dict, tests: list[Test], marche: str) -> dict:
@@ -135,7 +149,7 @@ def resumer_marche(mesures: dict, tests: list[Test], marche: str) -> dict:
             power: dict[str, Any] = {}
             for g in effects:
                 if cd is None:
-                    power[str(g)] = None
+                    power[str(g)] = None          # jamais investie : aucun effet ne peut y être vu
                     continue
                 power[str(g)] = {"d": _decouverte(md, DECISION, g + cd),
                                  "v": _validation(mv, DECISION, g + (cv if cv is not None else cd))}
@@ -145,7 +159,7 @@ def resumer_marche(mesures: dict, tests: list[Test], marche: str) -> dict:
 
 
 def replique(k: int, test_ids: list[str], marches: tuple[str, ...] = MARCHES, *, n_paires: int | None = None,
-             externes: dict | None = None, evenements: dict | None = None) -> dict:
+             externes: dict | None = None, evenements: dict | None = None, cotations: dict | None = None) -> dict:
     """Une réplique complète (les marchés demandés), réduite à ce dont les critères ont besoin."""
     tests = [PAR_ID[t] for t in test_ids]
     commun = Commun.tirer(k)
@@ -153,7 +167,7 @@ def replique(k: int, test_ids: list[str], marches: tuple[str, ...] = MARCHES, *,
     for marche in marches:
         start = time.perf_counter()
         source = SourceSynthetique(k, marche, externes=externes, evenements=evenements, n_paires=n_paires,
-                                   commun=commun)
+                                   commun=commun, cotations=cotations)
         mesures, _ = mesurer_tout(tests, source, [DECOUVERTE, VALIDATION], garder_transactions=False)
         out["marches"][marche] = resumer_marche(mesures, tests, marche)
         out["secondes"][marche] = round(time.perf_counter() - start, 1)
@@ -169,12 +183,13 @@ def memoire_pic_mo() -> int:
 
 
 def _travail(args: tuple) -> tuple[int, str]:
-    k, test_ids, marches, out_dir, n_paires, externes, evenements = args
+    k, test_ids, marches, out_dir, n_paires, externes, evenements, cotations = args
     path = Path(out_dir) / "repliques" / f"{k:03d}.json"
     if path.exists():
         return k, "deja_faite"
     os.environ.setdefault("OMP_NUM_THREADS", "1")
-    summary = replique(k, test_ids, marches, n_paires=n_paires, externes=externes, evenements=evenements)
+    summary = replique(k, test_ids, marches, n_paires=n_paires, externes=externes, evenements=evenements,
+                       cotations=cotations)
     summary["memoire_pic_mo"] = memoire_pic_mo()
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(summary, ensure_ascii=False, default=float), encoding="utf-8")
@@ -274,30 +289,30 @@ def criteres(resumes: list[dict], test_ids: list[str]) -> dict:
             "retires": {t: v["statut"] for t, v in per_test.items() if not v["passes"]}}
 
 
-def externes_reels(settings, test_ids: list[str]) -> tuple[dict, dict]:
-    """Séries et calendriers RÉELS (inchangés) des tests qui en lisent (AM, SE, CA, EV02), coupés au 2025-06-30.
-    Le moteur les passe tels quels aux stratégies : sur des cryptos synthétiques indépendantes, la nulle reste exacte."""
-    from .data import HARD_END, charger_evenements, charger_serie
-    families = {PAR_ID[t].famille for t in test_ids}
-    series: dict = {}
-    events: dict = {}
-    if families & {"AM"}:
-        for key in ("SP500", "NASDAQ100", "GLD", "DGS10", "VIXCLS"):
-            series[f"zoo_marches:{key}"] = charger_serie(settings, "zoo_marches", key, HARD_END)
-        series["zoo_dollar_bce:DXY_BCE"] = charger_serie(settings, "zoo_dollar_bce", "DXY_BCE", HARD_END)
-    if families & {"SE"}:
-        series["zoo_fear_greed:fear_greed"] = charger_serie(settings, "zoo_fear_greed", "fear_greed", HARD_END)
-    if families & {"CA"}:
-        events["calendrier_macro"] = charger_evenements(settings, "calendrier_macro", HARD_END)
-        events["calendrier_crypto"] = charger_evenements(settings, "calendrier_crypto", HARD_END)
-    if families & {"EV"}:
-        events["annonces_binance"] = charger_evenements(settings, "annonces_binance", HARD_END)
-    return series, events
+def externes_reels(settings, test_ids: list[str]) -> tuple[dict, dict, dict]:
+    """Séries et calendriers RÉELS (inchangés) des tests qui en lisent (AM, SE, CA), coupés au 2025-06-30 (même lecture
+    que l'exécution réelle, `reel.externes_pour`) ; sur des cryptos synthétiques indépendantes, la nulle reste exacte.
+    EV02 : cotations aux dates RÉELLES des premières bougies du recensement, annonces à l'heure réelle de leur annonce
+    `COTATION_SPOT` (sinon 24 h avant la cotation) : la table d'annonces passée aux stratégies est la table synthétique
+    (`synth.annonces_ev02`). Rend (séries, événements, cotations)."""
+    from .data import HARD_END, charger_quotidien_recensement
+    from .reel import externes_pour
+    from .synth import annonces_ev02
+    tests = [PAR_ID[t] for t in test_ids]
+    series, events = externes_pour(settings, tests, HARD_END)
+    cotations: dict = {}
+    if any(t.famille == "EV" for t in tests):
+        daily = charger_quotidien_recensement(settings, HARD_END)
+        first = pd.to_datetime(daily.groupby("symbol")["day"].min(), utc=True)
+        cotations = {str(s): pd.Timestamp(d) for s, d in first.items()}
+        events["annonces_binance"] = annonces_ev02(events.get("annonces_binance", pd.DataFrame()), cotations)
+    return series, events, cotations
 
 
 def executer(out_dir: Path, test_ids: list[str], *, repliques: int = REPLIQUES, workers: int = 2,
              marches: tuple[str, ...] = MARCHES, n_paires: int | None = None, mini: bool = False,
-             externes: dict | None = None, evenements: dict | None = None, commit: str = "",
+             externes: dict | None = None, evenements: dict | None = None, cotations: dict | None = None,
+             commit: str = "",
              now: datetime | None = None, progress: Callable[[str], None] | None = None) -> dict:
     """Contrôle sous H0 : répliques (reprise possible), puis critères ; écrit `criteres.json` et son empreinte."""
     say = progress or (lambda _t: None)
@@ -313,7 +328,7 @@ def executer(out_dir: Path, test_ids: list[str], *, repliques: int = REPLIQUES, 
         raise ValueError("un contrôle différent a déjà commencé dans ce dossier : reprise refusée")
     plan_path.write_text(json.dumps(plan, indent=2, ensure_ascii=False), encoding="utf-8")
     started = time.perf_counter()
-    jobs = [(k, test_ids, marches, str(out_dir), n_paires, externes, evenements) for k in range(repliques)]
+    jobs = [(k, test_ids, marches, str(out_dir), n_paires, externes, evenements, cotations) for k in range(repliques)]
     workers = max(1, min(workers, MAX_WORKERS))
     if workers == 1:
         for job in jobs:

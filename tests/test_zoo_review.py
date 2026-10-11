@@ -1,4 +1,4 @@
-"""Garde d'exécution du zoo (docs/ZOO.md § 7, § 8.4) et registre des 257 tests (§ 12) : l'exécution réelle refuse sans
+"""Garde d'exécution du zoo (docs/ZOO.md § 7, § 8.4) et registre des 239 tests (§ 12) : l'exécution réelle refuse sans
 relecture, configuration, contrôle H0 et comptage inscrits ; mini-contrôle jamais inscriptible."""
 from __future__ import annotations
 
@@ -19,10 +19,13 @@ from .conftest import PROJECT
 
 # --- Registre ---------------------------------------------------------------------------------------------------
 
-def test_registre_257_tests():
+def test_registre_239_tests():
     counts = S.verifier_registre()
-    assert sum(counts.values()) == 257 and counts["TR"] == 83
-    assert sum(t.forme == "a" for t in S.TESTS) == 225 and sum(t.forme == "b" for t in S.TESTS) == 32
+    assert sum(counts.values()) == 239 and counts["TR"] == 83 and counts["CH"] == 29 and counts["AN"] == 5
+    assert sum(t.forme == "a" for t in S.TESTS) == 207 and sum(t.forme == "b" for t in S.TESTS) == 32
+    removed = {"CH02", "CH11", "CH12", "CH15", "CH16", "AN05"}
+    assert not removed & {t.strategie for t in S.TESTS}
+    assert "chaque mois" in S.PAR_ID["PF05_1j"].entree
 
 
 def test_parametres_du_registre():
@@ -44,12 +47,21 @@ def test_fonctions_codees_ou_non_implementees_explicites():
     bars = Bougies(1, *(np.zeros(3) for _ in range(9)))
     for test in S.TESTS:
         fn = test.strategie_fonction()
-        if test.famille == "TR":
-            assert test.etat_code == S.CODE
+        assert callable(fn)
+        if test.etat_code == S.CODE:
             continue
-        assert test.etat_code == S.A_CODER
         with pytest.raises(NotImplementedError, match="à coder"):
             fn(bars, Contexte("X", 1, test.params, 0))
+
+
+def _un_test_non_code(monkeypatch) -> str:
+    """Un test non codé : le premier qui l'est déjà, sinon un test codé rendu « à coder » le temps du test."""
+    pending = [t.id for t in S.TESTS if t.etat_code != S.CODE]
+    if pending:
+        return pending[0]
+    from crypto_signal_intelligence.research.zoo.strategies import trend
+    monkeypatch.setattr(trend, "IMPLEMENTEES", trend.IMPLEMENTEES - {"au_dessus_sma"})
+    return "TR10_1j"
 
 
 # --- Garde ------------------------------------------------------------------------------------------------------
@@ -106,14 +118,14 @@ def test_controle_h0_inscrit(tmp_path):
         R.controle_inscrit("", root=PROJECT)
 
 
-def test_comptage_inscrit_et_tests_codes(tmp_path):
+def test_comptage_inscrit_et_tests_codes(tmp_path, monkeypatch):
     ok = {"study": "ZOO", "etape": "decouverte"}
     assert R.comptage_inscrit(_inscrire(tmp_path / "c.json", ok))["etape"] == "decouverte"
     with pytest.raises(R.NotReady):
         R.comptage_inscrit(_inscrire(tmp_path / "v.json", ok | {"etape": "validation"}))
     R.exiger_codes(["TR01_1h", "TR37_1j"])
     with pytest.raises(R.NotReady, match="non codés"):
-        R.exiger_codes(["TR01_1h", "MR01_1j"])
+        R.exiger_codes(["TR01_1h", _un_test_non_code(monkeypatch)])
 
 
 def test_cli_executer_refuse_sans_option_et_sans_inscription(settings, monkeypatch):

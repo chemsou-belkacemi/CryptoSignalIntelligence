@@ -129,7 +129,7 @@ def controle_inscrit(inscription: str | None = None, *, root: Path | None = None
     if report.get("mini"):
         raise NotReady("mini-contrôle : jamais inscriptible (vérification de fonctionnement seulement)")
     if set(report.get("tests", [])) != {t.id for t in TESTS}:
-        raise NotReady("contrôle sous H0 incomplet : les 257 tests doivent y passer")
+        raise NotReady(f"contrôle sous H0 incomplet : les {len(TESTS)} tests doivent y passer")
     if report.get("repliques", 0) < max(MIN_REPLIQUES["H0a"], MIN_REPLIQUES["H0b"]):
         raise NotReady("contrôle sous H0 sous 100 répliques : refusé (§ 8.4)")
     commit = str(report.get("commit", ""))

@@ -1,4 +1,4 @@
-"""Registre déclaratif des 257 tests du zoo (docs/ZOO.md § 12) et interface UNIQUE des stratégies.
+"""Registre déclaratif des 239 tests du zoo (docs/ZOO.md § 12) et interface UNIQUE des stratégies.
 
 Interface (détaillée dans `research/zoo/README.md`) : une fonction PURE `signal(frame, ctx)`, sur des bougies
 CLOSES, sans I/O, sans réseau, sans état global :
@@ -108,12 +108,16 @@ class Poids:
 @dataclass(frozen=True)
 class Contexte:
     """Ce qu'une stratégie peut lire en plus de ses bougies : paramètres, début de l'étape, bougies journalières de la
-    même paire (tests à exécution 1 h), séries et événements externes (déjà coupés à la borne), univers à date."""
+    même paire (tests à exécution 1 h, coupées à la dernière décision du cadre ; `quotidien_connu[t]` donne la dernière
+    journée connue à la décision `t` : ne jamais lire une journée par son seul indice), séries et événements externes
+    (déjà coupés à la borne), univers à date."""
     symbole: str
     unite: int
     params: Mapping[str, Any]
     debut_etape_ns: int
     quotidien: Bougies | None = None
+    #: pour chaque bougie du cadre : indice de la dernière bougie journalière CONNUE à sa décision (−1 : aucune)
+    quotidien_connu: np.ndarray | None = None
     externes: Mapping[str, SerieExterne] = field(default_factory=dict)
     evenements: Mapping[str, pd.DataFrame] = field(default_factory=dict)
     univers: Univers | None = None
@@ -279,13 +283,12 @@ _a("VO11", (H,), EVENEMENT, "rendement de 00:00 à 22:00 UTC > 0 (signal à la c
    _p(heure_signal=22), reference=MEME_HEURE)
 
 # Chandeliers (CH) : TA-Lib, tendance préalable du recensement
-for _sid, _func, _trend in (("CH01", "CDLHAMMER", "baissiere"), ("CH02", "CDLINVERTEDHAMMER", "baissiere"),
-                            ("CH03", "CDLENGULFING", "baissiere"), ("CH04", "CDLHARAMI", "baissiere"),
-                            ("CH05", "CDLHARAMICROSS", "baissiere"), ("CH08", "CDLDRAGONFLYDOJI", "baissiere"),
-                            ("CH10", "CDL3WHITESOLDIERS", "haussiere"), ("CH11", "CDL3INSIDE", "baissiere"),
-                            ("CH12", "CDL3OUTSIDE", "baissiere"), ("CH13", "CDLBELTHOLD", "baissiere"),
-                            ("CH15", "CDLRISEFALL3METHODS", "haussiere"), ("CH16", "CDLHOMINGPIGEON", "baissiere"),
-                            ("CH17", "CDLMATCHINGLOW", "baissiere")):
+# CH02, CH11, CH12, CH15, CH16 : IMPOSSIBLE (raison 7, décision de mise en œuvre du 2026-10-11) — leur définition
+# TA-Lib exige un écart d'ouverture, inexistant quand l'ouverture est la clôture précédente (comme CH06/07/09/14/18).
+for _sid, _func, _trend in (("CH01", "CDLHAMMER", "baissiere"), ("CH03", "CDLENGULFING", "baissiere"),
+                            ("CH04", "CDLHARAMI", "baissiere"), ("CH05", "CDLHARAMICROSS", "baissiere"),
+                            ("CH08", "CDLDRAGONFLYDOJI", "baissiere"), ("CH10", "CDL3WHITESOLDIERS", "haussiere"),
+                            ("CH13", "CDLBELTHOLD", "baissiere"), ("CH17", "CDLMATCHINGLOW", "baissiere")):
     _a(_sid, TROIS, EVENEMENT, f"figure TA-Lib {_func} haussière à t, tendance préalable {_trend} (SMA 10)", "aucune",
        10, "candles:figure", _p(talib=_func, tendance=_trend, sma=10))
 _a("CH20", TROIS, EVENEMENT, "1re bougie Heikin Ashi haussière sans mèche basse après une baissière",
@@ -359,8 +362,7 @@ _a("RG06", (J,), ETAT, "pente de la tendance de Haar (niveau 3, passé seul) > 0
    _p(niveau=3))
 _a("RG07", (Q, J), EVENEMENT, "sinusoïde d'Ehlers croise au-dessus de sa version avancée", "croisement inverse", None,
    "regimes:sinusoide_ehlers", _p())
-_a("AN05", TROIS, EVENEMENT, "dernière jambe haussière ZigZag confirmée : contact de la zone 62-79 % puis 1re clôture "
-   "> 62 %", "clôture ≥ sommet de la jambe, ou < son creux", 20, "analysts:ote", _p(bas=0.62, haut=0.79))
+# AN05 (zone OTE 62-79 %) : retiré du zoo, doublon de ST05 (Fibonacci 61,8 %, « déjà vu : ST05 »), 2026-10-11.
 _a("AN06", (H, Q), EVENEMENT, "1er retour dans un breaker haussier, clôture au-dessus de la zone",
    "clôture sous la zone", 10, "analysts:breaker", _p())
 _a("AN09", (Q, J), EVENEMENT, "pivots confirmés : clôture > sommet de la vague 1 après une vague 2 de 38,2 à 78,6 %",
@@ -405,7 +407,7 @@ for _sid, _series, _rule in (("AM01", "SP500", "rendement 20 séances > 0"), ("A
                              ("AM08", "VIXCLS", "sous sa médiane des 365 jours précédents")):
     _b(_sid, QUOTIDIENNE, f"100 % BTC si {_series} : {_rule}, sinon USDT", EXPOSITION_EGALE, "other_markets:btc_si",
        _p(serie=_series, regle=_rule), univers="btc")
-_b("PF05", MENSUELLE, "top 40 à poids égaux rééquilibré chaque semaine", PANIER_FLOTTANT, "portfolio:poids_egaux", _p())
+_b("PF05", MENSUELLE, "top 40 à poids égaux rééquilibré chaque mois", PANIER_FLOTTANT, "portfolio:poids_egaux", _p())
 _b("PF06", MENSUELLE, "poids ∝ 1 / volatilité journalière sur 30 j", UNIVERS_TOP40, "portfolio:inverse_volatilite",
    _p(jours=30))
 _b("PF07", MENSUELLE, "minimum de variance long seul (covariance 90 j rétrécie de Ledoit-Wolf)", UNIVERS_TOP40,
@@ -415,19 +417,21 @@ _b("PF09", MENSUELLE, "60 % BTC, 40 % ETH", UNIVERS_TOP40, "portfolio:btc_eth", 
 TESTS: tuple[Test, ...] = tuple(_TESTS)
 PAR_ID: Mapping[str, Test] = MappingProxyType({t.id: t for t in TESTS})
 #: Nombre de tests par famille (docs/ZOO_CATALOGUE.md, « Comptes »).
-ATTENDU_PAR_FAMILLE = MappingProxyType({"TR": 83, "MR": 23, "VO": 14, "CH": 44, "ST": 22, "VF": 21, "XS": 13, "RO": 4,
-                                        "AM": 7, "CA": 4, "SE": 2, "EV": 1, "RG": 7, "PF": 4, "AN": 8})
+ATTENDU_PAR_FAMILLE = MappingProxyType({"TR": 83, "MR": 23, "VO": 14, "CH": 29, "ST": 22, "VF": 21, "XS": 13, "RO": 4,
+                                        "AM": 7, "CA": 4, "SE": 2, "EV": 1, "RG": 7, "PF": 4, "AN": 5})
+#: Nombre de tests (révision du 2026-10-11 : 257 − 15 chandeliers à écart d'ouverture − 3 AN05 = 239).
+N_TESTS, N_FORME_A, N_FORME_B = 239, 207, 32
 
 
 def verifier_registre() -> dict[str, int]:
-    """257 tests, 225 de forme (a) et 32 de forme (b), comptes par famille du recensement, identifiants uniques."""
+    """239 tests, 207 de forme (a) et 32 de forme (b), comptes par famille du recensement, identifiants uniques."""
     counts = Counter(t.famille for t in TESTS)
     problems = []
-    if len(TESTS) != 257 or len(PAR_ID) != 257:
-        problems.append(f"{len(TESTS)} tests ({len(PAR_ID)} identifiants uniques) au lieu de 257")
+    if len(TESTS) != N_TESTS or len(PAR_ID) != N_TESTS:
+        problems.append(f"{len(TESTS)} tests ({len(PAR_ID)} identifiants uniques) au lieu de {N_TESTS}")
     forms = Counter(t.forme for t in TESTS)
-    if forms != Counter({FORME_A: 225, FORME_B: 32}):
-        problems.append(f"formes {dict(forms)} au lieu de 225 / 32")
+    if forms != Counter({FORME_A: N_FORME_A, FORME_B: N_FORME_B}):
+        problems.append(f"formes {dict(forms)} au lieu de {N_FORME_A} / {N_FORME_B}")
     if dict(counts) != dict(ATTENDU_PAR_FAMILLE):
         problems.append(f"familles {dict(counts)} au lieu de {dict(ATTENDU_PAR_FAMILLE)}")
     if problems:

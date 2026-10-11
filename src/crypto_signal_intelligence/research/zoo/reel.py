@@ -24,6 +24,7 @@ from .data import (
     DECOUVERTE,
     HARD_END,
     VALIDATION,
+    Bougies,
     Etape,
     Paire,
     borne_lecture,
@@ -34,13 +35,14 @@ from .data import (
     charger_univers,
     eligibles_f31,
     mois_de,
+    quotidien_recensement_bougies,
     recensement,
 )
 from .decide import CANDIDATE, decouverte, valider
 from .h0 import STUDY
 from .measure import MesureA, MesureB, descriptif_a, descriptif_b, placebos_a
-from .run import Source, compter, mesurer_paires, mesurer_portefeuilles, references
-from .spec import FORME_A, FORME_B, PAR_ID, TESTS, Test
+from .run import Source, compter, mesurer_tout_detail
+from .spec import PAR_ID, TESTS, Test
 
 KIND = "ZOO"
 STRATEGIES = {"decouverte": "ZOO_DECOUVERTE", "validation": "ZOO_VALIDATION"}
@@ -63,6 +65,13 @@ class SourceMagasin(Source):
         self.symboles = sorted(set().union(*(self.univers.membres_du_mois(m) for m in months)))
         self.externes, self.evenements = externes_pour(settings, tests, self.fin)
         self.manquantes: list[str] = []
+        self._recensement: dict[str, Bougies] | None = None
+
+    def quotidien_recensement(self) -> dict[str, Bougies]:
+        """EV02 : clôtures journalières de toutes les paires USDT retenues du recensement, coupées à la borne."""
+        if self._recensement is None:
+            self._recensement = quotidien_recensement_bougies(charger_quotidien_recensement(self.settings, self.fin))
+        return self._recensement
 
     def paire(self, symbole: str) -> Paire | None:
         pair = charger_paire(self.settings, symbole, self.fin)
@@ -71,13 +80,26 @@ class SourceMagasin(Source):
         return pair
 
 
+#: Séries externes des tests AM : clé → (série du magasin, clé, CHAMP). GLD est rangé sous « close » (cours de l'ETF,
+#: `context/zoo.gld`), les séries FRED et BCE sous « value ».
+SERIES_AM = {"zoo_marches:SP500": ("zoo_marches", "SP500", "value"),
+             "zoo_marches:NASDAQ100": ("zoo_marches", "NASDAQ100", "value"),
+             "zoo_marches:GLD": ("zoo_marches", "GLD", "close"),
+             "zoo_marches:DGS10": ("zoo_marches", "DGS10", "value"),
+             "zoo_marches:VIXCLS": ("zoo_marches", "VIXCLS", "value"),
+             "zoo_dollar_bce:DXY_BCE": ("zoo_dollar_bce", "DXY_BCE", "value")}
+
+
 def externes_pour(settings: Settings, tests: list[Test], fin: pd.Timestamp) -> tuple[dict, dict]:
+    """Séries et calendriers RÉELS lus par les tests (AM, SE, CA, EV02), coupés à la borne. Une série vide est une
+    erreur (une règle resterait en USDT en silence)."""
     families = {t.famille for t in tests}
     series, events = {}, {}
     if "AM" in families:
-        for key in ("SP500", "NASDAQ100", "GLD", "DGS10", "VIXCLS"):
-            series[f"zoo_marches:{key}"] = charger_serie(settings, "zoo_marches", key, fin)
-        series["zoo_dollar_bce:DXY_BCE"] = charger_serie(settings, "zoo_dollar_bce", "DXY_BCE", fin)
+        for name, (store, key, field) in SERIES_AM.items():
+            series[name] = charger_serie(settings, store, key, fin, champ=field)
+            if len(series[name]) == 0:
+                raise ValueError(f"série externe {name} vide (champ {field}) : vérifier le magasin de contexte")
     if "SE" in families:
         series["zoo_fear_greed:fear_greed"] = charger_serie(settings, "zoo_fear_greed", "fear_greed", fin)
     if "CA" in families:
@@ -233,13 +255,8 @@ def executer_decouverte(settings: Settings, *, now: datetime, progress: Callable
     if differ:
         from .review import NotReady
         raise NotReady(f"comptage différent de celui inscrit ({', '.join(differ[:5])}) : aucun rendement calculé")
-    refs = references(source, [DECOUVERTE], avec_vo11=any(t.reference == "meme_heure" for t in tests), progress=say)
-    form_a = [t for t in tests if t.forme == FORME_A]
-    measured, positions = mesurer_paires(form_a, list(refs.grilles), source, refs, [DECOUVERTE],
-                                         garder_positions=True, progress=say)
+    measured, refs, positions = mesurer_tout_detail(tests, source, [DECOUVERTE], garder_positions=True, progress=say)
     mesures: dict[str, MesureA | MesureB] = {t: m for (t, _), m in measured.items()}
-    mesures |= {t: m for (t, _), m in mesurer_portefeuilles([t for t in tests if t.forme == FORME_B], refs,
-                                                            [DECOUVERTE], source).items()}
     decisions, summary = decouverte(mesures)
     eligible = eligibles_f31(recensement(settings))
     details = {}
@@ -294,12 +311,8 @@ def executer_validation(settings: Settings, *, now: datetime, progress: Callable
     exiger_codes(candidates)
     tests = [PAR_ID[t] for t in candidates]
     source = SourceMagasin(settings, VALIDATION, tests)
-    refs = references(source, [VALIDATION], avec_vo11=any(t.reference == "meme_heure" for t in tests), progress=say)
-    measured, _ = mesurer_paires([t for t in tests if t.forme == FORME_A], list(refs.grilles), source, refs,
-                                 [VALIDATION], progress=say)
+    measured, refs, _ = mesurer_tout_detail(tests, source, [VALIDATION], progress=say)
     mesures: dict[str, MesureA | MesureB] = {t: m for (t, _), m in measured.items()}
-    mesures |= {t: m for (t, _), m in mesurer_portefeuilles([t for t in tests if t.forme == FORME_B], refs,
-                                                            [VALIDATION], source).items()}
     verdicts = valider(mesures)
     run_id = new_run_id("ZOO-VALIDATION")
     m = len(candidates)

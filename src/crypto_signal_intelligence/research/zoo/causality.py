@@ -20,9 +20,10 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 import numpy as np
+import pandas as pd
 
 from . import indicators as ind
-from .data import DAY_H, HOUR_NS, LATENCE_NS, Bougies, Etape, Paire, SerieExterne, agreger, joindre
+from .data import DAY_H, HOUR_NS, LATENCE_NS, Bougies, Etape, Paire, SerieExterne, agreger, en_ns, joindre
 from .spec import Contexte, Panneau, Poids, Signaux, Test
 
 Agregation = Callable[[Bougies, int], Bougies]
@@ -81,6 +82,78 @@ def tronquer_serie(serie: SerieExterne, tau: int) -> SerieExterne:
     return SerieExterne(serie.nom, serie.disponible[keep], serie.date[keep], serie.valeur[keep])
 
 
+def falsifier_serie(serie: SerieExterne, tau: int, rng: np.random.Generator) -> SerieExterne:
+    """Valeurs publiées après τ remplacées par du bruit (mêmes dates, mêmes instants de publication)."""
+    after = serie.disponible > tau
+    if not after.any():
+        return serie
+    scale = float(np.nanstd(serie.valeur)) or 1.0
+    values = serie.valeur.copy()
+    values[after] = rng.normal(float(np.nanmean(serie.valeur)), 3 * scale, int(after.sum()))
+    return SerieExterne(serie.nom, serie.disponible, serie.date, values)
+
+
+#: Calendriers DÉCLARÉS connus à l'avance (docs/ZOO.md § 2 : FOMC, CPI, NFP publiés l'année précédente ; phases
+#: lunaires calculables) : pour la causalité, un événement est réputé connu `HORIZON_CALENDRIERS` avant son heure
+#: (horizon prudent, bien plus court que l'année déclarée ; les règles CA lisent 24 h d'avance au plus).
+CALENDRIERS_CONNUS = frozenset({"calendrier_macro", "calendrier_crypto"})
+HORIZON_CALENDRIERS_NS = 7 * DAY_H * HOUR_NS
+
+
+def _connu_le(name: str, table: pd.DataFrame) -> np.ndarray | None:
+    """Instant (ns) où chaque ligne d'une table d'événements est connue ; None : table sans horodatage."""
+    if len(table) == 0:
+        return None
+    if name in CALENDRIERS_CONNUS and "event_time" in table:
+        return en_ns(table["event_time"]) - HORIZON_CALENDRIERS_NS
+    if "available_at" in table:
+        return en_ns(table["available_at"])
+    if "event_time" in table:
+        return en_ns(table["event_time"])
+    return None
+
+
+def tronquer_evenements(evenements, tau: int) -> dict[str, pd.DataFrame]:
+    """Lignes connues à τ seulement (annonces : `available_at` ≤ τ ; calendriers : heure − horizon ≤ τ)."""
+    out = {}
+    for name, table in evenements.items():
+        known = _connu_le(name, table)
+        out[name] = table if known is None else table[known <= tau].reset_index(drop=True)
+    return out
+
+
+def falsifier_evenements(evenements, tau: int, rng: np.random.Generator) -> dict[str, pd.DataFrame]:
+    """Futur falsifié : les lignes connues après τ sont décalées d'un nombre de jours tiré au hasard (1 à 30)."""
+    out = {}
+    for name, table in evenements.items():
+        known = _connu_le(name, table)
+        if known is None or not (known > tau).any():
+            out[name] = table
+            continue
+        future = known > tau
+        days = np.zeros(len(table), dtype=np.int64)
+        days[future] = rng.integers(1, 31, int(future.sum()))
+        shift = pd.to_timedelta(days, unit="D")
+        fake = table.copy().reset_index(drop=True)
+        for column in ("event_time", "available_at"):
+            if column in fake:
+                fake[column] = pd.to_datetime(fake[column], utc=True) + shift
+        if "key" in fake and name in CALENDRIERS_CONNUS:
+            fake.loc[future, "key"] = pd.to_datetime(fake.loc[future, "event_time"], utc=True).dt.strftime("%Y-%m-%d")
+        out[name] = fake
+    return out
+
+
+def quotidien_coupe(frame_h1: Bougies, frame: Bougies, agregation: Agregation) -> tuple[Bougies, np.ndarray]:
+    """Bougies journalières coupées à la dernière décision du cadre et dernière journée connue à chaque décision
+    (même règle que `run.contexte`)."""
+    daily = _cadre(frame_h1, DAY_H, agregation)
+    if len(frame):
+        daily = daily.filtre(daily.disponible <= frame.disponible[-1])
+    known = np.searchsorted(daily.disponible, frame.disponible, side="right").astype(np.int64) - 1
+    return daily, known
+
+
 def _cadre(h1: Bougies, unit: int, agregation: Agregation) -> Bougies:
     return h1 if unit == 1 else agregation(h1, unit)
 
@@ -98,10 +171,18 @@ def verifier(strategie: Strategie, h1: Bougies, unit: int, ctx: Contexte, instan
     rng = rng or np.random.default_rng(GRAINE)
     report = Rapport(test_id, len(instants), signal_instants)
 
-    def context(frame_h1: Bougies, tau: int | None) -> Contexte:
-        externes = ctx.externes if tau is None else {k: tronquer_serie(v, tau) for k, v in ctx.externes.items()}
-        daily = _cadre(frame_h1, DAY_H, agregation) if quotidien else None
-        return replace(ctx, externes=externes, quotidien=daily)
+    def context(frame_h1: Bougies, tau: int | None, fake: bool = False) -> Contexte:
+        if tau is None:
+            externes, events = dict(ctx.externes), dict(ctx.evenements)
+        elif fake:
+            externes = {k: falsifier_serie(v, tau, rng) for k, v in ctx.externes.items()}
+            events = falsifier_evenements(ctx.evenements, tau, rng)
+        else:
+            externes = {k: tronquer_serie(v, tau) for k, v in ctx.externes.items()}
+            events = tronquer_evenements(ctx.evenements, tau)
+        daily, known = (quotidien_coupe(frame_h1, _cadre(frame_h1, unit, agregation), agregation) if quotidien
+                        else (None, None))
+        return replace(ctx, externes=externes, evenements=events, quotidien=daily, quotidien_connu=known)
 
     full = _flags(strategie, _cadre(h1, unit, agregation), context(h1, None))
     for tau in np.asarray(instants, dtype=np.int64):
@@ -113,7 +194,7 @@ def verifier(strategie: Strategie, h1: Bougies, unit: int, ctx: Contexte, instan
         if diff:
             report.ecarts_tronque.append(f"τ={tau} : {diff}")
         fake = falsifier_h1(h1, tau, rng)
-        got_fake = _flags(strategie, _cadre(fake, unit, agregation), context(fake, None))
+        got_fake = _flags(strategie, _cadre(fake, unit, agregation), context(fake, tau, fake=True))
         diff = _difference(expected, {t: v for t, v in got_fake.items() if t <= tau})
         if diff:
             report.ecarts_falsifie.append(f"τ={tau} : {diff}")
@@ -195,28 +276,50 @@ def verifier_test(test: Test, paires: list[Paire], etape: Etape, ctx_de: Callabl
     return total
 
 
+def _lignes_poids(out: Poids, tau: int) -> dict[int, tuple]:
+    """Tout ce qu'une décision ≤ τ produit : poids, univers de la référence, composantes A et B, « dans A »."""
+    rows = {}
+    for k, d in enumerate(out.decisions):
+        if int(d) > tau:
+            continue
+        rows[int(d)] = tuple(None if arr is None else np.asarray(arr[k], dtype=float)
+                             for arr in (out.poids, out.univers, out.composante_a, out.composante_b, out.dans_a))
+    return rows
+
+
+def _memes(a: dict[int, tuple], b: dict[int, tuple]) -> bool:
+    if set(a) != set(b):
+        return False
+    for d in a:
+        for x, y in zip(a[d], b[d], strict=True):
+            if (x is None) != (y is None) or (x is not None and not np.allclose(x, y, equal_nan=True)):
+                return False
+    return True
+
+
 def verifier_portefeuille(strategie: Callable[[Panneau, Contexte], Poids], board: Panneau, ctx: Contexte,
                           instants: np.ndarray, test_id: str = "?") -> Rapport:
-    """Forme (b) : poids recalculés sur le panneau tronqué aux journées connues à τ, puis avec un futur falsifié."""
+    """Forme (b) : poids (et univers, composantes, « dans A ») recalculés sur le panneau tronqué aux journées connues
+    à τ avec séries et événements coupés, puis avec un futur falsifié (tous les champs, séries, événements)."""
     rng = np.random.default_rng(GRAINE)
     report = Rapport(test_id, len(instants))
     full = strategie(board, ctx)
+    fields = ("ouverture", "haut", "bas", "cloture", "volume", "achat")
     for tau in np.asarray(instants, dtype=np.int64):
+        tau = int(tau)
         n = int((board.disponible <= tau).sum())
-        expected = {int(d): w for d, w in zip(full.decisions, full.poids, strict=True) if d <= tau}
-        cut = strategie(board.tete(n), ctx)
-        got = {int(d): w for d, w in zip(cut.decisions, cut.poids, strict=True) if d <= tau}
-        if set(expected) != set(got) or any(not np.allclose(expected[d], got[d], equal_nan=True) for d in expected):
-            report.ecarts_tronque.append(f"τ={int(tau)}")
-        noise = np.exp(rng.normal(0, 0.05, board.cloture.shape))
-        future = np.arange(len(board.jours)) >= n
-        fake = replace(board, cloture=np.where(future[:, None], board.cloture * noise, board.cloture),
-                       haut=np.where(future[:, None], board.haut * noise * 1.01, board.haut),
-                       bas=np.where(future[:, None], board.bas * noise * 0.99, board.bas))
-        out = strategie(fake, ctx)
-        got = {int(d): w for d, w in zip(out.decisions, out.poids, strict=True) if d <= tau}
-        if set(expected) != set(got) or any(not np.allclose(expected[d], got[d], equal_nan=True) for d in expected):
-            report.ecarts_falsifie.append(f"τ={int(tau)}")
+        expected = _lignes_poids(full, tau)
+        cut_ctx = replace(ctx, externes={k: tronquer_serie(v, tau) for k, v in ctx.externes.items()},
+                          evenements=tronquer_evenements(ctx.evenements, tau))
+        if not _memes(expected, _lignes_poids(strategie(board.tete(n), cut_ctx), tau)):
+            report.ecarts_tronque.append(f"τ={tau}")
+        future = (np.arange(len(board.jours)) >= n)[:, None]
+        noise = {f: np.exp(rng.normal(0, 0.05, board.cloture.shape)) for f in fields}
+        fake = replace(board, **{f: np.where(future, getattr(board, f) * noise[f], getattr(board, f)) for f in fields})
+        fake_ctx = replace(ctx, externes={k: falsifier_serie(v, tau, rng) for k, v in ctx.externes.items()},
+                           evenements=falsifier_evenements(ctx.evenements, tau, rng))
+        if not _memes(expected, _lignes_poids(strategie(fake, fake_ctx), tau)):
+            report.ecarts_falsifie.append(f"τ={tau}")
     return report
 
 

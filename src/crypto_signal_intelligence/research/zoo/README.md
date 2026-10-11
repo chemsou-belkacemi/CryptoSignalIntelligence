@@ -1,7 +1,7 @@
 # Moteur du zoo des stratégies
 
 Protocole pré-inscrit : [`docs/ZOO.md`](../../../../docs/ZOO.md) ; recensement : [`docs/ZOO_CATALOGUE.md`](../../../../docs/ZOO_CATALOGUE.md).
-Ce dossier code **une seule méthode** pour les 257 tests. Rien ici n'annonce une rentabilité ; aucun ordre, aucune clé,
+Ce dossier code **une seule méthode** pour les 239 tests. Rien ici n'annonce une rentabilité ; aucun ordre, aucune clé,
 **aucune lecture après le 2025-06-30**.
 
 ## Architecture
@@ -33,7 +33,7 @@ marché synthétique ─┘              univers à date (mois de la décision),
 | Module | Rôle |
 |---|---|
 | `data.py` | `Bougies`, `Paire`, `Grille`, `Univers`, `Etape` (découverte 2019-01-01 → 2022-12-31, validation 2023-01-01 → 2025-06-30), `borne_lecture` (refus au-delà du 2025-07-01 00:00), `joindre` (séries externes, `available_at` strictement antérieur) |
-| `spec.py` | interface (`Signaux`, `Poids`, `Panneau`, `Contexte`) et registre des 257 tests (`TESTS`, `PAR_ID`, `verifier_registre`) |
+| `spec.py` | interface (`Signaux`, `Poids`, `Panneau`, `Contexte`) et registre des 239 tests (`TESTS`, `PAR_ID`, `verifier_registre`) |
 | `indicators.py` | indicateurs purs (SMA, EMA, RMA de Wilder, ATR, DMI, SuperTrend, SAR, Ichimoku, Aroon, Vortex, TRIX, KAMA, HMA, filtre d'Alexander, point et figure) |
 | `positions.py` | positions d'une règle : entrée à la clôture suivante, sortie à la clôture après la règle, plafond N, trous, fin d'étape, retrait de la cote, durée nulle ; **aucun prix** |
 | `measure.py` | forme (a) : `MesureA` ; forme (b) : `MesureB` ; références ; intervalles par blocs ; placebos descriptifs |
@@ -179,7 +179,7 @@ csi zoo liste [--familles TR]
 csi zoo comptage [--familles TR]            # à blanc : comptes, CPI/NFP, EV02 ; aucun rendement
 csi zoo causalite --familles TR             # ≥ 50 instants + signaux de 3 paires × 1 an, mutations
 csi zoo controle-h0 --mini 3 --familles TR  # vérification de fonctionnement (jamais inscriptible)
-csi zoo controle-h0 --workers 4             # contrôle complet : une fois, 257 tests codés, code relu
+csi zoo controle-h0 --workers 4             # contrôle complet : une fois, 239 tests codés, code relu
 csi zoo executer --etape decouverte --executer
 csi zoo executer --etape validation --executer
 ```

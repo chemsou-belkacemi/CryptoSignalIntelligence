@@ -89,7 +89,7 @@ def test_signaux_presents_sur_le_marche_synthetique(paire):
         bars = paire.unite(test.execution_heures)
         if not test.strategie_fonction()(bars, _contexte(test, paire)).entree.any():
             silent.append(test.id)
-    assert set(silent) <= {"ST11_1j", "ST12_1j", "CH10_1j", "CH15_4h", "CH15_1j", "CH16_4h", "CH16_1j"}, silent
+    assert set(silent) <= {"ST11_1j", "ST12_1j", "CH10_1j"}, silent
 
 
 # --- Mutations : pivot (ou niveau) daté à son extrême --------------------------------------------------------------
@@ -109,7 +109,6 @@ MUTATIONS = {
     "ST01_4h": (S._dow_impl, partial(S._dow_impl, extreme=True)),
     "ST03_4h": (S._fibonacci_impl, partial(S._fibonacci_impl, extreme=True)),
     "ST05_1h": (S._fibonacci_impl, partial(S._fibonacci_impl, extreme=True)),
-    "AN05_4h": (A._ote_impl, partial(A._ote_impl, extreme=True)),
     "AN09_4h": (A._elliott_impl, partial(A._elliott_impl, extreme=True)),
     "AN13_1j": (A._gann_impl, partial(A._gann_impl, extreme=True)),
     "CH21_1j": (CH.renko, renko_fin_de_mois),
@@ -171,9 +170,13 @@ def test_comptage_ch_st_an_synthetique():
     assert set(counts) == {t.id for t in TESTS}
     for test_id, c in counts.items():
         assert c["forme"] == "a" and {"compteurs", "jours_exposition", "blocs_avec_exposition"} <= set(c), test_id
-    # ouverture = clôture précédente sur ce marché : les figures à écart de TA-Lib n'y apparaissent jamais
-    for sid in ("CH02", "CH11", "CH12", "CH15", "CH16"):
-        for unit in ("1h", "4h", "1j"):
-            assert counts[f"{sid}_{unit}"]["compteurs"].get("signaux", 0) == 0
+    # ouverture = clôture précédente sur ce marché : les figures à écart de TA-Lib n'y apparaissent jamais (raison
+    # de leur passage en IMPOSSIBLE le 2026-10-11 : CH02, CH11, CH12, CH15, CH16)
+    pair = source.paire(source.symboles[0])
+    for func, trend in (("CDLINVERTEDHAMMER", "baissiere"), ("CDL3INSIDE", "baissiere"), ("CDL3OUTSIDE", "baissiere"),
+                        ("CDLRISEFALL3METHODS", "haussiere"), ("CDLHOMINGPIGEON", "baissiere")):
+        for unit in (1, 4, 24):
+            ctx = Contexte(pair.symbole, unit, {"talib": func, "tendance": trend, "sma": 10}, 0)
+            assert not CH.figure(pair.unite(unit), ctx).entree.any(), (func, unit)
     assert counts["CH03_1h"]["compteurs"]["transactions"] > 0
     assert counts["ST06_1h"]["compteurs"]["transactions"] > 0

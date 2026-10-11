@@ -36,7 +36,8 @@ def ctx_de(test_id: str, frame: Bougies, quotidien: Bougies | None = None) -> Co
 def test_familles_codees_et_registre():
     for test in choisir(["CH", "ST", "AN"]):
         assert test.etat_code == "code", test.id
-    assert len(choisir(["CH"])) == 44 and len(choisir(["ST"])) == 22 and len(choisir(["AN"])) == 8
+    # révision du 2026-10-11 : CH02, CH11, CH12, CH15, CH16 IMPOSSIBLE (écart d'ouverture) ; AN05 doublon de ST05
+    assert len(choisir(["CH"])) == 29 and len(choisir(["ST"])) == 22 and len(choisir(["AN"])) == 5
     # ST01 : m du registre = m du ZigZag de INDICATEURS.md § 1 pour 4 h et 1 j
     assert PAR_ID["ST01_4h"].params["m_haut"] == primitives.ZIGZAG_M["4h"]
     assert PAR_ID["ST01_1j"].params["m_bas"] == primitives.ZIGZAG_M["1d"]

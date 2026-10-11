@@ -16,7 +16,7 @@ import numpy as np
 from .. import indicators as ind
 from ..data import Bougies
 from ..spec import Contexte, Panneau, Poids, Signaux
-from .commun import decisions_hebdomadaires, rendement_sur
+from .commun import decisions_hebdomadaires
 
 IMPLEMENTEES: frozenset[str] = frozenset({
     "croisement_moyennes", "au_dessus_sma", "donchian", "keltner", "supertrend", "sar", "adx_dmi", "ichimoku_nuage",
@@ -180,9 +180,18 @@ def point_figure(frame: Bougies, ctx: Contexte) -> Signaux:
 
 def momentum_temporel(frame: Panneau, ctx: Contexte) -> Poids:
     """TR37, TR40 (forme b, hebdomadaire) : chaque membre à 1/n si son rendement sur 7 j (84 j) est > 0, sinon sa
-    part en USDT ; n = membres dont le rendement est calculable. Univers de la référence : ces mêmes membres."""
+    part en USDT ; n = membres dont le rendement est calculable. Univers de la référence : ces mêmes membres.
+    Même règle que XS, RO et PF : décision sur la dernière journée cotée (`factors.ligne_cotee`, un dimanche sans
+    bougie de maintenance ne vide pas la semaine), appartenance du mois de la décision, rendement = clôture de cette
+    ligne / dernière clôture connue `n` jours plus tôt − 1 (`factors.rendement_n`)."""
+    from .factors import ligne_cotee, premiere_cotation, propager, rendement_n
     idx, decisions, execution = decisions_hebdomadaires(frame)
-    returns = rendement_sur(frame.cloture, idx, ctx.params["jours"])
+    propagated, first = propager(frame.cloture), premiere_cotation(frame.cloture)
+    returns = np.full((len(idx), len(frame.symboles)), np.nan)
+    for k, j in enumerate(idx):
+        row = ligne_cotee(frame.cloture, int(j))
+        if row >= 0:
+            returns[k] = rendement_n(frame.cloture, propagated, first, row, int(ctx.params["jours"]))
     eligible = frame.membre[idx] & ~np.isnan(returns)
     count = eligible.sum(axis=1, keepdims=True)
     with np.errstate(invalid="ignore"):

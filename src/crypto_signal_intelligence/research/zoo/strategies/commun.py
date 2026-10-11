@@ -41,12 +41,3 @@ def decisions_mensuelles(panneau: Panneau) -> tuple[np.ndarray, np.ndarray, np.n
     days_in = monday - months.astype("datetime64[M]").astype("datetime64[D]").astype(np.int64)
     first &= days_in < 7
     return idx[first], decisions[first], execution[first]
-
-
-def rendement_sur(cloture: np.ndarray, idx: np.ndarray, jours: int) -> np.ndarray:
-    """Rendement de clôture à clôture sur `jours` journées, aux lignes `idx` (NaN si l'une manque)."""
-    out = np.full((len(idx), cloture.shape[1]), np.nan)
-    ok = idx >= jours
-    with np.errstate(invalid="ignore", divide="ignore"):
-        out[ok] = cloture[idx[ok]] / cloture[idx[ok] - jours] - 1.0
-    return out

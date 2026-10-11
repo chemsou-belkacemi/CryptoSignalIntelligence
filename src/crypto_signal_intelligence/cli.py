@@ -2660,7 +2660,7 @@ def options_peur_execute(executer: bool = typer.Option(False, "--executer", help
 
 
 zoo_app = typer.Typer(no_args_is_help=True,
-                      help="Zoo des stratégies (docs/ZOO.md) : 257 tests pré-inscrits, une seule méthode ; comptage à "
+                      help="Zoo des stratégies (docs/ZOO.md) : 239 tests pré-inscrits, une seule méthode ; comptage à "
                            "blanc, contrôle sous H0, causalité, exécution unique gardée. Aucun ordre, aucun gain "
                            "démontré.")
 app.add_typer(zoo_app, name="zoo")
@@ -2762,7 +2762,7 @@ def zoo_h0(workers: int = typer.Option(2, "--workers", help="Processus (4 au plu
            verbose: bool = False):
     """Contrôle sous H0 (§ 8) : le pipeline complet sur des marchés synthétiques H0-a, H0-b, H0-c ; critères 1 à 4 ;
     écrit `reports/ZOO-H0-<commit>/criteres.json` à inscrire (CONTROLE_H0). Lancé UNE fois, sur le code relu, quand
-    les 257 tests sont codés. `--mini N --familles TR` : vérification de fonctionnement seulement."""
+    les 239 tests sont codés. `--mini N --familles TR` : vérification de fonctionnement seulement."""
     from .research import zoo_review
     from .research.experiments import code_state
     from .research.factors import DirtyCode
@@ -2787,13 +2787,13 @@ def zoo_h0(workers: int = typer.Option(2, "--workers", help="Processus (4 au plu
             console.print(f"[red]Aucun calcul :[/red] {exc}")
             raise typer.Exit(3) from None
     ids = [t.id for t in tests]
-    series, events = h0.externes_reels(settings, ids)
+    series, events, cotations = h0.externes_reels(settings, ids)
     out_dir = commandes.dossier_h0(settings, commit, mini=mini, familles=[f.upper() for f in (familles or "").split(",")
                                                                           if f] or None, now=_now())
     _heavy_job(settings)
     with console.status("contrôle sous H0…") as status:
         report = h0.executer(out_dir, ids, repliques=count, workers=min(workers, 4), mini=bool(mini),
-                             externes=series, evenements=events, commit=commit, now=_now(),
+                             externes=series, evenements=events, cotations=cotations, commit=commit, now=_now(),
                              progress=lambda text: status.update(f"H0 : {text}"))
     console.print_json(json.dumps({k: report[k] for k in ("repliques", "secondes_totales", "secondes_par_replique",
                                                          "memoire_pic_mo", "global", "passe_global", "issue")},

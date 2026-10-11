@@ -165,7 +165,7 @@ def bougies_1h(frame: pd.DataFrame) -> Bougies:
 def agreger(h1: Bougies, unite: int) -> Bougies:
     """Bougies de `unite` heures alignées sur 00:00 UTC, COMPLÈTES seulement, datées par l'`available_at` de leur
     dernière bougie 1 h. Ouverture de la 1re, plus haut / plus bas extrêmes, clôture de la dernière, volumes sommés."""
-    if unite == 1:
+    if unite == h1.unite:
         return h1
     if h1.unite != 1 or DAY_H % unite:
         raise ValueError("agrégation depuis des bougies 1 h vers 4 h ou 24 h seulement")
@@ -325,6 +325,21 @@ def charger_quotidien_recensement(settings: Settings, fin_exclusive: pd.Timestam
     daily = daily[pd.to_datetime(daily["day"], utc=True) + pd.Timedelta(days=1) <= fin]
     kept = set(recensement(settings).query("excluded != excluded")["symbol"])
     return daily[daily["symbol"].isin(kept)].reset_index(drop=True)
+
+
+def quotidien_recensement_bougies(daily: pd.DataFrame) -> dict[str, Bougies]:
+    """Lignes (day, symbol, close, quote_volume) → bougies journalières (unité 24 h) par paire : clôtures seulement
+    (ouverture = plus haut = plus bas = clôture), disponibles à minuit suivant + latence. Univers d'exception d'EV02."""
+    out = {}
+    frame = daily.assign(day=pd.to_datetime(daily["day"], utc=True)).sort_values(["symbol", "day"])
+    for symbol, part in frame.groupby("symbol"):
+        part = part.drop_duplicates("day", keep="last")
+        open_h = (en_ns(part["day"]) // HOUR_NS).astype(np.int64)
+        close = part["close"].to_numpy(np.float64)
+        volume = part["quote_volume"].to_numpy(np.float64)
+        out[str(symbol)] = Bougies(DAY_H, open_h, (open_h + DAY_H) * HOUR_NS + LATENCE_NS, close, close, close, close,
+                                   volume, volume / 2, np.zeros(len(close)))
+    return out
 
 
 # --- Séries et événements externes -----------------------------------------------------------------------------------
