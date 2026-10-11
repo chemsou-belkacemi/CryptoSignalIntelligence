@@ -214,7 +214,13 @@ def test_signals_that_were_dead_stale_duplicated_or_unreadable_are_not_measured(
         return row.status, row.outcomes
 
     assert status(94.0) == ("INVALIDE", {}) and status(95.0) == ("INVALIDE", {})        # au stop ou dessous
-    assert status(104.0) == ("DEJA_JOUE", {}) and status(105.0) == ("DEJA_JOUE", {})
+    # Prix à TP1 ou au-dessus : ordre limite en attente d'un repli, simulé (jamais revenu à l'entrée : non rempli).
+    for price in (104.0, 105.0):
+        state, outcomes = status(price)
+        assert state == "OK" and {o["issue"] for o in outcomes.values()} == {"PENDING"}     # fenêtre pas finie
+        late = run(settings, bars(flat(1300, price))).rows[0]
+        assert late.status == "OK" and {o["issue"] for o in late.outcomes.values()} == {"UNFILLED"}
+        assert "ordre limite en attente" in late.reason
     assert status(97.0)[0] == "PERIME"                                # entrée 100 à +3,09 % du prix
     assert status(97.1)[0] == "OK"                                    # +2,99 % : encore acceptée
     assert run(settings, None).rows[0].status == "SANS_DONNEES"

@@ -45,6 +45,7 @@ CONVENTION_LABELS = {
     TRAILING: "ta gestion : stop à l'entrée 1 après TP1, puis à TP(k−2) après TPk",
 }
 LADDER_POLICY = "BSM_MARKET_TP_FIXED_SL_V2"
+# PLAYED (DEJA_JOUE) n'est plus produit depuis le 2026-10-11 ; gardé pour relire les anciens rapports.
 OK, UNREADABLE, DUPLICATE, NO_DATA, INVALID, PLAYED, STALE = (
     "OK", "ILLISIBLE", "DOUBLON", "SANS_DONNEES", "INVALIDE", "DEJA_JOUE", "PERIME")
 STEP = pd.Timedelta(minutes=15)
@@ -330,8 +331,11 @@ def measure(signal: ExternalSignal, bars: pd.DataFrame, received: pd.Timestamp, 
     close = float(before["close"].iloc[-1])
     if close <= stop:
         return INVALID, f"prix {close:g} déjà au stop {stop:g} ou dessous à la publication", {}
-    if close >= targets[0]:
-        return PLAYED, f"prix {close:g} déjà à TP1 {targets[0]:g} ou au-dessus à la publication", {}
+    # Prix déjà à TP1 ou au-dessus : PAS « déjà joué ». L'entrée 1 est alors sous le prix : c'est un ordre limite en
+    # attente d'un repli (WHALE HUNTING, LYNX), simulé comme les autres (NON_REMPLI si le prix ne revient jamais).
+    # Correction du 2026-10-11 : l'ancien statut DEJA_JOUE écartait à tort ces signaux (23 % d'un canal).
+    note = (f"prix {close:g} au-dessus de TP1 {targets[0]:g} à la publication : ordre limite en attente d'un repli"
+            if close >= targets[0] else "")
     if (entry / close - 1) * 100 > cfg.max_entry_deviation_pct:
         return STALE, f"entrée {entry:g} à plus de {cfg.max_entry_deviation_pct:g} % au-dessus du prix {close:g}", {}
     after = bars[bars["open_time"] >= received.ceil("15min")].reset_index(drop=True)
@@ -348,7 +352,7 @@ def measure(signal: ExternalSignal, bars: pd.DataFrame, received: pd.Timestamp, 
     issue, r = replay_trailing(after, entry=entry, stop=stop, targets=targets, entry_window=cfg.entry_window_bars,
                                max_hold=int(pd.Timedelta(days=FOLLOW_DAYS) / STEP), costs=costs, tp_count=cfg.tp_count)
     outcomes[TRAILING] = {"issue": issue, "r": r, "provisoire": False}
-    return OK, "", outcomes
+    return OK, note, outcomes
 
 
 # --- Bilan ------------------------------------------------------------------------------------------------
