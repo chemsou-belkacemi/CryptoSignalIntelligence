@@ -348,7 +348,7 @@ Lu comme information seulement : aucun contrat n'est jamais traité.
 | ID | Stratégie | Source | Paramètres standard publiés | Unités | Statut | Renvoi / raison |
 |---|---|---|---|---|---|---|
 | EV01 | Annonce de listing chez Upbit ou Coinbase | pratique | achat au premier prix, 24 h et 7 j | 10 min | `EN_DIRECT` | F7_LISTINGS |
-| EV02 | Annonce de cotation spot sur Binance | pratique | annonces `COTATION_SPOT` (`annonces_binance`, connues à la publication + 10 min) ; achat de la paire USDT annoncée à la clôture suivant sa 1re journée complète de cotation ; tenue 30 jours | 1j | `À_TESTER (zoo)` | univers d'exception : toutes les paires USDT du recensement (exclusions structurelles et haram), bougies journalières de `data/pit/daily.parquet` (clôtures) ; les renommages n'ont pas d'annonce `COTATION_SPOT` ; référence : paires cotées depuis plus de 180 jours, le même jour ; **descriptif seulement dans F31** (pas de relevé halal au moment de l'annonce) |
+| EV02 | Annonce de cotation spot sur Binance | pratique | annonces `COTATION_SPOT` (`annonces_binance`, connues à la publication + 10 min) ; achat de la paire USDT annoncée à la clôture suivant sa 1re journée UTC complète de cotation (jamais la journée partielle de cotation), annonce connue au plus tôt 30 jours avant cette journée ; tenue 30 jours | 1j | `À_TESTER (zoo)` | univers d'exception : toutes les paires USDT du recensement (exclusions structurelles et haram), bougies journalières de `data/pit/daily.parquet` (clôtures) ; les renommages n'ont pas d'annonce `COTATION_SPOT` ; référence : paires cotées depuis plus de 180 jours, le même jour ; **descriptif seulement dans F31** (pas de relevé halal au moment de l'annonce) |
 | EV03 | Annonce de retrait de la cote (veto) | pratique | — | 1j | `À_TESTER (attente)` | archive des annonces de Binance non collectée |
 | EV04 | Déblocages de jetons | pratique | — | — | `IMPOSSIBLE` | raison 2 : sources payantes ou fermées (`FORWARD_TESTS.md`, « Calendrier des unlocks : non fait ») |
 | EV05 | « Airdrops » | pratique | — | — | `IMPOSSIBLE` | raison 4 : aucun historique gratuit fiable |
@@ -527,3 +527,5 @@ première version est retiré : c'est un recensement, auquel la relecture a déj
   CH02, CH11, CH12, CH15, CH16 passent `IMPOSSIBLE` (raison 7 : écart d'ouverture exigé, comme CH06, CH07, CH09, CH14,
   CH18) ; AN05 passe `DOUBLON` (déjà vu : ST05) ; nouveau statut `DOUBLON` ; comptes : 130 stratégies au zoo,
   **239 tests** (292 stratégies inchangées).
+- 2026-10-11 (décisions de mise en œuvre avant tout résultat, relecture du code) : EV02 sur la 1re journée UTC complète
+  et fenêtre d'annonce de 30 jours (`ZOO.md` § 12 et historique).

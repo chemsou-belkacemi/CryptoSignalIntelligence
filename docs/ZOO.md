@@ -135,6 +135,11 @@ défavorable ; aucun retard n'est ajouté.
   ainsi la moyenne des rendements quotidiens par jour d'exposition, dans la même unité que `m(p)`. Le rendement composé
   par transaction reste descriptif. **Test exigé** : sous une dérive constante sans bruit, `μ* = 0` à 1e-12 près pour
   une règle d'état tenue 300 jours (frais nuls).
+  **Lecture de mise en œuvre (2026-10-11)** : pour une journée partielle, `r(i, d)` est le rendement de la partie
+  détenue, rapporté à la valeur au début de cette partie ; la référence de la journée est `e(i, d) × m(p)`. Le
+  rendement n'est PAS multiplié une seconde fois par `e` (son unité ne serait plus « par jour d'exposition »). Le test
+  exigé est exact en journées entières (unité 1j) ; en cours de journée, l'écart sous dérive constante est du second
+  ordre (< 1e-8 par jour d'exposition).
 - **Statistique de décision : excès net par jour d'exposition sur la dérive de la même paire** (convention D à K de
   `SCREENING.md` ; « achat − inconditionnel » de Brock, Lakonishok et LeBaron, 1992). Pour chaque paire `p` et chaque
   étape, `m(p)` = moyenne des rendements simples quotidiens **bruts** de `p` sur les journées UTC où `p` est membre du
@@ -291,6 +296,27 @@ rôle de l'achat au hasard de même paire et même étape.
     (publication un autre jour que d'habitude, mois manquant ou doublé, comme l'arrêt de l'administration en 2025)
     sont listées ici.
 
+  **Comptage à blanc publié (2026-10-11, découverte réelle, avant toute lecture de rendement ;
+  `reports/ZOO-COMPTAGE-fb02f9a61ea0/comptage.json`)** :
+  - retirés `INSUFFISANT_PAR_CONSTRUCTION` (0 essai) : CH10_1j (5 transactions), CH10_4h (57), ST12_1j (96), TR36_1j (7) ;
+  - **EV02** : **159 signaux** (159 transactions, 194 blocs) avec la règle de la 1re journée complète et la fenêtre de
+    30 jours (237 avant ces décisions). Taux de correspondance des annonces, déclarés : (i) **44,8 %** des nouvelles
+    paires USDT du recensement de la découverte (147 sur 328) n'ont pas d'annonce `COTATION_SPOT` (65,1 % en
+    validation, 108 sur 166). Causes : cotations annoncées dans d'autres catégories (Launchpad, Launchpool, « nouvelles
+    paires » USDT d'une crypto déjà cotée contre BTC), renommages ; ces paires ne donnent aucun signal (pas de règle
+    ajoutée après coup). (ii) **7,1 %** des annonces `COTATION_SPOT` de la découverte (15 sur 211) n'ont pas de paire
+    USDT correspondante (1,9 % en validation) : cotations contre BTC, BNB ou BUSD seulement, titres sans ticker
+    reconnaissable ;
+  - **CPI et NFP** : aucun mois manquant ni doublé, aucun écart hors de 20 à 40 jours. Exceptions : CPI publié un
+    **vendredi** les 2019-01-11, 2019-05-10, 2020-04-10, 2020-09-11, 2021-12-10 et 2022-06-10 ; NFP publié un **jeudi**
+    le 2020-07-02 (veille de jour férié). Les dates du calendrier sont gardées telles quelles.
+
+  **Couverture du contrôle de causalité (déclarée)** : les tests de forme (b) ne sont vérifiés qu'à 50 décisions tirées
+  au hasard dans leur calendrier de décision (sur le panneau complet) ; TR36, CH10, ST11 et ST12, très rares, n'ont
+  aucun instant de signal dans l'échantillon de 3 paires × 1 an (seulement les instants au hasard). Calendriers connus
+  d'avance : un événement programmé est réputé connu 7 jours avant son heure ; une réunion non programmée ou un
+  communiqué isolé, à sa publication (`available_at`) ; la mutation « CA09 sans filtre `scheduled` » est détectée.
+
 ## 8. Contrôle sous H0 (obligatoire, lancé une fois, avant toute exécution sur données réelles)
 
 ### 8.1 Marché synthétique (paramètres fixés ici a priori, aucune estimation sur données réelles)
@@ -325,8 +351,9 @@ rôle de l'achat au hasard de même paire et même étape.
 - **Séries et calendriers externes** (AM, SE, CA09 à CA13) : les **vraies** séries du magasin, inchangées. Elles ne
   portent aucune information sur des cryptos synthétiques indépendantes : la nulle reste exacte, et leur calendrier et
   leur persistance sont réels. **EV02** : un jeu de paires synthétiques supplémentaire, une
-  par paire USDT du recensement, **cotée à la date réelle de sa première bougie**, l'annonce à l'heure réelle de son
-  annonce `COTATION_SPOT` quand elle existe (sinon 24 h avant) : calendrier réel, prix synthétiques.
+  par paire USDT du recensement, **cotée à la date réelle de sa première bougie** (à une heure tirée dans la journée :
+  la journée de cotation est partielle, comme en réel), l'annonce à l'heure réelle de son annonce `COTATION_SPOT`
+  quand elle existe dans la fenêtre de 30 jours (sinon 24 h avant) : calendrier réel, prix synthétiques.
 - Le **pipeline complet du zoo**, sans aucune différence (signaux, appartenance, formes, `m(p)`, `f̄`, intervalles,
   Benjamini-Hochberg, garde-fous), tourne sur chaque réplique, découverte puis validation.
 
@@ -595,7 +622,7 @@ regards passés.
 | CA09 | 1h | événement | date connue à l'avance : achat de chaque membre à la clôture de la **dernière bougie 1 h qui se termine au plus tard 24 h avant** le communiqué du FOMC (14:00 New York, converti en UTC avec `zoneinfo`, heure d'été comprise) ; exception déclarée à la « clôture suivante » | clôture de la **dernière bougie 1 h qui se termine au plus tard à l'heure de publication** | — |
 | CA10, CA11 | 1h | événement | idem, publication du CPI (du NFP) à 08:30 New York | idem | — |
 | CA13 | 1j | événement | 1re clôture journalière après une nouvelle lune | 1re clôture après la pleine lune suivante | — |
-| EV02 | 1j | événement | 1re journée complète de cotation d'une paire annoncée (`COTATION_SPOT`, annonce connue avant la clôture de cette journée) | aucune | 30 |
+| EV02 | 1j | événement | 1re journée UTC **complète** (24 bougies 1 h) de cotation d'une paire annoncée, jamais la journée partielle de la cotation (`COTATION_SPOT`, annonce connue avant la clôture de cette journée et au plus tôt **30 jours** avant elle) | aucune | 30 |
 | RG03 | 1j | état | pente filtrée (Kalman, tendance locale linéaire du log-prix, variances estimées chaque mois sur le passé) > 0 | pente ≤ 0 | — |
 | RG04 | 1j | état | Hurst R/S (128 rendements) > 0,5 et rendement 20 j > 0 | condition fausse | — |
 | RG05 | 1j | état | entropie de permutation (ordre 3, 64 j) dans le tiers bas de ses 365 j et rendement 20 j > 0 | condition fausse | — |
@@ -695,3 +722,10 @@ périodes si l'historique est plus court que 2019-2025, **avant** tout télécha
   62 % contre Fibonacci 61,8 %, « déjà vu : ST05 ») ; **239 tests** (207 de forme (a), 32 de forme (b)), DEVELOPMENT au
   plus 873 + 239 + `m` ; libellé de PF05 corrigé (mensuel) ; conventions déclarées au § 12 : fin de journée ou de
   séance, sortie unique par position, sens de RG07, paires absentes du magasin 1 h.
+- 2026-10-11 (décisions de mise en œuvre avant tout résultat, relecture du code ; aucun rendement réel lu) : **EV02** :
+  signal à la clôture de la 1re journée UTC complète (24 bougies 1 h), jamais sur la journée partielle de cotation (la
+  1re journée de l'API, réputée partielle, est écartée) ; annonce `COTATION_SPOT` connue au plus tôt 30 jours avant
+  cette journée (une annonce plus ancienne, par exemple une cotation contre BTC des années avant, ne donne aucun
+  signal) ; même règle dans le marché synthétique ; 159 signaux au comptage (237 avant). § 7 : taux d'annonces et
+  exceptions CPI/NFP du comptage déclarés, couverture de la causalité déclarée, réunions non programmées connues à leur
+  publication. § 4.1 : lecture de `r(i, d)` (pas de seconde multiplication par `e`).
