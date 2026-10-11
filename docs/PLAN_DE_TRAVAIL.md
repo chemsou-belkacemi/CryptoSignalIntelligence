@@ -61,7 +61,7 @@ refusé (aucune donnée payante) ; points 6 à 10 en attente (voir § 5).
 
 ## 2. En cours
 
-**Zoo des stratégies** (`ZOO.md`, branche `recherche/zoo`, 2026-10-11) : moteur codé et testé sur synthétique (`research/zoo/`) ; famille TR codée (83 tests) ; les 174 autres tests sont déclarés au registre et à coder par familles sur l'interface (`research/zoo/README.md`). Ensuite : relecture leak-auditor, comptage à blanc complet (inscrit), contrôle sous H0 lancé une fois (3 × 200 répliques, estimation 3 à 5 h sur 4 processus), puis découverte. Aucun rendement réel calculé à ce stade.
+**Zoo des stratégies** (`ZOO.md`, branche `recherche/zoo`, 2026-10-11) : moteur et 239 tests codés et testés sur synthétique ; comptage à blanc complet (4 tests retirés `INSUFFISANT_PAR_CONSTRUCTION`) et causalité complète faits sur la découverte réelle (signaux seulement). Ensuite : relecture leak-auditor, inscription du comptage, contrôle sous H0 lancé une fois (3 × 200 répliques, estimation ≈ 3 à 4 h sur 4 processus, ≈ 3,5 Go), puis découverte. Essais DEVELOPMENT au plus 873 + 239 + `m`. Aucun rendement réel calculé à ce stade.
 
 **Tests en direct** (verdicts le 2026-12-25, revue intermédiaire le 2026-11-13) : F1 maker/taker · F2 échelles de
 TP · F3 émissions de stablecoins · F4 signaux Telegram en direct · F5 modèle A et feu tricolore · F6 capitulation ·
