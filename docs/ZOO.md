@@ -1,7 +1,8 @@
 # Zoo des stratégies : protocole pré-inscrit (déclaré le 2026-10-10, révisé le 2026-10-11, avant tout code, tout comptage et toute exécution)
 
-Ce protocole mesure, avec **une seule méthode fixée ici**, les 136 stratégies `À_TESTER (zoo)` du recensement
-[ZOO_CATALOGUE.md](ZOO_CATALOGUE.md), soit **257 tests** (une stratégie × une unité de temps). Il est écrit avant tout
+Ce protocole mesure, avec **une seule méthode fixée ici**, les 130 stratégies `À_TESTER (zoo)` du recensement
+[ZOO_CATALOGUE.md](ZOO_CATALOGUE.md), soit **239 tests** (une stratégie × une unité de temps ; 257 avant les décisions de
+mise en œuvre du 2026-10-11, voir l'historique). Il est écrit avant tout
 code : un autre chantier codera le moteur après relecture. **Aucun calcul n'a été fait pour l'écrire** ; les ordres de
 grandeur du § 11 viennent d'hypothèses déclarées et de documents déjà publiés, jamais de données lues pour l'occasion.
 
@@ -20,7 +21,7 @@ jamais « aucune n'a d'avantage ».
 - **La hausse du marché ne compte pas comme un talent.** Une règle de transaction est jugée sur ce qu'elle gagne
   **au-delà de la dérive de la même paire** (ce qu'un achat au hasard de même durée aurait gagné) ; une règle qui sort
   parfois en USDT est comparée à un portefeuille **de même exposition moyenne**.
-- **Deux étapes.** Découverte sur 2019-2022 (contrôle des fausses découvertes sur les 257 tests à la fois), puis
+- **Deux étapes.** Découverte sur 2019-2022 (contrôle des fausses découvertes sur les 239 tests à la fois), puis
   validation sur 2023 → mi-2025 des seules candidates, avec garde-fous. La période réservée n'est pas lue.
 - **Avant tout.** Le même code tourne une fois sur 200 marchés synthétiques où rien n'est prévisible, sans puis avec
   une hausse constante : une mesure qui y crie trop souvent « candidate » est retirée sans compter d'essai.
@@ -88,7 +89,7 @@ jamais « aucune n'a d'avantage ».
 
 | Étape | Décisions | Rôle |
 |---|---|---|
-| **Découverte** | du 2019-01-01 00:00 au 2022-12-31 23:59 UTC | les 257 tests ; contrôle du taux de fausses découvertes |
+| **Découverte** | du 2019-01-01 00:00 au 2022-12-31 23:59 UTC | les 239 tests ; contrôle du taux de fausses découvertes |
 | **Validation** | du 2023-01-01 00:00 au 2025-06-30 23:59 UTC | seulement les `CANDIDATE` |
 
 - Une position encore ouverte à la fin d'une étape est **vendue à la dernière clôture de l'étape**, frais compris :
@@ -212,7 +213,7 @@ défavorable ; aucun retard n'est ajouté.
 
 ### 5.1 Découverte → `CANDIDATE`
 
-1. Procédure de **Benjamini-Hochberg au niveau q = 10 %** sur les p des tests exécutés (au plus 257) : tri croissant
+1. Procédure de **Benjamini-Hochberg au niveau q = 10 %** sur les p des tests exécutés (au plus 239) : tri croissant
    `p(1) ≤ … ≤ p(M)`, `k` = plus grand rang tel que `p(k) ≤ 0,10 × k / M` ; les `k` premiers sont rejetés.
 2. Un test rejeté est **`CANDIDATE`** si, en plus, sa statistique de décision reste **> 0 dans les deux scénarios** :
    - **sans sa meilleure année civile** de découverte (celle dont la contribution centrale à la statistique est la plus
@@ -268,7 +269,7 @@ rôle de l'achat au hasard de même paire et même étape.
   bougie 4 h ou journalière datée par son ouverture au lieu de l'`available_at` de sa dernière bougie 1 h ; une série
   externe jointe sur sa date au lieu de son `available_at` ; un **pivot daté à son extrême** (au lieu de sa
   confirmation).
-- **Pivots confirmés seulement** : ST01, ST03 à ST05, AN05 et AN09 n'utilisent que des pivots ZigZag **confirmés**
+- **Pivots confirmés seulement** : ST01, ST03 à ST05 et AN09 n'utilisent que des pivots ZigZag **confirmés**
   (connus à la bougie de confirmation, `INDICATEURS.md` § 1), jamais le point extrême en cours.
 - **Ichimoku** (TR22, TR23) : le nuage applicable à `t` est fait des Senkou calculées à `t − 26` (`INDICATEURS.md`
   § 10.4) ; la Chikou n'est **jamais** utilisée.
@@ -381,11 +382,11 @@ et sur H0-b**, avec la statistique de décision (`μ*` pour la forme (a), excès
 - Programme avant le zoo (registre lu le 2026-10-10) : **873 essais** sur DEVELOPMENT ; **10 essais FINAL_TEST** déjà
   enregistrés, en **4 consultations** de la période réservée.
 - **Découverte** : chaque test exécuté compte **1 essai DEVELOPMENT** (une exécution, `n_trials` = nombre de tests
-  exécutés, au plus 257). Les tests retirés par le contrôle sous H0 ou par les comptages à blanc : 0 essai.
+  exécutés, au plus 239). Les tests retirés par le contrôle sous H0 ou par les comptages à blanc : 0 essai.
 - **Validation** : **1 essai de plus** par `CANDIDATE` (une exécution, `n_trials` = `m`).
 - **Période réservée** : 1 essai `FINAL_TEST` par `VALIDÉE` lue (`k`).
 - **F31_ZOO** : 1 essai au registre des tests en direct.
-- **Nouveaux totaux, au plus** : DEVELOPMENT 873 + 257 + `m` = **1 130 + `m`** ; FINAL_TEST **10 + `k`**, en
+- **Nouveaux totaux, au plus** : DEVELOPMENT 873 + 239 + `m` = **1 112 + `m`** ; FINAL_TEST **10 + `k`**, en
   5 consultations.
 
 ## 10. Après la validation
@@ -432,11 +433,11 @@ d'avance ce que le zoo peut voir.
 **Hypothèses** : volatilité journalière d'une altcoin ≈ 4,5 % (70 à 100 % par an en 2019-2022), de BTC ≈ 3,5 % ;
 corrélation moyenne des rendements journaliers entre altcoins ≈ 0,6 ; écart-type hebdomadaire de l'excès d'un
 quintile de 8 paires sur l'univers ≈ 6,4 % (déduit de `XSECTION.md` : demi-largeur de l'IC95 ≈ 0,7 %/semaine sur 339
-semaines) ; environ 257 tests, dont très peu porteraient un vrai effet. Retirer la dérive (`μ*`) ne change presque pas
+semaines) ; environ 240 tests, dont très peu porteraient un vrai effet. Retirer la dérive (`μ*`) ne change presque pas
 l'erreur type : la dérive est une constante par paire et par étape ; l'intervalle qui traite `m` comme connu est
 seulement un peu plus large que nécessaire (facteur ≈ 1 / (1 − f)).
 
-**Seuil de découverte.** Avec 257 tests et un seul vrai effet, Benjamini-Hochberg rejette sous p ≈ 0,10 / 257 ≈
+**Seuil de découverte.** Avec 239 tests et un seul vrai effet, Benjamini-Hochberg rejette sous p ≈ 0,10 / 239 ≈
 0,0004 (bilatéral), soit |t| ≈ 3,5. Une puissance de 80 % exige donc un effet d'environ **4,4 erreurs types**. Avec
 une dizaine de vrais effets, le seuil remonte vers p ≈ 0,004 (|t| ≈ 2,9) : environ 3,7 erreurs types.
 
@@ -509,7 +510,22 @@ d'une sortie, 10 bougies pour les événements sans sortie (durée de Marshall, 
 du recensement. Les tests marqués « déjà vu » au recensement sont mesurés, mais lus comme non indépendants des
 regards passés.
 
-### 12.1 Forme (a) : règles de transaction (225 tests)
+**Conventions de mise en œuvre (déclarées le 2026-10-11, avant tout résultat)** :
+- **fin de journée ou de séance** : « vendu à la clôture de 24:00 (ou de fin de séance) » ; la condition de sortie est
+  vraie sur les deux dernières bougies 1 h de la journée (ou de la séance), exécutée à la clôture suivante, bornée à
+  24:00 (ou à la fin de séance) ; un signal sur l'une de ces deux dernières bougies donne une durée nulle, écartée et
+  comptée (MR09, VO01 à VO05, ST06 à ST10, ST14) ;
+- **une seule sortie par position** (ST03 à ST05, AN06, AN09) : l'interface rend une condition de sortie par bougie ;
+  un nouveau signal arrivé pendant une position (ignoré par le moteur) peut déplacer les niveaux de sortie lus par
+  cette condition (nouvelle jambe, nouvelle zone). Approximation déclarée : les niveaux de sortie ne sont pas figés à
+  l'entrée ;
+- **RG07** : la règle reste « la sinusoïde croise au-dessus de sa version avancée (LeadSine) », écrite au recensement ;
+  le sens d'achat d'Ehlers (croisement de la sinusoïde au-dessus de la LeadSine, ou l'inverse selon les éditions) est
+  incertain : déclaré, non modifié ;
+- **paires absentes** : 7 paires membres du top 40 pendant la découverte n'ont pas d'historique 1 h au magasin long
+  (AION, ANT, GAL, JST, SC, SKL, SUN ; LEVER s'y ajoute en validation) : survivance résiduelle déjà déclarée au § 2.
+
+### 12.1 Forme (a) : règles de transaction (207 tests)
 
 | ID | Unités | Type | Entrée (signal à la clôture `t`) | Sortie | N |
 |---|---|---|---|---|---|
@@ -553,7 +569,7 @@ regards passés.
 | VO08 | 1h, 4h, 1j | événement | fin de la compression (BB 20/2 sort de KC 20/1,5 après au moins une bougie dedans) et momentum de Carter > 0 | 2 baisses consécutives du momentum | 20 |
 | VO09 | 1h, 4h, 1j | événement | clôture > clôture précédente + 1 × ATR 14 | aucune | 10 |
 | VO11 | 1h | événement | rendement de 00:00 à 22:00 UTC > 0 (signal à la clôture de 21:00–22:00) | entrée à 23:00, sortie à la clôture de 23:00–24:00 | 1 |
-| CH01 à CH05, CH08, CH10 à CH13, CH15 à CH17 (13 figures) | 1h, 4h, 1j | événement | figure TA-Lib haussière à `t`, tendance préalable du recensement | aucune | 10 |
+| CH01, CH03 à CH05, CH08, CH10, CH13, CH17 (8 figures ; CH02, CH11, CH12, CH15, CH16 `IMPOSSIBLE` le 2026-10-11) | 1h, 4h, 1j | événement | figure TA-Lib haussière à `t`, tendance préalable du recensement | aucune | 10 |
 | CH20 | 1h, 4h, 1j | événement | 1re bougie Heikin Ashi haussière sans mèche basse après une baissière | 1re HA baissière | — |
 | CH21 | 1h, 1j | événement | 2e brique Renko haussière après une baissière (boîte ATR 14 journalier connue au 1er du mois, briques sur le passé seul) | 1re brique baissière | — |
 | ST01 | 4h, 1j | état | dernier pivot haut ZigZag **confirmé** > le précédent et dernier pivot bas confirmé > le précédent | un nouveau pivot bas confirmé plus bas que le précédent | — |
@@ -585,13 +601,12 @@ regards passés.
 | RG05 | 1j | état | entropie de permutation (ordre 3, 64 j) dans le tiers bas de ses 365 j et rendement 20 j > 0 | condition fausse | — |
 | RG06 | 1j | état | pente de la tendance de Haar (niveau 3, recalculée à chaque décision sur le passé seul) > 0 | pente ≤ 0 | — |
 | RG07 | 4h, 1j | événement | sinusoïde d'Ehlers croise au-dessus de sa version avancée | croisement inverse | — |
-| AN05 | 1h, 4h, 1j | événement | dans la dernière jambe haussière ZigZag **confirmée** : contact de la zone 62–79 % puis 1re clôture > 62 % | clôture ≥ sommet de la jambe, ou < son creux | 20 |
 | AN06 | 1h, 4h | événement | 1er retour dans un breaker haussier, clôture au-dessus de la zone | clôture sous la zone | 10 |
 | AN09 | 4h, 1j | événement | pivots **confirmés** : clôture > sommet de la vague 1 après une vague 2 de 38,2 à 78,6 % restée au-dessus de son départ | clôture ≥ départ + 1,618 × vague 1, ou < creux de la vague 2 | 20 |
 | AN13 | 1j | état | swing de Gann haussier (dernier sommet de swing de 2 bougies dépassé) | clôture sous le dernier creux de swing | — |
 
-Total forme (a) : 81 (TR) ; 23 (MR) ; 14 (VO) ; 44 (CH) ; 22 (ST) ; 21 (VF) ; 1 (SE01) ; 4 (CA09 à CA11, CA13) ;
-1 (EV02) ; 6 (RG03 à RG07) ; 8 (AN) = **225 tests**.
+Total forme (a) : 81 (TR) ; 23 (MR) ; 14 (VO) ; 29 (CH) ; 22 (ST) ; 21 (VF) ; 1 (SE01) ; 4 (CA09 à CA11, CA13) ;
+1 (EV02) ; 6 (RG03 à RG07) ; 5 (AN) = **207 tests** (AN05 retiré : doublon de ST05).
 
 ### 12.2 Forme (b) : facteurs et portefeuilles (32 tests)
 
@@ -608,7 +623,7 @@ Total forme (a) : 81 (TR) ; 23 (MR) ; 14 (VO) ; 44 (CH) ; 22 (ST) ; 21 (VF) ; 1 
 | RG02 | hebdomadaire | top 40 à poids égaux sauf si la probabilité filtrée de l'état le plus volatil (3 états, BTC, réestimation mensuelle comme `FACTORS.md`) dépasse 0,5 | exposition égale (top 40) |
 | SE02 | hebdomadaire | top 40 à poids égaux sauf si la dernière valeur connue du Fear & Greed dépasse 75 | exposition égale (top 40) |
 | AM01 à AM04, AM06 à AM08 | quotidienne | 100 % BTC si le signal du recensement § 9 est vrai, sinon USDT | exposition égale (BTC) |
-| PF05 | mensuelle | top 40 à poids égaux rééquilibré chaque semaine | même panier laissé flotter, renouvelé chaque trimestre |
+| PF05 | mensuelle | top 40 à poids égaux rééquilibré chaque mois | même panier laissé flotter, renouvelé chaque trimestre |
 | PF06 | mensuelle | poids ∝ 1 / volatilité journalière sur 30 j | top 40 à poids égaux |
 | PF07 | mensuelle | minimum de variance long seul (covariance 90 j rétrécie de Ledoit-Wolf) | top 40 à poids égaux |
 | PF09 | mensuelle | 60 % BTC, 40 % ETH | top 40 à poids égaux |
@@ -624,7 +639,7 @@ périodes si l'historique est plus court que 2019-2025, **avant** tout télécha
 |---|---|
 | SE04 | vues Wikipédia par crypto (table crypto → article à construire) |
 | AM05 | M2 point-in-time (millésimes ALFRED) : retiré du zoo, la série du magasin est révisée après coup |
-| DE07, DE08 | **en direct seulement** (choix du 2026-10-11) : archive `metrics` pour les 16 paires de la configuration depuis 2021-12. Une découverte sur 2022 seul, parmi 257 tests, demanderait ≈ 3 %/semaine (52 semaines, quintile de 3 paires sur 16, écart-type de l'excès ≈ 5 %/semaine, erreur type ≈ 0,7 %) : sans objet. En direct sur 52 semaines, seul dans sa famille : effet vu à 80 % ≈ 2 %/semaine, faible aussi (déclaré). DE07 est un **cousin déjà vu** de DE05 et DE06 (`DERIVATIVES.md`, `CONTEXTE_PREDICTION.md`). Une étude historique séparée sur 2022-01 → 2025-06 reste possible plus tard, pré-inscrite et **comptée à part** |
+| DE07, DE08 | **en direct seulement** (choix du 2026-10-11) : archive `metrics` pour les 16 paires de la configuration depuis 2021-12. Une découverte sur 2022 seul, parmi 239 tests, demanderait ≈ 3 %/semaine (52 semaines, quintile de 3 paires sur 16, écart-type de l'excès ≈ 5 %/semaine, erreur type ≈ 0,7 %) : sans objet. En direct sur 52 semaines, seul dans sa famille : effet vu à 80 % ≈ 2 %/semaine, faible aussi (déclaré). DE07 est un **cousin déjà vu** de DE05 et DE06 (`DERIVATIVES.md`, `CONTEXTE_PREDICTION.md`). Une étude historique séparée sur 2022-01 → 2025-06 reste possible plus tard, pré-inscrite et **comptée à part** |
 | OC07, OC08 | séries communautaires de CoinMetrics (offre dormante, adresses actives, NVT) |
 | EV03, EV06 | archive des annonces de retrait de la cote (la catégorie lue ne contient que les cotations), historique des piratages |
 | VF13, VF14, VF15, DE13 | journaux du collecteur (F26 à F29, décision du 2026-10-10 : nouvelle pré-inscription quand la puissance atteindra 50 %) |
@@ -674,3 +689,9 @@ périodes si l'historique est plus court que 2019-2025, **avant** tout télécha
   l'heure de publication (`zoneinfo`), contrôle des dates au comptage à blanc ; `m` de VO11 sur la bougie 23:00-24:00 ;
   formulation unique pour SE01 et limite de l'historique d'alternative.me ; TR48 calculé sur le passé seulement ;
   DE07 marqué cousin de DE05 et DE06.
+- 2026-10-11 (décisions de mise en œuvre avant tout résultat, après le codage des familles ; aucun rendement réel lu) :
+  CH02, CH11, CH12, CH15 et CH16 passent `IMPOSSIBLE` (raison 7 : leur définition TA-Lib exige un écart d'ouverture,
+  comme CH06, CH07, CH09, CH14 et CH18 ; ils seraient aveugles sous H0) ; AN05 retiré comme doublon de ST05 (zone OTE
+  62 % contre Fibonacci 61,8 %, « déjà vu : ST05 ») ; **239 tests** (207 de forme (a), 32 de forme (b)), DEVELOPMENT au
+  plus 873 + 239 + `m` ; libellé de PF05 corrigé (mensuel) ; conventions déclarées au § 12 : fin de journée ou de
+  séance, sortie unique par position, sens de RG07, paires absentes du magasin 1 h.

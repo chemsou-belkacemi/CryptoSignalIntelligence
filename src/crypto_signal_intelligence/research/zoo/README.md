@@ -133,10 +133,15 @@ Exemple : `trend.momentum_temporel` (TR37, TR40).
    - **comptage** : `csi zoo comptage --familles <XX>` tourne sans erreur (comptes seulement).
 3. `ruff check src tests`, `mypy`, `pytest tests/test_zoo_*.py tests/test_frozen_running_tests.py`.
 
-Besoins propres déclarés (à couvrir par le chantier de la famille, sans changer la méthode) : EV02 lit l'univers
-d'exception du recensement (`data.charger_quotidien_recensement`, référence `measure.r180`, cotations synthétiques
-`synth.generer_ev02` et `synth.annonces_ev02` pour le contrôle H0) ; les AM, SE et CA lisent les séries et calendriers
-réels (`h0.externes_reels`, `reel.externes_pour`) ; CH sans TA-Lib installé : exemples écrits à la main.
+Univers d'exception (EV02, `test.univers == "recensement"`) : le moteur mesure EV02 sur toutes les paires USDT
+retenues du recensement (`Source.quotidien_recensement()` : `data/pit/daily.parquet` en réel, `synth.generer_ev02` aux
+dates réelles de cotation en H0), sans condition d'appartenance au top 40, référence `R180` (`run.r180_etape`). Les
+AM, SE et CA lisent les séries et calendriers réels (`reel.externes_pour`, `reel.SERIES_AM` avec le champ de chaque
+série : GLD sous « close »). CH sans TA-Lib installé : exemples écrits à la main.
+
+Contexte journalier des tests exécutés en 1 h : `ctx.quotidien` est coupé à la dernière décision du cadre et
+`ctx.quotidien_connu[t]` donne l'indice de la dernière journée connue à la décision `t` ; ne jamais lire une journée
+par son seul indice.
 
 ## Lectures déclarées du protocole (choix prudents, à relire)
 
@@ -171,6 +176,21 @@ réels (`h0.externes_reels`, `reel.externes_pour`) ; CH sans TA-Lib installé : 
 14. **Volume synthétique** : niveau de base 2 × 10⁵ USDT par heure (a priori ; n'influence que le classement du top 40).
 15. Les « signaux » comptés pour une règle d'état sont les bougies où l'état est vrai (les transactions sont le compte
     utile).
+16. **Fin de journée ou de séance** : « vendu à la clôture de 24:00 (ou de fin de séance) » ; condition de sortie vraie
+    sur les deux dernières bougies 1 h de la période (`volatility.fin_de_periode`) ; un signal sur l'une d'elles donne
+    une durée nulle, écartée et comptée (MR09, VO01-VO05, ST06-ST10, ST14).
+17. **Une seule sortie par position** (ST03-ST05, AN06, AN09) : un nouveau signal pendant une position (ignoré) peut
+    déplacer les niveaux lus par la condition de sortie ; les niveaux ne sont pas figés à l'entrée (approximation).
+18. **RG07** : « la sinusoïde croise au-dessus de sa version avancée », comme au registre ; sens d'Ehlers incertain.
+19. **Paires absentes** : 7 membres de la découverte sans historique 1 h (AION, ANT, GAL, JST, SC, SKL, SUN ; LEVER en
+    validation) : survivance résiduelle déclarée (`ZOO.md` § 2).
+20. **Puissance** (§ 8.3) : l'effet est planté pendant l'exposition seulement : `δ × e(i, d)` en forme (a), `δ ×`
+    exposition de la semaine en forme (b) (`δ` par semaine d'exposition pleine) ; une stratégie jamais investie n'a
+    aucune puissance.
+21. **Causalité des calendriers connus d'avance** (FOMC, CPI, NFP, lunes) : un événement est réputé connu 7 jours avant
+    son heure (`causality.HORIZON_CALENDRIERS_NS`, horizon prudent) ; annonces : `available_at`.
+22. **Révision du 2026-10-11** : CH02, CH11, CH12, CH15, CH16 `IMPOSSIBLE` (écart d'ouverture), AN05 retiré (doublon de
+    ST05) : **239 tests** ; leurs fonctions restent dans `strategies/` mais hors du registre.
 
 ## Commandes
 

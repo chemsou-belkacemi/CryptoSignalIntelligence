@@ -22,6 +22,7 @@ colonne « Renvoi ») :
 | `À_TESTER (attente)` | données manquantes, test en direct pré-inscrit mais non démarré, ou mesure en direct seulement (historique trop court) : branché par un autre chantier |
 | `À_TESTER (hors moteur)` | données disponibles, mais la mesure exige un protocole propre (coût du contrôle sous H0, pré-inscription déjà faite ailleurs) |
 | `IMPOSSIBLE` | raison donnée (liste ci-dessous) |
+| `DOUBLON` | presque les mêmes signaux qu'un test du zoo (« déjà vu : … ») : retiré du zoo, mesuré par l'autre |
 
 **Raisons de `IMPOSSIBLE`.** Les quatre de la demande, plus trois ajoutées par prudence et déclarées ici :
 1. **hors cadre** : exige la vente à découvert, le levier, un dérivé ou un rendement assimilable à un intérêt (non halal,
@@ -149,7 +150,7 @@ Young et Rose, 2006) ; pour les figures de continuation (CH10, CH15), tendance p
 | ID | Stratégie | Source | Paramètres standard publiés | Unités | Statut | Renvoi / raison |
 |---|---|---|---|---|---|---|
 | CH01 | Marteau | Nison (1991) | `CDLHAMMER` | 1h, 4h, 1j | `À_TESTER (zoo)` | — |
-| CH02 | Marteau inversé | idem | `CDLINVERTEDHAMMER` | 1h, 4h, 1j | `À_TESTER (zoo)` | — |
+| CH02 | Marteau inversé | idem | `CDLINVERTEDHAMMER` | — | `IMPOSSIBLE` | raison 7 (2026-10-11) : la définition TA-Lib exige un écart d'ouverture, inexistant quand l'ouverture est la clôture précédente (comme CH06, CH07, CH09, CH14, CH18) ; aucune sous H0, aveugle |
 | CH03 | Avalement haussier | idem | `CDLENGULFING` > 0 | 1h, 4h, 1j | `À_TESTER (zoo)` | — |
 | CH04 | Harami haussier | idem | `CDLHARAMI` > 0 | 1h, 4h, 1j | `À_TESTER (zoo)` | — |
 | CH05 | Harami en croix | idem | `CDLHARAMICROSS` > 0 | 1h, 4h, 1j | `À_TESTER (zoo)` | — |
@@ -158,12 +159,12 @@ Young et Rose, 2006) ; pour les figures de continuation (CH10, CH15), tendance p
 | CH08 | Doji libellule | idem | `CDLDRAGONFLYDOJI` | 1h, 4h, 1j | `À_TESTER (zoo)` | — |
 | CH09 | Ligne pénétrante | idem | `CDLPIERCING` | — | `IMPOSSIBLE` | raison 7 : la 2e bougie doit ouvrir sous le plus bas de la 1re, impossible quand l'ouverture est la clôture précédente (aucune sous H0 non plus) |
 | CH10 | Trois soldats blancs | idem | `CDL3WHITESOLDIERS` | 1h, 4h, 1j | `À_TESTER (zoo)` | — |
-| CH11 | Trois intérieurs haussiers | idem | `CDL3INSIDE` > 0 | 1h, 4h, 1j | `À_TESTER (zoo)` | — |
-| CH12 | Trois extérieurs haussiers | idem | `CDL3OUTSIDE` > 0 | 1h, 4h, 1j | `À_TESTER (zoo)` | — |
+| CH11 | Trois intérieurs haussiers | idem | `CDL3INSIDE` > 0 | — | `IMPOSSIBLE` | raison 7 (2026-10-11) : la définition TA-Lib exige un écart d'ouverture, inexistant quand l'ouverture est la clôture précédente (comme CH06, CH07, CH09, CH14, CH18) ; aucune sous H0, aveugle |
+| CH12 | Trois extérieurs haussiers | idem | `CDL3OUTSIDE` > 0 | — | `IMPOSSIBLE` | raison 7 (2026-10-11) : la définition TA-Lib exige un écart d'ouverture, inexistant quand l'ouverture est la clôture précédente (comme CH06, CH07, CH09, CH14, CH18) ; aucune sous H0, aveugle |
 | CH13 | Ceinture haussière | idem | `CDLBELTHOLD` > 0 | 1h, 4h, 1j | `À_TESTER (zoo)` | — |
 | CH14 | Bébé abandonné haussier | idem | `CDLABANDONEDBABY` | — | `IMPOSSIBLE` | raison 7 : exige un écart de prix entre bougies, impossible quand l'ouverture est la clôture précédente |
-| CH15 | Trois méthodes ascendantes | idem | `CDLRISEFALL3METHODS` > 0 | 1h, 4h, 1j | `À_TESTER (zoo)` | — |
-| CH16 | Pigeon voyageur | idem | `CDLHOMINGPIGEON` | 1h, 4h, 1j | `À_TESTER (zoo)` | — |
+| CH15 | Trois méthodes ascendantes | idem | `CDLRISEFALL3METHODS` > 0 | — | `IMPOSSIBLE` | raison 7 (2026-10-11) : la définition TA-Lib exige un écart d'ouverture, inexistant quand l'ouverture est la clôture précédente (comme CH06, CH07, CH09, CH14, CH18) ; aucune sous H0, aveugle |
+| CH16 | Pigeon voyageur | idem | `CDLHOMINGPIGEON` | — | `IMPOSSIBLE` | raison 7 (2026-10-11) : la définition TA-Lib exige un écart d'ouverture, inexistant quand l'ouverture est la clôture précédente (comme CH06, CH07, CH09, CH14, CH18) ; aucune sous H0, aveugle |
 | CH17 | Plus bas identiques | idem | `CDLMATCHINGLOW` | 1h, 4h, 1j | `À_TESTER (zoo)` | — |
 | CH18 | Kicker haussier | idem | `CDLKICKING` | — | `IMPOSSIBLE` | raison 7 : exige un écart de prix (comme CH14) |
 | CH19 | Doji simple | idem | `CDLDOJI` | — | `IMPOSSIBLE` | raison 6 : figure d'indécision, aucune règle d'achat publiée |
@@ -421,7 +422,7 @@ Lu comme information seulement : aucun contrat n'est jamais traité.
 | AN02 | Order block | ICT | § 3 | 1h, 4h, 1j | `TESTÉ` | OB `INFERIEUR_AU_HASARD` |
 | AN03 | Liquidity sweep | ICT | § 4 | 1h, 4h, 1j | `TESTÉ` | SWEEP `INFERIEUR_AU_HASARD` |
 | AN04 | Configuration ICT complète (sweep puis MSS avec FVG) | ICT | § 9.4 | 1h, 4h, 1j | `TESTÉ` | ICT `NON_DEMONTRE` ; F15 en direct |
-| AN05 | Zone OTE (62–79 %) | ICT | `INDICATEURS.md` § 10.6 ; achat à la 1re clôture qui repasse au-dessus de 62 % après un contact dans la zone | 1h, 4h, 1j | `À_TESTER (zoo)` | — |
+| AN05 | Zone OTE (62–79 %) | ICT | `INDICATEURS.md` § 10.6 ; achat à la 1re clôture qui repasse au-dessus de 62 % après un contact dans la zone | 1h, 4h, 1j | `DOUBLON` | déjà vu : ST05 (Fibonacci 61,8 %, mêmes signaux à peu près) ; retiré du zoo le 2026-10-11 |
 | AN06 | Breaker block haussier | ICT | `INDICATEURS.md` § 10.6 ; achat au premier retour dans la zone clôturé au-dessus | 1h, 4h | `À_TESTER (zoo)` | — |
 | AN07 | « Spring » de Wyckoff | Wyckoff (années 1930) | équivalents mécaniques : retour au-dessus d'un support enfoncé, sweep | 15 min, 1h | `TESTÉ` | E (`SCREENING.md`, sous les coûts) et SWEEP (`FIGURES_HISTORIQUE.md`, inférieur au hasard) |
 | AN08 | Méthode de Wyckoff complète (phases) | Wyckoff | — | — | `IMPOSSIBLE` | raison 6 : lecture des phases non mécanisable |
@@ -466,45 +467,46 @@ du 2026-10-11 :
 |---|---|
 | `TESTÉ` | 89 |
 | `EN_DIRECT` | 10 |
-| `À_TESTER (zoo)` | 136 |
+| `À_TESTER (zoo)` | 130 |
 | `À_TESTER (attente)` | 14 |
 | `À_TESTER (hors moteur)` | 3 |
-| `IMPOSSIBLE` | 40 |
+| `IMPOSSIBLE` | 45 |
+| `DOUBLON` | 1 |
 | **Total** | **292** |
 
-`À_TESTER` en tout : 153. Les 136 stratégies `À_TESTER (zoo)` donnent **257 tests** (une stratégie × une unité
+`À_TESTER` en tout : 147. Les 130 stratégies `À_TESTER (zoo)` donnent **239 tests** (une stratégie × une unité
 de temps), protocole dans [ZOO.md](ZOO.md).
 
-Par famille (T = `TESTÉ`, D = `EN_DIRECT`, Z = zoo, A = attente, H = hors moteur, I = `IMPOSSIBLE`) :
+Par famille (T = `TESTÉ`, D = `EN_DIRECT`, Z = zoo, A = attente, H = hors moteur, I = `IMPOSSIBLE`, V = `DOUBLON`) :
 
-| Famille | Total | T | D | Z | A | H | I | Tests du zoo |
-|---|---|---|---|---|---|---|---|---|
-| 1. Tendance et cassures (TR) | 48 | 14 | 0 | 34 | 0 | 0 | 0 | 83 |
-| 2. Retour à la moyenne (MR) | 20 | 7 | 1 | 11 | 0 | 0 | 1 | 23 |
-| 3. Volatilité et range (VO) | 11 | 0 | 1 | 10 | 0 | 0 | 0 | 14 |
-| 4. Chandeliers (CH) | 21 | 0 | 0 | 15 | 0 | 0 | 6 | 44 |
-| 5. Structure (ST) | 15 | 1 | 0 | 14 | 0 | 0 | 0 | 22 |
-| 6. Volume et flux (VF) | 17 | 7 | 0 | 7 | 3 | 0 | 0 | 21 |
-| 7. Facteurs en coupe (XS) | 24 | 9 | 0 | 13 | 0 | 0 | 2 | 13 |
-| 8. Rotation et marché (RO) | 6 | 0 | 0 | 4 | 0 | 0 | 2 | 4 |
-| 9. Autres marchés (AM) | 9 | 1 | 0 | 7 | 1 | 0 | 0 | 7 |
-| 10. Calendrier (CA) | 14 | 8 | 0 | 4 | 0 | 0 | 2 | 4 |
-| 11. Sentiment et attention (SE) | 10 | 1 | 1 | 2 | 1 | 0 | 5 | 2 |
-| 12. Marché à terme public (DE) | 15 | 6 | 1 | 0 | 4 | 1 | 3 | 0 |
-| 13. On-chain gratuit (OC) | 9 | 5 | 1 | 0 | 2 | 0 | 1 | 0 |
-| 14. Événements (EV) | 7 | 0 | 2 | 1 | 2 | 0 | 2 | 1 |
-| 15. Régimes et modèles (RG) | 10 | 3 | 0 | 6 | 1 | 0 | 0 | 7 |
-| 16. Apprentissage (ML) | 11 | 7 | 0 | 0 | 0 | 2 | 2 | 0 |
-| 17. Portefeuille (PF) | 10 | 5 | 0 | 4 | 0 | 0 | 1 | 4 |
-| 18. Exécution et frais (EX) | 8 | 4 | 2 | 0 | 0 | 0 | 2 | 0 |
-| 19. Méthodes d'analystes (AN) | 16 | 9 | 0 | 4 | 0 | 0 | 3 | 8 |
-| 20. Signaux de tiers (TI) | 5 | 2 | 1 | 0 | 0 | 0 | 2 | 0 |
-| 21. Hors cadre (HC) | 6 | 0 | 0 | 0 | 0 | 0 | 6 | 0 |
-| **Total** | **292** | **89** | **10** | **136** | **14** | **3** | **40** | **257** |
+| Famille | Total | T | D | Z | A | H | I | V | Tests du zoo |
+|---|---|---|---|---|---|---|---|---|---|
+| 1. Tendance et cassures (TR) | 48 | 14 | 0 | 34 | 0 | 0 | 0 | 0 | 83 |
+| 2. Retour à la moyenne (MR) | 20 | 7 | 1 | 11 | 0 | 0 | 1 | 0 | 23 |
+| 3. Volatilité et range (VO) | 11 | 0 | 1 | 10 | 0 | 0 | 0 | 0 | 14 |
+| 4. Chandeliers (CH) | 21 | 0 | 0 | 10 | 0 | 0 | 11 | 0 | 29 |
+| 5. Structure (ST) | 15 | 1 | 0 | 14 | 0 | 0 | 0 | 0 | 22 |
+| 6. Volume et flux (VF) | 17 | 7 | 0 | 7 | 3 | 0 | 0 | 0 | 21 |
+| 7. Facteurs en coupe (XS) | 24 | 9 | 0 | 13 | 0 | 0 | 2 | 0 | 13 |
+| 8. Rotation et marché (RO) | 6 | 0 | 0 | 4 | 0 | 0 | 2 | 0 | 4 |
+| 9. Autres marchés (AM) | 9 | 1 | 0 | 7 | 1 | 0 | 0 | 0 | 7 |
+| 10. Calendrier (CA) | 14 | 8 | 0 | 4 | 0 | 0 | 2 | 0 | 4 |
+| 11. Sentiment et attention (SE) | 10 | 1 | 1 | 2 | 1 | 0 | 5 | 0 | 2 |
+| 12. Marché à terme public (DE) | 15 | 6 | 1 | 0 | 4 | 1 | 3 | 0 | 0 |
+| 13. On-chain gratuit (OC) | 9 | 5 | 1 | 0 | 2 | 0 | 1 | 0 | 0 |
+| 14. Événements (EV) | 7 | 0 | 2 | 1 | 2 | 0 | 2 | 0 | 1 |
+| 15. Régimes et modèles (RG) | 10 | 3 | 0 | 6 | 1 | 0 | 0 | 0 | 7 |
+| 16. Apprentissage (ML) | 11 | 7 | 0 | 0 | 0 | 2 | 2 | 0 | 0 |
+| 17. Portefeuille (PF) | 10 | 5 | 0 | 4 | 0 | 0 | 1 | 0 | 4 |
+| 18. Exécution et frais (EX) | 8 | 4 | 2 | 0 | 0 | 0 | 2 | 0 | 0 |
+| 19. Méthodes d'analystes (AN) | 16 | 9 | 0 | 3 | 0 | 0 | 3 | 1 | 5 |
+| 20. Signaux de tiers (TI) | 5 | 2 | 1 | 0 | 0 | 0 | 2 | 0 | 0 |
+| 21. Hors cadre (HC) | 6 | 0 | 0 | 0 | 0 | 0 | 6 | 0 | 0 |
+| **Total** | **292** | **89** | **10** | **130** | **14** | **3** | **45** | **1** | **239** |
 
 Lecture : sur 292 stratégies recensées, 89 ont déjà un verdict historique (aucune n'a d'avantage démontré après
 frais ; seule la prévision de volatilité, RG09, qui ne dit pas le sens, est confirmée), 10 sont mesurées seulement
-en direct, 40 sont hors de portée et 153 restent à mesurer, dont 136 par le zoo. Le mot « exhaustif » de la
+en direct, 45 sont hors de portée, 1 est un doublon et 147 restent à mesurer, dont 130 par le zoo. Le mot « exhaustif » de la
 première version est retiré : c'est un recensement, auquel la relecture a déjà ajouté huit familles oubliées.
 
 ## Historique
@@ -521,3 +523,7 @@ première version est retiré : c'est un recensement, auquel la relecture a déj
   fenêtres de CA09 à CA11 bornées par l'heure de publication ; formulation unique de SE01 et limite de l'historique
   d'alternative.me ; EV02 : référence des paires cotées depuis plus de 180 jours, descriptif seulement dans F31 ; DE07
   cousin déjà vu de DE05 et DE06. Comptes inchangés (292 stratégies, 257 tests).
+- 2026-10-11 (décisions de mise en œuvre avant tout résultat, après le codage des familles ; aucun rendement réel lu) :
+  CH02, CH11, CH12, CH15, CH16 passent `IMPOSSIBLE` (raison 7 : écart d'ouverture exigé, comme CH06, CH07, CH09, CH14,
+  CH18) ; AN05 passe `DOUBLON` (déjà vu : ST05) ; nouveau statut `DOUBLON` ; comptes : 130 stratégies au zoo,
+  **239 tests** (292 stratégies inchangées).
