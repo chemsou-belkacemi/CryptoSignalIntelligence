@@ -12,10 +12,16 @@ prochain signal.
 Regards répétés : ce bilan est recalculé à chaque signal. S'arrêter la première fois que l'IC
 passe au-dessus de 0 gonfle le risque de faux positif ; une conclusion ne vaut que si elle tient
 dans la durée, sur des signaux reçus APRÈS la décision de faire confiance au groupe.
+
+Maturité (chasse aux erreurs du 2026-10-12) : un trade qui touche son stop se résout vite, un trade qui encaisse
+ses objectifs avec le stop suiveur reste ouvert jusqu'à 30 jours. Compter les signaux dès leur résolution
+retenait donc les perdants avant les gagnants. Seuls comptent les signaux dont la fenêtre complète (entrée +
+suivi) est écoulée (`mature_before`), comme le taux de base qui ne garde que des fenêtres complètes.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 
 import numpy as np
 
@@ -55,7 +61,24 @@ class SourceRecord:
     limit_above_tp1: int = 0                       # achats limites publiés prix ≥ TP1 : comptés à part, hors bilan
 
 
-def source_records(registry: ExternalSignalRegistry, *, samples: int = 2000, seed: int = 20260930) -> list[SourceRecord]:
+def maturity_cutoff(settings, now: datetime) -> datetime:
+    """Réceptions antérieures à cet instant : fenêtre d'entrée + suivi de la gestion jugée entièrement écoulés."""
+    cfg = settings.external
+    hold = cfg.trail_max_hold_bars if cfg.management == "stop_suiveur" else cfg.max_hold_bars
+    from ..data.schema import interval
+    step = interval(settings.data.setup_timeframe).to_pytimedelta()
+    return now - (cfg.entry_window_bars + hold) * step
+
+
+def records_for(settings, registry: ExternalSignalRegistry, now: datetime) -> list[SourceRecord]:
+    """Bilans tels que l'avis les lit : signaux mûrs seulement ; taux TP1 de base masqué avec le stop suiveur (le
+    réalisé y compte « au moins un objectif touché » sur 30 jours, la base « TP1 dépassé » sur 7 jours)."""
+    return source_records(registry, seed=settings.protocol.seed, mature_before=maturity_cutoff(settings, now),
+                          tp1_comparable=settings.external.management != "stop_suiveur")
+
+
+def source_records(registry: ExternalSignalRegistry, *, samples: int = 2000, seed: int = 20260930,
+                   mature_before: datetime | None = None, tp1_comparable: bool = True) -> list[SourceRecord]:
     records = []
     rows_by_source: dict[str, list[dict]] = {}
     with registry.connect() as db:
@@ -63,6 +86,8 @@ def source_records(registry: ExternalSignalRegistry, *, samples: int = 2000, see
                                   FROM external_signals
                                   WHERE outcome IN {RESOLVED} AND outcome_r IS NOT NULL
                                   AND COALESCE(limit_above_tp1, 0) = 0"""):    # hors preuve : BSM les refuse
+            if mature_before is not None and datetime.fromisoformat(row["received_at"]) > mature_before:
+                continue                                  # fenêtre pas encore écoulée : ni gagnant ni perdant compté
             rows_by_source.setdefault(row["source"], []).append(dict(row))
     for stats in registry.source_stats():
         rows = rows_by_source.get(stats["source"], [])
@@ -107,7 +132,7 @@ def source_records(registry: ExternalSignalRegistry, *, samples: int = 2000, see
             copies=int(stats["copies"] or 0), refused=int(stats["refuse"] or 0), pending=int(stats["pending"] or 0),
             unfilled=int(stats["unfilled"] or 0), resolved=resolved,
             tp1_real=round(tp1_real, 4) if tp1_real is not None else None,
-            tp1_base=round(float(np.mean(base_tp1)), 4) if base_tp1 else None,
+            tp1_base=round(float(np.mean(base_tp1)), 4) if base_tp1 and tp1_comparable else None,
             r_real=round(float(np.mean([r["outcome_r"] for r in rows])), 4) if rows else None,
             r_base=round(float(np.mean([r["base_expectancy_r"] for r in with_base])), 4) if with_base else None,
             edge_r=edge, edge_ci95=ci, conclusion=conclusion, r_ci95=r_ci, days=distinct_days, proven=proven,
@@ -115,6 +140,8 @@ def source_records(registry: ExternalSignalRegistry, *, samples: int = 2000, see
     return records
 
 
-def source_record(registry: ExternalSignalRegistry, source: str, *, seed: int = 20260930) -> SourceRecord | None:
+def source_record(registry: ExternalSignalRegistry, source: str, *, seed: int = 20260930,
+                  mature_before: datetime | None = None) -> SourceRecord | None:
     """Bilan d'UNE source (None si elle n'a encore rien d'enregistré)."""
-    return next((r for r in source_records(registry, seed=seed) if r.source == source), None)
+    return next((r for r in source_records(registry, seed=seed, mature_before=mature_before) if r.source == source),
+                None)

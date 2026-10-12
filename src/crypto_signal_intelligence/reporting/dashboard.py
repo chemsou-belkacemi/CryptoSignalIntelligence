@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 from ..config import Settings
 from ..data.schema import interval
 from ..data.store import CandleStore
-from ..external.record import MIN_RESOLVED, source_records
+from ..external.record import MIN_RESOLVED, records_for
 from ..external.registry import ExternalSignalRegistry
 from ..external.universe import UserUniverse
 from ..feedback.reconcile import execution_report
@@ -130,9 +130,9 @@ def render(settings: Settings, *, now: datetime) -> str:
         cls = "ok" if age <= 2 * step.total_seconds() / 60 else "bad"
         fresh_rows.append([label, _e(f"{(last + step):%Y-%m-%d %H:%M}"), f'<span class="{cls}">{age:.0f} min</span>'])
 
-    # Groupes Telegram : réalisé contre taux de base, mêmes règles.
+    # Groupes Telegram : réalisé contre taux de base, mêmes règles (R) ; signaux mûrs seulement.
     group_rows = []
-    for rec in source_records(ExternalSignalRegistry(settings.external_db), seed=settings.protocol.seed):
+    for rec in records_for(settings, ExternalSignalRegistry(settings.external_db), now):
         ci = f" [{rec.edge_ci95[0]:+.2f} ; {rec.edge_ci95[1]:+.2f}]" if rec.edge_ci95 else ""
         pct = lambda v: "–" if v is None else f"{v:.0%}"  # noqa: E731
         group_rows.append([_e(rec.source), str(rec.evaluated), str(rec.resolved), str(rec.pending), str(rec.unfilled),

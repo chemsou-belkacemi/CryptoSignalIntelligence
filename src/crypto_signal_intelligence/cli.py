@@ -1914,18 +1914,18 @@ def audit_telegram(file: str = typer.Option(None, "--file", help="Export JSON de
 @app.command()
 def sources(recent: int = typer.Option(10, help="Nombre de derniers signaux affichés")):
     """Bilan par source des signaux externes : avis donnés, issues résolues, réalisé contre taux de base."""
-    from .external.record import MIN_RESOLVED, source_records
+    from .external.record import MIN_RESOLVED, records_for
     from .external.registry import ExternalSignalRegistry
     settings = _settings()
     registry = ExternalSignalRegistry(settings.external_db)
     table = Table("source", "évalués", "doublons", "refusés", "attente", "non remplis", "résolus", "limites ≥ TP1 (à part)",
                   "TP1 réalisé / base",
                   "R réalisé / base", "écart (IC95)", "conclusion",
-                  title=f"Bilan par source : réalisé contre taux de base, mêmes règles ; conclusion à partir de "
-                        f"{MIN_RESOLVED} signaux résolus")
+                  title=f"Bilan par source : réalisé contre taux de base (R : mêmes règles ; signaux dont la fenêtre "
+                        f"est écoulée) ; conclusion à partir de {MIN_RESOLVED} signaux résolus")
     pct = lambda v: f"{v:.0%}" if v is not None else "–"  # noqa: E731
     num = lambda v: f"{v:+.3f}" if v is not None else "–"  # noqa: E731
-    for s in source_records(registry, seed=settings.protocol.seed):
+    for s in records_for(settings, registry, datetime.now(UTC)):
         ci = f" [{s.edge_ci95[0]:+.2f} ; {s.edge_ci95[1]:+.2f}]" if s.edge_ci95 else ""
         table.add_row(s.source, str(s.evaluated), str(s.duplicates), str(s.refused), str(s.pending), str(s.unfilled),
                       str(s.resolved), str(s.limit_above_tp1), f"{pct(s.tp1_real)} / {pct(s.tp1_base)}", f"{num(s.r_real)} / {num(s.r_base)}",

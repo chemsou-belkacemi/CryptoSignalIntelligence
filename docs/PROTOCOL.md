@@ -110,7 +110,16 @@ et aucune n'a été choisie pour changer un verdict.
   de base et le retour d'exécution ; auparavant, le simulateur divisait par le risque réalisé, ce
   qui gonflait |R| quand l'ouverture remplissait sous la limite.
 - **Coûts défavorables** : une bougie de retard à l'entrée (`extra_entry_delay_bars = 1`) ; en
-  direct, le signal part ≈ 40 s après la clôture. Le scénario central garde 0.
+  direct, le signal part ≈ 40 s après la clôture. Le scénario central garde 0. La fenêtre d'entrée
+  reste ancrée sur la décision (ENTRY_EXPIRES_AT, bougies k+1 à k+N) : le retard la **raccourcit**
+  à N − 1 bougies. Avant le 2026-10-12, elle était décalée d'une bougie, au-delà de l'expiration
+  (scénario défavorable un peu trop favorable aux remplissages ; aucun verdict n'en dépendait, tout
+  était REJECTED).
+- **Premier TP avant l'achat** : la politique `CANCEL_AT_ENTRY_EXPIRY_OR_FIRST_TP`, que BSM applique
+  aux signaux CSI, annule l'entrée si TP1 est touché avant tout achat (statut `CANCELLED_FIRST_TP`,
+  compté dans `entries_cancelled_first_tp`) ; une bougie qui touche TP1 et la limite sans ouvrir
+  dessous est une annulation (ordre inconnu). Appliquée par le simulateur et le rejeu du rapprochement
+  depuis le 2026-10-12 ; avant, ces ordres étaient remplis à tort.
 - **Exécution simulée** : ouverture au niveau du stop ou dessous à l'entrée → deux traversées du
   spread (achat puis stop-market) ; stop remonté touché dans la bougie même du TP → sortie
   pessimiste au nouveau stop, cas compté ambigu.

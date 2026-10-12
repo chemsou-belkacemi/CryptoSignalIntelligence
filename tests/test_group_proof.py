@@ -130,11 +130,11 @@ def prove(settings, source: str, now, proven: bool = True) -> None:
 
 def test_a_proven_group_lifts_geometry_vetoes_but_never_refusals(settings, market):
     close, atr, now = market
-    wide = signal(close * 1.001, close * 1.001 - 9 * atr, close * 1.001 + 0.5 * atr)       # stop large, TP1 proche
-    blind = evaluate(settings, wide, source="LEGEND TRADING INDICATOR", now=now, record=False)
-    assert blind.verdict == "DEFAVORABLE" and {c.label for c in blind.failed} == {"distance du stop"}   # stop à 9 ATR
+    tight = signal(close * 1.001, close * 1.001 - 0.3 * atr, close * 1.001 + 2 * atr)       # stop trop serré (0,3 ATR)
+    blind = evaluate(settings, tight, source="LEGEND TRADING INDICATOR", now=now, record=False)
+    assert blind.verdict == "DEFAVORABLE" and {c.label for c in blind.failed} == {"distance du stop"}   # stop à 0,3 ATR
     prove(settings, "LEGEND TRADING INDICATOR", now)
-    lifted = evaluate(settings, wide, source="LEGEND TRADING INDICATOR", now=now, record=False)
+    lifted = evaluate(settings, tight, source="LEGEND TRADING INDICATOR", now=now, record=False)
     assert lifted.verdict == "FAVORABLE" and lifted.verdict_basis == "groupe"
     assert lifted.source_proof["basis"] == "historique" and lifted.source_proof["proven"]
     assert "historique" in explain(lifted.to_dict()) and "pas une garantie" in explain(lifted.to_dict())
@@ -144,22 +144,35 @@ def test_a_proven_group_lifts_geometry_vetoes_but_never_refusals(settings, marke
     dead = evaluate(settings, signal(close * 1.001, close * 1.0005, close * 1.01), source="LEGEND TRADING INDICATOR",
                     now=now, record=False)
     assert dead.verdict == "REFUSE"
-    stale = evaluate(settings, wide, source="LEGEND TRADING INDICATOR", now=now + timedelta(hours=3), record=False)
+    stale = evaluate(settings, tight, source="LEGEND TRADING INDICATOR", now=now + timedelta(hours=3), record=False)
     assert stale.verdict == "REFUSE"
-    other = evaluate(settings, wide, source="Autre groupe", now=now, record=False)
+    other = evaluate(settings, tight, source="Autre groupe", now=now, record=False)
     assert other.verdict == "DEFAVORABLE" and other.verdict_basis == ""                   # la preuve est par groupe
     prove(settings, "LEGEND TRADING INDICATOR", now + timedelta(minutes=1), proven=False)
-    assert evaluate(settings, wide, source="LEGEND TRADING INDICATOR", now=now + timedelta(minutes=2),
+    assert evaluate(settings, tight, source="LEGEND TRADING INDICATOR", now=now + timedelta(minutes=2),
                     record=False).verdict == "DEFAVORABLE"
 
 
+
+
+def test_a_wide_stop_is_information_with_the_trailing_management_and_a_veto_with_tp1(settings, market):
+    """Chasse aux erreurs du 2026-10-12 : un stop à 9 ATR14 de 15 min (≈ 5–7 % pour un signal swing) n'est plus un
+    veto quand la gestion jugée est le stop suiveur (le taux de base rejoue ce stop) ; il le reste en gestion TP1."""
+    close, atr, now = market
+    swing = signal(close * 1.001, close * 1.001 - 9 * atr, close * 1.001 + 4 * atr)
+    trailing = evaluate(settings, swing, source="Groupe swing", now=now, record=False)
+    check = next(c for c in trailing.checks if c.label == "distance du stop")
+    assert check.ok and "information seulement" in check.detail and any("stop large" in w for w in trailing.warnings)
+    settings.external.management = "tp1"
+    fixed = evaluate(settings, swing, source="Groupe swing", now=now, record=False)
+    assert "distance du stop" in {c.label for c in fixed.failed} and fixed.verdict == "DEFAVORABLE"
 
 def test_a_proven_group_never_vouches_for_a_limit_order_published_above_tp1(settings, market):
     """Relecture du 2026-10-12 : la preuve du groupe exclut les achats limites publiés prix ≥ TP1 ; elle ne lève
     donc pas leurs vetos de géométrie (un tel signal est jugé sur sa géométrie et son taux de base seuls)."""
     close, atr, now = market
     prove(settings, "LEGEND TRADING INDICATOR", now)
-    above = signal(close * 0.98, close * 0.98 - 9 * atr, close * 0.995)      # limite sous le prix, TP1 sous le prix
+    above = signal(close * 0.98, close * 0.98 - 0.3 * atr, close * 0.995)      # limite sous le prix, TP1 sous le prix
     ev = evaluate(settings, above, source="LEGEND TRADING INDICATOR", now=now, record=False)
     assert ev.limit_above_tp1 and ev.source_proof["proven"]
     assert ev.verdict == "DEFAVORABLE" and ev.verdict_basis != "groupe"
@@ -170,16 +183,16 @@ def test_a_proven_group_never_vouches_for_a_limit_order_published_above_tp1(sett
 def test_a_live_proof_also_counts_and_generic_names_take_the_header(settings, market):
     close, atr, now = market
     registry = ExternalSignalRegistry(settings.external_db)
-    live_signals(registry, "LEGEND TRADING", 30, r=0.6, base=-0.1, days=15, start=now - timedelta(days=40))
-    wide = signal(close * 1.001, close * 1.001 - 9 * atr, close * 1.001 + 0.5 * atr)
-    named = evaluate(settings, wide, source="telegram 8793686453", now=now, record=False)
-    assert named.source == "LEGEND TRADING" == group_of(wide)          # en-tête « LEGEND TRADING INDICATOR »
+    live_signals(registry, "LEGEND TRADING", 30, r=0.6, base=-0.1, days=15, start=now - timedelta(days=60))
+    tight = signal(close * 1.001, close * 1.001 - 0.3 * atr, close * 1.001 + 2 * atr)
+    named = evaluate(settings, tight, source="telegram 8793686453", now=now, record=False)
+    assert named.source == "LEGEND TRADING" == group_of(tight)          # en-tête « LEGEND TRADING INDICATOR »
     assert named.verdict == "FAVORABLE" and named.source_proof["basis"] == "direct"
-    plain = evaluate(settings, wide.split("\n", 1)[1], source="telegram 8793686453", now=now, record=False)
+    plain = evaluate(settings, tight.split("\n", 1)[1], source="telegram 8793686453", now=now, record=False)
     assert plain.source == "telegram 8793686453" and plain.verdict == "DEFAVORABLE"       # aucun en-tête : nom gardé
-    assert evaluate(settings, wide, source="Mon groupe", now=now, record=False).source == "Mon groupe"
-    live_signals(registry, "Débutant", 10, r=0.6, base=-0.1, days=10, start=now - timedelta(days=40))
-    young = evaluate(settings, wide, source="Débutant", now=now, record=False)
+    assert evaluate(settings, tight, source="Mon groupe", now=now, record=False).source == "Mon groupe"
+    live_signals(registry, "Débutant", 10, r=0.6, base=-0.1, days=10, start=now - timedelta(days=60))
+    young = evaluate(settings, tight, source="Débutant", now=now, record=False)
     assert young.verdict == "DEFAVORABLE" and not young.source_proof["proven"] and "10/30" in young.source_proof["proof"]
 
 
@@ -188,11 +201,11 @@ def test_a_lookalike_header_does_not_inherit_a_group_proof(settings, market):
     « CRYPTO LEGEND » venu d'une autre conversation."""
     close, atr, now = market
     registry = ExternalSignalRegistry(settings.external_db)
-    live_signals(registry, "LEGEND TRADING", 30, r=0.6, base=-0.1, days=15, start=now - timedelta(days=40))
-    wide = signal(close * 1.001, close * 1.001 - 9 * atr, close * 1.001 + 0.5 * atr, header="CRYPTO LEGEND")
-    other = evaluate(settings, wide, source="telegram 555", now=now, record=False)
+    live_signals(registry, "LEGEND TRADING", 30, r=0.6, base=-0.1, days=15, start=now - timedelta(days=60))
+    tight = signal(close * 1.001, close * 1.001 - 0.3 * atr, close * 1.001 + 2 * atr, header="CRYPTO LEGEND")
+    other = evaluate(settings, tight, source="telegram 555", now=now, record=False)
     assert other.source == "CRYPTO LEGEND" and other.verdict_basis != "groupe" and other.verdict != "FAVORABLE"
-    proven = evaluate(settings, signal(close * 1.001, close * 1.001 - 9 * atr, close * 1.001 + 0.5 * atr),
+    proven = evaluate(settings, signal(close * 1.001, close * 1.001 - 0.3 * atr, close * 1.001 + 2 * atr),
                       source="telegram 555", now=now, record=False)
     assert proven.source == "LEGEND TRADING" and proven.verdict == "FAVORABLE"
 
