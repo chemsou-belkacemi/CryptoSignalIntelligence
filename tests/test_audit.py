@@ -369,3 +369,19 @@ def test_a_limit_order_published_above_tp1_is_measured_apart_and_never_proves_th
     assert entry["conventions"][au.TP1_TOUCH]["resolus"] == 0                   # hors du bilan principal
     assert entry["ordres_limites_au_dessus_de_tp1"]["conventions"][au.TP1_TOUCH]["resolus"] == 1
     assert entry["preuve"]["resolved"] == 0 and not entry["preuve"]["proven"]
+
+
+def test_the_management_comparison_leaves_out_limit_orders_published_above_tp1(settings, monkeypatch):
+    """Deux signaux mesurés : un normal (prix 101), un ordre limite publié à 105 ≥ TP1. La comparaison des gestions
+    (qui choisit une gestion pour BSM) ne doit voir que le premier : avec un seul signal, elle n'est pas lancée."""
+    from crypto_signal_intelligence.external import managements
+    calls: list[int] = []
+    monkeypatch.setattr(managements, "compare", lambda signals, *a, **k: calls.append(len(signals)) or {})
+    later = PUBLISHED + pd.Timedelta(days=8)
+    gap = int((later - T0) / STEP)
+    frame = bars(flat(gap - 8, 101.0) + flat(8, 105.0) + [(105.0, 105.0, 99.0, 99.0), (99.0, 105.0, 99.0, 105.0)]
+                 + flat(1300, 105.0))
+    report = run(settings, frame, [item(), item(at=later)])
+    assert [r.status for r in report.rows] == ["OK", "OK"]
+    assert [r.limit_above_tp1 for r in report.rows] == [False, True]
+    assert calls == []
