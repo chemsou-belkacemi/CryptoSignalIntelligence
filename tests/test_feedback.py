@@ -91,24 +91,28 @@ def test_execution_state_reconstructs_pnl_in_quote_and_r():
 
 
 
-def test_realized_r_converts_base_asset_fees_and_stays_unknown_with_bnb_or_missing_fees():
-    """Chasse aux erreurs du 2026-10-12 : des frais payés en BNB étaient ignorés (R Demo surestimé)."""
-    signal = parse(SPEC_EXAMPLE)                      # entrée 100, stop 98 ; TESTUSDT
-    events = [parse_line(line) for line in closing_sequence()]
-    base = execution_state(signal, events)
-    assert base.realized_r == pytest.approx(-0.1)
-
-    def with_fee(asset: str, amount: str):
-        fills = [e for e in events if e.event_type == "ENTRY_FILLED"]
-        assert fills
-        first = fills[0]
-        changed = parse_line(event(event_id="F", event_type="ENTRY_FILLED", occurred_at=first.occurred_at.isoformat(),
-                                   quantity=str(first.quantity), price=str(first.price), fee=amount, fee_asset=asset))
-        return [changed if e is first else e for e in events]
-
-    in_base = execution_state(signal, with_fee(signal.symbol.removesuffix("USDT"), "0.003"))   # 0,3 USDT > 0,2
-    assert in_base.fees_quote > base.fees_quote and in_base.realized_r < base.realized_r
-    in_bnb = execution_state(signal, with_fee("BNB", "0.001"))
+def test_realized_r_with_buy_fees_in_the_base_asset_and_unknown_with_bnb_fees():
+    """Relecture du 2026-10-12 : un frais d'achat prélevé dans la crypto achetée est déjà dans le PnL (BSM ne revend
+    que la quantité nette) ; des frais en BNB étaient ignorés (R surestimé) : R inconnu."""
+    signal = parse(SPEC_EXAMPLE)                      # entrée 100, stop 98 ; risque prévu 2 par unité
+    base = signal.symbol.removesuffix("USDT")
+    net = [event(),
+           event(event_id="E2", event_type="ENTRY_FILLED", occurred_at="2026-09-29T12:01:00Z", quantity="2",
+                 price="100", fee="0.002", fee_asset=base),
+           event(event_id="E3", event_type="TP_FILLED", occurred_at="2026-09-29T13:00:00Z", quantity="1", price="102",
+                 target_index=1, fee="0.102", fee_asset="USDT"),
+           event(event_id="E4", event_type="STOP_FILLED", occurred_at="2026-09-29T14:00:00Z", quantity="0.998",
+                 price="98", fee="0.098", fee_asset="USDT"),
+           event(event_id="E5", event_type="CLOSED", occurred_at="2026-09-29T14:00:01Z")]
+    state = execution_state(signal, [parse_line(line) for line in net])
+    # vendu 102 + 97,804 − acheté 200 − frais en USDT 0,2 = −0,396 ; risque 2 × 2 = 4 → −0,099 R (pas −0,149)
+    assert state.status == "CLOSED" and state.fees_base_qty == Decimal("0.002")
+    assert state.realized_pnl_quote == Decimal("-0.396") and state.realized_r == pytest.approx(-0.099)
+    unclosed = execution_state(signal, [parse_line(line) for line in net[:-1]])
+    assert unclosed.status == "CLOSED"                 # toute la quantité nette est revendue
+    bnb = [line.replace(f'"fee_asset": "{base}"', '"fee_asset": "BNB"') for line in net]
+    assert bnb != net
+    in_bnb = execution_state(signal, [parse_line(line) for line in bnb])
     assert in_bnb.status == "CLOSED" and in_bnb.realized_r is None and in_bnb.realized_pnl_quote is None
 
 

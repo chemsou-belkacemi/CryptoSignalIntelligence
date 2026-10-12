@@ -533,7 +533,7 @@ def test_the_live_proof_counts_a_signal_only_once_its_whole_window_has_elapsed(s
     now = pd.Timestamp("2026-03-01", tz="UTC").to_pydatetime()
     cutoff = maturity_cutoff(settings, now)
     assert now - cutoff == timedelta(minutes=15) * (settings.external.entry_window_bars
-                                                      + settings.external.trail_max_hold_bars)
+                                                      + settings.external.trail_max_hold_bars) + timedelta(hours=2)
     young = registry.record(received_at=now - timedelta(days=3), source="G", content_hash="y", template="structured",
                             symbol="ETHUSDT", entry=100.0, stop=98.0, tp1=104.0, targets=[104.0], decision_time=None,
                             close=100.0, verdict="INDETERMINE", p_tp1=0.4, base_expectancy_r=-0.1, evaluation={},

@@ -177,7 +177,27 @@ def test_the_close_of_a_gap_fill_under_the_stop_is_still_evaluated():
     gap = (97, 97.5, 96.5, 97)
     result = run([FLAT, gap, FLAT, FLAT], buy_at={0, 1})
     assert result.trades[0].exit_reason == "SL_GAP" and result.evaluated_bars == 4   # 3 avant la correction
-    assert len(result.trades) == 2                     # la décision de la bougie 1 n'est plus sautée
+    # la décision de la bougie 1 est évaluée ; son signal serait DUPLICATE en direct (celui de la bougie 0 vit
+    # jusqu'à ENTRY_EXPIRES_AT, bougie 0 + 2)
+    assert result.no_trade["DUPLICATE"] == 1 and len(result.trades) == 1
+
+
+def test_a_pair_stays_duplicate_until_entry_expiry_even_after_a_cancellation_like_live():
+    """Relecture du 2026-10-12 : en direct (analyze, outbox), la paire reste DUPLICATE jusqu'à ENTRY_EXPIRES_AT,
+    même si l'entrée est annulée (TP1 avant l'achat) entre-temps ; ensuite, un nouveau setup est accepté."""
+    tp = (101, 104.5, 100.5, 103)
+    blocked = run([FLAT, tp, FLAT, FLAT, FLAT], buy_at={0, 1}, expiry=2)
+    assert blocked.trades[0].entry_status == "CANCELLED_FIRST_TP" and blocked.no_trade["DUPLICATE"] == 1
+    assert len(blocked.trades) == 1
+    after = run([FLAT, tp, FLAT, FLAT, FLAT], buy_at={0, 2}, expiry=2)
+    assert len(after.trades) == 2 and after.no_trade.get("DUPLICATE", 0) == 0
+
+
+def test_an_entry_delay_longer_than_the_window_expires_without_blocking_the_pair_beyond_it():
+    up = (101, 101.5, 100.5, 101)
+    costs = CostScenario(fee_bps=0, slippage_bps=0, half_spread_bps=0, extra_entry_delay_bars=3)
+    result = run([up, up, up, up, up, up], buy_at={0, 2}, costs=costs, expiry=2)
+    assert [t.entry_status for t in result.trades][:1] == ["EXPIRED"] and result.no_trade.get("DUPLICATE", 0) == 0
 
 
 def test_period_end_truncates_future_prices():

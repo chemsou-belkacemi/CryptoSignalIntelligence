@@ -21,7 +21,7 @@ suivi) est écoulée (`mature_before`), comme le taux de base qui ne garde que d
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import numpy as np
 
@@ -34,6 +34,7 @@ MIN_DAYS = 10
 # conclusion, parce que le bilan est relu à chaque signal (regards répétés).
 PROOF_RESOLVED = 30
 PROOF_DAYS = 15
+MATURITY_MARGIN = timedelta(hours=2)
 RESOLVED = ("TP1_FIRST", "SL_FIRST", "TIMEOUT")
 
 
@@ -62,12 +63,13 @@ class SourceRecord:
 
 
 def maturity_cutoff(settings, now: datetime) -> datetime:
-    """Réceptions antérieures à cet instant : fenêtre d'entrée + suivi de la gestion jugée entièrement écoulés."""
+    """Réceptions antérieures à cet instant : fenêtre d'entrée + suivi de la gestion jugée entièrement écoulés, plus
+    une marge (dernière bougie disponible, résolution faite au cycle suivant de la surveillance)."""
     cfg = settings.external
     hold = cfg.trail_max_hold_bars if cfg.management == "stop_suiveur" else cfg.max_hold_bars
     from ..data.schema import interval
     step = interval(settings.data.setup_timeframe).to_pytimedelta()
-    return now - (cfg.entry_window_bars + hold) * step
+    return now - (cfg.entry_window_bars + hold) * step - MATURITY_MARGIN
 
 
 def records_for(settings, registry: ExternalSignalRegistry, now: datetime) -> list[SourceRecord]:

@@ -54,6 +54,7 @@ class ExecutionState:
     fees_quote: Decimal = Decimal(0)
     fees_other: dict[str, Decimal] = field(default_factory=dict)
     fills_without_fee: int = 0
+    fees_base_qty: Decimal = Decimal(0)          # frais d'achat prélevés dans la crypto achetée (quantité)
     tp_fills: int = 0
     stop_filled: bool = False
     market_exits: int = 0
@@ -98,8 +99,12 @@ def execution_state(signal: Signal, events: list[ExecutionEvent]) -> ExecutionSt
                 state.fills_without_fee += 1      # frais inconnus : jamais comptés comme nuls
             elif event.fee_asset == quote_asset:
                 state.fees_quote += event.fee
+            elif event.fee_asset == base_asset and kind in BUY_EVENTS:
+                # Frais d'achat prélevé dans la crypto achetée : BSM ne revend que la quantité nette (position_engine),
+                # le PnL vendu − acheté le contient déjà ; ne pas le déduire une seconde fois.
+                state.fees_base_qty += event.fee
             elif event.fee_asset == base_asset and event.price is not None:
-                state.fees_quote += event.fee * event.price     # frais dans la crypto échangée : prix du remplissage
+                state.fees_quote += event.fee * event.price     # frais de vente en crypto : prix du remplissage
             elif event.fee_asset is not None:
                 state.fees_other[event.fee_asset] = state.fees_other.get(event.fee_asset, Decimal(0)) + event.fee
         if kind in {"REJECTED", "CANCELLED", "MARKET_EXIT_FILLED"}:
@@ -111,7 +116,7 @@ def execution_state(signal: Signal, events: list[ExecutionEvent]) -> ExecutionSt
         state.status = "REJECTED"
     elif state.bought_qty == 0:
         state.status = next((k for k in ("EXPIRED", "CANCELLED", "ORDER_PLACED", "RECEIVED") if k in kinds), "UNKNOWN")
-    elif closed or state.sold_qty >= state.bought_qty:
+    elif closed or state.sold_qty >= state.bought_qty - state.fees_base_qty:
         state.status = "CLOSED"
     elif "ENTRY_FILLED" in kinds or state.sold_qty > 0:
         state.status = "OPEN"

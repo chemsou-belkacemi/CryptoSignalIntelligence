@@ -271,13 +271,18 @@ bougies publiques.
 - 2026-10-12 (chasse aux erreurs) : (1) avec la gestion « stop suiveur », le veto « stop trop
   large » (`max_stop_atr`, mesuré en ATR14 de 15 min) devient une information : un stop à 5–7 %
   sous l'entrée vaut 10 à 13 ATR de 15 min, normal pour un signal swing ; 5 des 7 signaux reçus en
-  direct étaient DEFAVORABLES pour cette seule raison. Le taux de base rejoue ce stop exact et le R
+  direct étaient DEFAVORABLES pour cette seule raison. Décision prise sur ce constat (veto déclenché,
+  stops de 5 à 7 %), sans regarder l'issue de ces signaux. Le taux de base rejoue ce stop exact et le R
   est rapporté à ce risque ; le stop trop serré reste un veto, et la gestion TP1 garde les deux
   bornes. (2) Maturité du bilan et de la preuve en direct : un stop se résout vite, un gagnant au
   stop suiveur reste ouvert jusqu'à 30 jours ; compter les signaux dès leur résolution retenait les
   perdants avant les gagnants. Seuls les signaux dont toute la fenêtre est écoulée comptent
-  désormais, comme dans le taux de base ; la preuve en direct arrive donc ≈ 32 jours plus tard. Les
-  colonnes « évalués », « attente », « non remplis » restent des comptes bruts.
+  désormais, comme dans le taux de base (avec 2 h de marge) ; la preuve en direct arrive donc ≈ 32
+  jours plus tard. Les colonnes « évalués », « attente », « non remplis » restent des comptes bruts.
+  Même règle pour l'audit d'un export : tant que sa fenêtre complète n'est pas couverte par les
+  bougies, l'issue d'un signal est provisoire dans **toutes** les conventions (perdants compris) et
+  sort du bilan et de la preuve sur historique ; une preuve enregistrée avant cette date suivait
+  l'ancienne règle.
 - 2026-10-12 : l'évaluateur ne refuse plus un achat limite publié alors que le prix est déjà au-dessus
   de TP1 (ancien refus « déjà joué », même erreur que l'audit corrigé le 2026-10-11) : l'ordre attend un
   repli ; il est évalué sur le même ordre limite (taux de base avec l'écart réel au prix), suivi par

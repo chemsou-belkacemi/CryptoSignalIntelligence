@@ -113,8 +113,10 @@ et aucune n'a été choisie pour changer un verdict.
   direct, le signal part ≈ 40 s après la clôture. Le scénario central garde 0. La fenêtre d'entrée
   reste ancrée sur la décision (ENTRY_EXPIRES_AT, bougies k+1 à k+N) : le retard la **raccourcit**
   à N − 1 bougies. Avant le 2026-10-12, elle était décalée d'une bougie, au-delà de l'expiration
-  (scénario défavorable un peu trop favorable aux remplissages ; aucun verdict n'en dépendait, tout
-  était REJECTED).
+  (scénario défavorable un peu trop favorable aux remplissages). Hypothèse NON VÉRIFIÉE : aucun
+  verdict n'en dépendait (tout était REJECTED) ; aucun walk-forward n'a été relancé avec le nouveau
+  simulateur. Comme en direct, la paire reste DUPLICATE jusqu'à ENTRY_EXPIRES_AT même si l'entrée est
+  annulée ou la position fermée avant.
 - **Premier TP avant l'achat** : la politique `CANCEL_AT_ENTRY_EXPIRY_OR_FIRST_TP`, que BSM applique
   aux signaux CSI, annule l'entrée si TP1 est touché avant tout achat (statut `CANCELLED_FIRST_TP`,
   compté dans `entries_cancelled_first_tp`) ; une bougie qui touche TP1 et la limite sans ouvrir
