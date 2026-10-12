@@ -80,6 +80,35 @@ Scripts (dans `reports/WHALE-FILTRE-20261012/`, hors git), figés avant le calcu
 | `filtre_conteneur.py` | feu et moyenne 20 jours de BTC à chaque instant de publication, dans le conteneur, sans écriture | `90c06c57da55236540f63ce4285f77baa7e5930000d8564d0fcf7bd9c1cdea06` |
 | `filtre_bilan.py` | groupes, D, intervalles, épisodes, verdict | `eed91317951139447923a8837f7c4f31190185df8ee8c64ede2ebb04f547add6` |
 
-## 6. Résultat
+## 6. Résultat (calcul unique du 2026-10-12)
 
-*À remplir après l'unique calcul.*
+Empreintes des trois scripts vérifiées avant exécution. Sorties dans `reports/WHALE-FILTRE-20261012/`
+(`whale.pkl`, `filtre.json`, `bilan.json`). La simulation reproduit le bilan corrigé du 2026-10-11 : 1 560
+signaux, 1 431 trades terminés (127 jamais remplis, 2 encore ouverts).
+
+**Verdict déclaré : TROP PEU POUR CONCLURE** (les deux populations). La période ne contient que **4 épisodes**
+où le filtre garde et **3** où il écarte (5 exigés) ; les écartés sont 146 trades (115 sans les ordres au-dessus
+de TP1), tous dans la 2de moitié.
+
+**Le feu n'a rien filtré.** À 1 323 des 1 431 instants il est INCONNU : la prévision de volatilité de F12
+n'existait pas encore (F12 a démarré après la plupart de ces signaux) ; aux 108 autres il est VERT. Jamais ROUGE.
+Comme déclaré, INCONNU compte « pas ROUGE » : le test porte donc **en fait sur la seule condition BTC > moyenne
+20 jours**. Le feu n'est pas évalué par ce test.
+
+Chiffres (descriptifs ; gain net moyen par trade, échelle de BSM, gestion du propriétaire ; IC95 par blocs de
+journée) :
+
+| Population | Gardés | Écartés | D = gardés − écartés |
+|---|---|---|---|
+| Principale (1 431) | 1 285 trades, **+0,22 %** [−0,34 ; +0,60] | 146 trades, **−0,59 %** [−1,64 ; +0,62] | **+0,81 %** [−0,62 ; +1,99] |
+| Sans ordres au-dessus de TP1 (1 110) | 995 trades, +0,19 % [−0,43 ; +0,61] | 115 trades, −0,94 % [−1,94 ; +0,58] | +1,13 % [−0,61 ; +2,33] |
+
+Par moitié (principale) : 1re moitié, tout est gardé (BTC au-dessus de sa moyenne), +0,62 % [+0,44 ; +0,78] ;
+2de moitié, gardés −0,29 % [−1,07 ; +0,51], écartés −0,59 %. **Même gardés, les signaux de la 2de moitié ne
+gagnent pas** : le filtre sépare surtout deux périodes de marché, il ne fait pas d'une période perdante une
+période gagnante. Répartitions descriptives (100 % à TP1 ; 50 % puis 12,5 %) : mêmes conclusions, D ≈ +0,81 %.
+
+Ce que ça veut dire : le sens est celui attendu (les signaux pris quand BTC est sous sa moyenne 20 jours ont
+perdu davantage), mais l'intervalle de D contient 0 et la période n'a pas assez de changements de marché pour
+trancher. Rien n'est adopté. La règle reste à mesurer en direct (§ 5) ; la volatilité du feu sera alors
+disponible (F12 tourne chaque jour).
