@@ -218,11 +218,13 @@ FEE_TOLERANCE_BPS = 0.5
 
 def fee_rate_bps(state: ExecutionState) -> float | None:
     """Taux de frais réellement payé, en points de base du montant échangé, quand tous les frais sont connus et payés
-    dans la devise de cotation ; None sinon (frais inconnus, payés en BNB ou dans l'actif acheté : non convertis ici)."""
+    dans la devise de cotation ou dans la crypto échangée ; None sinon (frais inconnus ou payés en BNB)."""
     traded = state.bought_quote + state.sold_quote
     if state.fills_without_fee or state.fees_other or not traded or state.fees_quote <= 0:
         return None
-    return float(state.fees_quote / traded) * 1e4
+    # Frais d'achat prélevés dans la crypto achetée (déjà dans le PnL) : valorisés au prix moyen d'achat pour le taux.
+    paid = state.fees_quote + state.fees_base_qty * (state.avg_entry_price or 0)
+    return float(paid / traded) * 1e4
 
 
 def deviations(signal: Signal, channel: str, theory: Prospective, state: ExecutionState, *,

@@ -108,6 +108,9 @@ def test_realized_r_with_buy_fees_in_the_base_asset_and_unknown_with_bnb_fees():
     # vendu 102 + 97,804 − acheté 200 − frais en USDT 0,2 = −0,396 ; risque 2 × 2 = 4 → −0,099 R (pas −0,149)
     assert state.status == "CLOSED" and state.fees_base_qty == Decimal("0.002")
     assert state.realized_pnl_quote == Decimal("-0.396") and state.realized_r == pytest.approx(-0.099)
+    from crypto_signal_intelligence.feedback.reconcile import Prospective, deviations, fee_rate_bps
+    assert fee_rate_bps(state) == pytest.approx((0.2 + 0.2) / (200 + 199.804) * 1e4)     # ≈ 10 pb par ordre
+    assert not [n for n in deviations(signal, "outbox", Prospective("TP"), state, assumed_fee_bps=10) if n.startswith("FRAIS")]
     unclosed = execution_state(signal, [parse_line(line) for line in net[:-1]])
     assert unclosed.status == "CLOSED"                 # toute la quantité nette est revendue
     bnb = [line.replace(f'"fee_asset": "{base}"', '"fee_asset": "BNB"') for line in net]
