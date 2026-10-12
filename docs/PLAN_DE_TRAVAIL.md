@@ -57,6 +57,8 @@ refusé (aucune donnée payante) ; points 6 à 10 en attente (voir § 5).
 | IA locale qui lit les graphiques (Qwen2.5-VL 7b, Gemma 3 12B ; 400 moments de 2025-2026 ; 2 essais) | PAS_MIEUX pour les deux : bon sens 51 % et 47 % (50,5 % de hausses), aucune information démontrée, pas même avant les plus forts mouvements ; pas de test en direct | `IA_GRAPHES.md` |
 | **Zoo des stratégies** (2026-10-11) — recensement de 292 stratégies publiques, 239 tests codés (paramètres standard, top 40 à date, excès sur la même paire), contrôle sous H0 sur 600 marchés fabriqués | **AUCUNE_CANDIDATE** en découverte 2019-2022 (166 essais) : 0 rejet BH à 10 % ; 114 règles sur 166 nettement sous « garder la paire » ; validation, lecture réservée et F31 sans objet | `ZOO.md` § 16, `ZOO_CATALOGUE.md` |
 | **Confirmation des deux meilleures du zoo** (2026-10-11, décision du propriétaire « de 1 à 4 ») — TR37 (rotation hebdomadaire) et XS17 (proches du plus haut) mesurés une fois sur 2023 → 2025-06 ; les idées 1 à 3 (garder avec mise selon la volatilité, rééquilibrage, DCA / achat dans la peur) étaient déjà mesurées | **AUCUNE VALIDÉE** (2 essais, programme 1 041) : TR37 −0,38 %/semaine sous sa référence, 0 année sur 3 positive ; XS17 −0,13 %/semaine ; aucun test en direct | `ZOO_CONFIRMATION.md` § 7 |
+| **Filtre WHALE HUNTING** (2026-10-12) — prendre un signal seulement si BTC > sa moyenne 20 jours et feu pas ROUGE, règle déclarée et poussée avant le calcul unique | **TROP PEU POUR CONCLURE** : 4/3 épisodes (5 exigés) ; gardés +0,22 %/trade, écartés −0,59 %, D +0,81 % [−0,62 ; +1,99] ; feu jamais ROUGE (INCONNU avant F12) ; même gardés, la 2de moitié perd ; à mesurer en direct par le relais | `WHALE_FILTRE.md` § 6 |
+| **Chasse aux erreurs dans CSI** (2026-10-12, « même nos fonctions ») — même genre d'erreur que le « déjà joué » de l'audit | Corrigé avec tests : évaluateur (achat limite au-dessus de TP1 évalué hors preuve ; stop large = information avec le stop suiveur), bilan et preuve des groupes sur signaux mûrs (gagnants et perdants ensemble, direct et historique), simulateur (entrée annulée si TP1 avant l'achat comme BSM ; fenêtre d'entrée raccourcie par le retard ; paire DUPLICATE jusqu'à l'expiration comme en direct), retour d'exécution (frais BNB → R inconnu ; frais en crypto comptés une fois). API et tableau de bord redéployés (c29fea5) | `EXTERNAL_SIGNALS.md`, `PROTOCOL.md`, `FEEDBACK_FORMAT.md` (Historique 2026-10-12) |
 | **Combinaisons du 2026-10-08** — profil de volume, flux, absorption et votes de 2 à 5 briques (étapes 1 et 2, 20 essais DEV) | RIEN partout ; toutes perdent de −0,06 à −0,16 R après frais | `COMBINAISONS.md` (branche `recherche/combinaisons`) |
 | Filtre des signaux Telegram de 2026 par ces briques (voie A, période réservée, lecture unique, 2 essais) | RIEN : FILTRE_3 p = 0,21 puis 0,52 ; FILTRE_4 p = 0,19 puis 0,50 ; les signaux eux-mêmes ≈ 0 R après frais (−0,06 en étude, +0,03 à l'écart) ; voie B (en direct) non lancée **[propriétaire]** | `COMBINAISONS.md` § 11-12 |
 | Étude « météo du marché » (feu à 6 dangers, jours rouges contre les autres) | **INSTRUMENT_NON_VALIDE** le 2026-10-09 : la 3e et dernière version de l'outil échoue à deux contrôles synthétiques (queues épaisses, effet de levier) ; étude historique abandonnée, 0 essai, aucune donnée réelle lue ; F17 possible (version Student valide), non démarré **[propriétaire]** | `METEO_MARCHE.md` (branche `recherche/meteo`) |
@@ -205,6 +207,14 @@ Aucun calcul de recherche en cours.
   avec les photos (IN CRYPTO, LEGEND TRADING ; AL-MAHWASHI à refaire en JSON), et vérifier un vrai audit depuis la
   page (non vérifié en Docker). Le contrôle du prix est couvert par le rejeu commun ; le `tickSize` est écarté (il
   change au fil du temps), voir `OCR.md`.
+
+- **Suite de la chasse aux erreurs (2026-10-12)** — restent : (a) en backtest, une position ouverte bloque la paire
+  (96 bougies) alors qu'en direct seul le signal non expiré la bloque : le suivi shadow compare une autre population
+  que le walk-forward (à aligner, sans relancer de recherche) ; (b) répartition des ventes de BSM pour 2 ou 3 TP
+  (70/30, 50/30/20) mal reproduite par CSI (`early_weights`, `ladder_weights`) : lire le réglage réel sur le VPS ;
+  (c) entrée à plus de 3 % au-dessus du prix traitée « périmée » alors que BSM l'achèterait au marché : à revoir ;
+  (d) **[propriétaire]** option BSM, désactivée par défaut, pour accepter un achat limite publié au-dessus de TP1
+  (aujourd'hui refusé : « premier TP déjà atteint »).
 
 ## 5. Décisions qui attendent le propriétaire
 
