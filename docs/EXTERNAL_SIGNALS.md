@@ -33,7 +33,9 @@ L'avis combine trois choses, dans cet ordre :
    un prix déjà au-dessus de TP1 n'est pas un refus : c'est un achat limite en attente d'un repli,
    évalué sur ce même ordre, suivi mais **hors du bilan et de la preuve du groupe**, et signalé car
    BinanceSpotManager le refuse aujourd'hui) ; entrée pas déjà dépassée par le prix (`max_entry_deviation_pct`) ;
-   stop ni trop serré ni trop large en ATR14 (`min_stop_atr`, `max_stop_atr`) ; RR du TP1
+   stop ni trop serré ni trop large en ATR14 (`min_stop_atr`, `max_stop_atr` ; avec la gestion
+   « stop suiveur », un stop plus large que `max_stop_atr` n'est qu'une information, voir
+   Historique 2026-10-12) ; RR du TP1
    **recalculé** à partir des prix, puis net de coûts centraux ≥ `min_net_rr`. Stop et RR sont
    calculés sur l'**entrée réellement obtenue** : un achat limite placé au-dessus du marché
    s'exécute tout de suite, au prix du marché.
@@ -93,7 +95,10 @@ côtés) avec son intervalle à 95 %, tiré par **jours de réception** (les sig
 le même marché : ils ne comptent pas comme des observations indépendantes). **Aucune conclusion avant
 20 signaux résolus répartis sur au moins 10 jours** ; ensuite seulement « au-dessus », « en dessous »
 ou « pas d'écart démontré ». Ce n'est ni une note du groupe ni une probabilité de réussite du
-prochain signal.
+prochain signal. Seuls comptent les signaux **mûrs** : reçus depuis plus que la fenêtre d'entrée
+plus le suivi de la gestion jugée (≈ 32 jours avec le stop suiveur, 8 jours avec TP1), gagnants comme
+perdants. Avec le stop suiveur, la colonne « TP1 réalisé / base » n'affiche pas la base : le réalisé
+y compte « au moins un objectif touché » sur 30 jours, la base « TP1 dépassé » sur 7 jours.
 
 Regards répétés : le bilan est recalculé à chaque signal. Décider de faire confiance à un groupe la
 première fois que l'intervalle passe au-dessus de 0 augmente le risque de faux positif ; une
@@ -263,6 +268,21 @@ bougies publiques.
   avant la fin de DEVELOPMENT comptent (champ `history_end`). Une paire cotée après cette date n'a
   pas de taux de base (avis indéterminé). Les évaluations antérieures gardent leur méthode
   (champ `method`).
+- 2026-10-12 (chasse aux erreurs) : (1) avec la gestion « stop suiveur », le veto « stop trop
+  large » (`max_stop_atr`, mesuré en ATR14 de 15 min) devient une information : un stop à 5–7 %
+  sous l'entrée vaut 10 à 13 ATR de 15 min, normal pour un signal swing ; 5 des 7 signaux reçus en
+  direct étaient DEFAVORABLES pour cette seule raison. Décision prise sur ce constat (veto déclenché,
+  stops de 5 à 7 %), sans regarder l'issue de ces signaux. Le taux de base rejoue ce stop exact et le R
+  est rapporté à ce risque ; le stop trop serré reste un veto, et la gestion TP1 garde les deux
+  bornes. (2) Maturité du bilan et de la preuve en direct : un stop se résout vite, un gagnant au
+  stop suiveur reste ouvert jusqu'à 30 jours ; compter les signaux dès leur résolution retenait les
+  perdants avant les gagnants. Seuls les signaux dont toute la fenêtre est écoulée comptent
+  désormais, comme dans le taux de base (avec 2 h de marge) ; la preuve en direct arrive donc ≈ 32
+  jours plus tard. Les colonnes « évalués », « attente », « non remplis » restent des comptes bruts.
+  Même règle pour l'audit d'un export : tant que sa fenêtre complète n'est pas couverte par les
+  bougies, l'issue d'un signal est provisoire dans **toutes** les conventions (perdants compris) et
+  sort du bilan et de la preuve sur historique ; une preuve enregistrée avant cette date suivait
+  l'ancienne règle.
 - 2026-10-12 : l'évaluateur ne refuse plus un achat limite publié alors que le prix est déjà au-dessus
   de TP1 (ancien refus « déjà joué », même erreur que l'audit corrigé le 2026-10-11) : l'ordre attend un
   repli ; il est évalué sur le même ordre limite (taux de base avec l'écart réel au prix), suivi par

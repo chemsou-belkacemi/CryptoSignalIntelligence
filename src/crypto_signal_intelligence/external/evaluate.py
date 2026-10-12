@@ -43,7 +43,7 @@ from .admission import (
 from .audit import latest_history
 from .base_rate import BaseRate, base_rate
 from .parser import ExternalSignal, group_of, parse
-from .record import source_record
+from .record import maturity_cutoff, source_record
 from .registry import ExternalSignalRegistry
 from .universe import FAILED, REQUESTED, UserUniverse, tick_size_for, universe_symbols
 
@@ -242,7 +242,8 @@ def evaluate(settings: Settings, text: str, *, source: str, now: datetime, recor
     registry = ExternalSignalRegistry(settings.external_db)
     stats = registry.source_stats(source)
     evaluation.source_stats = stats[0] if stats else None
-    live = source_record(registry, source, seed=settings.protocol.seed)
+    live = source_record(registry, source, seed=settings.protocol.seed,
+                         mature_before=maturity_cutoff(settings, now))
     history = latest_history(settings, source, now=now)
     if live is not None and live.proven:
         evaluation.source_proof = {"proven": True, "basis": "direct", "proof": live.proof, "resolved": live.resolved,
@@ -364,9 +365,19 @@ def evaluate(settings: Settings, text: str, *, source: str, now: datetime, recor
         evaluation.warnings.append(f"entrée {entry:g} au-dessus du marché : exécution immédiate vers {close:g}, "
                                    "géométrie calculée sur ce prix")
     stop_atr = (effective - stop) / atr
-    evaluation.checks.append(Check(STOP_CHECK, cfg.min_stop_atr <= stop_atr <= cfg.max_stop_atr,
+    trailing = cfg.management == "stop_suiveur"
+    # Avec le stop suiveur (gestion sur 30 jours), un stop large en ATR14 de 15 min (5–7 % sous l'entrée = 10 à
+    # 13 ATR) est normal pour un signal swing : ce n'est plus un veto, le taux de base rejoue ce stop exact et le
+    # R est rapporté à ce risque (chasse aux erreurs du 2026-10-12). Le stop trop SERRÉ reste un veto.
+    wide_ok = trailing and stop_atr > cfg.max_stop_atr
+    evaluation.checks.append(Check(STOP_CHECK, cfg.min_stop_atr <= stop_atr and (stop_atr <= cfg.max_stop_atr or wide_ok),
                                    f"{stop_atr:.2f} ATR14 ({(effective - stop) / effective * 100:.2f} % sous l'entrée "
-                                   f"obtenue) ; admis {cfg.min_stop_atr:g} à {cfg.max_stop_atr:g} ATR"))
+                                   f"obtenue) ; admis {cfg.min_stop_atr:g} à {cfg.max_stop_atr:g} ATR"
+                                   + (" (au-delà : information seulement avec le stop suiveur, jugé par le taux de "
+                                      "base)" if wide_ok else "")))
+    if wide_ok:
+        evaluation.warnings.append(f"stop large ({stop_atr:.1f} ATR14 de 15 min) : risque par trade à dimensionner "
+                                   "sur ce stop")
     tick = tick_size_for(settings, signal.symbol)
     off_tick = [p for p in (entry, stop, *targets) if Decimal(str(p)) % tick != 0]
     if off_tick:
@@ -379,7 +390,6 @@ def evaluate(settings: Settings, text: str, *, source: str, now: datetime, recor
                          target_weights=(weight,) * len(d_targets), rr_gross=rr, entry_premium_bps=Decimal(0),
                          tick_size=tick)
     net = levels.net_rr(settings.costs["central"], 0)
-    trailing = cfg.management == "stop_suiveur"
     # Avec le stop suiveur, un TP1 proche n'est pas un défaut en soi (il protège la position) : on exige seulement
     # qu'il couvre les coûts ; c'est le taux de base de la gestion entière qui juge ensuite.
     minimum = 0.0 if trailing else cfg.min_net_rr

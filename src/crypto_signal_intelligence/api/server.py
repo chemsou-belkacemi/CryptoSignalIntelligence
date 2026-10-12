@@ -290,9 +290,9 @@ class CsiApi:
                 "note": "Verdicts du protocole (docs/PROTOCOL.md) ; E[R] hors échantillon en coûts centraux."}
 
     def sources(self) -> dict:
-        from ..external.record import MIN_DAYS, MIN_RESOLVED, source_records
+        from ..external.record import MIN_DAYS, MIN_RESOLVED, records_for
         from ..external.registry import ExternalSignalRegistry
-        records = source_records(ExternalSignalRegistry(self.settings.external_db), seed=self.settings.protocol.seed)
+        records = records_for(self.settings, ExternalSignalRegistry(self.settings.external_db), self.now())
         return {"sources": _jsonable(records), "min_resolved": MIN_RESOLVED, "min_days": MIN_DAYS,
                 "rule": f"aucune conclusion avant {MIN_RESOLVED} signaux résolus sur au moins {MIN_DAYS} jours"}
 

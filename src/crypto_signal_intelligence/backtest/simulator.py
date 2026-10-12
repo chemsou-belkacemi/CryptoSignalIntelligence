@@ -36,6 +36,8 @@ from ..strategies.base import Strategy
 from ..validation import gates
 from .exits import OpenPosition, exit_policy, gross_return, pnl_per_unit
 
+CANCEL_ON_FIRST_TP = "CANCEL_AT_ENTRY_EXPIRY_OR_FIRST_TP"
+
 
 @dataclass(frozen=True)
 class SimulationRules:
@@ -131,6 +133,9 @@ def simulate(frame: pd.DataFrame, symbol: str, strategy: Strategy, rules: Simula
     forced_policy = exit_policy(rules.exit_policy_id) if rules.exit_policy_id else None
     pending: dict | None = None
     position: tuple[Trade, OpenPosition, int] | None = None   # (trade, état, bougie d'entrée)
+    # En direct, une paire reste DUPLICATE tant que son signal n'a pas atteint ENTRY_EXPIRES_AT (analyze, outbox),
+    # même si l'entrée a été annulée ou la position fermée entre-temps : décisions k' < k + N bloquées.
+    signal_live_until = -1
 
     def finalize(k: int, censor_price: float | None = None) -> None:
         nonlocal position
@@ -184,25 +189,29 @@ def simulate(frame: pd.DataFrame, symbol: str, strategy: Strategy, rules: Simula
         # 1. entrée en attente
         if pending is not None and k >= pending["active_from"]:
             trade = pending["trade"]
-            if k > pending["expires_after"]:
-                trade.entry_status = "EXPIRED"
+            limit = trade.entry_limit
+            fill = None
+            if opens[k] <= limit:
+                fill = ("FILLED_OPEN", min(opens[k] * (1 + market_cost), limit), False)
+            elif highs[k] >= trade.target and (forced_policy or exit_policy(trade.exit_policy)
+                                               ).unfilled_entries_rule == CANCEL_ON_FIRST_TP:
+                # CANCEL_AT_ENTRY_EXPIRY_OR_FIRST_TP (politique de sortie, appliquée par BSM aux signaux CSI) :
+                # TP1 touché avant tout achat → entrée annulée. Bougie qui touche aussi la limite : ordre
+                # inconnu, l'annulation l'emporte (pas de remplissage crédité après un TP1 peut-être vu avant).
+                trade.entry_status = "CANCELLED_FIRST_TP"
                 result.trades.append(trade)
                 pending = None
-            else:
-                limit = trade.entry_limit
-                fill = None
-                if opens[k] <= limit:
-                    fill = ("FILLED_OPEN", min(opens[k] * (1 + market_cost), limit), False)
-                elif lows[k] < limit:
-                    fill = ("FILLED_TOUCH", limit, True)
-                if fill:
-                    trade.entry_status, trade.entry_price, trade.entry_time = fill[0], fill[1], times[k]
-                    result.trades.append(trade)
-                    pending = None
-                    result.bars_in_position += 1
-                    if fill[0] == "FILLED_OPEN" and opens[k] <= trade.stop:
-                        stopped_at_fill(trade, k)   # ouverture sous le stop (gap) : stop-market immédiat
-                        continue
+            elif lows[k] < limit:
+                fill = ("FILLED_TOUCH", limit, True)
+            if fill:
+                trade.entry_status, trade.entry_price, trade.entry_time = fill[0], fill[1], times[k]
+                result.trades.append(trade)
+                pending = None
+                result.bars_in_position += 1
+                if fill[0] == "FILLED_OPEN" and opens[k] <= trade.stop:
+                    # ouverture sous le stop (gap) : stop-market immédiat ; la clôture reste évaluée (étape 3)
+                    stopped_at_fill(trade, k)
+                else:
                     state = OpenPosition(entry=fill[1], initial_stop=trade.stop, targets=trade.targets,
                                          weights=trade.target_weights,
                                          policy=forced_policy or exit_policy(trade.exit_policy))
@@ -212,6 +221,12 @@ def simulate(frame: pd.DataFrame, symbol: str, strategy: Strategy, rules: Simula
         elif position is not None:
             result.bars_in_position += 1
             step_position(k, first_bar=False, touched=False)
+        # Fenêtre d'entrée close après la bougie k+N (ENTRY_EXPIRES_AT) : expirée avant la décision de cette clôture,
+        # comme en direct ; aussi quand un retard ≥ N ne laisse aucune bougie d'entrée.
+        if pending is not None and k >= pending["expires_after"]:
+            pending["trade"].entry_status = "EXPIRED"
+            result.trades.append(pending["trade"])
+            pending = None
         # 3. décision à la clôture
         if k > last_decision:
             if pending is None and position is None:
@@ -229,7 +244,7 @@ def simulate(frame: pd.DataFrame, symbol: str, strategy: Strategy, rules: Simula
             result.no_trade[(decision.no_trade_reason or NoTradeReason.NO_SETUP).value] += 1
             continue
         result.candidates += 1
-        if pending is not None or position is not None:
+        if pending is not None or position is not None or k < signal_live_until:
             result.no_trade[NoTradeReason.DUPLICATE.value] += 1
             continue
         try:
@@ -244,10 +259,13 @@ def simulate(frame: pd.DataFrame, symbol: str, strategy: Strategy, rules: Simula
         if decision_filter is not None and not decision_filter(context.decision_time, levels):
             result.no_trade["ML_FILTER"] += 1
             continue
+        # Fenêtre d'entrée ancrée sur la décision (ENTRY_EXPIRES_AT, signals/analyze.py) : bougies k+1 à k+N. Un
+        # retard d'entrée (scénario défavorable) la RACCOURCIT ; il ne la décale pas au-delà de l'expiration.
         active_from = k + 1 + costs.extra_entry_delay_bars
+        signal_live_until = k + decision.entry_intent.expires_after_bars
         pending = {
             "active_from": active_from,
-            "expires_after": active_from + decision.entry_intent.expires_after_bars - 1,
+            "expires_after": k + decision.entry_intent.expires_after_bars,
             "trade": Trade(symbol=symbol, strategy=strategy.strategy_id, setup_time=decision.setup_time,
                            trend_regime=context.regime.trend.value, volatility_regime=context.regime.volatility.value,
                            entry_limit=float(levels.entry), stop=float(levels.stop), target=float(levels.targets[0]),

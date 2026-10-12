@@ -54,6 +54,7 @@ class ExecutionState:
     fees_quote: Decimal = Decimal(0)
     fees_other: dict[str, Decimal] = field(default_factory=dict)
     fills_without_fee: int = 0
+    fees_base_qty: Decimal = Decimal(0)          # frais d'achat prélevés dans la crypto achetée (quantité)
     tp_fills: int = 0
     stop_filled: bool = False
     market_exits: int = 0
@@ -75,6 +76,7 @@ def execution_state(signal: Signal, events: list[ExecutionEvent]) -> ExecutionSt
     if not events:
         return state
     quote_asset = "USDT" if signal.symbol.endswith("USDT") else "USDC"
+    base_asset = signal.symbol[: -len(quote_asset)]
     closed = False
     for event in sorted(events, key=lambda e: (e.occurred_at, e.event_id)):
         kind = event.event_type
@@ -97,6 +99,12 @@ def execution_state(signal: Signal, events: list[ExecutionEvent]) -> ExecutionSt
                 state.fills_without_fee += 1      # frais inconnus : jamais comptés comme nuls
             elif event.fee_asset == quote_asset:
                 state.fees_quote += event.fee
+            elif event.fee_asset == base_asset and kind in BUY_EVENTS:
+                # Frais d'achat prélevé dans la crypto achetée : BSM ne revend que la quantité nette (position_engine),
+                # le PnL vendu − acheté le contient déjà ; ne pas le déduire une seconde fois.
+                state.fees_base_qty += event.fee
+            elif event.fee_asset == base_asset and event.price is not None:
+                state.fees_quote += event.fee * event.price     # frais de vente en crypto : prix du remplissage
             elif event.fee_asset is not None:
                 state.fees_other[event.fee_asset] = state.fees_other.get(event.fee_asset, Decimal(0)) + event.fee
         if kind in {"REJECTED", "CANCELLED", "MARKET_EXIT_FILLED"}:
@@ -108,13 +116,15 @@ def execution_state(signal: Signal, events: list[ExecutionEvent]) -> ExecutionSt
         state.status = "REJECTED"
     elif state.bought_qty == 0:
         state.status = next((k for k in ("EXPIRED", "CANCELLED", "ORDER_PLACED", "RECEIVED") if k in kinds), "UNKNOWN")
-    elif closed or state.sold_qty >= state.bought_qty:
+    elif closed or state.sold_qty >= state.bought_qty - state.fees_base_qty:
         state.status = "CLOSED"
     elif "ENTRY_FILLED" in kinds or state.sold_qty > 0:
         state.status = "OPEN"
     else:
         state.status = "ENTRY_PARTIAL"
-    if state.status == "CLOSED":
+    # Frais en BNB (ou autre actif) non convertis, ou inconnus : le R réalisé serait surestimé ; il reste inconnu
+    # (chasse aux erreurs du 2026-10-12 ; les écarts le disent : FRAIS_EN_BNB, FRAIS_INCONNUS).
+    if state.status == "CLOSED" and not state.fees_other and not state.fills_without_fee:
         state.realized_pnl_quote = state.sold_quote - state.bought_quote - state.fees_quote
         planned_risk = state.bought_qty * (signal.entry_1 - signal.stop_loss)
         if planned_risk > 0:
@@ -124,7 +134,7 @@ def execution_state(signal: Signal, events: list[ExecutionEvent]) -> ExecutionSt
 
 @dataclass(frozen=True)
 class Prospective:
-    outcome: str                   # NO_DATA | PENDING | UNFILLED | OPEN | TP | SL | SL_GAP | TIMEOUT
+    outcome: str                   # NO_DATA | PENDING | UNFILLED | CANCELLED_FIRST_TP | OPEN | TP | SL | SL_GAP | TIMEOUT
     r: float | None = None
     fill_at: datetime | None = None
     fill_price: float | None = None
@@ -152,10 +162,13 @@ def replay_signal(bars: pd.DataFrame, signal: Signal, costs: CostScenario, step:
     times = [t.to_pydatetime() for t in bars["open_time"]]
     window = sum(1 for t in times if t + step <= signal.entry_expires_at)
     fill = None
+    first_tp = float(signal.targets[0])
     for k in range(window):
         if opens[k] <= entry:
             fill = (k, min(opens[k] * (1 + market_cost), entry), False)
             break
+        if highs[k] >= first_tp:     # premier TP touché avant tout achat : entrée annulée (comme le simulateur, BSM)
+            return Prospective("CANCELLED_FIRST_TP")
         if lows[k] < entry:
             fill = (k, entry, True)
             break
@@ -205,11 +218,13 @@ FEE_TOLERANCE_BPS = 0.5
 
 def fee_rate_bps(state: ExecutionState) -> float | None:
     """Taux de frais réellement payé, en points de base du montant échangé, quand tous les frais sont connus et payés
-    dans la devise de cotation ; None sinon (frais inconnus, payés en BNB ou dans l'actif acheté : non convertis ici)."""
+    dans la devise de cotation ou dans la crypto échangée ; None sinon (frais inconnus ou payés en BNB)."""
     traded = state.bought_quote + state.sold_quote
     if state.fills_without_fee or state.fees_other or not traded or state.fees_quote <= 0:
         return None
-    return float(state.fees_quote / traded) * 1e4
+    # Frais d'achat prélevés dans la crypto achetée (déjà dans le PnL) : valorisés au prix moyen d'achat pour le taux.
+    paid = state.fees_quote + state.fees_base_qty * (state.avg_entry_price or 0)
+    return float(paid / traded) * 1e4
 
 
 def deviations(signal: Signal, channel: str, theory: Prospective, state: ExecutionState, *,
@@ -230,7 +245,7 @@ def deviations(signal: Signal, channel: str, theory: Prospective, state: Executi
     if channel == "outbox" and theory_filled and state.bought_qty == 0 and state.status in {"EXPIRED", "CANCELLED",
                                                                                           "REJECTED"}:
         notes.append(f"ENTRÉE_MANQUÉE ({state.status}{': ' + state.reason if state.reason else ''})")
-    if theory.outcome == "UNFILLED" and state.bought_qty > 0:
+    if theory.outcome in {"UNFILLED", "CANCELLED_FIRST_TP"} and state.bought_qty > 0:
         notes.append("REMPLI_HORS_THÉORIE")
     if state.ordered_qty and state.bought_qty < state.ordered_qty and state.status not in {"ENTRY_PARTIAL"}:
         notes.append(f"TAILLE {float(state.bought_qty / state.ordered_qty):.0%} de la quantité commandée")

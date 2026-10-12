@@ -91,12 +91,27 @@ def test_limit_touch_without_penetration_does_not_fill():
     assert result.trades[0].entry_status == "EXPIRED"
 
 
-def test_touch_fill_with_tp_in_same_bar_counts_only_in_optimistic_bound():
-    result = run([FLAT, (101, 105, 99.9, 101), FLAT, (100, 100.2, 97, 97)])
-    trade = result.trades[0]
-    assert trade.entry_status == "FILLED_TOUCH" and trade.ambiguous
-    assert trade.exit_reason == "SL" and trade.r_multiple == pytest.approx(-1.0)
-    assert trade.r_multiple_optimistic == pytest.approx(2.0)
+def test_first_tp_touched_before_any_fill_cancels_the_entry_like_bsm():
+    """CANCEL_AT_ENTRY_EXPIRY_OR_FIRST_TP (chasse aux erreurs du 2026-10-12) : TP1 (104) touché avant tout achat
+    annule l'entrée, même si le prix revient ensuite à la limite ; une bougie qui touche TP1 ET la limite sans
+    ouvrir dessous est aussi une annulation (ordre inconnu) ; ouverture sous la limite : remplie d'abord."""
+    up, dip = (101, 101.5, 100.5, 101), (100.5, 100.8, 99.0, 100.2)
+    later = run([FLAT, (101, 104.5, 100.5, 103), dip, FLAT], expiry=3).trades[0]
+    assert later.entry_status == "CANCELLED_FIRST_TP" and later.entry_time is None
+    same_bar = run([FLAT, (101, 105, 99.9, 101), FLAT, (100, 100.2, 97, 97)])
+    assert same_bar.trades[0].entry_status == "CANCELLED_FIRST_TP"
+    from crypto_signal_intelligence.backtest.metrics import summarize
+    from crypto_signal_intelligence.backtest.simulator import trades_frame
+    summary = summarize(trades_frame(same_bar), evaluated_bars=4, bars_in_position=0, candidates=1, no_trade={},
+                        bootstrap_block_days=1, bootstrap_samples=10, seed=1)
+    assert summary["entries_cancelled_first_tp"] == 1 and summary["entries_filled"] == 0
+    opened = run([FLAT, (99.9, 104.5, 99.5, 104), up]).trades[0]
+    assert opened.entry_status == "FILLED_OPEN"
+
+
+def test_touch_fill_with_stop_in_same_bar_counts_the_stop():
+    trade = run([FLAT, (101, 102, 97, 98.5), FLAT]).trades[0]
+    assert trade.entry_status == "FILLED_TOUCH" and trade.exit_reason == "SL" and trade.r_multiple == pytest.approx(-1)
 
 
 def test_same_bar_tp_and_sl_is_pessimistic_and_flagged():
@@ -144,6 +159,45 @@ def test_extra_entry_delay_and_single_active_setup():
     trade = result.trades[0]
     assert trade.entry_time == pd.Timestamp("2024-01-01 00:30", tz="UTC")  # bougie 2, pas 1
     assert result.no_trade["DUPLICATE"] == 1 and len(result.trades) == 1
+
+
+def test_entry_delay_shortens_the_entry_window_instead_of_shifting_it():
+    """ENTRY_EXPIRES_AT est fixé à la décision (bougies k+1 à k+N) : avec un retard d'une bougie, il reste N − 1
+    bougies, jamais une bougie après l'expiration (chasse aux erreurs du 2026-10-12)."""
+    up, dip = (101, 101.5, 100.5, 101), (100.5, 100.8, 99.0, 100.2)
+    for delay in (0, 1):
+        costs = CostScenario(fee_bps=0, slippage_bps=0, half_spread_bps=0, extra_entry_delay_bars=delay)
+        trade = run([up, up, up, dip, up, up], costs=costs, expiry=2).trades[0]
+        assert trade.entry_status == "EXPIRED"                     # le creux de la bougie 3 est hors fenêtre
+    costs = CostScenario(fee_bps=0, slippage_bps=0, half_spread_bps=0, extra_entry_delay_bars=2)
+    assert run([up, dip, dip, up, up], costs=costs, expiry=2).trades[0].entry_status == "EXPIRED"
+
+
+def test_the_close_of_a_gap_fill_under_the_stop_is_still_evaluated():
+    gap = (97, 97.5, 96.5, 97)
+    result = run([FLAT, gap, FLAT, FLAT], buy_at={0, 1})
+    assert result.trades[0].exit_reason == "SL_GAP" and result.evaluated_bars == 4   # 3 avant la correction
+    # la décision de la bougie 1 est évaluée ; son signal serait DUPLICATE en direct (celui de la bougie 0 vit
+    # jusqu'à ENTRY_EXPIRES_AT, bougie 0 + 2)
+    assert result.no_trade["DUPLICATE"] == 1 and len(result.trades) == 1
+
+
+def test_a_pair_stays_duplicate_until_entry_expiry_even_after_a_cancellation_like_live():
+    """Relecture du 2026-10-12 : en direct (analyze, outbox), la paire reste DUPLICATE jusqu'à ENTRY_EXPIRES_AT,
+    même si l'entrée est annulée (TP1 avant l'achat) entre-temps ; ensuite, un nouveau setup est accepté."""
+    tp = (101, 104.5, 100.5, 103)
+    blocked = run([FLAT, tp, FLAT, FLAT, FLAT], buy_at={0, 1}, expiry=2)
+    assert blocked.trades[0].entry_status == "CANCELLED_FIRST_TP" and blocked.no_trade["DUPLICATE"] == 1
+    assert len(blocked.trades) == 1
+    after = run([FLAT, tp, FLAT, FLAT, FLAT], buy_at={0, 2}, expiry=2)
+    assert len(after.trades) == 2 and after.no_trade.get("DUPLICATE", 0) == 0
+
+
+def test_an_entry_delay_longer_than_the_window_expires_without_blocking_the_pair_beyond_it():
+    up = (101, 101.5, 100.5, 101)
+    costs = CostScenario(fee_bps=0, slippage_bps=0, half_spread_bps=0, extra_entry_delay_bars=3)
+    result = run([up, up, up, up, up, up], buy_at={0, 2}, costs=costs, expiry=2)
+    assert [t.entry_status for t in result.trades][:1] == ["EXPIRED"] and result.no_trade.get("DUPLICATE", 0) == 0
 
 
 def test_period_end_truncates_future_prices():

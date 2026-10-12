@@ -32,7 +32,7 @@ obligatoire sur `RECEIVED`.
 | symbol | oui | paire Spot USDT/USDC |
 | quantity, price | ORDER_PLACED et tout remplissage | ORDER_PLACED : quantité commandée et prix limite ; remplissage : quantité de base **réellement remplie** et prix moyen ; nombres en chaînes |
 | quote_quantity | optionnel | montant en devise de cotation, sinon `quantity × price` |
-| fee, fee_asset | ensemble | frais réels du remplissage et leur devise. **Inconnus : les omettre**, jamais 0 (CSI signale alors `FRAIS_INCONNUS`) |
+| fee, fee_asset | ensemble | frais réels du remplissage et leur devise. **Inconnus : les omettre**, jamais 0 (CSI signale alors `FRAIS_INCONNUS`). Frais dans la devise de cotation : déduits ; frais d'achat prélevés dans la crypto achetée : déjà dans le PnL (BSM ne revend que la quantité nette), jamais déduits deux fois ; frais de vente en crypto : convertis au prix du remplissage ; dans un autre actif (BNB) ou inconnus : le R Demo reste **inconnu** (depuis le 2026-10-12 ; avant, ces frais étaient ignorés et le R surestimé) |
 | order_id | ORDER_PLACED | identifiant d'ordre chez le courtier (optionnel ailleurs) |
 | target_index | TP_FILLED | numéro du TP (1 à 4) |
 | reason | REJECTED, CANCELLED, MARKET_EXIT_FILLED | motif lisible |

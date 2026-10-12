@@ -90,6 +90,35 @@ def test_execution_state_reconstructs_pnl_in_quote_and_r():
     assert execution_state(signal, [bnb_fee]).fees_other == {"BNB": Decimal("0.001")}
 
 
+
+def test_realized_r_with_buy_fees_in_the_base_asset_and_unknown_with_bnb_fees():
+    """Relecture du 2026-10-12 : un frais d'achat prélevé dans la crypto achetée est déjà dans le PnL (BSM ne revend
+    que la quantité nette) ; des frais en BNB étaient ignorés (R surestimé) : R inconnu."""
+    signal = parse(SPEC_EXAMPLE)                      # entrée 100, stop 98 ; risque prévu 2 par unité
+    base = signal.symbol.removesuffix("USDT")
+    net = [event(),
+           event(event_id="E2", event_type="ENTRY_FILLED", occurred_at="2026-09-29T12:01:00Z", quantity="2",
+                 price="100", fee="0.002", fee_asset=base),
+           event(event_id="E3", event_type="TP_FILLED", occurred_at="2026-09-29T13:00:00Z", quantity="1", price="102",
+                 target_index=1, fee="0.102", fee_asset="USDT"),
+           event(event_id="E4", event_type="STOP_FILLED", occurred_at="2026-09-29T14:00:00Z", quantity="0.998",
+                 price="98", fee="0.098", fee_asset="USDT"),
+           event(event_id="E5", event_type="CLOSED", occurred_at="2026-09-29T14:00:01Z")]
+    state = execution_state(signal, [parse_line(line) for line in net])
+    # vendu 102 + 97,804 − acheté 200 − frais en USDT 0,2 = −0,396 ; risque 2 × 2 = 4 → −0,099 R (pas −0,149)
+    assert state.status == "CLOSED" and state.fees_base_qty == Decimal("0.002")
+    assert state.realized_pnl_quote == Decimal("-0.396") and state.realized_r == pytest.approx(-0.099)
+    from crypto_signal_intelligence.feedback.reconcile import Prospective, deviations, fee_rate_bps
+    assert fee_rate_bps(state) == pytest.approx((0.2 + 0.2) / (200 + 199.804) * 1e4)     # ≈ 10 pb par ordre
+    assert not [n for n in deviations(signal, "outbox", Prospective("TP"), state, assumed_fee_bps=10) if n.startswith("FRAIS")]
+    unclosed = execution_state(signal, [parse_line(line) for line in net[:-1]])
+    assert unclosed.status == "CLOSED"                 # toute la quantité nette est revendue
+    bnb = [line.replace(f'"fee_asset": "{base}"', '"fee_asset": "BNB"') for line in net]
+    assert bnb != net
+    in_bnb = execution_state(signal, [parse_line(line) for line in bnb])
+    assert in_bnb.status == "CLOSED" and in_bnb.realized_r is None and in_bnb.realized_pnl_quote is None
+
+
 def test_execution_report_separates_theoretical_shadow_and_demo(settings, tmp_path):
     signal = parse(SPEC_EXAMPLE)
     SignalRegistry(settings.signals_db, settings.publication_dir()).publish(
@@ -191,8 +220,11 @@ def test_prospective_replay_follows_the_signal_policy():
     consumer = one_tp_signal(exit_policy_id=bsm_policy.policy_id, exit_policy_hash=bsm_policy.policy_hash(),
                              max_hold_minutes=None)
     assert replay_signal(bars, consumer, costs, timedelta(minutes=15)).outcome == "OPEN"
-    never = bars.assign(open=2600.0, high=2610.0, low=2590.0, close=2600.0)
+    never = bars.assign(open=2540.0, high=2550.0, low=2530.0, close=2540.0)      # au-dessus de l'entrée, sous TP1
     assert replay_signal(never, theoretical, costs, timedelta(minutes=15)).outcome == "UNFILLED"
+    # TP1 (2575,10) touché avant tout achat : entrée annulée, comme le simulateur et BSM (2026-10-12)
+    beyond = bars.assign(open=2600.0, high=2610.0, low=2590.0, close=2600.0)
+    assert replay_signal(beyond, theoretical, costs, timedelta(minutes=15)).outcome == "CANCELLED_FIRST_TP"
 
 
 def test_prospective_entry_window_matches_the_simulator_bar_count():
@@ -210,8 +242,8 @@ def test_prospective_entry_window_matches_the_simulator_bar_count():
     signal = one_tp_signal(decision_at=decision, data_as_of=decision,
                            entry_expires_at=decision + timedelta(minutes=30, seconds=2))
     start = pd.Timestamp(decision)
-    above = {"open": 2600.0, "high": 2610.0, "low": 2590.0, "close": 2600.0}
-    rows = [above, above, {"open": 2600.0, "high": 2600.0, "low": 2490.0, "close": 2495.0}] + [above] * 3
+    above = {"open": 2540.0, "high": 2550.0, "low": 2530.0, "close": 2540.0}     # sous TP1 (2575,10)
+    rows = [above, above, {"open": 2540.0, "high": 2540.0, "low": 2490.0, "close": 2495.0}] + [above] * 3
     bars = pd.DataFrame([{"open_time": start + pd.Timedelta(minutes=15 * i), **r} for i, r in enumerate(rows)])
     assert replay_signal(bars, signal, costs, timedelta(minutes=15)).outcome == "UNFILLED"
     assert replay_signal(bars.iloc[:2], signal, costs, timedelta(minutes=15)).outcome == "UNFILLED"

@@ -357,6 +357,14 @@ def measure(signal: ExternalSignal, bars: pd.DataFrame, received: pd.Timestamp, 
     issue, r = replay_trailing(after, entry=entry, stop=stop, targets=targets, entry_window=cfg.entry_window_bars,
                                max_hold=int(pd.Timedelta(days=FOLLOW_DAYS) / STEP), costs=costs, tp_count=cfg.tp_count)
     outcomes[TRAILING] = {"issue": issue, "r": r, "provisoire": False}
+    # Maturité (relecture du 2026-10-12) : un stop se ferme vite, un gagnant reste ouvert ; tant que la fenêtre
+    # complète (entrée + suivi) n'est pas écoulée, l'issue est provisoire pour TOUTES les conventions, perdants
+    # compris, sinon le bilan des derniers jours d'un export retient les perdants avant les gagnants.
+    horizons = {TP1_TOUCH: cfg.max_hold_bars, TP1_RULE: cfg.max_hold_bars,
+                LADDER: int(pd.Timedelta(days=FOLLOW_DAYS) / STEP), TRAILING: int(pd.Timedelta(days=FOLLOW_DAYS) / STEP)}
+    for convention, horizon in horizons.items():
+        if len(after) < cfg.entry_window_bars + horizon:
+            outcomes[convention]["provisoire"] = True
     return OK, note, outcomes, bool(note)     # marqueur explicite, jamais déduit du texte de la note
 
 

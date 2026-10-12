@@ -523,3 +523,28 @@ def test_old_registry_without_the_limit_column_is_migrated_and_still_counted(set
     stats = registry.source_stats("Ancien")[0]
     assert stats["resolved"] == 1 and stats["tp1_first"] == 1 and stats["limit_above_tp1"] == 0
     assert registry.recent()[0]["limit_above_tp1"] == 0
+
+
+def test_the_live_proof_counts_a_signal_only_once_its_whole_window_has_elapsed(settings):
+    """Chasse aux erreurs du 2026-10-12 : un stop se résout vite, un gagnant au stop suiveur reste ouvert jusqu'à
+    30 jours ; sans maturité, le bilan récent ne voyait que les perdants."""
+    from crypto_signal_intelligence.external.record import maturity_cutoff, source_records
+    registry = ExternalSignalRegistry(settings.external_db)
+    now = pd.Timestamp("2026-03-01", tz="UTC").to_pydatetime()
+    cutoff = maturity_cutoff(settings, now)
+    assert now - cutoff == timedelta(minutes=15) * (settings.external.entry_window_bars
+                                                      + settings.external.trail_max_hold_bars) + timedelta(hours=2)
+    young = registry.record(received_at=now - timedelta(days=3), source="G", content_hash="y", template="structured",
+                            symbol="ETHUSDT", entry=100.0, stop=98.0, tp1=104.0, targets=[104.0], decision_time=None,
+                            close=100.0, verdict="INDETERMINE", p_tp1=0.4, base_expectancy_r=-0.1, evaluation={},
+                            raw_text="x", resolvable=True)
+    registry.mark(young, "SL_FIRST", -1.0, now, now)
+    old = registry.record(received_at=cutoff - timedelta(days=1), source="G", content_hash="o", template="structured",
+                          symbol="ETHUSDT", entry=100.0, stop=98.0, tp1=104.0, targets=[104.0], decision_time=None,
+                          close=100.0, verdict="INDETERMINE", p_tp1=0.4, base_expectancy_r=-0.1, evaluation={},
+                          raw_text="x", resolvable=True)
+    registry.mark(old, "TP1_FIRST", 0.8, now, now)
+    (mature,) = source_records(registry, mature_before=cutoff)
+    assert mature.resolved == 1 and mature.r_real == pytest.approx(0.8)
+    (everything,) = source_records(registry)
+    assert everything.resolved == 2

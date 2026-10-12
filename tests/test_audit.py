@@ -119,8 +119,14 @@ def test_pictographs_inside_a_line_do_not_make_a_signal_unreadable():
 
 # --- Les trois conventions, calculées à la main ---------------------------------------------------------------
 
-def scenario(after: list[tuple[float, float, float, float]]) -> pd.DataFrame:
-    """40 bougies à 101 (00:00 → 10:00), puis `after` à partir de 10:00 (la publication est à 10:00)."""
+MATURE = 96 + au.FOLLOW_DAYS * 96                  # fenêtre d'entrée + suivi de 30 jours (bougies de 15 min)
+
+
+def scenario(after: list[tuple[float, float, float, float]], mature: bool = False) -> pd.DataFrame:
+    """40 bougies à 101 (00:00 → 10:00), puis `after` à partir de 10:00 (la publication est à 10:00). `mature` :
+    complété par des bougies plates au dernier prix jusqu'à la fin de la fenêtre complète (issue définitive)."""
+    if mature:
+        after = after + flat(max(0, MATURE - len(after)), after[-1][3])
     return bars(flat(40, 101.0) + after)
 
 
@@ -133,7 +139,7 @@ WICK = [(101, 101, 99.5, 100.5),          # 10:00 : traverse l'entrée 100 → r
 
 
 def test_a_wick_stops_the_touch_convention_but_not_the_close_rule(settings):
-    report = run(settings, scenario(WICK))
+    report = run(settings, scenario(WICK, mature=True))
     row = report.rows[0]
     assert (row.status, row.group, row.symbol, row.stop_timeframe) == ("OK", "LEGEND TRADING", "ABCUSDT", "4h")
     assert (row.stop_pct, row.tp1_pct) == (5.0, 4.0)
@@ -145,14 +151,14 @@ def test_a_wick_stops_the_touch_convention_but_not_the_close_rule(settings):
 
 def test_a_close_under_the_stop_sells_at_that_close_and_can_lose_more_than_one_r(settings):
     closes_low = WICK[:7] + [(99.0, 99.0, 92.0, 93.0), *flat(4, 93.0)]             # la bougie 4 h clôture à 93
-    row = run(settings, scenario(closes_low)).rows[0]
+    row = run(settings, scenario(closes_low, mature=True)).rows[0]
     assert row.outcomes[au.TP1_RULE] == {"issue": "SL_FIRST", "r": round(r_of([(1, 93, True)]), 4), "provisoire": False}
     assert row.outcomes[au.TP1_RULE]["r"] < -1.4
     # Une clôture 15 min sous le stop ne compte pas pour un stop « 4h » : seule la clôture du bloc compte.
     dips = WICK[:2] + [(99.0, 99.0, 93.0, 94.0), *flat(4, 99.0)] + WICK[7:]
     assert run(settings, scenario(dips)).rows[0].outcomes[au.TP1_RULE]["issue"] == "TP1_FIRST"
     fifteen = SIGNAL.replace("(4h)", "(15m)")
-    assert run(settings, scenario(dips), [item(fifteen)]).rows[0].outcomes[au.TP1_RULE] == {
+    assert run(settings, scenario(dips, mature=True), [item(fifteen)]).rows[0].outcomes[au.TP1_RULE] == {
         "issue": "SL_FIRST", "r": round(r_of([(1, 94, True)]), 4), "provisoire": False}
     # Bougie de remplissage « au contact » : son plus haut a pu précéder l'entrée, il ne vaut pas TP1.
     spike = [(101, 105.0, 99.5, 100.5), *flat(5, 100.5)]
@@ -175,9 +181,9 @@ def test_default_replay_is_unchanged_by_the_new_option(settings):
 def test_ladder_sells_each_target_then_the_rest_at_the_stop_or_the_last_price(settings):
     fill = (101, 101, 99.5, 100.5)
     tp1 = (100.5, 104.0, 100.5, 103.0)                                # contact avec TP1 104 : vendu au marché
-    both = run(settings, scenario([fill, tp1, (103, 108.0, 103, 107), *flat(3, 107.0)])).rows[0].outcomes[au.LADDER]
+    both = run(settings, scenario([fill, tp1, (103, 108.0, 103, 107), *flat(3, 107.0)], mature=True)).rows[0].outcomes[au.LADDER]
     assert both == {"issue": "TOUS_TP", "r": round(r_of([(2 / 3, 104, True), (1 / 3, 108, True)]), 4), "provisoire": False}
-    then_stop = run(settings, scenario([fill, tp1, (103, 103, 94.0, 96.0), *flat(3, 96.0)])).rows[0].outcomes[au.LADDER]
+    then_stop = run(settings, scenario([fill, tp1, (103, 103, 94.0, 96.0), *flat(3, 96.0)], mature=True)).rows[0].outcomes[au.LADDER]
     assert then_stop == {"issue": "TP1_PUIS_SL", "r": round(r_of([(2 / 3, 104, True), (1 / 3, 95, True)]), 4),
                          "provisoire": False}
     still_open = run(settings, scenario([fill, tp1, *flat(3, 102.0)])).rows[0].outcomes[au.LADDER]
@@ -187,7 +193,7 @@ def test_ladder_sells_each_target_then_the_rest_at_the_stop_or_the_last_price(se
     assert equal.outcomes[au.LADDER]["r"] == round(r_of([(0.5, 104, True), (0.5, 108, True)]), 4)
     # Suivi borné : après FOLLOW_DAYS, la position ouverte est valorisée au dernier prix, résultat définitif.
     late_rally = [fill, *flat(au.FOLLOW_DAYS * 96 - 1, 101.0), (101, 120.0, 101, 119.0), *flat(5, 119.0)]
-    long = run(settings, scenario(late_rally)).rows[0].outcomes[au.LADDER]
+    long = run(settings, scenario(late_rally, mature=True)).rows[0].outcomes[au.LADDER]
     assert long == {"issue": "OUVERT", "r": round(r_of([(1, 101, True)]), 4), "provisoire": False}   # la hausse du 31e jour ne compte pas
     # Ouverture sous l'entrée : acheté à l'ouverture (99, au marché) ; le risque reste celui du signal (100 − 95).
     bought = 99 * (1 + MARKET)
@@ -199,8 +205,18 @@ def test_ladder_sells_each_target_then_the_rest_at_the_stop_or_the_last_price(se
     assert {o["issue"] for o in pending.values()} == {"PENDING"}
 
 
+def test_a_recent_signal_is_provisional_in_every_convention_until_its_whole_window_has_elapsed(settings):
+    """Relecture du 2026-10-12 : un stop se ferme vite, un gagnant reste ouvert ; tant que la fenêtre complète
+    n'est pas écoulée, perdants comme gagnants sont provisoires (hors du bilan et de la preuve)."""
+    quick_stop = run(settings, scenario([(101, 101, 99.5, 100.5), (100.5, 100.5, 94.0, 94.5), *flat(3, 94.5)]))
+    assert {o["provisoire"] for o in quick_stop.rows[0].outcomes.values()} == {True}
+    assert quick_stop.rows[0].outcomes[au.TP1_TOUCH]["issue"] == "SL_FIRST"
+    block = quick_stop.summary["LEGEND TRADING"]["conventions"][au.TP1_TOUCH]
+    assert block["resolus"] == 0 and block["en_cours"] == 1
+
+
 def test_a_gap_under_the_stop_is_sold_at_the_open(settings):
-    gap = run(settings, scenario([(94.0, 94.5, 93.0, 94.0), *flat(3, 94.0)])).rows[0].outcomes
+    gap = run(settings, scenario([(94.0, 94.5, 93.0, 94.0), *flat(3, 94.0)], mature=True)).rows[0].outcomes
     expected = round(((94 * (1 - MARKET)) * (1 - FEE) - 94 * (1 + MARKET) * (1 + FEE)) / 5, 4)
     assert gap[au.LADDER] == {"issue": "SL", "r": expected, "provisoire": False}
     assert gap[au.TP1_TOUCH] == {"issue": "SL_FIRST", "r": expected, "provisoire": False}
@@ -335,7 +351,7 @@ def test_report_and_command(settings, monkeypatch, tmp_path):
     from typer.testing import CliRunner
 
     from crypto_signal_intelligence import cli
-    report = run(settings, scenario(WICK), [item(), item("illisible")])
+    report = run(settings, scenario(WICK, mature=True), [item(), item("illisible")])
     directory = au.write_report(settings, report)
     saved = json.loads((directory / "audit.json").read_text(encoding="utf-8"))
     assert saved["summary"]["LEGEND TRADING"]["conventions"][au.TP1_RULE]["r_moyen"] > 0
