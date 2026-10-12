@@ -91,6 +91,7 @@ def summarize(trades: pd.DataFrame, *, evaluated_bars: int, bars_in_position: in
         "entries_filled": int(len(filled)),
         "entries_filled_at_open": int((filled["entry_status"] == "FILLED_OPEN").sum()) if len(filled) else 0,
         "entries_expired": int((trades["entry_status"] == "EXPIRED").sum()) if total else 0,
+        "entries_cancelled_first_tp": int((trades["entry_status"] == "CANCELLED_FIRST_TP").sum()) if total else 0,
         "trades_closed": int(len(closed)),
         "trades_censored": censored,
         "exposure_pct": round(100 * bars_in_position / evaluated_bars, 2) if evaluated_bars else 0.0,

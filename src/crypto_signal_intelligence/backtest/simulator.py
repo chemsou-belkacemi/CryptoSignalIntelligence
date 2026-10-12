@@ -193,6 +193,13 @@ def simulate(frame: pd.DataFrame, symbol: str, strategy: Strategy, rules: Simula
                 fill = None
                 if opens[k] <= limit:
                     fill = ("FILLED_OPEN", min(opens[k] * (1 + market_cost), limit), False)
+                elif highs[k] >= trade.target:
+                    # CANCEL_AT_ENTRY_EXPIRY_OR_FIRST_TP (politique de sortie, appliquée par BSM aux signaux CSI) :
+                    # TP1 touché avant tout achat → entrée annulée. Bougie qui touche aussi la limite : ordre
+                    # inconnu, l'annulation l'emporte (pas de remplissage crédité après un TP1 peut-être vu avant).
+                    trade.entry_status = "CANCELLED_FIRST_TP"
+                    result.trades.append(trade)
+                    pending = None
                 elif lows[k] < limit:
                     fill = ("FILLED_TOUCH", limit, True)
                 if fill:
@@ -201,13 +208,14 @@ def simulate(frame: pd.DataFrame, symbol: str, strategy: Strategy, rules: Simula
                     pending = None
                     result.bars_in_position += 1
                     if fill[0] == "FILLED_OPEN" and opens[k] <= trade.stop:
-                        stopped_at_fill(trade, k)   # ouverture sous le stop (gap) : stop-market immédiat
-                        continue
-                    state = OpenPosition(entry=fill[1], initial_stop=trade.stop, targets=trade.targets,
-                                         weights=trade.target_weights,
-                                         policy=forced_policy or exit_policy(trade.exit_policy))
-                    position = (trade, state, k)
-                    step_position(k, first_bar=True, touched=fill[2])
+                        # ouverture sous le stop (gap) : stop-market immédiat ; la clôture reste évaluée (étape 3)
+                        stopped_at_fill(trade, k)
+                    else:
+                        state = OpenPosition(entry=fill[1], initial_stop=trade.stop, targets=trade.targets,
+                                             weights=trade.target_weights,
+                                             policy=forced_policy or exit_policy(trade.exit_policy))
+                        position = (trade, state, k)
+                        step_position(k, first_bar=True, touched=fill[2])
         # 2. position ouverte (hors bougie de remplissage, déjà traitée)
         elif position is not None:
             result.bars_in_position += 1
@@ -244,10 +252,12 @@ def simulate(frame: pd.DataFrame, symbol: str, strategy: Strategy, rules: Simula
         if decision_filter is not None and not decision_filter(context.decision_time, levels):
             result.no_trade["ML_FILTER"] += 1
             continue
+        # Fenêtre d'entrée ancrée sur la décision (ENTRY_EXPIRES_AT, signals/analyze.py) : bougies k+1 à k+N. Un
+        # retard d'entrée (scénario défavorable) la RACCOURCIT ; il ne la décale pas au-delà de l'expiration.
         active_from = k + 1 + costs.extra_entry_delay_bars
         pending = {
             "active_from": active_from,
-            "expires_after": active_from + decision.entry_intent.expires_after_bars - 1,
+            "expires_after": k + decision.entry_intent.expires_after_bars,
             "trade": Trade(symbol=symbol, strategy=strategy.strategy_id, setup_time=decision.setup_time,
                            trend_regime=context.regime.trend.value, volatility_regime=context.regime.volatility.value,
                            entry_limit=float(levels.entry), stop=float(levels.stop), target=float(levels.targets[0]),

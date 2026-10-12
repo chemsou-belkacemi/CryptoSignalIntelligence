@@ -90,6 +90,28 @@ def test_execution_state_reconstructs_pnl_in_quote_and_r():
     assert execution_state(signal, [bnb_fee]).fees_other == {"BNB": Decimal("0.001")}
 
 
+
+def test_realized_r_converts_base_asset_fees_and_stays_unknown_with_bnb_or_missing_fees():
+    """Chasse aux erreurs du 2026-10-12 : des frais payés en BNB étaient ignorés (R Demo surestimé)."""
+    signal = parse(SPEC_EXAMPLE)                      # entrée 100, stop 98 ; TESTUSDT
+    events = [parse_line(line) for line in closing_sequence()]
+    base = execution_state(signal, events)
+    assert base.realized_r == pytest.approx(-0.1)
+
+    def with_fee(asset: str, amount: str):
+        fills = [e for e in events if e.event_type == "ENTRY_FILLED"]
+        assert fills
+        first = fills[0]
+        changed = parse_line(event(event_id="F", event_type="ENTRY_FILLED", occurred_at=first.occurred_at.isoformat(),
+                                   quantity=str(first.quantity), price=str(first.price), fee=amount, fee_asset=asset))
+        return [changed if e is first else e for e in events]
+
+    in_base = execution_state(signal, with_fee(signal.symbol.removesuffix("USDT"), "0.003"))   # 0,3 USDT > 0,2
+    assert in_base.fees_quote > base.fees_quote and in_base.realized_r < base.realized_r
+    in_bnb = execution_state(signal, with_fee("BNB", "0.001"))
+    assert in_bnb.status == "CLOSED" and in_bnb.realized_r is None and in_bnb.realized_pnl_quote is None
+
+
 def test_execution_report_separates_theoretical_shadow_and_demo(settings, tmp_path):
     signal = parse(SPEC_EXAMPLE)
     SignalRegistry(settings.signals_db, settings.publication_dir()).publish(
@@ -191,8 +213,11 @@ def test_prospective_replay_follows_the_signal_policy():
     consumer = one_tp_signal(exit_policy_id=bsm_policy.policy_id, exit_policy_hash=bsm_policy.policy_hash(),
                              max_hold_minutes=None)
     assert replay_signal(bars, consumer, costs, timedelta(minutes=15)).outcome == "OPEN"
-    never = bars.assign(open=2600.0, high=2610.0, low=2590.0, close=2600.0)
+    never = bars.assign(open=2540.0, high=2550.0, low=2530.0, close=2540.0)      # au-dessus de l'entrée, sous TP1
     assert replay_signal(never, theoretical, costs, timedelta(minutes=15)).outcome == "UNFILLED"
+    # TP1 (2575,10) touché avant tout achat : entrée annulée, comme le simulateur et BSM (2026-10-12)
+    beyond = bars.assign(open=2600.0, high=2610.0, low=2590.0, close=2600.0)
+    assert replay_signal(beyond, theoretical, costs, timedelta(minutes=15)).outcome == "CANCELLED_FIRST_TP"
 
 
 def test_prospective_entry_window_matches_the_simulator_bar_count():
@@ -210,8 +235,8 @@ def test_prospective_entry_window_matches_the_simulator_bar_count():
     signal = one_tp_signal(decision_at=decision, data_as_of=decision,
                            entry_expires_at=decision + timedelta(minutes=30, seconds=2))
     start = pd.Timestamp(decision)
-    above = {"open": 2600.0, "high": 2610.0, "low": 2590.0, "close": 2600.0}
-    rows = [above, above, {"open": 2600.0, "high": 2600.0, "low": 2490.0, "close": 2495.0}] + [above] * 3
+    above = {"open": 2540.0, "high": 2550.0, "low": 2530.0, "close": 2540.0}     # sous TP1 (2575,10)
+    rows = [above, above, {"open": 2540.0, "high": 2540.0, "low": 2490.0, "close": 2495.0}] + [above] * 3
     bars = pd.DataFrame([{"open_time": start + pd.Timedelta(minutes=15 * i), **r} for i, r in enumerate(rows)])
     assert replay_signal(bars, signal, costs, timedelta(minutes=15)).outcome == "UNFILLED"
     assert replay_signal(bars.iloc[:2], signal, costs, timedelta(minutes=15)).outcome == "UNFILLED"
