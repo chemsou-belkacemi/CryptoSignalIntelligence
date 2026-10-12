@@ -124,6 +124,8 @@ class ExternalSignalRegistry:
                 raw_text TEXT NOT NULL)""")
             # migration 2026-09-30, sûre en concurrence (tableau de bord : plusieurs requêtes à la fois)
             add_missing_columns(db, "external_signals", {"duplicate_of": "TEXT", "copy_of": "TEXT"})
+            # migration 2026-10-12 : achat limite publié prix ≥ TP1 (suivi à part, hors bilan et hors preuve)
+            add_missing_columns(db, "external_signals", {"limit_above_tp1": "INTEGER"})
             yield db
             db.commit()
         finally:
@@ -132,7 +134,8 @@ class ExternalSignalRegistry:
     def record(self, *, received_at: datetime, source: str, content_hash: str, template: str, symbol: str,
                entry: float | None, stop: float | None, tp1: float | None, targets: list[float],
                decision_time: datetime | None, close: float | None, verdict: str, p_tp1: float | None,
-               base_expectancy_r: float | None, evaluation: dict, raw_text: str, resolvable: bool) -> str:
+               base_expectancy_r: float | None, evaluation: dict, raw_text: str, resolvable: bool,
+               limit_above_tp1: bool = False) -> str:
         """Enregistre une évaluation. Un même texte (même empreinte) déjà reçu de la MÊME source dans la
         fenêtre de doublon est gardé pour l'historique mais jamais compté (outcome DUPLICATE) ; reçu d'une
         AUTRE source, il est compté pour elle et marqué comme copie de la première réception."""
@@ -148,12 +151,12 @@ class ExternalSignalRegistry:
             outcome = "DUPLICATE" if duplicate_of and resolvable else ("PENDING" if resolvable else "INVALID")
             db.execute("""INSERT INTO external_signals (id, received_at, source, content_hash, template, symbol, entry,
                           stop, tp1, targets, decision_time, close, verdict, p_tp1, base_expectancy_r, evaluation,
-                          outcome, outcome_r, filled_at, resolved_at, raw_text, duplicate_of, copy_of)
-                          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+                          outcome, outcome_r, filled_at, resolved_at, raw_text, duplicate_of, copy_of, limit_above_tp1)
+                          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
                 signal_id, received_at.isoformat(), source, content_hash, template, symbol, entry, stop, tp1,
                 json.dumps(targets), decision_time.isoformat() if decision_time else None, close, verdict, p_tp1,
                 base_expectancy_r, json.dumps(evaluation, ensure_ascii=False, default=str), outcome, None, None, None,
-                raw_text, duplicate_of, copy_of))
+                raw_text, duplicate_of, copy_of, int(limit_above_tp1)))
         return signal_id
 
     def previous(self, content_hash: str) -> dict | None:
@@ -177,22 +180,26 @@ class ExternalSignalRegistry:
     def recent(self, limit: int = 20) -> list[dict]:
         with self.connect() as db:
             rows = db.execute("""SELECT id, received_at, source, symbol, entry, stop, tp1, verdict, p_tp1,
-                                        base_expectancy_r, outcome, outcome_r
+                                        base_expectancy_r, outcome, outcome_r,
+                                        COALESCE(limit_above_tp1, 0) AS limit_above_tp1
                                  FROM external_signals ORDER BY received_at DESC LIMIT ?""", (limit,)).fetchall()
         return [dict(row) for row in rows]
 
     def source_stats(self, source: str | None = None) -> list[dict]:
-        """Bilan par source ; les doublons (même texte, même source) ne sont jamais comptés."""
-        resolved = "outcome IN ('TP1_FIRST','SL_FIRST','TIMEOUT')"
+        """Bilan par source ; les doublons (même texte, même source) ne sont jamais comptés, les achats limites
+        publiés prix ≥ TP1 restent hors des issues (comptés à part : `limit_above_tp1`)."""
+        own = "COALESCE(limit_above_tp1, 0) = 0"
+        resolved = f"outcome IN ('TP1_FIRST','SL_FIRST','TIMEOUT') AND {own}"
         query = f"""SELECT source, SUM(outcome!='DUPLICATE') AS evaluated, SUM(outcome='DUPLICATE') AS duplicates,
                            SUM(copy_of IS NOT NULL) AS copies,
                            SUM(verdict='FAVORABLE' AND outcome!='DUPLICATE') AS favorable,
                            SUM(verdict='INDETERMINE' AND outcome!='DUPLICATE') AS indetermine,
                            SUM(verdict='DEFAVORABLE' AND outcome!='DUPLICATE') AS defavorable,
                            SUM(verdict='REFUSE') AS refuse,
-                           SUM({resolved}) AS resolved, SUM(outcome='TP1_FIRST') AS tp1_first,
-                           SUM(outcome='SL_FIRST') AS sl_first, SUM(outcome='TIMEOUT') AS timeout,
-                           SUM(outcome='UNFILLED') AS unfilled, SUM(outcome='PENDING') AS pending,
+                           SUM({resolved}) AS resolved, SUM(outcome='TP1_FIRST' AND {own}) AS tp1_first,
+                           SUM(outcome='SL_FIRST' AND {own}) AS sl_first, SUM(outcome='TIMEOUT' AND {own}) AS timeout,
+                           SUM(outcome='UNFILLED' AND {own}) AS unfilled, SUM(outcome='PENDING' AND {own}) AS pending,
+                           SUM(COALESCE(limit_above_tp1, 0) = 1 AND outcome!='DUPLICATE') AS limit_above_tp1,
                            AVG(CASE WHEN {resolved} THEN outcome_r END) AS realized_r,
                            AVG(CASE WHEN {resolved} THEN p_tp1 END) AS base_tp1_rate,
                            AVG(CASE WHEN {resolved} THEN base_expectancy_r END) AS base_expectancy_r

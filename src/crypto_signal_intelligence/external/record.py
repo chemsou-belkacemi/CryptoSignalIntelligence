@@ -52,6 +52,7 @@ class SourceRecord:
     days: int = 0                                  # jours de réception distincts des signaux résolus
     proven: bool = False                           # preuve en direct : voir `proof`
     proof: str = ""
+    limit_above_tp1: int = 0                       # achats limites publiés prix ≥ TP1 : comptés à part, hors bilan
 
 
 def source_records(registry: ExternalSignalRegistry, *, samples: int = 2000, seed: int = 20260930) -> list[SourceRecord]:
@@ -60,7 +61,8 @@ def source_records(registry: ExternalSignalRegistry, *, samples: int = 2000, see
     with registry.connect() as db:
         for row in db.execute(f"""SELECT source, received_at, outcome, outcome_r, p_tp1, base_expectancy_r
                                   FROM external_signals
-                                  WHERE outcome IN {RESOLVED} AND outcome_r IS NOT NULL"""):
+                                  WHERE outcome IN {RESOLVED} AND outcome_r IS NOT NULL
+                                  AND COALESCE(limit_above_tp1, 0) = 0"""):    # hors preuve : BSM les refuse
             rows_by_source.setdefault(row["source"], []).append(dict(row))
     for stats in registry.source_stats():
         rows = rows_by_source.get(stats["source"], [])
@@ -109,7 +111,7 @@ def source_records(registry: ExternalSignalRegistry, *, samples: int = 2000, see
             r_real=round(float(np.mean([r["outcome_r"] for r in rows])), 4) if rows else None,
             r_base=round(float(np.mean([r["base_expectancy_r"] for r in with_base])), 4) if with_base else None,
             edge_r=edge, edge_ci95=ci, conclusion=conclusion, r_ci95=r_ci, days=distinct_days, proven=proven,
-            proof=proof))
+            proof=proof, limit_above_tp1=int(stats.get("limit_above_tp1") or 0)))
     return records
 
 

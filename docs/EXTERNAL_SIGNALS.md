@@ -29,8 +29,10 @@ L'avis combine trois choses, dans cet ordre :
 
 1. **Contrôles déterministes** (vetos, jamais contournables) : signal lisible ; paire dans
    l'univers screené ([UNIVERSE.md](UNIVERSE.md)) ; données fraîches ; **signal encore valable**
-   (dernier prix ni sous le stop, ni au-dessus de TP1 : sinon il est refusé et n'entre jamais
-   dans le bilan du groupe) ; entrée pas déjà dépassée par le prix (`max_entry_deviation_pct`) ;
+   (dernier prix pas sous le stop : sinon il est refusé et n'entre jamais dans le bilan du groupe ;
+   un prix déjà au-dessus de TP1 n'est pas un refus : c'est un achat limite en attente d'un repli,
+   évalué sur ce même ordre, suivi mais **hors du bilan et de la preuve du groupe**, et signalé car
+   BinanceSpotManager le refuse aujourd'hui) ; entrée pas déjà dépassée par le prix (`max_entry_deviation_pct`) ;
    stop ni trop serré ni trop large en ATR14 (`min_stop_atr`, `max_stop_atr`) ; RR du TP1
    **recalculé** à partir des prix, puis net de coûts centraux ≥ `min_net_rr`. Stop et RR sont
    calculés sur l'**entrée réellement obtenue** : un achat limite placé au-dessus du marché
@@ -56,7 +58,7 @@ base, avec les mêmes règles des deux côtés.
 
 | Avis | Signification |
 |---|---|
-| REFUSE | non évaluable : texte ambigu, paire hors univers, données périmées ou absentes, signal déjà invalidé (stop atteint) ou déjà joué (TP1 atteint) |
+| REFUSE | non évaluable : texte ambigu, paire hors univers, données périmées ou absentes, signal déjà invalidé (stop atteint) |
 | DEFAVORABLE | un veto, ou espérance nette de la géométrie négative (IC95 entièrement ≤ 0) |
 | INDETERMINE | aucun veto, mais échantillon insuffisant ou IC95 contenant 0 |
 | FAVORABLE | aucun veto et espérance nette de la géométrie positive (IC95 > 0), hors avantage de la source |
@@ -163,8 +165,8 @@ les autres (non rempli si le prix ne revient pas). Correction du 2026-10-11 : l'
 « déjà joué » écartait à tort ces signaux (23 % du canal WHALE HUNTING, 25 signaux de LYNX). Ils sont
 rapportés dans un **bilan à part** (« ordres limites au-dessus de TP1 », dans le rapport JSON
 seulement : ni la ligne de commande ni le tableau de bord ne l'affichent) et n'entrent **jamais dans la
-preuve du groupe** ni dans la comparaison des gestions : BinanceSpotManager (« SL ou premier TP déjà atteint ») et l'évaluateur (REFUSE
-« déjà joué ») refusent aujourd'hui de les prendre, et un groupe ne doit pas être prouvé sur des trades
+preuve du groupe** ni dans la comparaison des gestions : BinanceSpotManager (« SL ou premier TP déjà atteint ») refuse aujourd'hui de les prendre (l'évaluateur
+les refusait aussi jusqu'au 2026-10-12 ; il les évalue désormais, hors preuve), et un groupe ne doit pas être prouvé sur des trades
 qu'ils ne prendraient pas. Les preuves enregistrées avant le 2026-10-11 suivaient l'ancienne règle : un
 audit refait peut donner une autre preuve pour cette seule raison. Le test en direct F4, gelé, garde
 l'ancienne règle. Les pictogrammes ajoutés après coup
@@ -261,6 +263,19 @@ bougies publiques.
   avant la fin de DEVELOPMENT comptent (champ `history_end`). Une paire cotée après cette date n'a
   pas de taux de base (avis indéterminé). Les évaluations antérieures gardent leur méthode
   (champ `method`).
+- 2026-10-12 : l'évaluateur ne refuse plus un achat limite publié alors que le prix est déjà au-dessus
+  de TP1 (ancien refus « déjà joué », même erreur que l'audit corrigé le 2026-10-11) : l'ordre attend un
+  repli ; il est évalué sur le même ordre limite (taux de base avec l'écart réel au prix), suivi par
+  `resolve-signals`, mais marqué `limit_above_tp1` dans le registre et compté à part : jamais dans les
+  issues du bilan ni dans la preuve en direct du groupe, tant que BinanceSpotManager refuse de le placer.
+  L'avis le signale (« BSM refuse aujourd'hui ce signal », aussi dans le résumé que BSM affiche). Un
+  groupe prouvé ne lève **jamais** les vetos de géométrie d'un tel signal : sa preuve exclut ces ordres,
+  elle ne peut pas s'en porter garante ; il est jugé sur sa géométrie et son taux de base seuls. Le
+  compte à part apparaît dans `csi sources` (colonne « limites ≥ TP1 », issue marquée « hors bilan »),
+  pas encore dans le tableau de bord. Limite connue : si le groupe republie le même texte sous 7 jours
+  alors que le prix est revenu sous TP1, la seconde réception reste un doublon (non comptée), donc ce
+  signal sort entièrement de la preuve ; cas rare, sans regard sur l'issue. Les évaluations d'avant
+  cette date gardent leur refus.
 - 2026-09-30 : taux de base `LIMIT_ALIGNED_V2`. Avant, il supposait une entrée au marché à chaque
   bougie alors que la résolution place un ordre limite : l'écart « réalisé − base » d'un groupe
   mélangeait son apport et l'effet du type d'ordre. L'intervalle exigeait 10 blocs de 672 entrées
