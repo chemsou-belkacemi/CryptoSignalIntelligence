@@ -213,8 +213,9 @@ Aucun calcul de recherche en cours.
   que le walk-forward (à aligner, sans relancer de recherche) ; (b) répartition des ventes de BSM pour 2 ou 3 TP
   (70/30, 50/30/20) mal reproduite par CSI (`early_weights`, `ladder_weights`) : lire le réglage réel sur le VPS ;
   (c) entrée à plus de 3 % au-dessus du prix traitée « périmée » alors que BSM l'achèterait au marché : à revoir ;
-  (d) **[propriétaire]** option BSM, désactivée par défaut, pour accepter un achat limite publié au-dessus de TP1
-  (aujourd'hui refusé : « premier TP déjà atteint »).
+  (d) option BSM pour accepter un achat limite publié au-dessus de TP1 : **faite le 2026-10-12** sur demande du
+  propriétaire (BSM main 90788a9, déployé ; réglage « Signaux publiés au-dessus de TP1 », désactivé par défaut,
+  signaux texte seulement, Binance Demo ; `docs/SIGNAUX.md` de BSM).
 
 ## 5. Décisions qui attendent le propriétaire
 
