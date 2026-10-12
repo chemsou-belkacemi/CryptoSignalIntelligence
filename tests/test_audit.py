@@ -214,7 +214,13 @@ def test_signals_that_were_dead_stale_duplicated_or_unreadable_are_not_measured(
         return row.status, row.outcomes
 
     assert status(94.0) == ("INVALIDE", {}) and status(95.0) == ("INVALIDE", {})        # au stop ou dessous
-    assert status(104.0) == ("DEJA_JOUE", {}) and status(105.0) == ("DEJA_JOUE", {})
+    # Prix à TP1 ou au-dessus : ordre limite en attente d'un repli, simulé (jamais revenu à l'entrée : non rempli).
+    for price in (104.0, 105.0):
+        state, outcomes = status(price)
+        assert state == "OK" and {o["issue"] for o in outcomes.values()} == {"PENDING"}     # fenêtre pas finie
+        late = run(settings, bars(flat(1300, price))).rows[0]
+        assert late.status == "OK" and {o["issue"] for o in late.outcomes.values()} == {"UNFILLED"}
+        assert "ordre limite en attente" in late.reason
     assert status(97.0)[0] == "PERIME"                                # entrée 100 à +3,09 % du prix
     assert status(97.1)[0] == "OK"                                    # +2,99 % : encore acceptée
     assert run(settings, None).rows[0].status == "SANS_DONNEES"
@@ -347,3 +353,35 @@ def test_report_and_command(settings, monkeypatch, tmp_path):
     assert "Mon groupe" in done.output and "aucune conclusion" in done.output and "Rapport :" in done.output
     assert CliRunner().invoke(cli.app, ["audit-telegram"]).exit_code == 2
     assert CliRunner().invoke(cli.app, ["audit-telegram", "--file", str(tmp_path / "absent.json")]).exit_code == 2
+
+
+def test_a_limit_order_published_above_tp1_is_measured_apart_and_never_proves_the_group(settings):
+    """Prix 105 ≥ TP1 104 à la publication : ordre limite en attente d'un repli sous l'entrée 100. Le repli arrive
+    APRÈS la publication, puis TP1 : mesuré (TP1 au contact), mais dans un bilan à part et jamais dans la preuve,
+    car BinanceSpotManager et l'évaluateur refusent aujourd'hui ces signaux."""
+    before = flat(40, 105.0)                                          # T0 → 10:00 : prix au-dessus de TP1
+    after = [(105.0, 105.0, 99.0, 99.0), (99.0, 105.0, 99.0, 105.0), *flat(1300, 105.0)]
+    report = run(settings, bars(before + after))
+    row = report.rows[0]
+    assert row.status == "OK" and row.limit_above_tp1 and "ordre limite en attente" in row.reason
+    assert row.outcomes[au.TP1_TOUCH]["issue"] == "TP1_FIRST"
+    entry = next(iter(report.summary.values()))
+    assert entry["conventions"][au.TP1_TOUCH]["resolus"] == 0                   # hors du bilan principal
+    assert entry["ordres_limites_au_dessus_de_tp1"]["conventions"][au.TP1_TOUCH]["resolus"] == 1
+    assert entry["preuve"]["resolved"] == 0 and not entry["preuve"]["proven"]
+
+
+def test_the_management_comparison_leaves_out_limit_orders_published_above_tp1(settings, monkeypatch):
+    """Deux signaux mesurés : un normal (prix 101), un ordre limite publié à 105 ≥ TP1. La comparaison des gestions
+    (qui choisit une gestion pour BSM) ne doit voir que le premier : avec un seul signal, elle n'est pas lancée."""
+    from crypto_signal_intelligence.external import managements
+    calls: list[int] = []
+    monkeypatch.setattr(managements, "compare", lambda signals, *a, **k: calls.append(len(signals)) or {})
+    later = PUBLISHED + pd.Timedelta(days=8)
+    gap = int((later - T0) / STEP)
+    frame = bars(flat(gap - 8, 101.0) + flat(8, 105.0) + [(105.0, 105.0, 99.0, 99.0), (99.0, 105.0, 99.0, 105.0)]
+                 + flat(1300, 105.0))
+    report = run(settings, frame, [item(), item(at=later)])
+    assert [r.status for r in report.rows] == ["OK", "OK"]
+    assert [r.limit_above_tp1 for r in report.rows] == [False, True]
+    assert calls == []

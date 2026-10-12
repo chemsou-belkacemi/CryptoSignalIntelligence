@@ -45,6 +45,7 @@ CONVENTION_LABELS = {
     TRAILING: "ta gestion : stop à l'entrée 1 après TP1, puis à TP(k−2) après TPk",
 }
 LADDER_POLICY = "BSM_MARKET_TP_FIXED_SL_V2"
+# PLAYED (DEJA_JOUE) n'est plus produit depuis le 2026-10-11 ; gardé pour relire les anciens rapports.
 OK, UNREADABLE, DUPLICATE, NO_DATA, INVALID, PLAYED, STALE = (
     "OK", "ILLISIBLE", "DOUBLON", "SANS_DONNEES", "INVALIDE", "DEJA_JOUE", "PERIME")
 STEP = pd.Timedelta(minutes=15)
@@ -94,6 +95,10 @@ class AuditRow:
     outcomes: dict[str, dict] = field(default_factory=dict)       # convention → {issue, r}
     from_image: bool = False
     image_rejected: bool = False
+    # Prix déjà ≥ TP1 à la publication : ordre limite en attente d'un repli. Mesuré, mais dans un bilan à part et
+    # jamais dans la preuve : BinanceSpotManager (signal_plan.prepare_signal) et l'évaluateur (evaluate.py) refusent
+    # aujourd'hui ces signaux ; un groupe ne peut pas être « prouvé » sur des trades qu'ils ne prendraient pas.
+    limit_above_tp1: bool = False
 
 
 @dataclass
@@ -319,21 +324,25 @@ def replay_ladder(bars: pd.DataFrame, *, entry: float, stop: float, targets: lis
 
 
 def measure(signal: ExternalSignal, bars: pd.DataFrame, received: pd.Timestamp, *, settings: Settings,
-            weights: str) -> tuple[str, str, dict[str, dict]]:
-    """(statut, raison, issues par convention) d'un signal lisible, avec les bougies de sa paire."""
+            weights: str) -> tuple[str, str, dict[str, dict], bool]:
+    """(statut, raison, issues par convention, ordre limite publié au-dessus de TP1) d'un signal lisible, avec les
+    bougies de sa paire."""
     cfg, costs = settings.external, settings.costs["central"]
     assert signal.stop is not None
     entry, stop, targets = signal.entries[0], float(signal.stop), signal.targets
     before = bars[bars["open_time"] + STEP <= received]
     if before.empty or received - (before["open_time"].iloc[-1] + STEP) > MAX_REFERENCE_AGE:
-        return NO_DATA, "aucune bougie clôturée juste avant la publication", {}
+        return NO_DATA, "aucune bougie clôturée juste avant la publication", {}, False
     close = float(before["close"].iloc[-1])
     if close <= stop:
-        return INVALID, f"prix {close:g} déjà au stop {stop:g} ou dessous à la publication", {}
-    if close >= targets[0]:
-        return PLAYED, f"prix {close:g} déjà à TP1 {targets[0]:g} ou au-dessus à la publication", {}
+        return INVALID, f"prix {close:g} déjà au stop {stop:g} ou dessous à la publication", {}, False
+    # Prix déjà à TP1 ou au-dessus : PAS « déjà joué ». L'entrée 1 est alors sous le prix : c'est un ordre limite en
+    # attente d'un repli (WHALE HUNTING, LYNX), simulé comme les autres (NON_REMPLI si le prix ne revient jamais).
+    # Correction du 2026-10-11 : l'ancien statut DEJA_JOUE écartait à tort ces signaux (23 % d'un canal).
+    note = (f"prix {close:g} au-dessus de TP1 {targets[0]:g} à la publication : ordre limite en attente d'un repli"
+            if close >= targets[0] else "")
     if (entry / close - 1) * 100 > cfg.max_entry_deviation_pct:
-        return STALE, f"entrée {entry:g} à plus de {cfg.max_entry_deviation_pct:g} % au-dessus du prix {close:g}", {}
+        return STALE, f"entrée {entry:g} à plus de {cfg.max_entry_deviation_pct:g} % au-dessus du prix {close:g}", {}, False
     after = bars[bars["open_time"] >= received.ceil("15min")].reset_index(drop=True)
     outcomes = {}
     for convention, close_bars in ((TP1_TOUCH, 0), (TP1_RULE, stop_bars(signal.stop_timeframe))):
@@ -348,7 +357,7 @@ def measure(signal: ExternalSignal, bars: pd.DataFrame, received: pd.Timestamp, 
     issue, r = replay_trailing(after, entry=entry, stop=stop, targets=targets, entry_window=cfg.entry_window_bars,
                                max_hold=int(pd.Timedelta(days=FOLLOW_DAYS) / STEP), costs=costs, tp_count=cfg.tp_count)
     outcomes[TRAILING] = {"issue": issue, "r": r, "provisoire": False}
-    return OK, "", outcomes
+    return OK, note, outcomes, bool(note)     # marqueur explicite, jamais déduit du texte de la note
 
 
 # --- Bilan ------------------------------------------------------------------------------------------------
@@ -375,12 +384,20 @@ def summarize(rows: list[AuditRow], *, samples: int, seed: int) -> dict[str, dic
         measured = [r for r in mine if r.status == OK]
         shares = [r.missing_share for r in mine if r.missing_share is not None]
         entry: dict = {"messages": len(mine), "statuts": dict(Counter(r.status for r in mine)),
-                       "modifies_apres_coup": sum(r.edited for r in measured),
+                       "modifies_apres_coup": sum(r.edited for r in measured if not r.limit_above_tp1),
                        "messages_supprimes_part": max(shares) if shares else None, "conventions": {}}
         # Les signaux lus sur IMAGE (taux d'erreur hors échantillon inconnu) ne comptent ni dans les conventions ni
         # dans la preuve : ils ont leur propre bilan, à comparer à celui des signaux texte.
         images = [r for r in measured if r.from_image]
         measured = [r for r in measured if not r.from_image]
+        # Ordres limites publiés au-dessus de TP1 : bilan à part (refusés aujourd'hui par BSM et l'évaluateur).
+        limits = [r for r in measured if r.limit_above_tp1]
+        measured = [r for r in measured if not r.limit_above_tp1]
+        if limits:
+            entry["ordres_limites_au_dessus_de_tp1"] = {
+                "mesures": len(limits), "conventions": _conventions(limits, samples=samples, seed=seed),
+                "note": "prix déjà ≥ TP1 à la publication : ordre limite en attente d'un repli ; refusés aujourd'hui "
+                        "par BinanceSpotManager et l'évaluateur, donc hors de la preuve du groupe"}
         if any(r.from_image or r.image_rejected for r in mine):
             entry["images"] = {"lues": sum(r.from_image for r in mine), "ignorees": sum(r.image_rejected for r in mine),
                                "mesurees": len(images), "conventions": _conventions(images, samples=samples, seed=seed)}
@@ -574,7 +591,8 @@ def audit(settings: Settings, items: Iterable[HistoryItem], *, now: datetime, so
         if bars is None or bars.empty:
             row.status, row.reason = NO_DATA, "paire sans bougies publiques sur Binance Spot à cette date"
             continue
-        row.status, row.reason, row.outcomes = measure(signal, bars, received, settings=settings, weights=weights)
+        row.status, row.reason, row.outcomes, row.limit_above_tp1 = measure(signal, bars, received, settings=settings,
+                                                                             weights=weights)
     notes = [
         "Mesure d'une source externe : ni un essai d'une stratégie de CSI, ni une promesse pour le prochain signal.",
         "Un historique exporté ne contient que les messages encore présents : un groupe peut avoir supprimé des "
@@ -592,8 +610,10 @@ def audit(settings: Settings, items: Iterable[HistoryItem], *, now: datetime, so
     from .trailing import Management
     current = Management(tp_count=settings.external.tp_count)
     for name in summary:
-        # Signaux texte seulement, comme le bilan et la preuve : l'étude ne dépend pas de la lecture des images.
-        mine = [r for r in rows if r.status == OK and not r.from_image and (name == ALL or r.group == name)]
+        # Signaux texte seulement, comme le bilan et la preuve : l'étude ne dépend pas de la lecture des images, et
+        # les ordres limites publiés au-dessus de TP1 (refusés par BSM) n'y entrent pas.
+        mine = [r for r in rows if r.status == OK and not r.from_image and not r.limit_above_tp1
+                and (name == ALL or r.group == name)]
         if len(mine) < 2:
             continue
         signals = [{"symbol": r.symbol, "received_at": r.received_at, "entry": r.entry, "stop": r.stop,

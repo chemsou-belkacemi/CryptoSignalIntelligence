@@ -156,8 +156,18 @@ côte :
 | Comme le bot | entrée 1, tous les objectifs, stop fixe, sans sortie temporelle (politique `BSM_MARKET_TP_FIXED_SL_V2`) ; parts vendues « early » (5/15, 4/15… comme le réglage du bot) ou égales ; une position encore ouverte est valorisée au dernier prix, en **provisoire** tant qu'elle a moins de 30 jours |
 
 Sont écartés et comptés à part : messages illisibles, doublons (même signal sous 7 jours), signaux
-déjà morts (prix au stop), déjà joués (prix à TP1) ou périmés (entrée > 3 % au-dessus du prix) au
-moment de la publication, paires sans bougies publiques. Les pictogrammes ajoutés après coup
+déjà morts (prix au stop) ou périmés (entrée > 3 % au-dessus du prix) au moment de la publication,
+paires sans bougies publiques. Un prix déjà au-dessus de TP1 à la publication n'écarte **pas** le
+signal : l'entrée 1 est alors sous le prix, c'est un ordre limite en attente d'un repli, simulé comme
+les autres (non rempli si le prix ne revient pas). Correction du 2026-10-11 : l'ancien statut
+« déjà joué » écartait à tort ces signaux (23 % du canal WHALE HUNTING, 25 signaux de LYNX). Ils sont
+rapportés dans un **bilan à part** (« ordres limites au-dessus de TP1 », dans le rapport JSON
+seulement : ni la ligne de commande ni le tableau de bord ne l'affichent) et n'entrent **jamais dans la
+preuve du groupe** ni dans la comparaison des gestions : BinanceSpotManager (« SL ou premier TP déjà atteint ») et l'évaluateur (REFUSE
+« déjà joué ») refusent aujourd'hui de les prendre, et un groupe ne doit pas être prouvé sur des trades
+qu'ils ne prendraient pas. Les preuves enregistrées avant le 2026-10-11 suivaient l'ancienne règle : un
+audit refait peut donner une autre preuve pour cette seule raison. Le test en direct F4, gelé, garde
+l'ancienne règle. Les pictogrammes ajoutés après coup
 (« ENTRY 1 ✅ ») ne rendent plus un signal illisible : écarter les signaux réussis et décorés
 fausserait le bilan contre le groupe.
 
