@@ -85,6 +85,7 @@ class ExternalEvaluation:
     managements: list[dict] | None = None    # aperçu : quelques gestions sur les mêmes ordres aveugles
     verdict_basis: str = ""                  # « groupe » (preuve en direct) ou « geometrie » (taux de base) si FAVORABLE
     source_proof: dict | None = None         # bilan en direct du groupe : résolus, jours, prouvé ou non
+    limit_above_tp1: bool = False            # achat limite publié prix ≥ TP1 : suivi à part, hors preuve du groupe
 
     @property
     def failed(self) -> list[Check]:
@@ -97,7 +98,7 @@ class ExternalEvaluation:
                 "base_rate": self.base_rate.to_dict() if self.base_rate else None,
                 "source_stats": self.source_stats, "verdict_basis": self.verdict_basis,
                 "volatility": self.volatility, "trailing": self.trailing, "managements": self.managements,
-                "source_proof": self.source_proof,
+                "source_proof": self.source_proof, "limit_above_tp1": self.limit_above_tp1,
                 "decision_time": self.decision_time.isoformat() if self.decision_time else None}
 
 
@@ -117,13 +118,14 @@ def _age(delta: timedelta) -> str:
 
 def _verdict(evaluation: ExternalEvaluation, cfg: ExternalSection) -> tuple[str, str]:
     """(avis, fondement). Un groupe PROUVÉ EN DIRECT rend l'avis favorable, sauf refus ou signal périmé : ses
-    résultats mesurés l'emportent sur les vetos de géométrie et sur le taux de base."""
+    résultats mesurés l'emportent sur les vetos de géométrie et sur le taux de base. Jamais pour un achat limite
+    publié prix ≥ TP1 : la preuve du groupe exclut ces ordres, elle ne peut pas s'en porter garante."""
     failed = evaluation.failed
     if any(c.kind == PENDING for c in failed):
         return "EN_ATTENTE", ""
     if any(c.kind == REFUSAL for c in failed):
         return "REFUSE", ""
-    proven = bool(evaluation.source_proof and evaluation.source_proof.get("proven"))
+    proven = bool(evaluation.source_proof and evaluation.source_proof.get("proven")) and not evaluation.limit_above_tp1
     if [c for c in failed if not (proven and c.label in GEOMETRY_CHECKS)]:
         return "DEFAVORABLE", ""
     if proven and evaluation.geometry:
@@ -267,7 +269,8 @@ def evaluate(settings: Settings, text: str, *, source: str, now: datetime, recor
                 verdict=evaluation.verdict, p_tp1=rate.tp_first if rate else None,
                 base_expectancy_r=(evaluation.trailing["expectancy_r"] if evaluation.trailing
                                    else rate.expectancy_r if rate else None), evaluation=evaluation.to_dict(),
-                raw_text=text, resolvable=evaluation.verdict != "REFUSE")
+                raw_text=text, resolvable=evaluation.verdict != "REFUSE",
+                limit_above_tp1=evaluation.limit_above_tp1)
         return evaluation
 
     if signal.errors:
@@ -336,10 +339,17 @@ def evaluate(settings: Settings, text: str, *, source: str, now: datetime, recor
                                        f"stop {stop:g} ou dessous : signal invalidé avant réception", REFUSAL))
         return finish()
     if close >= targets[0]:
-        evaluation.checks.append(Check("signal encore valable", False, f"dernier close {close:g} déjà au niveau de "
-                                       f"TP1 {targets[0]:g} ou au-dessus : signal déjà joué", REFUSAL))
-        return finish()
-    evaluation.checks.append(Check("signal encore valable", True, f"close {close:g} entre le stop et TP1", REFUSAL))
+        # Achat limite sous le prix (entrée < TP1 ≤ close) : un ordre en attente d'un repli, pas un signal « déjà
+        # joué » (correction du 2026-10-12, comme l'audit). Évalué sur le même ordre limite ; suivi, mais hors de la
+        # preuve du groupe tant que BSM refuse de le placer (signal_plan : premier TP déjà atteint).
+        evaluation.limit_above_tp1 = True
+        evaluation.checks.append(Check("signal encore valable", True, f"close {close:g} au-dessus de TP1 "
+                                       f"{targets[0]:g} : achat limite à {entry:g} en attente d'un repli", REFUSAL))
+        evaluation.warnings.append("prix déjà au-dessus de TP1 : BSM refuse aujourd'hui ce signal (à placer à la "
+                                   "main) ; suivi à part, jamais compté dans la preuve du groupe")
+    else:
+        evaluation.checks.append(Check("signal encore valable", True, f"close {close:g} entre le stop et TP1",
+                                       REFUSAL))
     deviation = (entry / close - 1) * 100
     not_passed = deviation <= cfg.max_entry_deviation_pct
     evaluation.checks.append(Check("entrée par rapport au dernier prix", not_passed,

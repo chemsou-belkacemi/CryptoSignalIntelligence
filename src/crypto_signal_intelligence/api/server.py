@@ -181,6 +181,9 @@ def explain(evaluation: dict) -> str:
         parts = ["Défavorable : un veto est déclenché."]
     else:
         parts = [VERDICT_TEXT.get(verdict, verdict)]
+    if evaluation.get("limit_above_tp1"):
+        parts.append("Prix déjà au-dessus de TP1 : achat limite en attente d'un repli, jugé sur sa géométrie seule "
+                     "(hors preuve du groupe) ; BSM le refuse tant que le prix reste au-dessus de TP1.")
     if failed:
         parts.append("Contrôle en échec : " + " ; ".join(f"{c['label']} ({c['detail']})" for c in failed[:3]) + ".")
     rate = evaluation.get("base_rate")

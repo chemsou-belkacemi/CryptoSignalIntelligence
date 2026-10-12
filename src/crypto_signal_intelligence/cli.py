@@ -1918,7 +1918,8 @@ def sources(recent: int = typer.Option(10, help="Nombre de derniers signaux affi
     from .external.registry import ExternalSignalRegistry
     settings = _settings()
     registry = ExternalSignalRegistry(settings.external_db)
-    table = Table("source", "évalués", "doublons", "refusés", "attente", "non remplis", "résolus", "TP1 réalisé / base",
+    table = Table("source", "évalués", "doublons", "refusés", "attente", "non remplis", "résolus", "limites ≥ TP1 (à part)",
+                  "TP1 réalisé / base",
                   "R réalisé / base", "écart (IC95)", "conclusion",
                   title=f"Bilan par source : réalisé contre taux de base, mêmes règles ; conclusion à partir de "
                         f"{MIN_RESOLVED} signaux résolus")
@@ -1927,14 +1928,15 @@ def sources(recent: int = typer.Option(10, help="Nombre de derniers signaux affi
     for s in source_records(registry, seed=settings.protocol.seed):
         ci = f" [{s.edge_ci95[0]:+.2f} ; {s.edge_ci95[1]:+.2f}]" if s.edge_ci95 else ""
         table.add_row(s.source, str(s.evaluated), str(s.duplicates), str(s.refused), str(s.pending), str(s.unfilled),
-                      str(s.resolved), f"{pct(s.tp1_real)} / {pct(s.tp1_base)}", f"{num(s.r_real)} / {num(s.r_base)}",
+                      str(s.resolved), str(s.limit_above_tp1), f"{pct(s.tp1_real)} / {pct(s.tp1_base)}", f"{num(s.r_real)} / {num(s.r_base)}",
                       num(s.edge_r) + ci, s.conclusion)
     console.print(table)
     latest = Table("id", "reçu", "source", "paire", "entrée", "stop", "TP1", "avis", "TP1 base", "issue", "R")
     for row in registry.recent(recent):
         latest.add_row(row["id"], row["received_at"][:16], row["source"], row["symbol"], f"{row['entry'] or '–'}",
                        f"{row['stop'] or '–'}", f"{row['tp1'] or '–'}", row["verdict"], pct(row["p_tp1"]),
-                       row["outcome"], num(row["outcome_r"]))
+                       row["outcome"] + (" (limite ≥ TP1, hors bilan)" if row["limit_above_tp1"] else ""),
+                       num(row["outcome_r"]))
     console.print(latest)
 
 

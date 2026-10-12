@@ -153,6 +153,20 @@ def test_a_proven_group_lifts_geometry_vetoes_but_never_refusals(settings, marke
                     record=False).verdict == "DEFAVORABLE"
 
 
+
+def test_a_proven_group_never_vouches_for_a_limit_order_published_above_tp1(settings, market):
+    """Relecture du 2026-10-12 : la preuve du groupe exclut les achats limites publiés prix ≥ TP1 ; elle ne lève
+    donc pas leurs vetos de géométrie (un tel signal est jugé sur sa géométrie et son taux de base seuls)."""
+    close, atr, now = market
+    prove(settings, "LEGEND TRADING INDICATOR", now)
+    above = signal(close * 0.98, close * 0.98 - 9 * atr, close * 0.995)      # limite sous le prix, TP1 sous le prix
+    ev = evaluate(settings, above, source="LEGEND TRADING INDICATOR", now=now, record=False)
+    assert ev.limit_above_tp1 and ev.source_proof["proven"]
+    assert ev.verdict == "DEFAVORABLE" and ev.verdict_basis != "groupe"
+    assert "distance du stop" in {c.label for c in ev.failed}
+    text = explain(ev.to_dict())
+    assert "hors preuve du groupe" in text and "BSM le refuse" in text and "ce groupe est" not in text
+
 def test_a_live_proof_also_counts_and_generic_names_take_the_header(settings, market):
     close, atr, now = market
     registry = ExternalSignalRegistry(settings.external_db)

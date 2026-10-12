@@ -273,8 +273,14 @@ def test_evaluate_end_to_end_then_resolve_and_score_the_source(settings):
     assert tight.verdict == "DEFAVORABLE" and tight.failed[0].label == "distance du stop"
     dead = evaluate(settings, text(entry, close * 1.0005, entry + 3 * atr), source="groupe test", now=now)
     assert dead.verdict == "REFUSE" and dead.failed[0].label == "signal encore valable"    # stop au-dessus du prix
+    # Prix déjà au-dessus de TP1, entrée limite dessous : un ordre en attente d'un repli, évalué (plus « déjà
+    # joué »), suivi à part et signalé comme refusé par BSM.
     played = evaluate(settings, text(close * 0.98, close * 0.96, close * 0.995), source="groupe test", now=now)
-    assert played.verdict == "REFUSE" and "déjà joué" in played.failed[0].detail           # TP1 déjà dépassé
+    assert played.verdict != "REFUSE" and played.limit_above_tp1 and played.to_dict()["limit_above_tp1"]
+    valid = next(c for c in played.checks if c.label == "signal encore valable")
+    assert valid.ok and "en attente d'un repli" in valid.detail
+    assert any("BSM refuse" in w for w in played.warnings) and played.base_rate is not None
+    assert not ev.limit_above_tp1
     assert ev.geometry["entry_effective"] == pytest.approx(close) and ev.base_rate.method == br.METHOD
     stale = evaluate(settings, good, source="groupe test", now=now + timedelta(hours=3))
     assert stale.verdict == "REFUSE" and stale.failed[0].label == "données fraîches"
@@ -284,19 +290,20 @@ def test_evaluate_end_to_end_then_resolve_and_score_the_source(settings):
 
     registry = ExternalSignalRegistry(settings.external_db)
     rows = registry.recent()
-    # Refusés (données périmées, hors univers, signal mort, signal joué) : jamais comptés dans un bilan.
-    assert len(rows) == 7 and sorted(r["outcome"] for r in rows) == ["INVALID"] * 4 + ["PENDING"] * 3
-    assert resolve_pending(settings, registry, now=now) == {"PENDING": 3}       # aucune bougie postérieure
+    # Refusés (données périmées, hors univers, signal mort) : jamais comptés dans un bilan.
+    assert len(rows) == 7 and sorted(r["outcome"] for r in rows) == ["INVALID"] * 3 + ["PENDING"] * 4
+    assert resolve_pending(settings, registry, now=now) == {"PENDING": 4}       # aucune bougie postérieure
     store.save(pd.concat([setup, future_bars(last["open_time"], close, 300, 0.005)], ignore_index=True),
                "ETHUSDT", "15m")
     counts = resolve_pending(settings, registry, now=now + timedelta(days=4))
     # Suivi à partir de la bougie qui s'ouvre APRÈS la réception : le prix monte de 0,5 % par bougie, il a déjà
     # dépassé l'entrée « good » (close + 0,1 %) et reste au-dessus de la limite « stop serré » : deux non remplis.
-    # Seul « late » (entrée à +5 %) est rempli, puis atteint TP1.
-    assert counts == {"TP1_FIRST": 1, "UNFILLED": 2}
+    # Seul « late » (entrée à +5 %) est rempli, puis atteint TP1. La limite sous TP1 (« played ») n'est pas remplie.
+    assert counts == {"TP1_FIRST": 1, "UNFILLED": 3}
     stats = registry.source_stats("groupe test")[0]
     assert stats["resolved"] == 1 and stats["realized_tp1_rate"] == pytest.approx(1.0) and stats["unfilled"] == 2
-    assert stats["refuse"] == 3 and stats["defavorable"] >= 2 and stats["realized_r"] is not None
+    assert stats["limit_above_tp1"] == 1
+    assert stats["refuse"] == 2 and stats["defavorable"] >= 2 and stats["realized_r"] is not None
     assert all(r["outcome_r"] > 0 for r in registry.recent() if r["outcome"] == "TP1_FIRST")
     assert registry.recent()[0]["received_at"] >= registry.recent()[-1]["received_at"]
     assert now.utcoffset() == timedelta(0)
@@ -377,6 +384,31 @@ def test_source_record_needs_signals_spread_over_several_days(settings):
         registry.mark(sid, "TP1_FIRST", 1.9, t0, t0 + timedelta(hours=5))
     record = source_records(registry)[0]
     assert record.edge_ci95 is None and "concentrés" in record.conclusion
+
+
+def test_limit_orders_published_above_tp1_never_count_in_the_live_proof(settings):
+    """Achat limite publié prix ≥ TP1 (BSM le refuse) : suivi, compté à part, jamais dans le bilan ni la preuve,
+    même gagnant ; les signaux ordinaires du même groupe restent comptés."""
+    from crypto_signal_intelligence.external.record import MIN_RESOLVED, source_records
+    registry = ExternalSignalRegistry(settings.external_db)
+    t0 = pd.Timestamp("2026-01-01", tz="UTC").to_pydatetime()
+    for k in range(MIN_RESOLVED + 5):
+        sid = registry.record(received_at=t0 + timedelta(days=k), source="Repli", content_hash=f"l{k}",
+                              template="structured", symbol="ETHUSDT", entry=100.0, stop=98.0, tp1=104.0,
+                              targets=[104.0], decision_time=None, close=105.0, verdict="INDETERMINE", p_tp1=0.35,
+                              base_expectancy_r=-0.1, evaluation={}, raw_text="x", resolvable=True,
+                              limit_above_tp1=True)
+        registry.mark(sid, "TP1_FIRST", 1.9, t0, t0 + timedelta(days=k, hours=5))
+    sid = registry.record(received_at=t0, source="Repli", content_hash="o", template="structured", symbol="ETHUSDT",
+                          entry=100.0, stop=98.0, tp1=104.0, targets=[104.0], decision_time=None, close=100.0,
+                          verdict="INDETERMINE", p_tp1=0.35, base_expectancy_r=-0.1, evaluation={}, raw_text="x",
+                          resolvable=True)
+    registry.mark(sid, "SL_FIRST", -1.1, t0, t0 + timedelta(hours=5))
+    stats = registry.source_stats("Repli")[0]
+    assert stats["limit_above_tp1"] == MIN_RESOLVED + 5 and stats["resolved"] == 1 and stats["tp1_first"] == 0
+    assert stats["realized_r"] == pytest.approx(-1.1)
+    (record,) = source_records(registry)
+    assert record.resolved == 1 and record.edge_ci95 is None and not record.proven
 
 
 
@@ -469,3 +501,25 @@ def test_integer_price_with_trailing_dot_is_read():
 def test_malformed_prices_stay_refused(stop):
     from crypto_signal_intelligence.external.parser import parse
     assert parse(QNT_TRAILING_DOT.replace("Stop: 223.", f"Stop: {stop}")).stop is None
+
+
+def test_old_registry_without_the_limit_column_is_migrated_and_still_counted(settings):
+    """Base d'avant le 2026-10-12 (sans `limit_above_tp1`) : colonne ajoutée à l'ouverture, anciennes lignes
+    comptées comme des signaux ordinaires."""
+    import sqlite3
+    path = settings.external_db
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(path) as db:
+        db.execute("""CREATE TABLE external_signals (
+            id TEXT PRIMARY KEY, received_at TEXT NOT NULL, source TEXT NOT NULL, content_hash TEXT NOT NULL,
+            template TEXT NOT NULL, symbol TEXT NOT NULL, entry REAL, stop REAL, tp1 REAL, targets TEXT,
+            decision_time TEXT, close REAL, verdict TEXT NOT NULL, p_tp1 REAL, base_expectancy_r REAL,
+            evaluation TEXT NOT NULL, outcome TEXT NOT NULL, outcome_r REAL, filled_at TEXT, resolved_at TEXT,
+            raw_text TEXT NOT NULL, duplicate_of TEXT, copy_of TEXT)""")
+        db.execute("INSERT INTO external_signals VALUES ('old', '2026-01-01T00:00:00+00:00', 'Ancien', 'h', "
+                   "'structured', 'ETHUSDT', 100, 98, 104, '[104]', NULL, 100, 'INDETERMINE', 0.4, -0.1, '{}', "
+                   "'TP1_FIRST', 1.9, NULL, NULL, 'x', NULL, NULL)")
+    registry = ExternalSignalRegistry(path)
+    stats = registry.source_stats("Ancien")[0]
+    assert stats["resolved"] == 1 and stats["tp1_first"] == 1 and stats["limit_above_tp1"] == 0
+    assert registry.recent()[0]["limit_above_tp1"] == 0

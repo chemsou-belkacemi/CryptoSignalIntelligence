@@ -390,14 +390,14 @@ def summarize(rows: list[AuditRow], *, samples: int, seed: int) -> dict[str, dic
         # dans la preuve : ils ont leur propre bilan, à comparer à celui des signaux texte.
         images = [r for r in measured if r.from_image]
         measured = [r for r in measured if not r.from_image]
-        # Ordres limites publiés au-dessus de TP1 : bilan à part (refusés aujourd'hui par BSM et l'évaluateur).
+        # Ordres limites publiés au-dessus de TP1 : bilan à part (refusés aujourd'hui par BSM ; l'évaluateur les juge hors preuve).
         limits = [r for r in measured if r.limit_above_tp1]
         measured = [r for r in measured if not r.limit_above_tp1]
         if limits:
             entry["ordres_limites_au_dessus_de_tp1"] = {
                 "mesures": len(limits), "conventions": _conventions(limits, samples=samples, seed=seed),
                 "note": "prix déjà ≥ TP1 à la publication : ordre limite en attente d'un repli ; refusés aujourd'hui "
-                        "par BinanceSpotManager et l'évaluateur, donc hors de la preuve du groupe"}
+                        "par BinanceSpotManager, donc hors de la preuve du groupe"}
         if any(r.from_image or r.image_rejected for r in mine):
             entry["images"] = {"lues": sum(r.from_image for r in mine), "ignorees": sum(r.image_rejected for r in mine),
                                "mesurees": len(images), "conventions": _conventions(images, samples=samples, seed=seed)}
