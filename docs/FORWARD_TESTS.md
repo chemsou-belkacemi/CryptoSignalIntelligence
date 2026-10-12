@@ -2799,6 +2799,11 @@ disponibles (fichier du robot, `mahwashiVip.json`, export AL-MAHWASHI CRYPTO, ex
 divergence. La population de la lecture est donc « ALMAHWASHI VIP » ; au versement de `tp_ladder.py`, le filtre
 compare la forme canonique (`canonical_name(groupe) == "ALMAHWASHI VIP"`), rien d'autre ne change.
 
+**Addendum du 2026-10-12 (avant toute lecture de la période).** L'audit des groupes ne donne plus le statut « déjà
+joué » : un signal publié alors que le prix est déjà ≥ TP1 est désormais mesuré comme ordre limite en attente d'un
+repli, marqué `limit_above_tp1` (correction du 2026-10-11, `EXTERNAL_SIGNALS.md`). Cette lecture garde la population
+déclarée : ces signaux en sont **exclus** (filtre `not limit_above_tp1`), exactement comme l'ancien « déjà joué ».
+
 ## MISSION_2026_10_03 : correspondance avec la mission du propriétaire et nouveaux essais
 
 Mission collée par le propriétaire le 2026-10-03 (« construire tous les tests en direct maintenant »), confirmée le

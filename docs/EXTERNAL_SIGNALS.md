@@ -160,8 +160,13 @@ déjà morts (prix au stop) ou périmés (entrée > 3 % au-dessus du prix) au mo
 paires sans bougies publiques. Un prix déjà au-dessus de TP1 à la publication n'écarte **pas** le
 signal : l'entrée 1 est alors sous le prix, c'est un ordre limite en attente d'un repli, simulé comme
 les autres (non rempli si le prix ne revient pas). Correction du 2026-10-11 : l'ancien statut
-« déjà joué » écartait à tort ces signaux (23 % du canal WHALE HUNTING, 25 signaux de LYNX). Le test
-en direct F4, gelé, garde l'ancienne règle. Les pictogrammes ajoutés après coup
+« déjà joué » écartait à tort ces signaux (23 % du canal WHALE HUNTING, 25 signaux de LYNX). Ils sont
+rapportés dans un **bilan à part** (« ordres limites au-dessus de TP1 ») et n'entrent **jamais dans la
+preuve du groupe** : BinanceSpotManager (« SL ou premier TP déjà atteint ») et l'évaluateur (REFUSE
+« déjà joué ») refusent aujourd'hui de les prendre, et un groupe ne doit pas être prouvé sur des trades
+qu'ils ne prendraient pas. Les preuves enregistrées avant le 2026-10-11 suivaient l'ancienne règle : un
+audit refait peut donner une autre preuve pour cette seule raison. Le test en direct F4, gelé, garde
+l'ancienne règle. Les pictogrammes ajoutés après coup
 (« ENTRY 1 ✅ ») ne rendent plus un signal illisible : écarter les signaux réussis et décorés
 fausserait le bilan contre le groupe.
 

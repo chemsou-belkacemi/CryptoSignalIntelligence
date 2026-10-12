@@ -353,3 +353,19 @@ def test_report_and_command(settings, monkeypatch, tmp_path):
     assert "Mon groupe" in done.output and "aucune conclusion" in done.output and "Rapport :" in done.output
     assert CliRunner().invoke(cli.app, ["audit-telegram"]).exit_code == 2
     assert CliRunner().invoke(cli.app, ["audit-telegram", "--file", str(tmp_path / "absent.json")]).exit_code == 2
+
+
+def test_a_limit_order_published_above_tp1_is_measured_apart_and_never_proves_the_group(settings):
+    """Prix 105 ≥ TP1 104 à la publication : ordre limite en attente d'un repli sous l'entrée 100. Le repli arrive
+    APRÈS la publication, puis TP1 : mesuré (TP1 au contact), mais dans un bilan à part et jamais dans la preuve,
+    car BinanceSpotManager et l'évaluateur refusent aujourd'hui ces signaux."""
+    before = flat(40, 105.0)                                          # T0 → 10:00 : prix au-dessus de TP1
+    after = [(105.0, 105.0, 99.0, 99.0), (99.0, 105.0, 99.0, 105.0), *flat(1300, 105.0)]
+    report = run(settings, bars(before + after))
+    row = report.rows[0]
+    assert row.status == "OK" and row.limit_above_tp1 and "ordre limite en attente" in row.reason
+    assert row.outcomes[au.TP1_TOUCH]["issue"] == "TP1_FIRST"
+    entry = next(iter(report.summary.values()))
+    assert entry["conventions"][au.TP1_TOUCH]["resolus"] == 0                   # hors du bilan principal
+    assert entry["ordres_limites_au_dessus_de_tp1"]["conventions"][au.TP1_TOUCH]["resolus"] == 1
+    assert entry["preuve"]["resolved"] == 0 and not entry["preuve"]["proven"]

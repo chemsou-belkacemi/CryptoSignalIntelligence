@@ -95,6 +95,10 @@ class AuditRow:
     outcomes: dict[str, dict] = field(default_factory=dict)       # convention → {issue, r}
     from_image: bool = False
     image_rejected: bool = False
+    # Prix déjà ≥ TP1 à la publication : ordre limite en attente d'un repli. Mesuré, mais dans un bilan à part et
+    # jamais dans la preuve : BinanceSpotManager (signal_plan.prepare_signal) et l'évaluateur (evaluate.py) refusent
+    # aujourd'hui ces signaux ; un groupe ne peut pas être « prouvé » sur des trades qu'ils ne prendraient pas.
+    limit_above_tp1: bool = False
 
 
 @dataclass
@@ -385,6 +389,14 @@ def summarize(rows: list[AuditRow], *, samples: int, seed: int) -> dict[str, dic
         # dans la preuve : ils ont leur propre bilan, à comparer à celui des signaux texte.
         images = [r for r in measured if r.from_image]
         measured = [r for r in measured if not r.from_image]
+        # Ordres limites publiés au-dessus de TP1 : bilan à part (refusés aujourd'hui par BSM et l'évaluateur).
+        limits = [r for r in measured if r.limit_above_tp1]
+        measured = [r for r in measured if not r.limit_above_tp1]
+        if limits:
+            entry["ordres_limites_au_dessus_de_tp1"] = {
+                "mesures": len(limits), "conventions": _conventions(limits, samples=samples, seed=seed),
+                "note": "prix déjà ≥ TP1 à la publication : ordre limite en attente d'un repli ; refusés aujourd'hui "
+                        "par BinanceSpotManager et l'évaluateur, donc hors de la preuve du groupe"}
         if any(r.from_image or r.image_rejected for r in mine):
             entry["images"] = {"lues": sum(r.from_image for r in mine), "ignorees": sum(r.image_rejected for r in mine),
                                "mesurees": len(images), "conventions": _conventions(images, samples=samples, seed=seed)}
@@ -579,6 +591,7 @@ def audit(settings: Settings, items: Iterable[HistoryItem], *, now: datetime, so
             row.status, row.reason = NO_DATA, "paire sans bougies publiques sur Binance Spot à cette date"
             continue
         row.status, row.reason, row.outcomes = measure(signal, bars, received, settings=settings, weights=weights)
+        row.limit_above_tp1 = row.status == OK and row.reason.startswith("prix ") and "au-dessus de TP1" in row.reason
     notes = [
         "Mesure d'une source externe : ni un essai d'une stratégie de CSI, ni une promesse pour le prochain signal.",
         "Un historique exporté ne contient que les messages encore présents : un groupe peut avoir supprimé des "
