@@ -1235,6 +1235,44 @@ function verdictClass(verdict) {
   return "muted";
 }
 
+// Calendrier des verdicts des tests en direct (même lecture que « Tests en direct » : /forward), en clair.
+const DAY_MS = 86400000;
+const daysUntil = (iso) => Math.ceil((Date.parse(iso) - Date.now()) / DAY_MS);
+const dateOnly = (iso) => (iso ? new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Paris" }) : "–");
+
+function verdictSummary(verdict) {
+  if (!verdict) return "en cours";
+  if (typeof verdict === "string") return verdict === "EN_COURS" ? "en cours" : verdict;
+  const counts = {};
+  for (const v of Object.values(verdict)) counts[v] = (counts[v] || 0) + 1;
+  return Object.entries(counts).map(([v, n]) => `${n} ${v === "EN_COURS" ? "en cours" : v}`).join(", ");
+}
+
+function verdictsCard(report) {
+  if (!report) return card("Verdicts à venir", el("p", { class: "muted small", text: "indisponible" }));
+  const tests = (report.tests || []).filter((t) => t.final_at).sort((a, b) => Date.parse(a.final_at) - Date.parse(b.final_at));
+  const upcoming = tests.filter((t) => daysUntil(t.final_at) >= 0 && !t.verdict_recorded);
+  const next = upcoming[0];
+  const sameDay = next ? upcoming.filter((t) => dateOnly(t.final_at) === dateOnly(next.final_at)).map((t) => t.test_id) : [];
+  const rows = tests.map((t) => {
+    const left = daysUntil(t.final_at);
+    const interimLeft = t.interim_at ? daysUntil(t.interim_at) : null;
+    return [t.test_id, t.title,
+      t.interim_at ? `${dateOnly(t.interim_at)}${interimLeft !== null && interimLeft >= 0 ? ` (dans ${interimLeft} j)` : " (faite)"}` : "–",
+      { node: el("strong", { text: dateOnly(t.final_at) }) },
+      left >= 0 ? `${left} j` : "passée",
+      { node: el("span", { class: t.verdict_recorded ? "ok" : "muted", text: verdictSummary((t.stats || {}).verdict) }) }];
+  });
+  return card("Verdicts à venir",
+    el("p", { class: "small", text: next
+      ? `Prochain verdict : ${dateOnly(next.final_at)}, dans ${daysUntil(next.final_at)} jours (${sameDay.join(", ")}).`
+      : "Aucun verdict à venir." }),
+    el("p", { class: "muted small", text: "Seul le verdict final fait foi : les mesures provisoires peuvent changer jusqu'à la date, "
+      + "et un « en cours » n'est ni un gain ni une perte. Revue intermédiaire : contrôle du bon fonctionnement, pas de conclusion. "
+      + "Un test « prouvé » serait d'abord essayé sur Binance Demo ; aucun gain n'est annoncé avant." }),
+    table(["Test", "Ce qu'il mesure", "Revue intermédiaire", "Verdict le", { label: "Reste", num: true }, "État"], rows, "aucun test démarré"));
+}
+
 function forwardCard(report) {
   if (!report) return card("Tests en direct", el("p", { class: "muted small", text: "indisponible" }));
   const rows = [];
@@ -1312,6 +1350,7 @@ async function loadFollow(force = false) {
           ["Paires configurées", (universe.configured || []).map(pair).join(", ")],
           ["Paires ajoutées", (universe.user_pairs || []).map((p) => `${pair(p.symbol)} (${p.status})`).join(", ") || "aucune"],
         ]))),
+      verdictsCard(forward),
       card("Verdicts des modèles", el("p", { class: "muted small", text: `${models.note} Essais comptés sur DEVELOPMENT : `
           + (isNum(models.research_program_trials) ? `registre de recherche ${models.research_program_trials}, ` : "")
           + `registre de la surveillance ${models.program_trials}.` }),

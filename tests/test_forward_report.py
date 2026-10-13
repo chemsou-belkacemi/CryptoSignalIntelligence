@@ -23,3 +23,13 @@ def test_daily_report_handles_every_running_test_shape(settings):
     assert "Contrôles : 0 ; événements : 0" in text and "Pas encore démarré." in text
     assert "sans prévision : 0" in text and "| Coûts | Comparaison |" in text
     assert "Traceback" not in text
+
+
+def test_the_dashboard_shows_the_upcoming_verdicts_from_the_same_forward_report():
+    """Carte « Verdicts à venir » (demande du 2026-10-13) : lue sur /forward comme « Tests en direct », triée par date
+    de verdict, placée en tête du suivi, sans annoncer de gain."""
+    from crypto_signal_intelligence.api.server import STATIC_DIR
+    script = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    assert "function verdictsCard(report)" in script and script.count("verdictsCard(forward)") == 1
+    assert script.index("verdictsCard(forward)") < script.index('card("Verdicts des modèles"')
+    assert "Date.parse(a.final_at) - Date.parse(b.final_at)" in script and "aucun gain n'est annoncé" in script
